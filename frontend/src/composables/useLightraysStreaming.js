@@ -36,9 +36,6 @@ export function useLightraysStreaming() {
   let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }]
   let remoteDescriptionSet = false
   let pendingCandidates = []
-  let resizeObserver = null
-  let fullscreenHandler = null
-  let resizeDebounceId = null
   let lastSentResize = { w: 0, h: 0 }
 
   function setStatus(s, text) {
@@ -338,19 +335,20 @@ export function useLightraysStreaming() {
     ws.send(JSON.stringify({ type: 'resize', width: w, height: h }))
   }
 
-  function scheduleResizeFromContainer() {
+  // Deliberate, user-initiated re-match of the stream resolution to the
+  // current container size. A server-side resize rebuilds the whole WebRTC
+  // pipeline (encoder + full ICE renegotiation) and blanks the picture for a
+  // few seconds, so — unlike the old automatic path — this only fires when
+  // the user explicitly asks for it (toolbar button). Between requests the
+  // <video> scales client-side (object-fit: contain), so window/fullscreen
+  // changes stay instant.
+  function applyResolution() {
     const target = streamContainerEl || videoEl
     if (!target) return
-    clearTimeout(resizeDebounceId)
-    // 400 ms settles across a browser fullscreen animation (typ. 200-350 ms)
-    // so we send one resize at the end instead of flooding the server with
-    // intermediate sizes that each rebuild the whole pipeline.
-    resizeDebounceId = setTimeout(() => {
-      const dpr = window.devicePixelRatio || 1
-      const rect = target.getBoundingClientRect()
-      if (rect.width < 1 || rect.height < 1) return
-      sendResize(Math.round(rect.width * dpr), Math.round(rect.height * dpr))
-    }, 400)
+    const dpr = window.devicePixelRatio || 1
+    const rect = target.getBoundingClientRect()
+    if (rect.width < 1 || rect.height < 1) return
+    sendResize(Math.round(rect.width * dpr), Math.round(rect.height * dpr))
   }
 
   function bindInput(video, container) {
@@ -365,20 +363,13 @@ export function useLightraysStreaming() {
     videoEl?.addEventListener('contextmenu', onContextmenu)
     videoEl?.addEventListener('wheel', onWheel, { passive: false })
 
-    // Track container size + fullscreen changes so the wayland compositor
-    // renders at the actual display resolution the browser has.
-    const targetEl = streamContainerEl || videoEl
-    if (targetEl && typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(() => scheduleResizeFromContainer())
-      resizeObserver.observe(targetEl)
-    }
-    fullscreenHandler = () => scheduleResizeFromContainer()
-    document.addEventListener('fullscreenchange', fullscreenHandler)
-    document.addEventListener('webkitfullscreenchange', fullscreenHandler)
-    // Send the initial size after WebRTC is up — the ResizeObserver emits
-    // once on observe() which handles most cases; this covers browsers
-    // where the observer doesn't fire synchronously.
-    scheduleResizeFromContainer()
+    // We deliberately do NOT auto-send a resize on every window / fullscreen
+    // change: each server-side resize rebuilds the whole WebRTC pipeline
+    // (encoder + full ICE renegotiation) and blanks the picture for seconds.
+    // The stream keeps its launch resolution (set from the window size at
+    // launch) and the <video> scales client-side, so window changes are
+    // instant. The user re-matches native resolution on demand via
+    // applyResolution() (toolbar button).
   }
 
   function unbindInput() {
@@ -390,15 +381,6 @@ export function useLightraysStreaming() {
     videoEl?.removeEventListener('mouseup', onMouseup)
     videoEl?.removeEventListener('contextmenu', onContextmenu)
     videoEl?.removeEventListener('wheel', onWheel)
-    resizeObserver?.disconnect()
-    resizeObserver = null
-    if (fullscreenHandler) {
-      document.removeEventListener('fullscreenchange', fullscreenHandler)
-      document.removeEventListener('webkitfullscreenchange', fullscreenHandler)
-      fullscreenHandler = null
-    }
-    clearTimeout(resizeDebounceId)
-    resizeDebounceId = null
     lastSentResize = { w: 0, h: 0 }
   }
 
@@ -506,6 +488,7 @@ export function useLightraysStreaming() {
     connectWebSocket,
     bindInput,
     unbindInput,
+    applyResolution,
     toggleFullscreen,
     togglePointerLock,
     stopStream,
