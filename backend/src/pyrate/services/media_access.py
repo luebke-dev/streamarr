@@ -129,6 +129,24 @@ def require_library_access_for_media_type(
     )
 
 
+def require_library_access(
+    user: User,
+    permissions: EffectivePermissions,
+    library_name: str | None,
+) -> None:
+    """Raise 403 when a user cannot access a library by its permission key.
+
+    Use this when the caller already resolved a library key (e.g. from a search
+    type) rather than from a media type. Superusers bypass the check.
+    """
+    if user.is_superuser or library_name is None or library_name in permissions.allowed_libraries:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"Access denied to {library_name} library",
+    )
+
+
 def require_media_read_access(
     user: User,
     permissions: EffectivePermissions,

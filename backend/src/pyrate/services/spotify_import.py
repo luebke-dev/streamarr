@@ -5,7 +5,6 @@ management, and genre assignment.  The worker tasks are thin wrappers
 that delegate to this service and queue follow-up tasks.
 """
 
-import json
 import logging
 import uuid
 from datetime import datetime
@@ -313,7 +312,7 @@ class SpotifyMusicImportService:
             parent_guid=album_guid,
             sequence_number=track_number,
             availability_status=AvailabilityStatus.DOWNLOADABLE,
-            extra_data=json.dumps(extra),
+            extra_data=extra,
         )
 
         await self.media_service.add_external_id(

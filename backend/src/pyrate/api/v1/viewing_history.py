@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from pyrate.api.dependencies import CurrentUser, DatabaseSession
+from pyrate.api.dependencies import CurrentUser, DatabaseSession, UserPermissionsDep
 from pyrate.models.device import Device
 from pyrate.models.media import MediaItem, MediaType
 from pyrate.models.viewing_history import ViewingHistory
@@ -28,6 +28,7 @@ from pyrate.schemas.viewing_history import (
     ViewingHistoryRead,
     ViewingHistoryWithContent,
 )
+from pyrate.services.media_access import require_media_read_access
 from pyrate.services.viewing_history import (
     ViewingHistoryService,
     _extract_episode_hierarchy,
@@ -165,6 +166,25 @@ def _item_playstate_extra_data(data: ItemPlaystateReport) -> str | None:
         extra_data["client_session_id"] = session_id
 
     return json.dumps(extra_data, sort_keys=True) if extra_data else None
+
+
+async def _require_readable_media_item(
+    db: DatabaseSession,
+    current_user: CurrentUser,
+    permissions: UserPermissionsDep,
+    item_guid: uuid.UUID,
+) -> MediaItem:
+    """Load a media item and enforce the central read policy for the user."""
+    media_item = await db.get(MediaItem, item_guid)
+    if not media_item:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    require_media_read_access(
+        current_user,
+        permissions,
+        media_item,
+        hide_age_denials=True,
+    )
+    return media_item
 
 
 async def _resolve_item_playstate_device_guid(
@@ -617,6 +637,7 @@ async def list_viewing_history(
 async def create_or_update_viewing_history(
     db: DatabaseSession,
     current_user: CurrentUser,
+    permissions: UserPermissionsDep,
     data: ViewingHistoryCreate,
 ):
     """Create or update viewing history for a media item."""
@@ -627,6 +648,8 @@ async def create_or_update_viewing_history(
             status_code=400,
             detail="A content GUID must be provided (content_guid, movie_guid, episode_guid, or song_guid)",
         )
+
+    await _require_readable_media_item(db, current_user, permissions, media_item_guid)
 
     service = ViewingHistoryService(db)
     try:
@@ -649,8 +672,11 @@ async def create_or_update_viewing_history(
 async def _record_playstate(
     db: DatabaseSession,
     current_user: CurrentUser,
+    permissions: UserPermissionsDep,
     data: PlaystateReport,
 ) -> PlaystateReportResponse:
+    await _require_readable_media_item(db, current_user, permissions, data.content_guid)
+
     device = None
     media_item = None
     if data.device_guid:
@@ -732,10 +758,11 @@ async def _record_playstate(
 async def report_playstate(
     db: DatabaseSession,
     current_user: CurrentUser,
+    permissions: UserPermissionsDep,
     data: PlaystateReport,
 ):
     """Report cross-client playback state over HTTP."""
-    return await _record_playstate(db, current_user, data)
+    return await _record_playstate(db, current_user, permissions, data)
 
 
 @router.post("/{content_guid}/playing", response_model=PlaystateReportResponse)
@@ -744,11 +771,12 @@ async def report_item_playing(
     data: ItemPlaystateReport,
     db: DatabaseSession,
     current_user: CurrentUser,
+    permissions: UserPermissionsDep,
 ):
     """Report a playback start event for an item."""
     device_guid = await _resolve_item_playstate_device_guid(db, current_user, data)
     report = _item_playstate_report(content_guid, data, "start", device_guid)
-    return await _record_playstate(db, current_user, report)
+    return await _record_playstate(db, current_user, permissions, report)
 
 
 @router.post("/{content_guid}/progress", response_model=PlaystateReportResponse)
@@ -757,11 +785,12 @@ async def report_item_progress(
     data: ItemPlaystateReport,
     db: DatabaseSession,
     current_user: CurrentUser,
+    permissions: UserPermissionsDep,
 ):
     """Report a playback progress or pause event for an item."""
     device_guid = await _resolve_item_playstate_device_guid(db, current_user, data)
     report = _item_playstate_report(content_guid, data, "progress", device_guid)
-    return await _record_playstate(db, current_user, report)
+    return await _record_playstate(db, current_user, permissions, report)
 
 
 @router.post("/{content_guid}/stopped", response_model=PlaystateReportResponse)
@@ -770,11 +799,12 @@ async def report_item_stopped(
     data: ItemPlaystateReport,
     db: DatabaseSession,
     current_user: CurrentUser,
+    permissions: UserPermissionsDep,
 ):
     """Report a playback stop event for an item."""
     device_guid = await _resolve_item_playstate_device_guid(db, current_user, data)
     report = _item_playstate_report(content_guid, data, "stop", device_guid)
-    return await _record_playstate(db, current_user, report)
+    return await _record_playstate(db, current_user, permissions, report)
 
 
 @router.get("/playstate/sessions", response_model=PlaystateSessionsResponse)

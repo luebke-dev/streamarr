@@ -29,7 +29,6 @@ from pyrate.models import (  # noqa: F401
     ApiKey,
     Device,
     Downloader,
-    Favorite,
     Invite,
     List,
     ListItem,

@@ -7,6 +7,9 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from pyrate.models import ActivityLog
+from pyrate.services.casting import airplay as cast_airplay
+from pyrate.services.casting import chromecast as cast_chromecast
+from pyrate.services.casting import dlna as cast_dlna
 from pyrate.services.websocket import RemoteControlError
 
 
@@ -441,7 +444,7 @@ class TestCastCommands:
             sent_actions.append(
                 (
                     command,
-                    cast_api._dlna_seek_target(payload),
+                    cast_dlna._dlna_seek_target(payload),
                 )
             )
 
@@ -490,7 +493,7 @@ class TestCastCommands:
     async def test_dlna_metadata_builder_uses_media_fields(self):
         from pyrate.api.v1 import cast as cast_api
 
-        metadata = cast_api._dlna_metadata(
+        metadata = cast_dlna._dlna_metadata(
             {
                 "title": "The <Movie>",
                 "creator": "Director & Co",
@@ -510,7 +513,7 @@ class TestCastCommands:
     async def test_dlna_metadata_infers_mime_type_from_url(self):
         from pyrate.api.v1 import cast as cast_api
 
-        metadata = cast_api._dlna_metadata(
+        metadata = cast_dlna._dlna_metadata(
             {"title": "Movie"},
             "https://media.test/movie.mkv",
         )
@@ -520,7 +523,7 @@ class TestCastCommands:
     async def test_dlna_metadata_builder_preserves_raw_metadata(self):
         from pyrate.api.v1 import cast as cast_api
 
-        metadata = cast_api._dlna_metadata(
+        metadata = cast_dlna._dlna_metadata(
             {"metadata": "<DIDL-Lite>custom</DIDL-Lite>", "title": "Ignored"},
             "https://media.test/movie.mkv",
         )
@@ -570,7 +573,7 @@ class TestCastCommands:
     async def test_airplay_play_payload_includes_metadata_fields(self):
         from pyrate.api.v1 import cast as cast_api
 
-        payload = cast_api._airplay_play_payload(
+        payload = cast_airplay._airplay_play_payload(
             "https://media.test/movie.mkv",
             {
                 "start_position": 12.5,
@@ -647,7 +650,7 @@ class TestCastCommands:
             ],
         )
         send_media = AsyncMock()
-        monkeypatch.setattr(cast_api, "_send_chromecast_media_command", send_media)
+        monkeypatch.setattr(cast_chromecast, "_send_chromecast_media_command", send_media)
 
         resp = await client.post(
             "/api/cast/targets/chromecast-living-room/commands",
@@ -694,7 +697,7 @@ class TestCastCommands:
             ],
         )
         send_receiver = AsyncMock()
-        monkeypatch.setattr(cast_api, "_send_chromecast_receiver_command", send_receiver)
+        monkeypatch.setattr(cast_chromecast, "_send_chromecast_receiver_command", send_receiver)
 
         resp = await client.post(
             "/api/cast/targets/chromecast-living-room/commands",
@@ -710,12 +713,12 @@ class TestCastCommands:
     async def test_chromecast_receiver_volume_payload_normalizes_fields(self):
         from pyrate.api.v1 import cast as cast_api
 
-        volume_payload = cast_api._chromecast_receiver_control_payload(
+        volume_payload = cast_chromecast._chromecast_receiver_control_payload(
             "volume",
             {"level": 50, "muted": False},
         )
-        mute_payload = cast_api._chromecast_receiver_control_payload("mute", {})
-        unmute_payload = cast_api._chromecast_receiver_control_payload("unmute", {})
+        mute_payload = cast_chromecast._chromecast_receiver_control_payload("mute", {})
+        unmute_payload = cast_chromecast._chromecast_receiver_control_payload("unmute", {})
 
         assert volume_payload == {
             "type": "SET_VOLUME",
@@ -736,7 +739,7 @@ class TestCastCommands:
     async def test_chromecast_load_payload_includes_media_metadata(self):
         from pyrate.api.v1 import cast as cast_api
 
-        payload = cast_api._chromecast_load_payload(
+        payload = cast_chromecast._chromecast_load_payload(
             {
                 "media_url": "https://media.test/movie.mp4",
                 "title": "Movie Night",
@@ -758,7 +761,7 @@ class TestCastCommands:
     async def test_chromecast_queue_load_payload_includes_ordered_items(self):
         from pyrate.api.v1 import cast as cast_api
 
-        payload = cast_api._chromecast_queue_load_payload(
+        payload = cast_chromecast._chromecast_queue_load_payload(
             {
                 "start_index": 1,
                 "repeat_mode": "REPEAT_ALL",
@@ -810,7 +813,7 @@ class TestCastCommands:
             ],
         )
         send_media = AsyncMock()
-        monkeypatch.setattr(cast_api, "_send_chromecast_media_command", send_media)
+        monkeypatch.setattr(cast_chromecast, "_send_chromecast_media_command", send_media)
 
         resp = await client.post(
             "/api/cast/targets/chromecast-living-room/commands",
@@ -835,7 +838,7 @@ class TestCastCommands:
     async def test_chromecast_control_payload_includes_provided_media_session(self):
         from pyrate.api.v1 import cast as cast_api
 
-        payload = cast_api._chromecast_media_control_payload(
+        payload = cast_chromecast._chromecast_media_control_payload(
             "seek",
             {"position_seconds": 25, "media_session_id": "99"},
         )
@@ -865,13 +868,13 @@ class TestCastCommands:
             calls.append((sent_target.id, media_payload, launch_app, app_id))
 
         monkeypatch.setattr(
-            cast_api,
+            cast_chromecast,
             "_get_chromecast_media_status_payload_async",
             fake_status,
         )
-        monkeypatch.setattr(cast_api, "_send_chromecast_cast_v2_payload", fake_send)
+        monkeypatch.setattr(cast_chromecast, "_send_chromecast_cast_v2_payload", fake_send)
 
-        await cast_api._send_chromecast_media_command(target, "pause", {})
+        await cast_chromecast._send_chromecast_media_command(target, "pause", {})
 
         assert calls == [
             (
@@ -896,9 +899,9 @@ class TestCastCommands:
         def fake_send(sent_target, media_payload, *, launch_app, app_id):
             calls.append((sent_target.id, media_payload["type"], launch_app, app_id))
 
-        monkeypatch.setattr(cast_api, "_send_chromecast_cast_v2_payload", fake_send)
+        monkeypatch.setattr(cast_chromecast, "_send_chromecast_cast_v2_payload", fake_send)
 
-        await cast_api._send_chromecast_media_command(
+        await cast_chromecast._send_chromecast_media_command(
             target,
             "play",
             {
@@ -923,13 +926,13 @@ class TestCastCommands:
             return None
 
         monkeypatch.setattr(
-            cast_api,
+            cast_chromecast,
             "_get_chromecast_media_status_payload_async",
             fake_status,
         )
 
         try:
-            await cast_api._send_chromecast_media_command(target, "pause", {})
+            await cast_chromecast._send_chromecast_media_command(target, "pause", {})
         except cast_api.HTTPException as exc:
             assert exc.status_code == 409
             assert "media session" in exc.detail
@@ -950,19 +953,19 @@ class TestCastCommands:
         def fake_send(sent_target, media_payload, *, launch_app, app_id):
             calls.append((sent_target.id, media_payload["type"], launch_app, app_id))
 
-        monkeypatch.setattr(cast_api, "_send_chromecast_cast_v2_payload", fake_send)
+        monkeypatch.setattr(cast_chromecast, "_send_chromecast_cast_v2_payload", fake_send)
 
-        await cast_api._send_chromecast_media_command(
+        await cast_chromecast._send_chromecast_media_command(
             target,
             "play",
             {"media_url": "https://media.test/movie.mp4"},
         )
-        await cast_api._send_chromecast_media_command(
+        await cast_chromecast._send_chromecast_media_command(
             target,
             "play_queue",
             {"items": [{"media_url": "https://media.test/next.mp4"}]},
         )
-        await cast_api._send_chromecast_media_command(
+        await cast_chromecast._send_chromecast_media_command(
             target,
             "pause",
             {"media_session_id": 7},
@@ -977,13 +980,13 @@ class TestCastCommands:
     async def test_chromecast_cast_message_round_trips_payload(self):
         from pyrate.api.v1 import cast as cast_api
 
-        raw = cast_api._cast_message(
+        raw = cast_chromecast._cast_message(
             namespace="urn:x-cast:com.google.cast.media",
             destination_id="transport-1",
             payload={"type": "PAUSE", "requestId": 7},
         )
         length = int.from_bytes(raw[:4], "big")
-        parsed = cast_api._parse_cast_message(raw[4:])
+        parsed = cast_chromecast._parse_cast_message(raw[4:])
 
         assert length == len(raw) - 4
         assert parsed["destination_id"] == "transport-1"
@@ -1203,14 +1206,14 @@ class TestCastStatus:
             host="192.0.2.70",
             port=8008,
         )
-        monkeypatch.setattr(cast_api.httpx, "AsyncClient", FakeHttpClient)
+        monkeypatch.setattr(cast_chromecast.httpx, "AsyncClient", FakeHttpClient)
         monkeypatch.setattr(
-            cast_api,
+            cast_chromecast,
             "_get_chromecast_media_status_payload_async",
             fake_media_status,
         )
         monkeypatch.setattr(
-            cast_api,
+            cast_chromecast,
             "_get_chromecast_receiver_status_payload_async",
             fake_receiver_status,
         )
@@ -1269,14 +1272,14 @@ class TestCastStatus:
             host="192.0.2.70",
             port=8008,
         )
-        monkeypatch.setattr(cast_api.httpx, "AsyncClient", FakeHttpClient)
+        monkeypatch.setattr(cast_chromecast.httpx, "AsyncClient", FakeHttpClient)
         monkeypatch.setattr(
-            cast_api,
+            cast_chromecast,
             "_get_chromecast_media_status_payload_async",
             fake_media_status,
         )
         monkeypatch.setattr(
-            cast_api,
+            cast_chromecast,
             "_get_chromecast_receiver_status_payload_async",
             fake_receiver_status,
         )

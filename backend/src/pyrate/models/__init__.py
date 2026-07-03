@@ -7,7 +7,6 @@ __all__ = [
     "Device",
     "Downloader",
     "Download",
-    "Favorite",
     "Friendship",
     "FriendshipStatus",
     "Group",
@@ -78,7 +77,6 @@ from pyrate.models.banner import Banner, UserBannerDismissed
 from pyrate.models.device import Device
 from pyrate.models.downloader import Downloader
 from pyrate.models.downloads import Download
-from pyrate.models.favorite import Favorite
 from pyrate.models.friendship import Friendship, FriendshipStatus
 from pyrate.models.group import Group, UserGroupLink
 from pyrate.models.indexer import Indexer

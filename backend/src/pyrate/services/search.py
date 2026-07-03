@@ -1472,7 +1472,11 @@ class SearchService:
             release_date=self._parse_date(details.get("release_date"), label="TMDB release date"),
             poster_path=details.get("poster_path"),
             backdrop_path=details.get("backdrop_path"),
-            extra_data=details.get("original_language"),
+            extra_data=(
+                {"original_language": details["original_language"]}
+                if details.get("original_language")
+                else None
+            ),
             availability_status=AvailabilityStatus.DOWNLOADABLE,
             commit=False,
         )
@@ -1520,7 +1524,11 @@ class SearchService:
             release_date=self._parse_date(details.get("first_air_date"), label="TMDB first_air_date"),
             poster_path=details.get("poster_path"),
             backdrop_path=details.get("backdrop_path"),
-            extra_data=details.get("original_language"),
+            extra_data=(
+                {"original_language": details["original_language"]}
+                if details.get("original_language")
+                else None
+            ),
             availability_status=AvailabilityStatus.DOWNLOADABLE,
             commit=False,
         )

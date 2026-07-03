@@ -44,4 +44,20 @@ pub trait Runtime: Send + Sync {
 
     /// One-shot resource usage snapshot.
     async fn stats(&self, name: &str) -> Result<ContainerStats>;
+
+    /// Remove workloads that belong to Lightrays' reserved namespace but
+    /// are not in `active` (orphans left behind by a crashed process, or a
+    /// workload the in-memory session map has lost track of).
+    ///
+    /// `min_age_secs` guards against racing a concurrent launch: workloads
+    /// younger than that are skipped. Returns the number removed. Defaults
+    /// to a no-op for backends where the cluster/API already reclaims
+    /// orphaned workloads (e.g. Kubernetes owner references / TTLs).
+    async fn reconcile_orphans(
+        &self,
+        _active: &std::collections::HashSet<String>,
+        _min_age_secs: i64,
+    ) -> usize {
+        0
+    }
 }

@@ -9,12 +9,15 @@ from pyrate.schemas.media import MediaExternalLinkRead
 
 
 def load_media_extra_data(media_item: MediaItem) -> dict:
-    if not media_item.extra_data:
+    ed = media_item.extra_data
+    if not ed:
         return {}
+    if isinstance(ed, dict):
+        return ed
     import json
 
     try:
-        data = json.loads(media_item.extra_data)
+        data = json.loads(ed)
     except (TypeError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}

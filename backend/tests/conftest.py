@@ -131,7 +131,6 @@ from pyrate.models import (  # noqa: E402, F401
     ApiKey,
     Device,
     Downloader,
-    Favorite,
     Invite,
     List,
     ListItem,

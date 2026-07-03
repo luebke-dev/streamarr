@@ -21,13 +21,12 @@ from pyrate.api.dependencies import (
 from pyrate.models.media import MediaItem
 from pyrate.schemas.activity_log import ActivityLogCreate
 from pyrate.services.activity_log import ActivityLogService
-from pyrate.services.permission import MEDIA_TYPE_TO_LIBRARY
+from pyrate.services.media_access import require_media_read_access
 from pyrate.services.settings import SettingsService
 from pyrate.services.subtitle_provider import (
     SubtitleProviderError,
     SubtitleProviderService,
 )
-from pyrate.utils.age_rating import is_allowed
 from pyrate.utils.net import UnsafeUrlError, safe_get
 
 router = APIRouter()
@@ -101,10 +100,13 @@ class SubtitleUploadResponse(BaseModel):
 
 
 def _load_extra_data(media_item: MediaItem) -> dict:
-    if not media_item.extra_data:
+    ed = media_item.extra_data
+    if not ed:
         return {}
+    if isinstance(ed, dict):
+        return ed
     try:
-        data = json.loads(media_item.extra_data)
+        data = json.loads(ed)
     except (TypeError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -147,27 +149,21 @@ async def _get_visible_media_item(
     if not media_item:
         raise HTTPException(status_code=404, detail="Media item not found")
 
-    library_name = MEDIA_TYPE_TO_LIBRARY.get(media_item.media_type.value)
-    if library_name and library_name not in permissions.allowed_libraries:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Access denied to {library_name} library",
-        )
-
-    if not current_user.is_superuser and not is_allowed(
-        media_item.min_age, current_user.parental_max_age
-    ):
-        raise HTTPException(status_code=404, detail="Media item not found")
-
+    require_media_read_access(
+        current_user,
+        permissions,
+        media_item,
+        hide_age_denials=True,
+    )
     return media_item
 
 
 def _store_subtitles(media_item: MediaItem, subtitles: list[SubtitleTrack]) -> None:
-    extra_data = _load_extra_data(media_item)
+    extra_data = dict(_load_extra_data(media_item))
     extra_data["subtitles"] = [
         subtitle.model_dump(exclude_none=True) for subtitle in subtitles
     ]
-    media_item.extra_data = json.dumps(extra_data)
+    media_item.extra_data = extra_data
 
 
 def _store_uploaded_subtitle(
@@ -177,7 +173,7 @@ def _store_uploaded_subtitle(
     upload: SubtitleUpload,
     actor_guid: uuid.UUID,
 ) -> None:
-    extra_data = _load_extra_data(media_item)
+    extra_data = dict(_load_extra_data(media_item))
     uploaded = extra_data.get("uploaded_subtitles")
     if not isinstance(uploaded, dict):
         uploaded = {}
@@ -190,11 +186,11 @@ def _store_uploaded_subtitle(
         "uploaded_at": datetime.now(UTC).isoformat(),
     }
     extra_data["uploaded_subtitles"] = uploaded
-    media_item.extra_data = json.dumps(extra_data)
+    media_item.extra_data = extra_data
 
 
 def _remove_uploaded_subtitle(media_item: MediaItem, subtitle_id: str) -> None:
-    extra_data = _load_extra_data(media_item)
+    extra_data = dict(_load_extra_data(media_item))
     uploaded = extra_data.get("uploaded_subtitles")
     if not isinstance(uploaded, dict):
         return
@@ -203,7 +199,7 @@ def _remove_uploaded_subtitle(media_item: MediaItem, subtitle_id: str) -> None:
         extra_data["uploaded_subtitles"] = uploaded
     else:
         extra_data.pop("uploaded_subtitles", None)
-    media_item.extra_data = json.dumps(extra_data)
+    media_item.extra_data = extra_data
 
 
 def _get_uploaded_subtitle(media_item: MediaItem, subtitle_id: str) -> dict | None:

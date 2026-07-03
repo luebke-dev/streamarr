@@ -1407,3 +1407,60 @@ class TestListViewingHistoryShowType:
         # Find our show item
         show_items = [i for i in items if i.get("movie_guid") == str(show.guid)]
         assert len(show_items) >= 1
+
+
+class TestViewingHistoryAccessPolicy:
+    """Contract tests: the central media-access policy gates history writes."""
+
+    async def test_create_respects_library_permissions(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers, movie
+    ):
+        test_user.allowed_libraries = []
+        await db_session.commit()
+
+        resp = await client.post(
+            "/api/viewing-history",
+            headers=user_headers,
+            json={
+                "content_type": "movie",
+                "movie_guid": str(movie.guid),
+                "progress_seconds": 100,
+                "duration_seconds": 7200,
+            },
+        )
+        assert resp.status_code == 403
+
+    async def test_create_respects_parental_controls(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
+    ):
+        test_user.parental_max_age = 12
+        item = MediaItem(title="Adult Movie", media_type=MediaType.MOVIES, min_age=18)
+        db_session.add(item)
+        await db_session.commit()
+        await db_session.refresh(item)
+
+        resp = await client.post(
+            "/api/viewing-history",
+            headers=user_headers,
+            json={
+                "content_type": "movie",
+                "movie_guid": str(item.guid),
+                "progress_seconds": 100,
+                "duration_seconds": 7200,
+            },
+        )
+        # min_age denials are masked as 404 by the central read policy
+        assert resp.status_code == 404
+
+    async def test_playstate_respects_library_permissions(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers, movie
+    ):
+        test_user.allowed_libraries = []
+        await db_session.commit()
+
+        resp = await client.post(
+            "/api/viewing-history/playstate",
+            headers=user_headers,
+            json={"content_guid": str(movie.guid), "progress_seconds": 100},
+        )
+        assert resp.status_code == 403

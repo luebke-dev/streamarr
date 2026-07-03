@@ -289,15 +289,18 @@ class TestListMediaItems:
     async def test_filter_by_studio_name(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
+        # extra_data is now structured JSON(B); the studio filter reads into the
+        # ``production_companies`` key, so store a native object (not a
+        # json.dumps'd string, which structured JSON access cannot descend into).
         await _create_media_item(
             db_session,
             title="Studio Match",
-            extra_data=json.dumps({"production_companies": [{"name": "Studio One"}]}),
+            extra_data={"production_companies": [{"name": "Studio One"}]},
         )
         await _create_media_item(
             db_session,
             title="Other Studio",
-            extra_data=json.dumps({"production_companies": [{"name": "Studio Two"}]}),
+            extra_data={"production_companies": [{"name": "Studio Two"}]},
         )
 
         resp = await client.get(
@@ -658,7 +661,7 @@ class TestGetMediaItem:
             db_session,
             title="The Matrix",
             media_type=MediaType.MOVIES,
-            extra_data=json.dumps({"external_ids": {"imdb": "tt0133093"}}),
+            extra_data={"external_ids": {"imdb": "tt0133093"}},
         )
         db_session.add(
             MediaExternalId(
@@ -807,7 +810,7 @@ class TestManualMetadataUpdate:
         assert data["content_rating"] == "PG-13"
         assert data["min_age"] == 13
         assert data["poster_path"] == "/images/manual.jpg"
-        extra_data = json.loads(data["extra_data"])
+        extra_data = data["extra_data"]
         assert extra_data["provider"] == "tmdb"
         assert extra_data["manual_metadata"]["edition"] == "director"
         assert data["last_metadata_updated_at"] is not None
@@ -970,7 +973,7 @@ class TestManualMetadataUpdate:
         assert data["title"] == "The Matrix"
         assert data["description"] == "A hacker learns the truth."
         assert data["poster_path"] == "/matrix.jpg"
-        extra_data = json.loads(data["extra_data"])
+        extra_data = data["extra_data"]
         assert extra_data["external_ids"]["tmdb"] == "603"
 
         log_result = await db_session.execute(
@@ -3134,7 +3137,7 @@ class TestMediaTrailers:
         assert data["items"][0]["provider"] == "manual"
 
         await db_session.refresh(item)
-        extra_data = json.loads(item.extra_data)
+        extra_data = item.extra_data
         assert extra_data["trailers"][0]["url"] == "https://example.test/trailer.mp4"
 
 

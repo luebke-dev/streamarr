@@ -141,7 +141,7 @@ async function save() {
     delete extraData.lightrays_docker_image
 
     const updated = await updateMediaItem(props.mediaItem.guid, {
-      extra_data: Object.keys(extraData).length > 0 ? JSON.stringify(extraData) : null,
+      extra_data: Object.keys(extraData).length > 0 ? extraData : null,
     })
     originalImage.value = image
     $q.notify({ type: 'positive', message: t('mediaDetail.streamingSettingsSaved') })

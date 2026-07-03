@@ -1,4 +1,3 @@
-import json
 import uuid
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -86,7 +85,7 @@ async def test_refresh_season_updates_existing_episode_and_adds_new_episode(
     assert episodes[0].guid == existing_episode.guid
     assert episodes[0].title == "Updated Episode"
     assert episodes[1].title == "New Episode"
-    assert json.loads(episodes[1].extra_data)["id"] == 1002
+    assert episodes[1].extra_data["id"] == 1002
 
     ext_result = await db_session.execute(
         select(MediaExternalId)

@@ -21,6 +21,7 @@ from pyrate.api.dependencies import (
 from pyrate.schemas.search import SearchRequest, SearchResponse
 from pyrate.services.media_access import (
     max_age_for_user,
+    require_library_access,
     require_library_access_for_media_type,
 )
 from pyrate.services.search import SearchService
@@ -126,15 +127,7 @@ async def search_all_content(
             return result
 
         requested_library = SEARCH_TYPE_TO_LIBRARY.get(search_request.search_type.value)
-        if (
-            not current_user.is_superuser
-            and requested_library
-            and requested_library not in permissions.allowed_libraries
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Access denied to {requested_library} library",
-            )
+        require_library_access(current_user, permissions, requested_library)
 
         # Provider-first search with automatic local fallback
         result = await search_service.search(
@@ -199,15 +192,7 @@ async def search_local_content(
     search_service = SearchService(db)
     try:
         requested_library = SEARCH_TYPE_TO_LIBRARY.get(search_request.search_type.value)
-        if (
-            not current_user.is_superuser
-            and requested_library
-            and requested_library not in permissions.allowed_libraries
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Access denied to {requested_library} library",
-            )
+        require_library_access(current_user, permissions, requested_library)
         if search_request.media_type:
             require_library_access_for_media_type(
                 current_user,

@@ -15,8 +15,7 @@ from pyrate.api.dependencies import (
     UserPermissionsDep,
 )
 from pyrate.models.media import MediaItem
-from pyrate.services.permission import MEDIA_TYPE_TO_LIBRARY
-from pyrate.utils.age_rating import is_allowed
+from pyrate.services.media_access import require_media_read_access
 
 router = APIRouter()
 
@@ -35,10 +34,13 @@ class MediaAttachmentsUpdate(BaseModel):
 
 
 def _load_extra_data(media_item: MediaItem) -> dict:
-    if not media_item.extra_data:
+    ed = media_item.extra_data
+    if not ed:
         return {}
+    if isinstance(ed, dict):
+        return ed
     try:
-        data = json.loads(media_item.extra_data)
+        data = json.loads(ed)
     except (TypeError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -79,18 +81,12 @@ async def _get_visible_media_item(
     if not media_item:
         raise HTTPException(status_code=404, detail="Media item not found")
 
-    library_name = MEDIA_TYPE_TO_LIBRARY.get(media_item.media_type.value)
-    if library_name and library_name not in permissions.allowed_libraries:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Access denied to {library_name} library",
-        )
-
-    if not current_user.is_superuser and not is_allowed(
-        media_item.min_age, current_user.parental_max_age
-    ):
-        raise HTTPException(status_code=404, detail="Media item not found")
-
+    require_media_read_access(
+        current_user,
+        permissions,
+        media_item,
+        hide_age_denials=True,
+    )
     return media_item
 
 
@@ -118,11 +114,11 @@ async def replace_media_attachments(
     if not media_item:
         raise HTTPException(status_code=404, detail="Media item not found")
 
-    extra_data = _load_extra_data(media_item)
+    extra_data = dict(_load_extra_data(media_item))
     extra_data["attachments"] = [
         attachment.model_dump(exclude_none=True) for attachment in body.attachments
     ]
-    media_item.extra_data = json.dumps(extra_data)
+    media_item.extra_data = extra_data
     await db.commit()
     await db.refresh(media_item)
 

@@ -1198,11 +1198,11 @@ async def update_media_trailers(
     if not media_item:
         raise HTTPException(status_code=404, detail="Media item not found")
 
-    extra_data = _load_media_extra_data(media_item)
+    extra_data = dict(_load_media_extra_data(media_item))
     extra_data["trailers"] = [
         item.model_dump(mode="json", exclude_none=True) for item in update.items
     ]
-    media_item.extra_data = json.dumps(extra_data, sort_keys=True)
+    media_item.extra_data = extra_data
     media_item.updated_at = datetime.now(UTC)
     await db.flush()
     await db.refresh(media_item)
@@ -1279,13 +1279,13 @@ async def update_media_item_manual_metadata(
             changed_fields.append(field_name)
 
     if custom_metadata is not None:
-        extra_data = _load_media_extra_data(media_item)
+        extra_data = dict(_load_media_extra_data(media_item))
         manual_metadata = extra_data.get("manual_metadata")
         if not isinstance(manual_metadata, dict):
             manual_metadata = {}
         manual_metadata.update(custom_metadata)
         extra_data["manual_metadata"] = manual_metadata
-        media_item.extra_data = json.dumps(extra_data, sort_keys=True)
+        media_item.extra_data = extra_data
         changed_fields.append("custom_metadata")
 
     media_item.last_metadata_updated_at = datetime.now(UTC)
@@ -1425,13 +1425,13 @@ async def apply_media_identify_candidate(
             setattr(media_item, field_name, value)
             changed_fields.append(field_name)
 
-    extra_data = _load_media_extra_data(media_item)
+    extra_data = dict(_load_media_extra_data(media_item))
     external_ids = extra_data.get("external_ids")
     if not isinstance(external_ids, dict):
         external_ids = {}
     external_ids[candidate["provider"]] = candidate["provider_id"]
     extra_data["external_ids"] = external_ids
-    media_item.extra_data = json.dumps(extra_data, sort_keys=True)
+    media_item.extra_data = extra_data
     changed_fields.append("external_ids")
 
     media_item.last_metadata_updated_at = datetime.now(UTC)
