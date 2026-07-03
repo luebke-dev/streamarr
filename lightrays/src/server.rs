@@ -89,10 +89,6 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
     if orphan_sinks > 0 {
         log::warn!("Startup reconciliation unloaded {orphan_sinks} orphaned PulseAudio sink(s)");
     }
-    let orphan_dirs = sweep_orphan_runtime_dirs(&empty_active, 0).await;
-    if orphan_dirs > 0 {
-        log::warn!("Startup reconciliation removed {orphan_dirs} orphaned runtime dir(s)");
-    }
 
     // Build CORS layer from config
     let cors = build_cors_layer(&config.cors_origins);
@@ -300,54 +296,6 @@ async fn handle_ready(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 /// just-created container is never mistaken for an orphan mid-launch.
 const ORPHAN_SWEEP_MIN_AGE_SECS: i64 = 120;
 
-/// Base directory under which per-session runtime dirs are created (S-H1).
-fn xdg_runtime_base() -> String {
-    std::env::var("XDG_RUNTIME_DIR")
-        .unwrap_or_else(|_| "/tmp/lightrays-runtime".to_string())
-        .trim_end_matches('/')
-        .to_string()
-}
-
-/// Remove per-session runtime subdirectories left behind by crashed or
-/// lost sessions (S-H1). `active` holds live session ids; dirs younger
-/// than `min_age_secs` are skipped so an in-flight launch that hasn't
-/// registered yet isn't swept. Best-effort; returns the number removed.
-async fn sweep_orphan_runtime_dirs(active: &HashSet<String>, min_age_secs: i64) -> usize {
-    let base = xdg_runtime_base();
-    let mut rd = match tokio::fs::read_dir(&base).await {
-        Ok(r) => r,
-        Err(_) => return 0,
-    };
-    let now = std::time::SystemTime::now();
-    let mut removed = 0;
-    while let Ok(Some(entry)) = rd.next_entry().await {
-        let name = entry.file_name().to_string_lossy().to_string();
-        // Only ever touch 16-hex session-id directories.
-        if name.len() != 16 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
-            continue;
-        }
-        if active.contains(&name) {
-            continue;
-        }
-        if min_age_secs > 0 {
-            if let Ok(meta) = entry.metadata().await {
-                if let Ok(modified) = meta.modified() {
-                    if let Ok(age) = now.duration_since(modified) {
-                        if (age.as_secs() as i64) < min_age_secs {
-                            continue;
-                        }
-                    }
-                }
-            }
-        }
-        if tokio::fs::remove_dir_all(entry.path()).await.is_ok() {
-            log::warn!("Orphan sweep: removed orphaned runtime dir {name}");
-            removed += 1;
-        }
-    }
-    removed
-}
-
 /// Background task that reaps sessions idle longer than the configured
 /// timeout, and — as a standing safety net — reconciles the actually
 /// running `lightrays-*` containers against the in-memory session map so a
@@ -411,14 +359,6 @@ async fn session_timeout_reaper(state: Arc<AppState>, timeout_secs: u64) {
             if removed > 0 {
                 log::warn!("Reaper reconciliation removed {removed} orphaned lightrays container(s)");
             }
-        }
-
-        // Sweep per-session runtime dirs no live session owns (S-H1).
-        let active_ids: HashSet<String> =
-            state.sessions.lock().await.keys().cloned().collect();
-        let removed_dirs = sweep_orphan_runtime_dirs(&active_ids, ORPHAN_SWEEP_MIN_AGE_SECS).await;
-        if removed_dirs > 0 {
-            log::warn!("Reaper reconciliation removed {removed_dirs} orphaned runtime dir(s)");
         }
     }
 }
@@ -533,12 +473,8 @@ async fn handle_launch(
     // Generate session ID (16 hex chars = 64 bits of entropy)
     let session_id = uuid::Uuid::new_v4().simple().to_string()[..16].to_string();
 
-    // S-H1: give each session its own runtime directory under the base so a
-    // container only ever sees its own Wayland/X11 sockets, never another
-    // session's. XDG_RUNTIME_DIR is treated as a *base* path here.
-    let xdg_base =
+    let xdg_runtime =
         std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp/lightrays-runtime".to_string());
-    let xdg_runtime = format!("{}/{}", xdg_base.trim_end_matches('/'), session_id);
 
     // Create StreamSession
     let stream = match StreamSession::new(

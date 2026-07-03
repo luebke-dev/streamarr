@@ -88,14 +88,9 @@ impl DockerRunner {
             app.image
         );
 
-        // Resolve host/container paths. Per-session XDG runtime dir (S-H1):
-        // when LIGHTRAYS_HOST_XDG_RUNTIME_DIR is set (Docker-in-Docker) it
-        // is a *base* host path; the per-session subdirectory is appended
-        // so a container only ever sees its own Wayland/X11 sockets.
-        let host_xdg = match std::env::var("LIGHTRAYS_HOST_XDG_RUNTIME_DIR") {
-            Ok(base) => format!("{}/{}", base.trim_end_matches('/'), session.session_id),
-            Err(_) => session.xdg_runtime_dir.clone(),
-        };
+        // Resolve host/container paths
+        let host_xdg = std::env::var("LIGHTRAYS_HOST_XDG_RUNTIME_DIR")
+            .unwrap_or_else(|_| session.xdg_runtime_dir.clone());
         let host_state_dir = std::env::var("LIGHTRAYS_HOST_STATE_DIR").unwrap_or_else(|_| {
             std::env::var("LIGHTRAYS_STATE_DIR").unwrap_or_else(|_| "/etc/lightrays".to_string())
         });
