@@ -22,6 +22,7 @@ import { getAccessToken } from 'src/utils/authStorage'
  *   - videoDuration    fallback duration when player.duration() is missing
  *   - duration         current player duration (used by saveProgressOnUnload)
  *   - sessionId, playToken  passed through unchanged for the unload handler
+ *   - transcodeStartPosition  offset of the current transcode (stream time → real time)
  *
  * Returns: { lastPosition, loadViewingHistory, updateProgress,
  *            saveProgressOnUnload, startProgressUpdates, stopProgressUpdates }
@@ -39,8 +40,13 @@ export function useViewingProgress({
   duration,
   sessionId,
   playToken,
+  transcodeStartPosition,
 }) {
   const lastPosition = ref(0)
+
+  function realPosition(streamTime) {
+    return (transcodeStartPosition?.value || 0) + (streamTime || 0)
+  }
 
   function progressExtraData() {
     if (!playlistId?.value) return null
@@ -67,7 +73,8 @@ export function useViewingProgress({
   }
 
   async function reportPlaystate(eventName, currentTime = 0, videoDur = null, options = {}) {
-    if (!authStore.user || !uuid.value) return
+    const mediaGuid = options.uuid || uuid.value
+    if (!authStore.user || !mediaGuid) return
     const endpoint =
       eventName === 'start'
         ? 'playing'
@@ -76,7 +83,7 @@ export function useViewingProgress({
           : 'progress'
     try {
       await api.post(
-        `/api/viewing-history/${uuid.value}/${endpoint}`,
+        `/api/viewing-history/${mediaGuid}/${endpoint}`,
         playbackPayload(currentTime, videoDur, options),
       )
     } catch {
@@ -115,21 +122,23 @@ export function useViewingProgress({
   }
 
   async function updateProgress(currentTime, videoDur, options = {}) {
-    if (!authStore.user || !uuid.value || !videoDur) return
+    if (!authStore.user || !(options.uuid || uuid.value) || !videoDur) return
     await reportPlaystate(options.eventName || 'progress', currentTime, videoDur, {
       isPaused: Boolean(options.isPaused),
+      uuid: options.uuid,
     })
   }
 
   function saveProgressOnUnload() {
     const token = getAccessToken()
+    const baseUrl = api.defaults.baseURL || window.location.origin
 
     // Save viewing progress
     if (videoJsPlayer.value && duration.value > 0) {
-      const currentTime = videoJsPlayer.value.currentTime()
-      const progressData = playbackPayload(currentTime, duration.value)
+      const currentTime = realPosition(videoJsPlayer.value.currentTime())
+      const progressData = playbackPayload(currentTime, videoDuration.value || duration.value)
       // Use fetch with keepalive for unload - supports headers unlike sendBeacon
-      fetch(`/api/viewing-history/${uuid.value}/stopped`, {
+      fetch(`${baseUrl}/api/viewing-history/${uuid.value}/stopped`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -144,7 +153,7 @@ export function useViewingProgress({
 
     // Stop streaming session and cleanup (temp files + library file)
     if (sessionId.value && playToken.value) {
-      fetch(`/api/stream/${sessionId.value}?delete_library_file=true`, {
+      fetch(`${baseUrl}/api/stream/${sessionId.value}?delete_library_file=true`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${playToken.value}`,
@@ -162,11 +171,11 @@ export function useViewingProgress({
       typeof videoJsPlayer.value.paused === 'function' &&
       !videoJsPlayer.value.paused()
     ) {
-      const currentTime = videoJsPlayer.value.currentTime()
-      let playerDuration = videoJsPlayer.value.duration()
+      const currentTime = realPosition(videoJsPlayer.value.currentTime())
+      let playerDuration = videoDuration.value
 
       if (!playerDuration || !isFinite(playerDuration) || playerDuration === 0) {
-        playerDuration = videoDuration.value
+        playerDuration = videoJsPlayer.value.duration()
       }
 
       if (playerDuration > 0) {

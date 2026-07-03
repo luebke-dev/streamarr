@@ -28,8 +28,13 @@ vi.mock('boot/axios', () => ({
   },
 }))
 
+vi.mock('quasar/wrappers', () => ({
+  boot: (fn) => fn,
+}))
+
 import { api } from 'boot/axios'
 import { useRemoteControlStore } from 'src/stores/remoteControl'
+import bootRemoteControl from 'src/boot/remoteControl'
 
 describe('useRemoteControlStore', () => {
   beforeEach(() => {
@@ -403,71 +408,70 @@ describe('useRemoteControlStore', () => {
     })
   })
 
-  describe('handleRemoteCommand', () => {
+  describe('boot handler (remote_control)', () => {
+    function registerBootHandler() {
+      const router = { push: vi.fn() }
+      bootRemoteControl({ router })
+      const call = mockWs.on.mock.calls.find(([event]) => event === 'remote_control')
+      return { router, handler: call?.[1] }
+    }
+
+    it('registers remote_control handler on the WebSocket', () => {
+      const { handler } = registerBootHandler()
+      expect(handler).toBeTypeOf('function')
+    })
+
     it('ignores commands from a different user', () => {
       mockAuthStore.user = { guid: 'user-abc' }
       const store = useRemoteControlStore()
+      const { router, handler } = registerBootHandler()
 
-      store.handleRemoteCommand({
+      handler({
         command: 'play',
-        payload: {},
+        payload: { media_guid: 'movie-guid', media_type: 'movies' },
         from_device_id: 'other-device',
         from_user_id: 'user-xyz', // different user
       })
 
       expect(store.isRemoteControlled).toBe(false)
       expect(store.remoteController).toBeNull()
+      expect(router.push).not.toHaveBeenCalled()
     })
 
-    it('accepts commands from the same user and sets isRemoteControlled', () => {
+    it('accepts play commands from the same user and navigates to the player', () => {
       mockAuthStore.user = { guid: 'user-abc' }
       const store = useRemoteControlStore()
+      const { router, handler } = registerBootHandler()
 
-      store.handleRemoteCommand({
+      handler({
         command: 'play',
-        payload: {},
+        payload: { media_guid: 'movie-guid', media_type: 'movies' },
         from_device_id: 'phone-01',
         from_user_id: 'user-abc',
       })
 
       expect(store.isRemoteControlled).toBe(true)
       expect(store.remoteController).toBe('phone-01')
-    })
-
-    it('dispatches a custom remote-control-command event', () => {
-      mockAuthStore.user = { guid: 'user-abc' }
-      const store = useRemoteControlStore()
-
-      const handler = vi.fn()
-      window.addEventListener('remote-control-command', handler)
-
-      store.handleRemoteCommand({
-        command: 'pause',
-        payload: {},
-        from_device_id: 'phone-01',
-        from_user_id: 'user-abc',
+      expect(router.push).toHaveBeenCalledWith({
+        path: '/play/movie-guid',
+        query: { type: 'movies' },
       })
-
-      expect(handler).toHaveBeenCalled()
-      const eventDetail = handler.mock.calls[0][0].detail
-      expect(eventDetail.command).toBe('pause')
-      expect(eventDetail.from_device_id).toBe('phone-01')
-
-      window.removeEventListener('remote-control-command', handler)
     })
 
     it('ignores commands when user is not logged in (no auth user)', () => {
       mockAuthStore.user = null
       const store = useRemoteControlStore()
+      const { router, handler } = registerBootHandler()
 
-      store.handleRemoteCommand({
+      handler({
         command: 'play',
-        payload: {},
+        payload: { media_guid: 'movie-guid' },
         from_device_id: 'phone-01',
         from_user_id: 'user-xyz',
       })
 
       expect(store.isRemoteControlled).toBe(false)
+      expect(router.push).not.toHaveBeenCalled()
     })
   })
 
@@ -484,11 +488,4 @@ describe('useRemoteControlStore', () => {
     })
   })
 
-  describe('initRemoteControlHandler', () => {
-    it('registers remote_control handler on the WebSocket', () => {
-      const store = useRemoteControlStore()
-      store.initRemoteControlHandler()
-      expect(mockWs.on).toHaveBeenCalledWith('remote_control', expect.any(Function))
-    })
-  })
 })

@@ -587,16 +587,16 @@ export default {
 
       loading.value = true
       error.value = null
+      children.value = []
+      parentItem.value = null
+      showItem.value = null
       clearAdminTimers()
       clearAvailabilityTimers()
-      if (
-        activeSubscriptionGuid.value &&
-        activeSubscriptionGuid.value !== String(guid) &&
-        websocketHandler.value
-      ) {
+      if (activeSubscriptionGuid.value && websocketHandler.value) {
         unsubscribeAvailabilityTarget(activeSubscriptionGuid.value)
         unsubscribe('media_item', activeSubscriptionGuid.value, websocketHandler.value)
         activeSubscriptionGuid.value = null
+        websocketHandler.value = null
       }
 
       try {

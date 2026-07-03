@@ -59,7 +59,7 @@
                 <div class="col-12 col-md-4">
                   <q-toggle
                     v-model="oidcSettings.enabled"
-                    label="OIDC aktivieren"
+                    :label="$t('adminSettings.oidc.enable')"
                     color="primary"
                     :disable="saving"
                   />
@@ -67,7 +67,7 @@
                 <div class="col-12 col-md-4">
                   <q-toggle
                     v-model="oidcSettings.local_auth_enabled"
-                    label="Lokale Anmeldung erlauben"
+                    :label="$t('adminSettings.oidc.allowLocalLogin')"
                     color="primary"
                     :disable="saving"
                   />
@@ -75,7 +75,7 @@
                 <div class="col-12 col-md-4">
                   <q-toggle
                     v-model="oidcSettings.auto_register_users"
-                    label="Benutzer automatisch anlegen"
+                    :label="$t('adminSettings.oidc.autoRegisterUsers')"
                     color="primary"
                     :disable="saving"
                   />
@@ -141,7 +141,7 @@
               <q-input
                 v-model="oidcScopes"
                 label="Scopes"
-                hint="Leerzeichengetrennt, z.B. openid profile email"
+                :hint="$t('adminSettings.oidc.scopesHint')"
                 outlined
                 dense
                 :disable="saving"
@@ -152,7 +152,7 @@
                   type="submit"
                   color="primary"
                   icon="mdi-content-save"
-                  label="OIDC speichern"
+                  :label="$t('adminSettings.oidc.save')"
                   :loading="saving"
                   :disable="saving"
                 />

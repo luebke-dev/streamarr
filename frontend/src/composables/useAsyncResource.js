@@ -30,21 +30,29 @@ export function useAsyncResource(
   const data = ref(initial)
   const loading = ref(false)
   const error = ref(null)
+  let requestId = 0
 
   async function refresh() {
+    const currentRequest = ++requestId
     loading.value = true
     error.value = null
     try {
       const result = await fetcher()
-      data.value = result
+      if (currentRequest === requestId) {
+        data.value = result
+      }
       return result
     } catch (err) {
-      error.value = err
+      if (currentRequest === requestId) {
+        error.value = err
+      }
       logger.error('useAsyncResource fetch failed:', err)
       if (onError) onError(err)
       return null
     } finally {
-      loading.value = false
+      if (currentRequest === requestId) {
+        loading.value = false
+      }
     }
   }
 

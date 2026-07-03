@@ -38,7 +38,7 @@ export default defineBoot(({ app }) => {
     (newToken, oldToken) => {
       if (newToken && newToken !== oldToken && authStore.isAuthenticated) {
         logger.debug('[WebSocket Boot] Token changed, reconnecting...')
-        disconnect()
+        disconnect({ clearHandlers: false })
         setTimeout(() => {
           connect()
         }, 100)

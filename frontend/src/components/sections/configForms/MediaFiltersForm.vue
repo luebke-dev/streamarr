@@ -37,7 +37,7 @@
       <div v-if="showAvailability" class="col-6">
         <q-select
           v-model="filtersModel.availability"
-          :label="$t('pageLayouts.availability')"
+          :label="$t('pageLayouts.availabilityLabel')"
           :options="options.availabilityOptions"
           emit-value
           map-options

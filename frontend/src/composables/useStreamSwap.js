@@ -30,6 +30,7 @@ import { useTimeoutRegistry } from 'src/composables/useTimeoutRegistry'
  *   - currentAudioTrackIndex
  *   - playbackTargetOptions
  *   - isSeeking
+ *   - onSwapError(label)  optional callback invoked when a swap fails
  */
 export function useStreamSwap({
   videoJsPlayer,
@@ -43,6 +44,7 @@ export function useStreamSwap({
   playbackTargetOptions,
   directStreamUrl,
   isSeeking,
+  onSwapError,
 }) {
   const { waitForHlsStreamReady } = useStreamReadiness()
   const streamSwapTimers = useTimeoutRegistry()
@@ -123,15 +125,17 @@ export function useStreamSwap({
       }
 
       // Wait until the NEW playlist is actually servable.
-      // Do NOT update refs yet — updating playToken/sessionId would trigger
-      // the reactive :src binding and cause Video.js to load a not-yet-ready URL.
+      // Do NOT update refs yet — keep the old session identifiers valid until
+      // the new playlist is confirmed servable.
       const playlistReady = await waitForHlsStreamReady(newSessionId, newPlayToken)
 
       if (!playlistReady) {
-        logger.warn(`[${label}] Stream not ready, loading anyway`)
+        logger.warn(`[${label}] Stream not ready, aborting swap`)
+        onSwapError?.(label)
+        return false
       }
 
-      // NOW update refs (triggers reactive videoSrc update)
+      // NOW update refs
       playToken.value = newPlayToken
       sessionId.value = newSessionId
       directStreamUrl.value = seekResponse.direct_file_url || ''

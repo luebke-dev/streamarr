@@ -54,7 +54,7 @@
           v-model="userForm.password"
           :label="$t('adminCreateUser.password')"
           type="password"
-          hint="Leave empty for OIDC-only users"
+          :hint="$t('adminCreateUser.passwordHint')"
         />
 
         <div class="q-gutter-md">

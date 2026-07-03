@@ -1,12 +1,14 @@
 import { api } from 'boot/axios'
+import { useAuthStore } from 'src/stores/auth'
 import { getAccessToken, getServerUrl } from 'src/utils/authStorage'
 import { logger } from 'src/utils/logger'
 import { clearApiCacheStorage, isQuotaExceededError } from 'src/utils/storageQuota'
 
 // Bumped when the response shape of a cached endpoint changes so old
 // localStorage entries don't keep serving stale data. Last bump:
-// page-layout /rendered now drops empty sections server-side.
-const STORAGE_PREFIX = 'pyrate:api-cache:v2:'
+// persistent entries now carry their cache key for targeted invalidation.
+const STORAGE_PREFIX = 'pyrate:api-cache:v3:'
+const MEMORY_CACHE_MAX_ENTRIES = 200
 const memoryCache = new Map()
 const pendingRequests = new Map()
 
@@ -28,6 +30,12 @@ function simpleHash(value) {
 }
 
 function userScope() {
+  try {
+    const userGuid = useAuthStore().user?.guid
+    if (userGuid) return String(userGuid)
+  } catch (error) {
+    logger.debug('API cache user scope unavailable', error)
+  }
   const token = getAccessToken() || ''
   return token ? simpleHash(token) : 'anonymous'
 }
@@ -55,13 +63,14 @@ function readPersistentEntry(key) {
 
 function writePersistentEntry(key, entry) {
   if (typeof localStorage === 'undefined') return
+  const serialized = JSON.stringify({ ...entry, key })
   try {
-    localStorage.setItem(`${STORAGE_PREFIX}${simpleHash(key)}`, JSON.stringify(entry))
+    localStorage.setItem(`${STORAGE_PREFIX}${simpleHash(key)}`, serialized)
   } catch (error) {
     if (isQuotaExceededError(error)) {
       try {
         clearApiCacheStorage()
-        localStorage.setItem(`${STORAGE_PREFIX}${simpleHash(key)}`, JSON.stringify(entry))
+        localStorage.setItem(`${STORAGE_PREFIX}${simpleHash(key)}`, serialized)
       } catch (retryError) {
         logger.debug('API cache write failed after quota cleanup', retryError)
       }
@@ -82,7 +91,11 @@ function writeCache(key, data, ttlMs, staleTtlMs, persist) {
     expiresAt: now + ttlMs,
     staleAt: now + staleTtlMs,
   }
+  memoryCache.delete(key)
   memoryCache.set(key, entry)
+  while (memoryCache.size > MEMORY_CACHE_MAX_ENTRIES) {
+    memoryCache.delete(memoryCache.keys().next().value)
+  }
   if (persist) writePersistentEntry(key, entry)
 }
 
@@ -149,11 +162,26 @@ export function cachedApiPost(url, data = {}, config = {}, options = {}) {
   return cachedApiRequest('post', url, data, config, options)
 }
 
+function keyMatchesResource(key, match) {
+  if (key.includes(match)) return true
+  const url = key.split('|')[3] || ''
+  return Boolean(url) && match.startsWith(`${url}/`)
+}
+
 export function invalidateApiCache(match) {
-  const predicate = typeof match === 'function' ? match : (key) => key.includes(match)
+  const predicate = typeof match === 'function' ? match : (key) => keyMatchesResource(key, match)
   for (const key of Array.from(memoryCache.keys())) {
     if (predicate(key)) memoryCache.delete(key)
   }
   if (typeof localStorage === 'undefined') return
-  clearApiCacheStorage()
+  for (const storageKey of Object.keys(localStorage)) {
+    if (!storageKey.startsWith(STORAGE_PREFIX)) continue
+    try {
+      const entry = JSON.parse(localStorage.getItem(storageKey))
+      if (!entry?.key || predicate(entry.key)) localStorage.removeItem(storageKey)
+    } catch (error) {
+      logger.debug('API cache invalidation dropped unreadable entry', error)
+      localStorage.removeItem(storageKey)
+    }
+  }
 }

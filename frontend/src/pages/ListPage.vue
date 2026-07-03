@@ -155,14 +155,14 @@
       </div>
 
       <!-- Items Loading -->
-      <div v-if="loadingItems" class="flex flex-center q-py-xl">
+      <div v-if="loadingItems && !hasLoadedItems" class="flex flex-center q-py-xl">
         <q-spinner-dots size="40px" color="primary" />
       </div>
 
       <!-- Items Grid View -->
-      <div v-else-if="listItems && listItems.length > 0 && viewMode === 'grid'">
+      <div v-else-if="gridItems.length > 0 && viewMode === 'grid'">
         <div class="row q-col-gutter-md">
-          <div v-for="item in listItems" :key="item.guid" class="col-6 col-sm-4 col-md-3 col-lg-2">
+          <div v-for="item in gridItems" :key="item.guid" class="col-6 col-sm-4 col-md-3 col-lg-2">
             <div class="relative-position">
               <PosterCard
                 :title="getItemTitle(item)"
@@ -187,6 +187,16 @@
             </div>
           </div>
         </div>
+        <div v-if="gridHasMore" class="text-center q-mt-md">
+          <q-btn
+            outline
+            color="primary"
+            icon="mdi-chevron-down"
+            :label="$t('listPage.loadMore', 'Load more')"
+            :loading="loadingItems"
+            @click="loadMoreGridItems"
+          />
+        </div>
       </div>
 
       <!-- Items Table View -->
@@ -198,7 +208,10 @@
         :rows="listItems"
         :columns="tableColumns"
         row-key="guid"
+        v-model:pagination="tablePagination"
+        :loading="loadingItems"
         :rows-per-page-options="[25, 50, 100]"
+        @request="onTableRequest"
         @row-click="(evt, row) => navigateToItem(row)"
         class="list-table"
       >
@@ -371,7 +384,7 @@ const addItemResults = ref([])
 const addItemSearching = ref(false)
 const addingItemId = ref(null)
 
-// Table pagination (kept for store compatibility)
+// Server-side table pagination state
 const tablePagination = ref({
   sortBy: 'created_at',
   descending: true,
@@ -379,6 +392,14 @@ const tablePagination = ref({
   rowsPerPage: 50,
   rowsNumber: 0,
 })
+
+// Grid view accumulates pages locally for "load more"
+const gridItems = ref([])
+const gridPage = ref(1)
+const gridHasMore = computed(() => gridItems.value.length < tablePagination.value.rowsNumber)
+const hasLoadedItems = computed(
+  () => gridItems.value.length > 0 || (listItems.value && listItems.value.length > 0),
+)
 
 // Table columns
 const tableColumns = computed(() => [
@@ -422,7 +443,9 @@ const canEditList = computed(() => {
 const canRemoveItems = computed(() => canEditList.value)
 
 const existingListItemKeys = computed(() => {
-  return new Set((listItems.value || []).map(listItemKey).filter(Boolean))
+  return new Set(
+    [...gridItems.value, ...(listItems.value || [])].map(listItemKey).filter(Boolean),
+  )
 })
 
 // Get item poster URL — prefer the overlay-serve route for local
@@ -728,27 +751,45 @@ async function loadList() {
   }
 }
 
-// Load list items using store
-async function loadListItems() {
-  if (!list.value) return
+// Load one page of list items using store
+async function fetchItemsPage(page, perPage) {
+  if (!list.value) return null
 
   try {
     const result = isPlaylistRoute.value
-      ? await listsStore.fetchPlaylistItems(
-          list.value.guid,
-          tablePagination.value.page,
-          tablePagination.value.rowsPerPage,
-        )
-      : await listsStore.fetchListItems(
-          list.value.guid,
-          tablePagination.value.page,
-          tablePagination.value.rowsPerPage,
-        )
+      ? await listsStore.fetchPlaylistItems(list.value.guid, page, perPage)
+      : await listsStore.fetchListItems(list.value.guid, page, perPage)
 
     tablePagination.value.rowsNumber = result.total || list.value.item_count || 0
+    return result
   } catch (err) {
     logger.error('Error loading list items:', err)
+    return null
   }
+}
+
+// (Re)load items from the first page
+async function loadListItems() {
+  gridPage.value = 1
+  tablePagination.value.page = 1
+  const result = await fetchItemsPage(1, tablePagination.value.rowsPerPage)
+  gridItems.value = result ? [...result.items] : []
+}
+
+async function loadMoreGridItems() {
+  const result = await fetchItemsPage(gridPage.value + 1, tablePagination.value.rowsPerPage)
+  if (result && result.items.length > 0) {
+    gridPage.value += 1
+    gridItems.value.push(...result.items)
+  }
+}
+
+async function onTableRequest({ pagination }) {
+  tablePagination.value.page = pagination.page
+  tablePagination.value.rowsPerPage = pagination.rowsPerPage
+  tablePagination.value.sortBy = pagination.sortBy
+  tablePagination.value.descending = pagination.descending
+  await fetchItemsPage(pagination.page, pagination.rowsPerPage)
 }
 
 // Edit list
@@ -775,6 +816,8 @@ async function likeList() {
 async function removeItem(item) {
   try {
     await listsStore.removeItemFromList(list.value.guid, item.guid)
+    gridItems.value = gridItems.value.filter((entry) => entry.guid !== item.guid)
+    tablePagination.value.rowsNumber = Math.max(0, tablePagination.value.rowsNumber - 1)
   } catch (err) {
     logger.error('Error removing item:', err)
   }
@@ -814,6 +857,14 @@ async function deleteList() {
 // Watch for list changes to load items
 watch(list, (newList) => {
   if (newList) loadListItems()
+})
+
+// Table view shows exactly the current page — refetch it when switching
+// views since the grid may have loaded a later page into the store
+watch(viewMode, (mode) => {
+  if (mode === 'table' && list.value) {
+    fetchItemsPage(tablePagination.value.page, tablePagination.value.rowsPerPage)
+  }
 })
 
 // Clean up when component unmounts

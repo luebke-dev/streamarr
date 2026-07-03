@@ -374,9 +374,6 @@ async function selectSearchSuggestion(suggestion) {
   clearTypedSuggestions()
 }
 
-// Test: Local reactive list for debugging
-const localLists = ref([])
-
 // Use computed properties to get reactive data from stores
 const listTypeFilter = ref('')
 
@@ -395,10 +392,7 @@ const listFilterTabs = computed(() => {
     .map((lib) => typeToTab[lib.type])
 })
 
-const userLists = computed(() => {
-  const storeLists = listsStore.getUserLists
-  return [...localLists.value, ...storeLists]
-})
+const userLists = computed(() => listsStore.getUserLists)
 
 const filteredUserLists = computed(() => {
   if (!listTypeFilter.value) return userLists.value
@@ -453,34 +447,27 @@ async function createNewList() {
 
 // Watch for authentication changes
 watch(
-  () => authStore.isLoggedIn,
-  async (isLoggedIn) => {
-    logger.debug('[MainLayout] Auth status changed:', isLoggedIn)
-    logger.debug('[MainLayout] Current user:', authStore.user)
+  () => (authStore.isLoggedIn ? authStore.user?.guid || null : null),
+  async (userGuid, previousGuid) => {
+    logger.debug('[MainLayout] Active user changed:', previousGuid, '->', userGuid)
 
-    if (isLoggedIn && authStore.user?.guid) {
+    if (userGuid === previousGuid) return
+
+    if (userGuid) {
       // Fetch library settings when user logs in
       await settingsStore.fetchLibrariesSettings()
+      await settingsStore.fetchAvailableLibraries()
       // Fetch subscription settings when user logs in
       await settingsStore.fetchSubscriptionSettings()
       // Fetch invite and friends settings when user logs in
       await settingsStore.fetchInviteSettings()
       await settingsStore.fetchFriendsSettings()
-      await listsStore.fetchUserLists(authStore.user.guid)
+      await listsStore.fetchUserLists(userGuid)
     } else {
       listsStore.clearLists()
     }
   },
   { immediate: true },
-)
-
-watch(
-  () => authStore.user?.guid,
-  async (userGuid) => {
-    if (userGuid && authStore.isLoggedIn) {
-      await listsStore.fetchUserLists(userGuid)
-    }
-  },
 )
 
 // Global keyboard shortcut: '/' opens search
@@ -507,23 +494,13 @@ onMounted(async () => {
 
   // Fetch system settings (site name)
   await settingsStore.fetchSiteName()
-
-  // Fetch library, subscription and invite settings to show/hide navigation items
-  if (authStore.isLoggedIn) {
-    await settingsStore.fetchLibrariesSettings()
-    await settingsStore.fetchAvailableLibraries()
-    await settingsStore.fetchSubscriptionSettings()
-    await settingsStore.fetchInviteSettings()
-    await settingsStore.fetchFriendsSettings()
-  }
-
-  if (authStore.isLoggedIn && authStore.user?.guid) {
-    await listsStore.fetchUserLists(authStore.user.guid)
-  }
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleGlobalKeydown)
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
 })
 </script>
 

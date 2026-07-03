@@ -1,5 +1,12 @@
 <template>
-  <q-card :class="cardClass" @click="handleClick">
+  <q-card
+    :class="cardClass"
+    :role="clickable ? 'button' : undefined"
+    :tabindex="clickable ? 0 : undefined"
+    @click="handleClick"
+    @keydown.enter="handleClick"
+    @keydown.space.prevent="handleClick"
+  >
     <q-img :src="imageUrl" :alt="title" :class="imageClass" spinner spinner-color="primary">
       <template v-slot:error>
         <div class="absolute-full flex flex-center poster-placeholder bg-grey-8">

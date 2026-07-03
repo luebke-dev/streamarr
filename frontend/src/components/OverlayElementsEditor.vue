@@ -21,7 +21,7 @@
 
     <q-card
       v-for="(el, idx) in elements"
-      :key="idx"
+      :key="uidFor(el)"
       flat bordered dark
       class="q-mb-md element-card"
       :class="`element-${el.type || 'unknown'}`"
@@ -238,6 +238,14 @@ const emit = defineEmits(['update:modelValue'])
 
 const elements = computed(() => props.modelValue || [])
 
+let uidSeq = 0
+const uids = new WeakMap()
+function uidFor(el) {
+  if (!el || typeof el !== 'object') return `el-${String(el)}`
+  if (!uids.has(el)) uids.set(el, ++uidSeq)
+  return uids.get(el)
+}
+
 function emitElements(list) {
   emit('update:modelValue', list)
 }
@@ -271,6 +279,7 @@ function addElement(type) {
 function patch(idx, partial) {
   const next = [...elements.value]
   next[idx] = { ...next[idx], ...partial }
+  uids.set(next[idx], uidFor(elements.value[idx]))
   // Strip explicit undefined so the payload stays compact.
   for (const k of Object.keys(partial)) {
     if (next[idx][k] === undefined || next[idx][k] === null || next[idx][k] === '') {

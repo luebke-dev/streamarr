@@ -25,7 +25,7 @@
     <div v-if="nodeKind === 'all' || nodeKind === 'any'" class="children">
       <div
         v-for="(child, idx) in childList"
-        :key="idx"
+        :key="uidFor(child)"
         class="child-slot q-mb-sm"
       >
         <ConditionTreeEditor
@@ -239,6 +239,14 @@ const childList = computed(() => {
   return []
 })
 
+let uidSeq = 0
+const uids = new WeakMap()
+function uidFor(node) {
+  if (!node || typeof node !== 'object') return `node-${String(node)}`
+  if (!uids.has(node)) uids.set(node, ++uidSeq)
+  return uids.get(node)
+}
+
 const fieldMeta = computed(() =>
   FIELDS.find((f) => f.value === props.modelValue?.field) || null
 )
@@ -300,6 +308,9 @@ function changeKind(kind) {
 
 function updateChild(idx, value) {
   const list = [...childList.value]
+  if (value && typeof value === 'object') {
+    uids.set(value, uidFor(list[idx]))
+  }
   list[idx] = value
   emit('update:modelValue', { [nodeKind.value]: list })
 }

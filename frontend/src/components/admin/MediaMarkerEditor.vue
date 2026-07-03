@@ -143,7 +143,7 @@
             :label="$t('markers.startTime')"
             outlined
             dark
-            hint="MM:SS or seconds"
+            :hint="$t('markers.timeFormatHint')"
             placeholder="0:00"
           />
           <q-input
@@ -151,7 +151,7 @@
             :label="$t('markers.endTime')"
             outlined
             dark
-            hint="MM:SS or seconds"
+            :hint="$t('markers.timeFormatHint')"
             placeholder="1:30"
           />
         </q-card-section>

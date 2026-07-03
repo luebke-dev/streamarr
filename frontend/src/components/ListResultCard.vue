@@ -11,7 +11,12 @@
       <div class="row items-center q-gutter-sm text-caption text-grey-6">
         <span><q-icon name="mdi-playlist-music" size="xs" /> {{ list.item_count }}</span>
         <span><q-icon name="mdi-heart" size="xs" /> {{ list.like_count }}</span>
-        <q-badge v-if="list.list_type === 'SYSTEM'" color="orange" label="System" size="xs" />
+        <q-badge
+          v-if="list.list_type === 'SYSTEM'"
+          color="orange"
+          :label="$t('common.system')"
+          size="xs"
+        />
         <q-badge v-if="list.owner_name" color="grey-7" :label="list.owner_name" size="xs" />
       </div>
     </q-card-section>

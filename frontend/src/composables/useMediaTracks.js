@@ -1,6 +1,7 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import { useTimeoutRegistry } from 'src/composables/useTimeoutRegistry'
 
 const TRACKS_RETRY_DELAY_MS = 2000
 const TRACKS_RETRY_FALLBACK_MS = 1000
@@ -24,6 +25,7 @@ const TRACKS_RETRY_FALLBACK_MS = 1000
  * @param {() => (number|string|null)} options.getContentId
  * @param {() => (string|null)} options.getContentType
  * @param {() => any} options.getPlayer - Returns the Video.js player instance.
+ * @param {() => (number|null)} [options.getCurrentAudioStreamIndex] - Stream index of the audio track actually playing.
  * @param {(streamIndex: number) => void} options.onChangeAudioTrack
  * @param {(level: Object) => void} options.onSelectQuality
  */
@@ -31,6 +33,7 @@ export function useMediaTracks({
   getContentId,
   getContentType,
   getPlayer,
+  getCurrentAudioStreamIndex,
   onChangeAudioTrack,
   onSelectQuality,
 }) {
@@ -41,8 +44,10 @@ export function useMediaTracks({
   const currentSubtitle = ref(null)
   const currentQuality = ref(null)
   const remoteSubtitleTracks = new Map()
+  const trackTimers = useTimeoutRegistry()
   let savedTrackPreferences = null
   let loadedTracksContentId = null
+  let listenerPlayer = null
 
   const subtitleLabel = (stream, fallback) => {
     const flags = []
@@ -301,13 +306,24 @@ export function useMediaTracks({
         }
 
         const textTracks = player.textTracks()
-        const trackIndex = subtitle.index
-        if (textTracks?.[trackIndex]) {
-          textTracks[trackIndex].mode = 'showing'
+        const embeddedTracks = []
+        for (let i = 0; i < (textTracks?.length || 0); i++) {
+          if (textTracks[i].kind === 'subtitles' || textTracks[i].kind === 'captions') {
+            embeddedTracks.push(textTracks[i])
+          }
+        }
+        const embeddedTrack =
+          embeddedTracks.find((track) => subtitle.label && track.label === subtitle.label) ||
+          embeddedTracks.find(
+            (track) => subtitle.language && track.language === subtitle.language,
+          ) ||
+          embeddedTracks[subtitle.index]
+        if (embeddedTrack) {
+          embeddedTrack.mode = 'showing'
           currentSubtitle.value = index
           if (persist) {
             await persistTrackPreferences({
-              selected_subtitle_track_index: subtitle.streamIndex ?? trackIndex,
+              selected_subtitle_track_index: subtitle.streamIndex ?? subtitle.index,
               selected_subtitle_track_id: subtitle.id || null,
               selected_subtitle_language: subtitle.language || null,
             })
@@ -407,6 +423,39 @@ export function useMediaTracks({
     }
   }
 
+  const onPlayerSourceChange = () => {
+    if (remoteSubtitleTracks.size === 0) return
+    releaseManagedSubtitleTracks()
+    if (currentSubtitle.value !== null) {
+      selectSubtitle(currentSubtitle.value, { persist: false })
+    }
+  }
+
+  const onQualityLevelsChange = () => {
+    if (!listenerPlayer?.qualityLevels) return
+    const qualityList = listenerPlayer.qualityLevels()
+    for (let i = 0; i < qualityList.length; i++) {
+      if (qualityList[i].enabled) {
+        currentQuality.value = i
+        logger.debug('[useMediaTracks] Quality changed to:', qualityLevels.value[i])
+        break
+      }
+    }
+  }
+
+  const detachPlayerListeners = () => {
+    if (!listenerPlayer) return
+    try {
+      listenerPlayer.off('loadstart', onPlayerSourceChange)
+      if (listenerPlayer.qualityLevels) {
+        listenerPlayer.qualityLevels().off('change', onQualityLevelsChange)
+      }
+    } catch (e) {
+      logger.debug('[useMediaTracks] Could not detach player listeners:', e)
+    }
+    listenerPlayer = null
+  }
+
   onMounted(() => {
     const contentId = getContentId()
     const contentType = getContentType()
@@ -415,7 +464,7 @@ export function useMediaTracks({
       // Try immediately
       loadTracksFromAPI(contentId)
       // Try again after delay if no tracks found
-      setTimeout(() => {
+      trackTimers.schedule(() => {
         if (audioTracks.value.length === 0 && subtitleTracks.value.length === 0) {
           logger.debug('[useMediaTracks] No tracks found yet, trying API again...')
           loadTracksFromAPI(contentId)
@@ -430,6 +479,7 @@ export function useMediaTracks({
   })
 
   onUnmounted(() => {
+    detachPlayerListeners()
     releaseManagedSubtitleTracks()
   })
 
@@ -437,7 +487,10 @@ export function useMediaTracks({
   watch(
     () => getPlayer(),
     (newPlayer) => {
-      if (!newPlayer) return
+      if (!newPlayer) {
+        detachPlayerListeners()
+        return
+      }
       logger.debug('[useMediaTracks] Player instance changed')
 
       const contentId = getContentId()
@@ -449,23 +502,31 @@ export function useMediaTracks({
         (audioTracks.value.length === 0 || loadedTracksContentId !== contentId)
       ) {
         logger.debug('[useMediaTracks] Player ready, reloading tracks from API')
-        setTimeout(() => {
+        trackTimers.schedule(() => {
           loadTracksFromAPI(contentId)
         }, TRACKS_RETRY_FALLBACK_MS)
       }
 
+      detachPlayerListeners()
+      listenerPlayer = newPlayer
+      newPlayer.on('loadstart', onPlayerSourceChange)
+
       // Listen for quality changes (if using HLS quality selector)
       if (newPlayer.qualityLevels) {
-        newPlayer.qualityLevels().on('change', () => {
-          const qualityList = newPlayer.qualityLevels()
-          for (let i = 0; i < qualityList.length; i++) {
-            if (qualityList[i].enabled) {
-              currentQuality.value = i
-              logger.debug('[useMediaTracks] Quality changed to:', qualityLevels.value[i])
-              break
-            }
-          }
-        })
+        newPlayer.qualityLevels().on('change', onQualityLevelsChange)
+      }
+    },
+    { immediate: true },
+  )
+
+  // Keep the selected audio track in sync with the track actually playing
+  watch(
+    () => [getCurrentAudioStreamIndex?.(), audioTracks.value],
+    ([streamIndex]) => {
+      if (streamIndex == null) return
+      const index = audioTracks.value.findIndex((track) => track.streamIndex === streamIndex)
+      if (index >= 0 && index !== currentAudioTrack.value) {
+        currentAudioTrack.value = index
       }
     },
     { immediate: true },

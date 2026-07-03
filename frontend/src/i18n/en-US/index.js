@@ -404,6 +404,7 @@ export default {
     smartCollections: 'Smart Collections',
     overlays: 'Poster Overlays',
     massOperations: 'Mass Operations',
+    pageLayouts: 'Page Layouts',
   },
 
   adminPackages: {
@@ -674,6 +675,13 @@ export default {
       siteName: 'Site Name',
       siteNameHint: 'The name displayed in the toolbar',
     },
+    oidc: {
+      enable: 'Enable OIDC',
+      allowLocalLogin: 'Allow local login',
+      autoRegisterUsers: 'Auto-create users',
+      scopesHint: 'Space-separated, e.g. openid profile email',
+      save: 'Save OIDC',
+    },
     subscriptions: {
       title: 'Subscriptions & Payments',
       description: 'Enable or disable the subscription and payment system for users.',
@@ -904,6 +912,7 @@ export default {
     skipBackward: 'Skip backward',
     volume: 'Volume',
     mute: 'Mute',
+    unknown: 'Unknown',
   },
 
   // Settings
@@ -925,6 +934,9 @@ export default {
     languageSettingsError: 'Error updating language settings',
     playback: 'Playback',
     playbackDescription: 'Configure automatic skipping of intros, outros, and credits',
+    parentalControl: 'Parental control',
+    parentalControlDescription:
+      'Hide and block movies / shows whose age rating is above this threshold. Unrated media is always visible.',
     skipIntro: 'Skip Intro',
     skipOutro: 'Skip Outro',
     skipCredits: 'Skip Credits',
@@ -1007,6 +1019,7 @@ export default {
     deleteAccountMessage:
       'Are you sure you want to permanently delete your account? All your data will be lost.',
     deleteAccountConfirm: 'Delete Account',
+    deleteAccountError: 'Your account could not be deleted. Please try again.',
 
     // Devices
     devices: 'My Devices',
@@ -1742,6 +1755,34 @@ export default {
     withdraw: 'Withdraw',
     remove: 'Remove',
     actionFailed: 'Action failed',
+    // Generic labels
+    like: 'Like',
+    unlike: 'Unlike',
+    markPlayed: 'Mark as played',
+    markUnplayed: 'Mark as unplayed',
+    status: 'Status',
+    progress: 'Progress',
+    pause: 'Pause',
+    resume: 'Resume',
+    type: 'Type',
+    year: 'Year',
+    name: 'Name',
+    slug: 'Slug',
+    host: 'Host',
+    source: 'Source',
+    active: 'Active',
+    inactive: 'Inactive',
+    system: 'System',
+    loading: 'Loading...',
+    blacklisted: 'Blacklisted',
+    startDownload: 'Start download',
+    releaseHasNoLinks: 'Release has no links',
+    trendingNow: 'Trending Now',
+    noTrending: 'No trending items',
+    noFavorites: 'No favorites yet',
+    noIdProvided: 'No ID provided',
+    failedToLoadDetails: 'Failed to load details',
+    noLayoutConfigured: 'No page layout configured',
   },
 
   // Media status translations
@@ -1951,6 +1992,7 @@ export default {
     end: 'End',
     startTime: 'Start Time',
     endTime: 'End Time',
+    timeFormatHint: 'MM:SS or seconds',
     label: 'Label',
     types: {
       intro: 'Intro',
@@ -2148,6 +2190,7 @@ export default {
     lastName: 'Last Name *',
     email: 'Email *',
     password: 'Password',
+    passwordHint: 'Leave empty for OIDC-only users',
     activeUser: 'Active User',
     administrator: 'Administrator',
     cancel: 'Cancel',
@@ -2324,6 +2367,7 @@ export default {
       status: 'Status',
       downloader: 'Downloader',
       progress: 'Progress',
+      speed: 'Speed',
       created: 'Created',
       startedBy: 'Started by',
     },
@@ -2416,7 +2460,10 @@ export default {
     // Form fields
     fields: {
       label: 'Label',
+      labelHint: 'A descriptive name for this indexer',
       type: 'Type',
+      indexerType: 'Indexer Type *',
+      indexerTypeHint: 'Select the indexer type',
       enabled: 'Enabled',
       createdAt: 'Created At',
     },
@@ -2752,6 +2799,7 @@ export default {
     uniqueUsers: 'Unique Users',
     anonymous: 'Anonymous',
     unknown: 'Unknown',
+    deviceContractError: 'Failed to load device session details',
     original: 'Original',
     crfMode: 'CRF Mode',
     started: 'Started',
@@ -2823,6 +2871,7 @@ export default {
   // List Page
   listPage: {
     backToLists: 'Back to Lists',
+    loadMore: 'Load more',
     editList: 'Edit List',
     addItems: 'Add Items',
     deleteList: 'Delete List',
@@ -3281,9 +3330,28 @@ export default {
     apiKeyRequired: 'Please enter an API key',
     apiKeyKeepHint: 'Leave empty to keep the existing API key',
   },
+  // Person / filmography page
+  person: {
+    movies: 'Movies',
+    shows: 'TV Shows',
+    noCredits: 'No filmography available yet.',
+    loadingCredits: 'Loading filmography...',
+    refreshFilmography: 'Refresh',
+    importingFilmography: 'Importing filmography...',
+  },
+
+  // Form validation
+  validation: {
+    required: 'Required',
+  },
+
   pageLayouts: {
     create: 'Create Layout',
     edit: 'Edit Layout',
+    description: 'Configure which sections appear on browse pages',
+    confirmDelete: 'Delete layout "{name}"?',
+    emptyLayoutPrompt: 'This layout has no sections yet',
+    slugHint: 'home = default layout',
     details: 'Layout Details',
     sections: 'Sections',
     addSection: 'Add Section',
@@ -3305,7 +3373,12 @@ export default {
     noLatestItems: 'No latest items',
     filters: 'Filters',
     mediaType: 'Media Type',
-    availability: 'Availability',
+    availabilityLabel: 'Availability',
+    availability: {
+      local: 'Local (has files)',
+      releases: 'Has releases',
+      none: 'No files or releases',
+    },
     hasPoster: 'Has poster',
     hasDescription: 'Has description',
     yearFrom: 'Year from',
@@ -3349,6 +3422,7 @@ export default {
     deleteConfirm: 'Really delete rule "{name}"?',
     builderNeedsApiKey: 'This source needs an API key (configured in settings).',
     builderKeyless: 'This source needs no API key.',
+    pickBuilderFirst: 'Pick a builder first.',
     invalidJson: 'Invalid JSON.',
     jsonHint: 'JSON config for the builder. See docs.',
     filtersHint: 'JSON filters: min_rating, year_min/max, genre_in, …',
@@ -3500,6 +3574,7 @@ export default {
     fields: {
       name: 'Name',
       description: 'Description',
+      actionType: 'Action type',
       targetFilter: 'Filter (JSON)',
       action: 'Action (JSON)',
       cron: 'Cron (optional)',

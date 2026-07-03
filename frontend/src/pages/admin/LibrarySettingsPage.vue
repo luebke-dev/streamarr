@@ -208,7 +208,7 @@
               color="primary"
               :label="$t('adminLibrary.saveNamingSettings')"
               type="submit"
-              :loading="savingNaming"
+              :loading="saving"
             />
             <q-btn
               color="secondary"
@@ -403,7 +403,6 @@ const namingSchema = ref(null)
 const namingPreview = ref({})
 
 const saving = ref(false)
-const savingNaming = ref(false)
 const previewing = ref(false)
 const showVariablesDialog = ref(false)
 

@@ -92,7 +92,7 @@
               dense
               v-model="indexerForm.label"
               :label="$t('adminIndexers.fields.label')"
-              hint="A descriptive name for this indexer"
+              :hint="$t('adminIndexers.fields.labelHint')"
               lazy-rules
               :rules="[(val) => (val && val.length > 0) || 'Please enter a label']"
             >
@@ -108,8 +108,8 @@
               dense
               v-model="selectedIndexerType"
               :options="indexerTypeOptions"
-              label="Indexer Type *"
-              hint="Select the indexer type"
+              :label="$t('adminIndexers.fields.indexerType')"
+              :hint="$t('adminIndexers.fields.indexerTypeHint')"
               option-value="domain"
               option-label="name"
               emit-value

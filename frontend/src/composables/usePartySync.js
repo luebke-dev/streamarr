@@ -24,6 +24,8 @@
  *       host onSyncRequested handler)
  *   - uuid: ref<string> — current media uuid
  *   - contentType: ref<string> — 'movie' / 'episode' / etc.
+ *   - transcodeStartPosition: ref<number> — offset of the current transcode
+ *   - onSeek(position): seek handler used to apply inbound sync positions
  *
  * Returns:
  *   - applyResumePosition(lastPositionRef) → boolean
@@ -42,20 +44,34 @@
  *   - requestLateJoinerSync() — call from onPlayerReady.
  */
 
-import { watch } from 'vue'
+import { watch, onUnmounted } from 'vue'
 import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
 import { useInterval } from 'src/composables/useInterval'
+import { useTimeoutRegistry } from 'src/composables/useTimeoutRegistry'
 
 const SYNC_TOLERANCE = 2.0
 const HOST_SYNC_INTERVAL_MS = 10000
 const LATE_JOINER_SYNC_DELAY_MS = 1000
 const IGNORE_SYNC_RESET_MS = 500
 
-export function usePartySync({ partyStore, partyWs, videoJsPlayer, uuid, contentType }) {
+export function usePartySync({
+  partyStore,
+  partyWs,
+  videoJsPlayer,
+  uuid,
+  contentType,
+  transcodeStartPosition,
+  onSeek,
+}) {
   let ignoringSync = false
   let hostTick = null
+  let stopSyncWatcher = null
   const hostPoller = useInterval(() => hostTick?.(), HOST_SYNC_INTERVAL_MS)
+  const syncTimers = useTimeoutRegistry()
+
+  const realPlayerTime = (vjsPlayer) =>
+    (transcodeStartPosition?.value || 0) + (vjsPlayer.currentTime() || 0)
 
   const applyResumePosition = (lastPositionRef) => {
     if (partyStore.isInParty && partyStore.activeParty?.current_time > 0) {
@@ -86,7 +102,7 @@ export function usePartySync({ partyStore, partyWs, videoJsPlayer, uuid, content
     partyWs.onSyncRequested(() => {
       if (videoJsPlayer.value) {
         partyWs.syncPlayback(
-          videoJsPlayer.value.currentTime(),
+          realPlayerTime(videoJsPlayer.value),
           !videoJsPlayer.value.paused(),
           videoJsPlayer.value.playbackRate(),
         )
@@ -96,7 +112,7 @@ export function usePartySync({ partyStore, partyWs, videoJsPlayer, uuid, content
 
   const pushPlayerState = (vjsPlayer, isPlaying) => {
     if (!partyStore.isInParty || ignoringSync || !vjsPlayer) return
-    partyWs.syncPlayback(vjsPlayer.currentTime(), isPlaying, vjsPlayer.playbackRate())
+    partyWs.syncPlayback(realPlayerTime(vjsPlayer), isPlaying, vjsPlayer.playbackRate())
   }
 
   const attachToPlayer = (vjsPlayer) => {
@@ -105,26 +121,34 @@ export function usePartySync({ partyStore, partyWs, videoJsPlayer, uuid, content
       hostTick = () => {
         const p = videoJsPlayer.value
         if (p && !p.paused() && partyStore.isInParty) {
-          partyWs.syncPlayback(p.currentTime(), true, p.playbackRate())
+          partyWs.syncPlayback(realPlayerTime(p), true, p.playbackRate())
         }
       }
       hostPoller.start()
     }
 
+    if (stopSyncWatcher) {
+      stopSyncWatcher()
+    }
+
     // Watch Party: sync state is replaced on each update, so a shallow watch
     // fires once per update without paying the deep-compare cost.
-    watch(
+    stopSyncWatcher = watch(
       () => partyStore.syncState,
       (newSyncState) => {
         if (!partyStore.isInParty || !vjsPlayer) return
 
         ignoringSync = true
 
-        const currentTime = vjsPlayer.currentTime()
+        const currentTime = realPlayerTime(vjsPlayer)
         const timeDiff = Math.abs(currentTime - newSyncState.currentTime)
 
         if (timeDiff > SYNC_TOLERANCE) {
-          vjsPlayer.currentTime(newSyncState.currentTime)
+          if (onSeek) {
+            onSeek(newSyncState.currentTime)
+          } else {
+            vjsPlayer.currentTime(newSyncState.currentTime)
+          }
         }
 
         if (newSyncState.isPlaying && vjsPlayer.paused()) {
@@ -137,7 +161,7 @@ export function usePartySync({ partyStore, partyWs, videoJsPlayer, uuid, content
           vjsPlayer.playbackRate(newSyncState.playbackRate)
         }
 
-        setTimeout(() => {
+        syncTimers.schedule(() => {
           ignoringSync = false
         }, IGNORE_SYNC_RESET_MS)
       },
@@ -146,11 +170,18 @@ export function usePartySync({ partyStore, partyWs, videoJsPlayer, uuid, content
 
   const requestLateJoinerSync = () => {
     if (partyStore.isInParty && !partyStore.isHost) {
-      setTimeout(() => {
+      syncTimers.schedule(() => {
         partyWs.requestSync()
       }, LATE_JOINER_SYNC_DELAY_MS)
     }
   }
+
+  onUnmounted(() => {
+    if (stopSyncWatcher) {
+      stopSyncWatcher()
+      stopSyncWatcher = null
+    }
+  })
 
   return {
     applyResumePosition,

@@ -51,6 +51,7 @@ import { useAuthStore } from 'src/stores/auth'
 import { useI18n } from 'vue-i18n'
 import { logger } from 'src/utils/logger'
 import { getServerUrl } from 'src/utils/authStorage'
+import { sanitizeRedirect } from 'src/utils/redirect'
 
 export default defineComponent({
   name: 'CallbackPage',
@@ -94,7 +95,7 @@ export default defineComponent({
         // Show success notification
 
         // Redirect to intended page or home
-        const redirectTo = route.query.return_to || route.query.state || '/'
+        const redirectTo = sanitizeRedirect(route.query.return_to || route.query.state)
         redirectTimer.value = setTimeout(() => {
           router.push(redirectTo)
         }, 1500)

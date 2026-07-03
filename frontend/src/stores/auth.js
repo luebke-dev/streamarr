@@ -10,6 +10,7 @@ import {
 } from 'src/utils/authStorage'
 import { getDeviceInfo, getOrCreateDeviceId } from 'src/utils/deviceIdentity'
 import { logger } from 'src/utils/logger'
+import { sanitizeRedirect } from 'src/utils/redirect'
 
 export const useAuthStore = defineStore('auth', () => {
   // State
@@ -24,6 +25,7 @@ export const useAuthStore = defineStore('auth', () => {
   const initialized = ref(false)
   const refreshPromise = ref(null) // Prevent concurrent refresh requests
   const initPromise = ref(null) // Prevent concurrent initialization
+  const logoutPromise = ref(null) // Prevent concurrent logout requests
 
   // Getters
   const isLoggedIn = computed(() => isAuthenticated.value && !!user.value)
@@ -127,8 +129,8 @@ export const useAuthStore = defineStore('auth', () => {
 
     const baseUrl = getServerUrl().replace(/\/+$/, '')
     const loginUrl = new URL(`${baseUrl || window.location.origin}/api/auth/login`)
-    const target = returnTo || `${window.location.pathname}${window.location.search}`
-    if (target && target !== '/auth/login') {
+    const target = sanitizeRedirect(returnTo || `${window.location.pathname}${window.location.search}`)
+    if (target !== '/auth/login') {
       loginUrl.searchParams.set('return_to', target)
     }
     window.location.href = baseUrl ? loginUrl.toString() : `${loginUrl.pathname}${loginUrl.search}`
@@ -219,21 +221,40 @@ export const useAuthStore = defineStore('auth', () => {
       return response.data
     } catch (error) {
       logger.error('Failed to refresh token:', error)
-      logout()
+      clearAuthState()
       throw error
     }
   }
 
+  function clearAuthState() {
+    clearTokensFromStorage()
+    user.value = null
+    isAuthenticated.value = false
+  }
+
   async function logout() {
+    // Return existing promise if logout is already in progress
+    if (logoutPromise.value) {
+      return logoutPromise.value
+    }
+
+    logoutPromise.value = _performLogout()
+
+    try {
+      return await logoutPromise.value
+    } finally {
+      logoutPromise.value = null
+    }
+  }
+
+  async function _performLogout() {
     try {
       if (isAuthenticated.value) {
         const response = await api.post('/api/auth/logout')
 
         // Falls OIDC Logout URL zurückgegeben wird
         if (response.data.logout_url) {
-          clearTokensFromStorage()
-          user.value = null
-          isAuthenticated.value = false
+          clearAuthState()
           // Validate redirect URL — only allow same-origin or relative paths
           const logoutUrl = response.data.logout_url
           if (logoutUrl.startsWith('/') || logoutUrl.startsWith(window.location.origin)) {
@@ -247,9 +268,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     // Lokaler Logout
-    clearTokensFromStorage()
-    user.value = null
-    isAuthenticated.value = false
+    clearAuthState()
   }
 
   async function initialize() {

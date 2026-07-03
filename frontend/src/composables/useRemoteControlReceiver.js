@@ -13,6 +13,8 @@
  *   - router: vue-router instance (for play_media navigation)
  *   - remoteControlStore: pinia store with isRemoteControlled,
  *       remoteController, clearRemoteControlled()
+ *   - transcodeStartPosition: ref<number> — offset of the current transcode
+ *   - onSeek(position): seek handler (3-tier seek logic) for absolute positions
  *   - playNextEpisode / playPreviousEpisode: composable actions
  *
  * Returns:
@@ -31,10 +33,20 @@ export function useRemoteControlReceiver({
   videoJsPlayer,
   router,
   remoteControlStore,
+  transcodeStartPosition,
+  onSeek,
   playNextEpisode,
   playPreviousEpisode,
 }) {
   let active = false
+
+  const getPlayer = () => {
+    const player = videoJsPlayer.value
+    return player && !player.isDisposed?.() ? player : null
+  }
+
+  const realPlayerTime = (player) =>
+    (transcodeStartPosition?.value || 0) + (player.currentTime() || 0)
 
   const handleRemoteControlCommand = (data) => {
     const { command, payload } = data
@@ -42,54 +54,52 @@ export function useRemoteControlReceiver({
 
     switch (command) {
       case 'pause':
-        if (videoJsPlayer.value) {
-          videoJsPlayer.value.pause()
-        }
+        getPlayer()?.pause()
         break
       case 'resume':
       case 'play':
-        if (videoJsPlayer.value) {
-          videoJsPlayer.value.play()
-        }
+        getPlayer()?.play()
         break
       case 'stop':
         router.back()
         break
       case 'seek':
-        if (videoJsPlayer.value && payload?.position !== undefined) {
-          videoJsPlayer.value.currentTime(payload.position)
+        if (getPlayer() && payload?.position !== undefined) {
+          onSeek(payload.position)
         }
         break
       case 'volume':
-        if (videoJsPlayer.value && payload?.level !== undefined) {
-          videoJsPlayer.value.volume(payload.level)
+        if (payload?.level !== undefined) {
+          getPlayer()?.volume(payload.level)
         }
         break
-      case 'mute':
-        if (videoJsPlayer.value) {
-          videoJsPlayer.value.muted(!videoJsPlayer.value.muted())
+      case 'mute': {
+        const player = getPlayer()
+        if (player) {
+          player.muted(!player.muted())
         }
         break
+      }
       case 'next':
         playNextEpisode()
         break
       case 'previous':
         playPreviousEpisode()
         break
-      case 'skip_forward':
-        if (videoJsPlayer.value) {
-          videoJsPlayer.value.currentTime(
-            videoJsPlayer.value.currentTime() + (payload?.seconds || 10),
-          )
+      case 'skip_forward': {
+        const player = getPlayer()
+        if (player) {
+          onSeek(realPlayerTime(player) + (payload?.seconds || 10))
         }
         break
-      case 'skip_backward':
-        if (videoJsPlayer.value) {
-          videoJsPlayer.value.currentTime(
-            Math.max(0, videoJsPlayer.value.currentTime() - (payload?.seconds || 10)),
-          )
+      }
+      case 'skip_backward': {
+        const player = getPlayer()
+        if (player) {
+          onSeek(Math.max(0, realPlayerTime(player) - (payload?.seconds || 10)))
         }
         break
+      }
       case 'play_media':
         if (payload?.media_guid) {
           router.replace({

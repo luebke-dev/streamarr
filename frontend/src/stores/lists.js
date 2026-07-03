@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { api } from 'src/boot/axios'
 import { ref, computed } from 'vue'
+import { useAuthStore } from './auth'
 import { logger } from 'src/utils/logger'
 
 export const searchTypeToListItemType = {
@@ -50,6 +51,10 @@ export const useListsStore = defineStore('lists', () => {
   const loadingItems = ref(false)
   const initialized = ref(false)
 
+  let userListsRequestId = 0
+  let currentListRequestId = 0
+  let listItemsRequestId = 0
+
   // Getters as computed properties
   const getUserLists = computed(() => userLists.value)
   const isLoading = computed(() => loading.value)
@@ -63,6 +68,8 @@ export const useListsStore = defineStore('lists', () => {
 
   // Actions as functions
   async function fetchUserLists(userGuid) {
+    const currentRequest = ++userListsRequestId
+
     if (!userGuid) {
       userLists.value = []
       return
@@ -78,13 +85,17 @@ export const useListsStore = defineStore('lists', () => {
         },
       })
 
+      if (currentRequest !== userListsRequestId) return
       userLists.value = response.data.items || []
       initialized.value = true
     } catch (error) {
+      if (currentRequest !== userListsRequestId) return
       logger.error('[ListsStore] Failed to fetch user lists:', error)
       userLists.value = []
     } finally {
-      loading.value = false
+      if (currentRequest === userListsRequestId) {
+        loading.value = false
+      }
     }
   }
 
@@ -159,20 +170,28 @@ export const useListsStore = defineStore('lists', () => {
       return null
     }
 
+    const currentRequest = ++currentListRequestId
+
     try {
       loadingList.value = true
 
       const response = await api.get(`/api/lists/${listId}`)
 
-      currentList.value = response.data
+      if (currentRequest === currentListRequestId) {
+        currentList.value = response.data
+      }
 
       return response.data
     } catch (error) {
       logger.error('[ListsStore] Failed to fetch list details:', error)
-      currentList.value = null
+      if (currentRequest === currentListRequestId) {
+        currentList.value = null
+      }
       throw error
     } finally {
-      loadingList.value = false
+      if (currentRequest === currentListRequestId) {
+        loadingList.value = false
+      }
     }
   }
 
@@ -182,20 +201,28 @@ export const useListsStore = defineStore('lists', () => {
       return null
     }
 
+    const currentRequest = ++currentListRequestId
+
     try {
       loadingList.value = true
 
       const response = await api.get(`/api/playlists/${playlistId}`)
 
-      currentList.value = response.data
+      if (currentRequest === currentListRequestId) {
+        currentList.value = response.data
+      }
 
       return response.data
     } catch (error) {
       logger.error('[ListsStore] Failed to fetch playlist details:', error)
-      currentList.value = null
+      if (currentRequest === currentListRequestId) {
+        currentList.value = null
+      }
       throw error
     } finally {
-      loadingList.value = false
+      if (currentRequest === currentListRequestId) {
+        loadingList.value = false
+      }
     }
   }
 
@@ -204,6 +231,8 @@ export const useListsStore = defineStore('lists', () => {
     if (!listId) {
       return { items: [], total: 0, totalPages: 1 }
     }
+
+    const currentRequest = ++listItemsRequestId
 
     try {
       loadingItems.value = true
@@ -215,7 +244,9 @@ export const useListsStore = defineStore('lists', () => {
         },
       })
 
-      currentListItems.value = response.data.items || []
+      if (currentRequest === listItemsRequestId) {
+        currentListItems.value = response.data.items || []
+      }
 
       return {
         items: response.data.items || [],
@@ -224,10 +255,14 @@ export const useListsStore = defineStore('lists', () => {
       }
     } catch (error) {
       logger.error('[ListsStore] Failed to fetch list items:', error)
-      currentListItems.value = []
+      if (currentRequest === listItemsRequestId) {
+        currentListItems.value = []
+      }
       throw error
     } finally {
-      loadingItems.value = false
+      if (currentRequest === listItemsRequestId) {
+        loadingItems.value = false
+      }
     }
   }
 
@@ -236,6 +271,8 @@ export const useListsStore = defineStore('lists', () => {
     if (!playlistId) {
       return { items: [], total: 0, totalPages: 1 }
     }
+
+    const currentRequest = ++listItemsRequestId
 
     try {
       loadingItems.value = true
@@ -247,7 +284,9 @@ export const useListsStore = defineStore('lists', () => {
         },
       })
 
-      currentListItems.value = response.data.items || []
+      if (currentRequest === listItemsRequestId) {
+        currentListItems.value = response.data.items || []
+      }
 
       return {
         items: response.data.items || [],
@@ -256,10 +295,14 @@ export const useListsStore = defineStore('lists', () => {
       }
     } catch (error) {
       logger.error('[ListsStore] Failed to fetch playlist items:', error)
-      currentListItems.value = []
+      if (currentRequest === listItemsRequestId) {
+        currentListItems.value = []
+      }
       throw error
     } finally {
-      loadingItems.value = false
+      if (currentRequest === listItemsRequestId) {
+        loadingItems.value = false
+      }
     }
   }
 
@@ -353,14 +396,41 @@ export const useListsStore = defineStore('lists', () => {
 
   // Like/unlike list
   async function toggleListLike(listId) {
-    try {
-      await api.post(`/api/lists/${listId}/interactions`, {
-        interaction_type: 'like',
-      })
+    const authStore = useAuthStore()
+    const userGuid = authStore.user?.guid
+    const list = currentList.value?.guid === listId ? currentList.value : null
+    const existingLike = (list?.user_interactions || []).find(
+      (interaction) =>
+        interaction.interaction_type === 'like' &&
+        (!userGuid || interaction.user_guid === userGuid),
+    )
 
-      // Update current list if we're viewing it
-      if (currentList.value && currentList.value.guid === listId) {
-        currentList.value.like_count = (currentList.value.like_count || 0) + 1
+    try {
+      if (existingLike) {
+        await api.delete(`/api/lists/${listId}/interactions/like`)
+
+        // Update current list if we're viewing it
+        if (list) {
+          list.like_count = Math.max(0, (list.like_count || 0) - 1)
+          list.user_interactions = (list.user_interactions || []).filter(
+            (interaction) => interaction !== existingLike,
+          )
+        }
+      } else {
+        await api.post(`/api/lists/${listId}/interactions`, {
+          interaction_type: 'like',
+        })
+
+        // Update current list if we're viewing it
+        if (list) {
+          list.like_count = (list.like_count || 0) + 1
+          if (userGuid) {
+            list.user_interactions = [
+              ...(list.user_interactions || []),
+              { interaction_type: 'like', user_guid: userGuid, list_guid: listId },
+            ]
+          }
+        }
       }
     } catch (error) {
       logger.error('[ListsStore] Failed to like list:', error)

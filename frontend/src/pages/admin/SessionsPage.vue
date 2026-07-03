@@ -309,12 +309,20 @@
             </q-item>
           </q-list>
 
-          <template v-if="sessionContractLoading || sessionContract">
+          <template v-if="sessionContractLoading || sessionContract || sessionContractError">
             <q-separator class="q-my-md" />
             <div class="text-subtitle2 q-mb-sm">{{ $t('sessionsPage.deviceContract') }}</div>
             <div v-if="sessionContractLoading" class="row items-center q-gutter-sm">
               <q-spinner color="primary" size="sm" />
               <span class="text-caption">{{ $t('sessionsPage.loadingDeviceContract') }}</span>
+            </div>
+            <div v-else-if="sessionContractError" class="row items-center q-gutter-sm">
+              <q-icon name="mdi-alert-circle-outline" color="negative" size="sm" />
+              <span class="text-caption text-negative">
+                {{
+                  $t('sessionsPage.deviceContractError', 'Failed to load device session details')
+                }}
+              </span>
             </div>
             <q-list v-else dense bordered class="rounded-borders">
               <q-item>
@@ -376,6 +384,7 @@
         <q-card-actions align="right">
           <q-btn flat :label="$t('sessionsPage.close')" color="primary" v-close-popup />
           <q-btn
+            v-if="selectedSession?.session_id"
             flat
             :label="$t('sessionsPage.terminate')"
             color="negative"
@@ -436,7 +445,7 @@ const terminateMessage = ref('')
 const terminating = ref(false)
 
 // Auto-refresh every 10 seconds
-const { start: startAutoRefresh } = useInterval(() => loadSessions(), 10000)
+const { start: startAutoRefresh } = useInterval(() => loadSessions({ background: true }), 10000)
 
 // Table columns
 const columns = computed(() => [
@@ -577,8 +586,10 @@ const queueSummary = computed(() => {
 })
 
 // Methods
-const loadSessions = async () => {
-  loading.value = true
+const loadSessions = async ({ background = false } = {}) => {
+  if (!background) {
+    loading.value = true
+  }
   try {
     const [sessionsResult, deviceSessionsResult] = await Promise.allSettled([
       api.get('/api/sessions'),
@@ -603,7 +614,9 @@ const loadSessions = async () => {
   } catch (error) {
     logger.error('Failed to load sessions:', error)
   } finally {
-    loading.value = false
+    if (!background) {
+      loading.value = false
+    }
   }
 }
 

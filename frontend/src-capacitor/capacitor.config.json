@@ -3,8 +3,7 @@
   "appName": "pyrate.media",
   "webDir": "www",
   "server": {
-    "androidScheme": "https",
-    "allowNavigation": ["*"]
+    "androidScheme": "https"
   },
   "plugins": {
     "CapacitorHttp": {

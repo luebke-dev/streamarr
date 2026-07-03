@@ -13,6 +13,7 @@ export const useOfflineStore = defineStore('offline', () => {
   const error = ref(null)
   const requestErrorMessage = ref('')
   const objectUrls = ref({})
+  const objectUrlRequests = new Map()
 
   const manifestItems = computed(() => manifest.value?.items || [])
   const statusOrder = ['queued', 'downloading', 'ready', 'failed', 'removed']
@@ -41,13 +42,19 @@ export const useOfflineStore = defineStore('offline', () => {
     if (currentDevice.value && !force) return currentDevice.value
 
     const authStore = useAuthStore()
-    const response = await api.get('/api/devices/me', {
-      params: { page_size: 100 },
-    })
-    const devices = response.data?.items || []
-    currentDevice.value =
-      devices.find((device) => device.device_id === authStore.deviceId) || devices[0] || null
-    return currentDevice.value
+    try {
+      const response = await api.get('/api/devices/me', {
+        params: { page_size: 100 },
+      })
+      const devices = response.data?.items || []
+      currentDevice.value =
+        devices.find((device) => device.device_id === authStore.deviceId) || devices[0] || null
+      return currentDevice.value
+    } catch (err) {
+      error.value = err
+      logger.warn('[Offline] Failed to load current device:', err)
+      throw err
+    }
   }
 
   async function fetchDeviceOfflineItems(deviceGuid, { force = false } = {}) {
@@ -56,13 +63,19 @@ export const useOfflineStore = defineStore('offline', () => {
       return deviceOfflineItems.value[deviceGuid]
     }
 
-    const response = await api.get(`/api/devices/${deviceGuid}/offline-items`)
-    const payload = response.data || { items: [], total: 0 }
-    deviceOfflineItems.value = {
-      ...deviceOfflineItems.value,
-      [deviceGuid]: payload,
+    try {
+      const response = await api.get(`/api/devices/${deviceGuid}/offline-items`)
+      const payload = response.data || { items: [], total: 0 }
+      deviceOfflineItems.value = {
+        ...deviceOfflineItems.value,
+        [deviceGuid]: payload,
+      }
+      return payload
+    } catch (err) {
+      error.value = err
+      logger.warn('[Offline] Failed to load device offline items:', err)
+      throw err
     }
-    return payload
   }
 
   async function fetchManifest({ force = false, deviceGuid = null } = {}) {
@@ -112,19 +125,29 @@ export const useOfflineStore = defineStore('offline', () => {
   async function createObjectUrlForMedia(mediaGuid, { force = false } = {}) {
     if (!mediaGuid) return null
     if (objectUrls.value[mediaGuid] && !force) return objectUrls.value[mediaGuid]
-    if (objectUrls.value[mediaGuid] && force) releaseObjectUrl(mediaGuid)
+    if (objectUrlRequests.has(mediaGuid) && !force) return objectUrlRequests.get(mediaGuid)
 
-    await fetchManifest({ force })
-    const item = findManifestItem(mediaGuid)
-    if (!item) return null
+    const request = (async () => {
+      await fetchManifest({ force })
+      const item = findManifestItem(mediaGuid)
+      if (!item) return null
 
-    const response = await api.get(item.download_url, { responseType: 'blob' })
-    const url = URL.createObjectURL(response.data)
-    objectUrls.value = {
-      ...objectUrls.value,
-      [mediaGuid]: { url, item },
-    }
-    return objectUrls.value[mediaGuid]
+      const response = await api.get(item.download_url, { responseType: 'blob' })
+      const url = URL.createObjectURL(response.data)
+      if (objectUrls.value[mediaGuid]) releaseObjectUrl(mediaGuid)
+      objectUrls.value = {
+        ...objectUrls.value,
+        [mediaGuid]: { url, item },
+      }
+      return objectUrls.value[mediaGuid]
+    })().finally(() => {
+      if (objectUrlRequests.get(mediaGuid) === request) {
+        objectUrlRequests.delete(mediaGuid)
+      }
+    })
+
+    objectUrlRequests.set(mediaGuid, request)
+    return request
   }
 
   function releaseObjectUrl(mediaGuid) {

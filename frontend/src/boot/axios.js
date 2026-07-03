@@ -57,7 +57,8 @@ export default defineBoot(({ app, router }) => {
       const isAuthEndpoint =
         originalRequest?.url?.includes('/auth/refresh') ||
         originalRequest?.url?.includes('/auth/status') ||
-        originalRequest?.url?.includes('/auth/login')
+        originalRequest?.url?.includes('/auth/login') ||
+        originalRequest?.url?.includes('/auth/logout')
 
       // Skip auth retry if explicitly requested or for stream endpoints
       // Stream endpoints use play tokens (not JWTs), so JWT refresh would be pointless
@@ -98,14 +99,10 @@ export default defineBoot(({ app, router }) => {
         }
       }
 
-      // Handle 401/403 errors - redirect to login if not authenticated
+      // Handle 401 errors - redirect to login if not authenticated
       // But don't redirect for auth endpoints or stream endpoints (they use play tokens)
-      if (
-        (error.response?.status === 401 || error.response?.status === 403) &&
-        !isAuthEndpoint &&
-        !isStreamEndpoint
-      ) {
-        logger.error('Authentication/Authorization error:', error.response.data)
+      if (error.response?.status === 401 && !isAuthEndpoint && !isStreamEndpoint) {
+        logger.error('Authentication error:', error.response.data)
 
         // Check if user is not authenticated and redirect to login
         if (authStore && !authStore.isAuthenticated) {
