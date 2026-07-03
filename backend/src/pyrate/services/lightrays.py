@@ -3,6 +3,7 @@
 import logging
 import os
 import time
+import uuid
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urljoin, urlparse, urlunparse
 
@@ -57,19 +58,49 @@ LIGHTRAYS_DEFAULT_RUNTIME_PROFILE = os.environ.get(
 )
 LIGHTRAYS_JWT_SECRET = os.environ.get("LIGHTRAYS_JWT_SECRET", "")
 
+# Audience the Lightrays server validates tokens against (see Rust fix S-M3).
+# Minted on every backend-issued token so they pass the upcoming aud check.
+LIGHTRAYS_JWT_AUDIENCE = "lightrays"
+
+# A GOW cold start (image pull + container boot) can take well over the
+# default 30s. Give ``/api/launch`` a generous *read* timeout so a slow —
+# but succeeding — launch doesn't ReadTimeout into a 502 while Lightrays
+# quietly finishes building the session (which would leave it orphaned).
+# ``launch`` is non-idempotent, so a large timeout is the right lever here
+# rather than a retry. ``connect`` stays short so a dead host fails fast.
+LIGHTRAYS_LAUNCH_READ_TIMEOUT_SECS = float(
+    os.environ.get("LIGHTRAYS_LAUNCH_READ_TIMEOUT_SECS", "180")
+)
+
+# One-shot guard so a missing-secret misconfiguration is logged loudly once
+# instead of silently sending unauthenticated requests on every call.
+_warned_missing_secret = False
+
 
 def create_lightrays_token(
     user_id: str, expires_minutes: int = 30, scope: str | None = None
 ) -> str:
     """Create a short-lived JWT for authenticating with Lightrays.
 
-    Returns an empty string when no shared secret is configured (auth disabled).
+    Returns an empty string when no shared secret is configured (auth
+    disabled). In that case a warning is logged once so an accidentally
+    unset ``LIGHTRAYS_JWT_SECRET`` — which would make Lightrays reject every
+    request — is visible rather than silent.
     """
+    global _warned_missing_secret
     if not LIGHTRAYS_JWT_SECRET:
+        if not _warned_missing_secret:
+            logger.warning(
+                "LIGHTRAYS_JWT_SECRET is not set; sending UNAUTHENTICATED "
+                "requests to Lightrays. If Lightrays enforces auth every call "
+                "will be rejected — set LIGHTRAYS_JWT_SECRET."
+            )
+            _warned_missing_secret = True
         return ""
 
     payload = {
         "sub": user_id,
+        "aud": LIGHTRAYS_JWT_AUDIENCE,
         "exp": datetime.now(UTC) + timedelta(minutes=expires_minutes),
         "iat": datetime.now(UTC),
     }
@@ -166,7 +197,13 @@ async def launch_session(
         width,
         height,
     )
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    launch_timeout = httpx.Timeout(
+        connect=10.0,
+        read=LIGHTRAYS_LAUNCH_READ_TIMEOUT_SECS,
+        write=10.0,
+        pool=10.0,
+    )
+    async with httpx.AsyncClient(timeout=launch_timeout) as client:
         resp = await request_with_resilience(
             lambda: client.post(
                 f"{LIGHTRAYS_URL}/api/launch",
@@ -177,6 +214,9 @@ async def launch_session(
             # Non-idempotent POST: only retry when the request provably never
             # reached the server, so we never launch a duplicate session.
             retry_exceptions=CONNECT_ONLY_EXCEPTIONS,
+            # ...and never replay a 5xx response either: the server may have
+            # already spawned the session, so a retry could duplicate it.
+            retry_on_server_error=False,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -302,6 +342,62 @@ async def count_active_sessions(user_id: str) -> int:
     cutoff = time.time() - LIGHTRAYS_SESSION_MAX_SECONDS
     await r.zremrangebyscore(key, 0, cutoff)
     return await r.zcard(key)
+
+
+# Atomic reserve-a-slot: prune stale entries, and only if the user is still
+# below the cap, add a short-lived reservation placeholder to the active-set
+# and return the (post-prune, pre-reserve) count. Returns -1 when the cap is
+# already reached. Doing the prune+check+add in a single Lua script closes the
+# TOCTOU window between counting and launching two concurrent sessions.
+_RESERVE_SLOT_LUA = """
+redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, ARGV[1])
+local count = redis.call('ZCARD', KEYS[1])
+if count >= tonumber(ARGV[2]) then
+    return -1
+end
+redis.call('ZADD', KEYS[1], ARGV[3], ARGV[4])
+redis.call('EXPIRE', KEYS[1], ARGV[5])
+return count
+"""
+
+
+async def reserve_session_slot(user_id: str, max_streams: int) -> str | None:
+    """Atomically reserve a concurrency slot for a new session.
+
+    Returns a reservation token that counts toward ``max_game_streams`` until
+    it is either superseded by the real :func:`record_session` entry or freed
+    with :func:`release_session_slot`. Returns ``None`` when the user is
+    already at the cap, so the caller can reject the launch before starting a
+    Lightrays session. This closes the count→check→launch TOCTOU gap.
+    """
+    from pyrate.services.rate_limiter import _get_redis
+
+    r = await _get_redis()
+    now = time.time()
+    token = f"reserve:{uuid.uuid4().hex}"
+    result = await r.eval(
+        _RESERVE_SLOT_LUA,
+        1,
+        _user_set_key(user_id),
+        now - LIGHTRAYS_SESSION_MAX_SECONDS,
+        max_streams,
+        now,
+        token,
+        LIGHTRAYS_SESSION_MAX_SECONDS + 60,
+    )
+    if int(result) < 0:
+        return None
+    return token
+
+
+async def release_session_slot(user_id: str, token: str) -> None:
+    """Free a reservation placeholder created by :func:`reserve_session_slot`."""
+    if not token:
+        return
+    from pyrate.services.rate_limiter import _get_redis
+
+    r = await _get_redis()
+    await r.zrem(_user_set_key(user_id), token)
 
 
 async def record_session(*, user_id: str, session_id: str, media_id: str) -> float:

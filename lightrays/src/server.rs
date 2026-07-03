@@ -89,6 +89,10 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
     if orphan_sinks > 0 {
         log::warn!("Startup reconciliation unloaded {orphan_sinks} orphaned PulseAudio sink(s)");
     }
+    let orphan_dirs = sweep_orphan_runtime_dirs(&empty_active, 0).await;
+    if orphan_dirs > 0 {
+        log::warn!("Startup reconciliation removed {orphan_dirs} orphaned runtime dir(s)");
+    }
 
     // Build CORS layer from config
     let cors = build_cors_layer(&config.cors_origins);
@@ -296,6 +300,54 @@ async fn handle_ready(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 /// just-created container is never mistaken for an orphan mid-launch.
 const ORPHAN_SWEEP_MIN_AGE_SECS: i64 = 120;
 
+/// Base directory under which per-session runtime dirs are created (S-H1).
+fn xdg_runtime_base() -> String {
+    std::env::var("XDG_RUNTIME_DIR")
+        .unwrap_or_else(|_| "/tmp/lightrays-runtime".to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
+/// Remove per-session runtime subdirectories left behind by crashed or
+/// lost sessions (S-H1). `active` holds live session ids; dirs younger
+/// than `min_age_secs` are skipped so an in-flight launch that hasn't
+/// registered yet isn't swept. Best-effort; returns the number removed.
+async fn sweep_orphan_runtime_dirs(active: &HashSet<String>, min_age_secs: i64) -> usize {
+    let base = xdg_runtime_base();
+    let mut rd = match tokio::fs::read_dir(&base).await {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    let now = std::time::SystemTime::now();
+    let mut removed = 0;
+    while let Ok(Some(entry)) = rd.next_entry().await {
+        let name = entry.file_name().to_string_lossy().to_string();
+        // Only ever touch 16-hex session-id directories.
+        if name.len() != 16 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+        if active.contains(&name) {
+            continue;
+        }
+        if min_age_secs > 0 {
+            if let Ok(meta) = entry.metadata().await {
+                if let Ok(modified) = meta.modified() {
+                    if let Ok(age) = now.duration_since(modified) {
+                        if (age.as_secs() as i64) < min_age_secs {
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        if tokio::fs::remove_dir_all(entry.path()).await.is_ok() {
+            log::warn!("Orphan sweep: removed orphaned runtime dir {name}");
+            removed += 1;
+        }
+    }
+    removed
+}
+
 /// Background task that reaps sessions idle longer than the configured
 /// timeout, and — as a standing safety net — reconciles the actually
 /// running `lightrays-*` containers against the in-memory session map so a
@@ -315,8 +367,16 @@ async fn session_timeout_reaper(state: Arc<AppState>, timeout_secs: u64) {
                 .collect();
             let mut expired = Vec::new();
             for (id, session) in sessions {
+                // R-H1: never reap a session with a live WebRTC connection —
+                // an actively-played session sends input over the data
+                // channel (not the signalling WS), so WS-only activity
+                // tracking would falsely time it out.
+                if *session.connected.lock().await {
+                    continue;
+                }
                 let last_activity = *session.last_activity_at.lock().await;
-                if last_activity.elapsed() > timeout {
+                let input_idle = session.stream.seconds_since_input();
+                if last_activity.elapsed() > timeout && input_idle as u64 > timeout_secs {
                     expired.push(id);
                 }
             }
@@ -352,6 +412,14 @@ async fn session_timeout_reaper(state: Arc<AppState>, timeout_secs: u64) {
                 log::warn!("Reaper reconciliation removed {removed} orphaned lightrays container(s)");
             }
         }
+
+        // Sweep per-session runtime dirs no live session owns (S-H1).
+        let active_ids: HashSet<String> =
+            state.sessions.lock().await.keys().cloned().collect();
+        let removed_dirs = sweep_orphan_runtime_dirs(&active_ids, ORPHAN_SWEEP_MIN_AGE_SECS).await;
+        if removed_dirs > 0 {
+            log::warn!("Reaper reconciliation removed {removed_dirs} orphaned runtime dir(s)");
+        }
     }
 }
 
@@ -364,7 +432,7 @@ async fn handle_launch(
     headers: HeaderMap,
     Json(req): Json<LaunchRequest>,
 ) -> impl IntoResponse {
-    let principal = match auth::verify_bearer(&headers, &state.config.jwt_secret) {
+    let principal = match auth::verify_bearer(&headers, &state.config.jwt_secret, &state.config.jwt_audience) {
         Ok(principal) => principal,
         Err(e) => return e.into_response(),
     };
@@ -372,10 +440,27 @@ async fn handle_launch(
         Ok(launch) => launch,
         Err(e) => return e.into_response(),
     };
-    let container_config = match build_container_config(&state.config, &launch) {
-        Ok(config) => config,
-        Err(e) => return e.into_response(),
-    };
+
+    // S-C1: a client-supplied raw `docker_image` runs inside a privileged
+    // container, so it is an admin-only capability and must additionally
+    // pass the registry allowlist. Normal users get a 403.
+    if let Some(image) = launch.docker_image.as_deref() {
+        if !principal.has_scope("lightrays:admin") {
+            return forbidden("docker_image override requires the lightrays:admin scope")
+                .into_response();
+        }
+        if let Err(e) =
+            crate::launch::validate_image_registry(image, &state.config.allowed_registries)
+        {
+            return e.into_response();
+        }
+    }
+
+    let container_config =
+        match build_container_config(&state.config, &launch, &principal.subject) {
+            Ok(config) => config,
+            Err(e) => return e.into_response(),
+        };
 
     // Stop existing sessions conflicting with this launch. When the caller
     // supplies `app_id`, match on that (keeps per-user sessions isolated
@@ -413,11 +498,47 @@ async fn handle_launch(
         }
     }
 
+    // S-H4: enforce concurrency limits (after conflicting sessions have
+    // been stopped so a relaunch of one's own app never trips the cap).
+    {
+        let sessions = state.sessions.lock().await;
+        let global = sessions.len();
+        let per_user = sessions
+            .values()
+            .filter(|s| s.owner_sub == principal.subject)
+            .count();
+        drop(sessions);
+        let max_global = state.config.max_sessions_global;
+        let max_user = state.config.max_sessions_per_user;
+        if max_global > 0 && global >= max_global {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "error": "global concurrent session limit reached"
+                })),
+            )
+                .into_response();
+        }
+        if max_user > 0 && per_user >= max_user {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "error": "per-user concurrent session limit reached"
+                })),
+            )
+                .into_response();
+        }
+    }
+
     // Generate session ID (16 hex chars = 64 bits of entropy)
     let session_id = uuid::Uuid::new_v4().simple().to_string()[..16].to_string();
 
-    let xdg_runtime =
+    // S-H1: give each session its own runtime directory under the base so a
+    // container only ever sees its own Wayland/X11 sockets, never another
+    // session's. XDG_RUNTIME_DIR is treated as a *base* path here.
+    let xdg_base =
         std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp/lightrays-runtime".to_string());
+    let xdg_runtime = format!("{}/{}", xdg_base.trim_end_matches('/'), session_id);
 
     // Create StreamSession
     let stream = match StreamSession::new(
@@ -648,6 +769,7 @@ async fn handle_launch(
         "ws_ticket": auth::create_ws_ticket(
             &state.config.jwt_secret,
             state.config.ws_ticket_ttl_secs,
+            &state.config.jwt_audience,
             &principal,
             &session_id,
         ),
@@ -667,7 +789,7 @@ async fn handle_stop(
     headers: HeaderMap,
     Json(req): Json<StopRequest>,
 ) -> impl IntoResponse {
-    let principal = match auth::verify_bearer(&headers, &state.config.jwt_secret) {
+    let principal = match auth::verify_bearer(&headers, &state.config.jwt_secret, &state.config.jwt_audience) {
         Ok(principal) => principal,
         Err(e) => return e.into_response(),
     };
@@ -694,7 +816,7 @@ async fn handle_container_stats(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let principal = match auth::verify_bearer(&headers, &state.config.jwt_secret) {
+    let principal = match auth::verify_bearer(&headers, &state.config.jwt_secret, &state.config.jwt_audience) {
         Ok(principal) => principal,
         Err(e) => return e.into_response(),
     };
@@ -761,7 +883,7 @@ async fn handle_ws_upgrade(
     headers: HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let principal = match auth::verify_ws_token(&headers, &state.config.jwt_secret, &session_id) {
+    let principal = match auth::verify_ws_token(&headers, &state.config.jwt_secret, &state.config.jwt_audience, &session_id) {
         Ok(principal) => principal,
         Err(e) => return e.into_response(),
     };
@@ -801,6 +923,22 @@ async fn handle_websocket(socket: WebSocket, session_id: String, state: Arc<AppS
         }
     };
 
+    // R-M1: a session that is already streaming has a live WebRTC pipeline
+    // and data channel. A second WebSocket must NOT tear it down — reject
+    // the new connection and leave the running session untouched.
+    if session.stream.is_streaming() {
+        log::warn!(
+            "Rejecting second WebSocket for already-streaming session {}",
+            session_id
+        );
+        let _ = ws_tx
+            .send(Message::Text(
+                serde_json::json!({"error": "session already has an active stream"}).to_string(),
+            ))
+            .await;
+        return;
+    }
+
     log::info!("WebSocket connected for session {}", session_id);
     if session
         .had_first_connect
@@ -813,6 +951,12 @@ async fn handle_websocket(socket: WebSocket, session_id: String, state: Arc<AppS
 
     // Clone the container death watcher
     let mut container_dead_rx = session.container_dead_rx.clone();
+
+    // Pipeline error watcher — the GStreamer bus-watch threads fire this
+    // on a fatal ERROR/EOS (or a failed resize rebuild) so we tear the
+    // session down instead of streaming a frozen frame (R-M3/R-M4/R-M6).
+    let (pipeline_error_tx, mut pipeline_error_rx) = tokio::sync::watch::channel(false);
+    session.stream.set_error_sender(pipeline_error_tx);
 
     // Create signaling channel
     let (sig_tx, mut sig_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -896,6 +1040,10 @@ async fn handle_websocket(socket: WebSocket, session_id: String, state: Arc<AppS
     // Skip the immediate first tick — we don't need to ping at t=0.
     ping_interval.tick().await;
 
+    // Set when the message loop breaks because of a fatal pipeline error,
+    // so the post-loop cleanup skips the reconnect grace window.
+    let mut pipeline_error = false;
+
     // Message loop: multiplex between browser→server, GStreamer→browser, and container death
     loop {
         tokio::select! {
@@ -949,6 +1097,15 @@ async fn handle_websocket(socket: WebSocket, session_id: String, state: Arc<AppS
                     break;
                 }
             }
+            _ = pipeline_error_rx.changed() => {
+                if *pipeline_error_rx.borrow_and_update() {
+                    log::warn!("Pipeline error for session {} — tearing down", session_id);
+                    let json = serde_json::json!({ "type": "pipeline_error" }).to_string();
+                    let _ = ws_tx.send(Message::Text(json)).await;
+                    pipeline_error = true;
+                    break;
+                }
+            }
             _ = ping_interval.tick() => {
                 if ws_tx.send(Message::Ping(Vec::new())).await.is_err() {
                     break;
@@ -959,11 +1116,19 @@ async fn handle_websocket(socket: WebSocket, session_id: String, state: Arc<AppS
 
     metrics::WEBRTC_CONNECTIONS_ACTIVE.dec();
     log::info!("WebSocket closed for session {}", session_id);
-    session.stream.stop_webrtc_pipeline();
+    // R-M5: teardown blocks (pipeline NULL + thread join, up to ~3 s), so
+    // run it on a blocking worker instead of stalling a Tokio worker.
+    {
+        let stream = session.stream.clone();
+        let _ = tokio::task::spawn_blocking(move || stream.stop_webrtc_pipeline()).await;
+    }
     *session.connected.lock().await = false;
 
     let grace_secs = state.config.reconnect_grace_secs;
-    if grace_secs == 0 {
+    // A fatal pipeline error means the compositor/encoder is gone — there is
+    // nothing to reconnect to, so stop the session immediately regardless of
+    // the reconnect grace window.
+    if grace_secs == 0 || pipeline_error {
         session_store::stop_session(&state, &session_id).await;
     } else {
         let state_clone = state.clone();

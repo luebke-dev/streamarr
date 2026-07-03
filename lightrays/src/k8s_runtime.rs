@@ -38,12 +38,16 @@ const SESSION_CAPABILITIES: &[&str] = &[
     "NET_ADMIN",
 ];
 
-/// Pre-K8s gow image binds `/dev/dri` and `/dev/input` from the host;
-/// the matching cgroup rules go on the Pod via the device plugin or
-/// hostPath. We use hostPath for parity with the Docker setup since
-/// production deployments are already pinning to a GPU node.
+/// Pre-K8s gow image binds `/dev/dri` from the host; the matching cgroup
+/// rules go on the Pod via the device plugin or hostPath. We use hostPath
+/// for parity with the Docker setup since production deployments are
+/// already pinning to a GPU node.
+///
+/// S-H3: the physical host `/dev/input` is intentionally NOT mounted —
+/// GOW injects input by *creating* virtual devices through `/dev/uinput`,
+/// so we expose only that node and never the host's real input devices.
 const HOST_DRI_PATH: &str = "/dev/dri";
-const HOST_INPUT_PATH: &str = "/dev/input";
+const HOST_UINPUT_PATH: &str = "/dev/uinput";
 
 #[derive(Clone)]
 pub struct KubernetesRunner {
@@ -103,7 +107,21 @@ impl KubernetesRunner {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| sanitize_title(&app.title));
 
-        let host_app_state = format!("{}/apps_state/{}", self.host_state_dir, app_key);
+        // Namespace the persistent state under the sanitized owner subject
+        // so a user cannot mount another user's home by guessing the
+        // app_id/title (S-M1).
+        let owner_key = {
+            let k = sanitize_title(&app.owner_sub);
+            if k.is_empty() {
+                "anonymous".to_string()
+            } else {
+                k
+            }
+        };
+        let host_app_state = format!(
+            "{}/apps_state/{}/{}",
+            self.host_state_dir, owner_key, app_key
+        );
         let container_xdg = "/tmp/sockets";
 
         let env: Vec<EnvVar> = build_container_env(app, session, container_xdg)
@@ -145,11 +163,13 @@ impl KubernetesRunner {
                 }),
                 ..Default::default()
             },
+            // uinput lets GOW create its own virtual input devices without
+            // exposing the host's physical /dev/input (S-H3).
             Volume {
-                name: "input".into(),
+                name: "uinput".into(),
                 host_path: Some(HostPathVolumeSource {
-                    path: HOST_INPUT_PATH.into(),
-                    type_: Some("Directory".into()),
+                    path: HOST_UINPUT_PATH.into(),
+                    type_: Some("CharDevice".into()),
                 }),
                 ..Default::default()
             },
@@ -172,8 +192,8 @@ impl KubernetesRunner {
                 ..Default::default()
             },
             VolumeMount {
-                name: "input".into(),
-                mount_path: HOST_INPUT_PATH.into(),
+                name: "uinput".into(),
+                mount_path: HOST_UINPUT_PATH.into(),
                 ..Default::default()
             },
         ];
@@ -420,6 +440,10 @@ impl ServerConfig {
             reconnect_grace_secs: 30,
             ws_ticket_ttl_secs: 120,
             gow_image: "ghcr.io/games-on-whales/steam:edge".into(),
+            allowed_registries: vec![],
+            jwt_audience: String::new(),
+            max_sessions_global: 0,
+            max_sessions_per_user: 0,
         }
     }
 }

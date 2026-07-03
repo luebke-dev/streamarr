@@ -12,12 +12,12 @@ from pydantic import BaseModel, Field
 from pyrate.api.dependencies import CurrentUser, DatabaseSession, UserPermissionsDep
 from pyrate.models.media import MediaType
 from pyrate.services.lightrays import (
-    count_active_sessions,
     get_session_record,
     get_stats,
     launch_session,
-    record_session,
     release_session,
+    release_session_slot,
+    reserve_session_slot,
     stop_session,
 )
 from pyrate.services.media import MediaService
@@ -92,6 +92,14 @@ def _game_lightrays_docker_image(media_item: Any) -> str | None:
     return _validate_lightrays_docker_image(extra_data.get("lightrays_docker_image"))
 
 
+async def _safe_release_slot(user_id: str, token: str) -> None:
+    """Best-effort release of a reservation slot; never raise into the caller."""
+    try:
+        await release_session_slot(user_id, token)
+    except Exception as exc:
+        logger.warning("Failed to release lightrays reservation slot: %s", exc)
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
@@ -118,18 +126,14 @@ async def lightrays_launch(
 
     # Enforce permissions.max_game_streams. ``0`` means streaming is fully
     # disabled for this user; a positive cap blocks launches once that
-    # many sessions are already running.
+    # many sessions are already running. The actual count→check→reserve is
+    # done atomically just before launch (see reserve_session_slot below) to
+    # avoid a TOCTOU race between two concurrent launches.
     max_game_streams = permissions.max_game_streams if permissions else 0
     if max_game_streams <= 0:
         raise HTTPException(
             status_code=403,
             detail="Game streaming is not allowed for your account.",
-        )
-    active = await count_active_sessions(str(current_user.guid))
-    if active >= max_game_streams:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Maximum concurrent game streams reached ({max_game_streams}). Stop another session first.",
         )
 
     gaming_prefs = current_user.gaming_preferences or {}
@@ -152,7 +156,22 @@ async def lightrays_launch(
             raise HTTPException(status_code=400, detail="Invalid mouse speed")
 
     docker_image = _game_lightrays_docker_image(media_item)
+
+    # Atomically reserve a concurrency slot. ``None`` means the user is
+    # already at the cap. The reservation counts toward the cap until the
+    # real session record replaces it, closing the count→check→launch race.
+    reservation = await reserve_session_slot(str(current_user.guid), max_game_streams)
+    if reservation is None:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Maximum concurrent game streams reached ({max_game_streams}). Stop another session first.",
+        )
+
     try:
+        # Passing ``media_id`` makes launch + Redis bookkeeping atomic inside
+        # launch_session: it records the session and rolls the Lightrays
+        # launch back if recording fails, so no orphaned GPU session is left
+        # behind. This is the single record_session path.
         data = await launch_session(
             title=media_item.title or "Game",
             width=body.width,
@@ -167,28 +186,21 @@ async def lightrays_launch(
             docker_image=docker_image,
             keyboard_layout=keyboard_layout,
             mouse_speed=mouse_speed,
+            media_id=str(media_item.guid),
         )
     except Exception as exc:
+        # Free the reserved slot so a failed launch doesn't hold capacity.
+        await _safe_release_slot(str(current_user.guid), reservation)
         logger.error("Lightrays launch failed: %s", exc)
         raise HTTPException(
             status_code=502,
             detail="Failed to start game streaming session — is Lightrays running?",
         ) from exc
 
-    session_id = data["session_id"]
+    # The real session record now holds the slot; drop the placeholder.
+    await _safe_release_slot(str(current_user.guid), reservation)
 
-    # Track the active session so the limit check above can see it, and so
-    # the stop endpoint can later attribute the stream back to this user.
-    try:
-        await record_session(
-            user_id=str(current_user.guid),
-            session_id=session_id,
-            media_id=str(media_item.guid),
-        )
-    except Exception as exc:
-        # Limit-tracking is best-effort — never let Redis hiccups block a
-        # successful launch. The stale entry (if any) will time out.
-        logger.warning("Failed to record lightrays session in redis: %s", exc)
+    session_id = data["session_id"]
 
     # Surface the stream in viewing history so games appear in
     # recently-watched / continue-watching alongside other media.
@@ -219,12 +231,16 @@ async def lightrays_stop(
     except Exception as exc:
         logger.warning("Failed to read lightrays session record: %s", exc)
         record = None
-    if (
-        record
-        and record.get("user_id") != str(current_user.guid)
-        and not current_user.is_superuser
-    ):
-        raise HTTPException(status_code=403, detail="Not authorized for this stream")
+    # Fail closed: an unknown session (no Redis record) is treated as not
+    # found rather than proxied to Lightrays, so ownership no longer depends
+    # on Lightrays-side auth being active. Superusers may act on any session.
+    if not current_user.is_superuser:
+        if record is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if record.get("user_id") != str(current_user.guid):
+            raise HTTPException(
+                status_code=403, detail="Not authorized for this stream"
+            )
 
     try:
         result = await stop_session(
@@ -268,12 +284,14 @@ async def lightrays_stats(session_id: str, current_user: CurrentUser):
     except Exception as exc:
         logger.warning("Failed to read lightrays session record: %s", exc)
         record = None
-    if (
-        record
-        and record.get("user_id") != str(current_user.guid)
-        and not current_user.is_superuser
-    ):
-        raise HTTPException(status_code=403, detail="Not authorized for this stream")
+    # Fail closed on unknown sessions (see stop endpoint). Superusers exempt.
+    if not current_user.is_superuser:
+        if record is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if record.get("user_id") != str(current_user.guid):
+            raise HTTPException(
+                status_code=403, detail="Not authorized for this stream"
+            )
 
     try:
         return await get_stats(
