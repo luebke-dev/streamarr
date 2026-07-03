@@ -8,6 +8,11 @@ Requires=pyrate-migrate.service
 Image=registry.gitlab.com/pyrate.media/backend:latest
 ContainerName=pyrate-backend
 
+# Secrets & host paths (POSTGRES_PASSWORD, SECRET_KEY, DATA_DIR,
+# PROJECT_ROOT, ...) are injected from this file. Create it with mode 0600,
+# owned by root. See deployment/README.md.
+EnvironmentFile=/etc/pyrate/pyrate.env
+
 Exec=uv run uvicorn pyrate.web:app --host 0.0.0.0 --port 8000 --workers 2
 
 SecurityLabelDisable=true

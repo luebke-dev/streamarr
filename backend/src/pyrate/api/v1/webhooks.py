@@ -1,11 +1,34 @@
 """Webhook endpoints for external service callbacks.
 
-All custom downloaders (spotify, torrent, usenet) use the same webhook
-payload format so they share a common handler.
+All custom downloaders (spotify, torrent, usenet) emit the same terminal
+webhook payload::
+
+    {
+        "id": <job_id>,          # external job id
+        "status": <status>,      # "completed" | "done" | "failed"
+        "path": <output_base>,   # the downloader's OWN output base path
+        "files": [<basename>...],# whitelist of produced files (optional)
+        "error": <str>,          # present on failure
+        ...                      # name/category/destination are informational
+    }
+
+so the three endpoints share a single normalization + handling path
+(:func:`_handle_downloader_webhook`).
+
+Path translation (downloader container path -> backend mount path) is
+configured in ONE place — :data:`_DEFAULT_MOUNT_MAP`, overridable via the
+``DOWNLOADER_MOUNT_MAP`` env var — instead of being duplicated as
+per-client ``REMOTE_PREFIX``/``LOCAL_PREFIX`` constants. The downloader
+reports its own output base path in ``path`` and the backend applies the
+configured remote->local translation for that downloader, so the import no
+longer depends on hard-coded container-path constants scattered across the
+Python client adapters.
 """
 
 import hmac
+import json
 import logging
+import os
 
 from fastapi import APIRouter, Header, HTTPException, status
 
@@ -23,6 +46,55 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _WARNED_ABOUT_MISSING_SECRET = False
+
+# Single source of truth for translating a downloader's own output base path
+# (as reported in the webhook ``path``) to the path the backend/worker sees
+# for the same files. Keyed by downloader name -> (remote_prefix, local_prefix).
+# Keying by name is required because two downloaders can write to the same
+# in-container path (torrent and usenet-remote both use ``/downloads``) yet be
+# mounted at different backend paths. Defaults mirror the bind-mounts in
+# docker-compose.yml; override wholesale via the ``DOWNLOADER_MOUNT_MAP`` env
+# var (JSON: ``{"<name>": ["<remote_prefix>", "<local_prefix>"], ...}``).
+_DEFAULT_MOUNT_MAP: dict[str, tuple[str, str]] = {
+    "torrent": ("/downloads", "/torrent-downloads"),
+    "spotdl": ("/data/downloads", "/spotdl-downloads"),
+    "usenet": ("/downloads", "/downloads"),
+}
+
+
+def _load_mount_map() -> dict[str, tuple[str, str]]:
+    """Return the configured downloader mount map (env override or default)."""
+    raw = os.environ.get("DOWNLOADER_MOUNT_MAP")
+    if not raw:
+        return _DEFAULT_MOUNT_MAP
+    try:
+        parsed = json.loads(raw)
+        return {str(k): (str(v[0]), str(v[1])) for k, v in parsed.items()}
+    except (ValueError, TypeError, KeyError, IndexError):
+        logger.error(
+            "Invalid DOWNLOADER_MOUNT_MAP (%r); falling back to defaults", raw
+        )
+        return _DEFAULT_MOUNT_MAP
+
+
+def map_download_path(downloader_name: str, remote_path: str) -> str:
+    """Translate a downloader's output path to the backend mount path.
+
+    The downloader reports its OWN output base path; this applies the single
+    configurable remote->local mount translation for that downloader. An empty
+    input resolves to the downloader's local base directory (so callers can use
+    it as the "no explicit destination" fallback). Unknown downloaders or
+    non-matching prefixes are returned unchanged.
+    """
+    pair = _load_mount_map().get(downloader_name)
+    if not pair:
+        return remote_path
+    remote_prefix, local_prefix = pair
+    if not remote_path:
+        return local_prefix
+    if remote_prefix and remote_path.startswith(remote_prefix):
+        return local_prefix + remote_path[len(remote_prefix):]
+    return remote_path
 
 
 def _verify_webhook_secret(x_webhook_secret: str | None, downloader_name: str) -> None:
@@ -55,10 +127,12 @@ def _verify_webhook_secret(x_webhook_secret: str | None, downloader_name: str) -
         )
 
 
-async def _handle_downloader_webhook(
-    payload: dict, db, downloader_name: str, path_mapper
-) -> dict:
-    """Common webhook handler for all custom downloaders."""
+async def _handle_downloader_webhook(payload: dict, db, downloader_name: str) -> dict:
+    """Common webhook handler for all custom downloaders.
+
+    Expects the unified terminal payload (see module docstring). Path
+    translation is done via :func:`map_download_path` for ``downloader_name``.
+    """
     job_id = payload.get("id")
     job_status = payload.get("status")
 
@@ -98,7 +172,7 @@ async def _handle_downloader_webhook(
         record_download_transition(old_status, download.status, downloader_name)
 
         raw_path = payload.get("path") or payload.get("destination") or ""
-        mapped_path = path_mapper(raw_path)
+        mapped_path = map_download_path(downloader_name, raw_path)
         expected_files = payload.get("files") or []
 
         logger.info(
@@ -166,27 +240,9 @@ async def spotdl_webhook(
     db: DatabaseSession,
     x_webhook_secret: str | None = Header(default=None, alias="X-Webhook-Secret"),
 ):
-    """Webhook for the Spotify downloader (spotify-downloader).
-
-    spotdl uses a different payload format:
-      {"event": "job_completed"/"job_failed", "job_id": "...", "name": "...", "destination": "...", "error": "..."}
-    Normalize to the common format before passing to the handler.
-    """
+    """Webhook for the Spotify downloader (spotify-downloader)."""
     _verify_webhook_secret(x_webhook_secret, "spotdl")
-
-    from pyrate.downloaders.spotdl import Spotdl
-
-    # Normalize spotdl payload to common format
-    event = payload.get("event", "")
-    if event == "job_completed":
-        payload["status"] = "completed"
-    elif event == "job_failed":
-        payload["status"] = "failed"
-
-    if "job_id" in payload and "id" not in payload:
-        payload["id"] = str(payload["job_id"])
-
-    return await _handle_downloader_webhook(payload, db, "spotdl", Spotdl._map_path)
+    return await _handle_downloader_webhook(payload, db, "spotdl")
 
 
 @router.post("/torrent", status_code=200)
@@ -197,12 +253,7 @@ async def torrent_webhook(
 ):
     """Webhook for the torrent downloader (torrent-downloader)."""
     _verify_webhook_secret(x_webhook_secret, "torrent")
-
-    from pyrate.downloaders.torrent_downloader import TorrentDownloader
-
-    return await _handle_downloader_webhook(
-        payload, db, "torrent", TorrentDownloader._map_path
-    )
+    return await _handle_downloader_webhook(payload, db, "torrent")
 
 
 @router.post("/usenet", status_code=200)
@@ -213,9 +264,4 @@ async def usenet_webhook(
 ):
     """Webhook for the Usenet downloader (usenet-downloader)."""
     _verify_webhook_secret(x_webhook_secret, "usenet")
-
-    from pyrate.downloaders.usenet_downloader import UsenetDownloader
-
-    return await _handle_downloader_webhook(
-        payload, db, "usenet", UsenetDownloader._map_path
-    )
+    return await _handle_downloader_webhook(payload, db, "usenet")

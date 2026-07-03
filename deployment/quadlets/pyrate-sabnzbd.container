@@ -1,9 +1,19 @@
 [Unit]
+# NOTE: The Quadlet model ships SABnzbd as its ONLY downloader. It does not
+# include the Rust spotdl/torrent/usenet downloader services or the backend
+# nginx proxy that the Docker Compose (deployment/docker) and Helm models run.
+# See "Quadlets: SABnzbd-only variant" in deployment/README.md. Use the Docker
+# Compose or Helm model if you need the full downloader set.
 Description=Pyrate Media SABnzbd Usenet Downloader
 
 [Container]
 Image=linuxserver/sabnzbd:latest
 ContainerName=pyrate-sabnzbd
+
+# Secrets & host paths (POSTGRES_PASSWORD, SECRET_KEY, DATA_DIR,
+# PROJECT_ROOT, ...) are injected from this file. Create it with mode 0600,
+# owned by root. See deployment/README.md.
+EnvironmentFile=/etc/pyrate/pyrate.env
 
 Environment=PUID=1000
 Environment=PGID=1000

@@ -5,6 +5,11 @@ Description=Pyrate Media Elasticsearch
 Image=docker.elastic.co/elasticsearch/elasticsearch:9.2.0
 ContainerName=pyrate-elasticsearch
 
+# Secrets & host paths (POSTGRES_PASSWORD, SECRET_KEY, DATA_DIR,
+# PROJECT_ROOT, ...) are injected from this file. Create it with mode 0600,
+# owned by root. See deployment/README.md.
+EnvironmentFile=/etc/pyrate/pyrate.env
+
 Environment=discovery.type=single-node
 Environment=xpack.security.enabled=false
 Environment=xpack.monitoring.collection.enabled=false

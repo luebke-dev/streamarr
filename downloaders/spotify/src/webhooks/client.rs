@@ -11,30 +11,42 @@ use uuid::Uuid;
 /// The row is kept (never silently dropped) and logged so it can be inspected.
 const MAX_OUTBOX_ATTEMPTS: i64 = 24;
 
+/// Unified terminal webhook payload shared by all pyrate downloaders
+/// (torrent/usenet/spotify). The backend normalizes on `{id, status, path,
+/// files}`; the remaining fields are informational.
 #[derive(Debug, Serialize)]
 pub struct WebhookPayload {
-    pub event: WebhookEvent,
-    pub job_id: Uuid,
+    /// Job UUID — sent as "id" for backend compatibility
+    pub id: Uuid,
+    /// Terminal status: "completed" or "failed"
+    pub status: &'static str,
     pub name: String,
     pub category: Option<String>,
     pub destination: Option<String>,
+    /// The downloader's own output base path for this job. The backend
+    /// applies its single configurable mount translation to this value, so
+    /// no container-path constants are hard-coded on the backend side.
     pub path: Option<String>,
     pub error: Option<String>,
     pub timestamp: DateTime<Utc>,
+    /// Basenames of the files produced for this job. The importer uses this
+    /// as a whitelist so unrelated files in the output directory cannot
+    /// cause a cross-release import.
+    #[serde(default)]
+    pub files: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Clone, Copy)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy)]
 pub enum WebhookEvent {
     JobCompleted,
     JobFailed,
 }
 
 impl WebhookEvent {
-    fn as_str(self) -> &'static str {
+    pub fn status_str(self) -> &'static str {
         match self {
-            WebhookEvent::JobCompleted => "job_completed",
-            WebhookEvent::JobFailed => "job_failed",
+            WebhookEvent::JobCompleted => "completed",
+            WebhookEvent::JobFailed => "failed",
         }
     }
 }
@@ -98,11 +110,11 @@ impl WebhookClient {
         let body = match serde_json::to_string(payload) {
             Ok(b) => b,
             Err(e) => {
-                error!("Failed to serialize webhook payload for job {}: {}", payload.job_id, e);
+                error!("Failed to serialize webhook payload for job {}: {}", payload.id, e);
                 return;
             }
         };
-        let job_id = payload.job_id.to_string();
+        let job_id = payload.id.to_string();
 
         for attempt in 0..=self.config.max_retries {
             if self.post_once(url, &body, &job_id).await {
@@ -120,7 +132,7 @@ impl WebhookClient {
             job_id, url
         );
         self.db
-            .insert_pending_webhook(url, payload.event.as_str(), &body, &job_id);
+            .insert_pending_webhook(url, payload.status, &body, &job_id);
     }
 
     /// Attempt to redeliver every persisted webhook event. On success the entry

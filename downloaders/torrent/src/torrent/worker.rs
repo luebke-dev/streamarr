@@ -245,11 +245,26 @@ impl DownloadWorker {
                         job.destination.as_deref(),
                     )
                     .ok();
-                    if let Some(dir) = dest_dir {
-                        if let Err(e) = Self::extract_archives(&dir).await {
+                    let mut files: Vec<String> = Vec::new();
+                    let output_path = if let Some(dir) = &dest_dir {
+                        if let Err(e) = Self::extract_archives(dir).await {
                             warn!("Job {} archive extraction failed: {}", job_id, e);
                         }
-                    }
+                        if let Ok(mut rd) = tokio::fs::read_dir(dir).await {
+                            while let Ok(Some(entry)) = rd.next_entry().await {
+                                if let Ok(ft) = entry.file_type().await {
+                                    if ft.is_file() {
+                                        files.push(
+                                            entry.file_name().to_string_lossy().into_owned(),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Some(dir.to_string_lossy().into_owned())
+                    } else {
+                        None
+                    };
 
                     info!("Job {} completed successfully", job_id);
                     self.send_webhook(
@@ -259,6 +274,8 @@ impl DownloadWorker {
                         &job.name,
                         &job.category,
                         &job.destination,
+                        output_path,
+                        files,
                         None,
                     )
                     .await;
@@ -290,6 +307,8 @@ impl DownloadWorker {
             &name,
             &category,
             &destination,
+            None,
+            Vec::new(),
             Some(error_msg.to_string()),
         )
         .await;
@@ -360,6 +379,7 @@ impl DownloadWorker {
         found
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn send_webhook(
         &self,
         url: &str,
@@ -368,6 +388,8 @@ impl DownloadWorker {
         name: &str,
         category: &Option<String>,
         destination: &Option<String>,
+        path: Option<String>,
+        files: Vec<String>,
         error: Option<String>,
     ) {
         if url.is_empty() {
@@ -378,13 +400,15 @@ impl DownloadWorker {
             .send(
                 url,
                 &WebhookPayload {
-                    event,
-                    job_id,
+                    id: job_id,
+                    status: event.status_str(),
                     name: name.to_string(),
                     category: category.clone(),
                     destination: destination.clone(),
+                    path,
                     error,
                     timestamp: Utc::now(),
+                    files,
                 },
             )
             .await;

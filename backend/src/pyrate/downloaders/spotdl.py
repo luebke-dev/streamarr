@@ -15,12 +15,6 @@ class Spotdl(DownloaderBase):
     Spotify track ID (e.g. ``3n3Ppam7vgaVa1iaRUc9Lp``).
     """
 
-    # Default path mapping: spotdl container path → backend mount path.
-    # spotdl writes to /data/downloads/ inside its container; the backend
-    # sees the same directory mounted at /spotdl-downloads/.
-    REMOTE_PREFIX = "/data/downloads"
-    LOCAL_PREFIX = "/spotdl-downloads"
-
     def __init__(self, base_url: str, api_key: str | None = None):
         self.base_url = base_url.rstrip("/")
         self.client = make_async_client()
@@ -127,10 +121,14 @@ class Spotdl(DownloaderBase):
 
     @classmethod
     def _map_path(cls, path: str) -> str:
-        """Rewrite a spotdl container path to the backend mount path."""
-        if path.startswith(cls.REMOTE_PREFIX):
-            return cls.LOCAL_PREFIX + path[len(cls.REMOTE_PREFIX) :]
-        return path
+        """Rewrite a spotdl container path to the backend mount path.
+
+        Delegates to the single configurable mount translation so the
+        remote/local prefixes live in exactly one place.
+        """
+        from pyrate.api.v1.webhooks import map_download_path
+
+        return map_download_path("spotdl", path)
 
     @staticmethod
     def _map_status(status: str) -> str:

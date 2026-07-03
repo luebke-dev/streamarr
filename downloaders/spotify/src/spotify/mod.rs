@@ -342,10 +342,18 @@ impl DownloadWorker {
                 Ok(dl) => {
                     job.status = JobStatus::Completed;
                     job.progress = 100.0;
-                    job.path = Some(dl.path);
+                    job.path = Some(dl.path.clone());
                     job.file_size = Some(dl.file_size);
                     self.db.update_job(&job);
                     info!("Job {job_id} completed");
+                    // Report the downloader's own output base dir as `path`
+                    // and the produced file's basename in `files`; the
+                    // backend applies its single mount translation to `path`.
+                    let file_name = std::path::Path::new(&dl.path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned());
+                    let files = file_name.into_iter().collect::<Vec<_>>();
+                    let output_base = Some(self.output_dir.to_string_lossy().into_owned());
                     self.send_webhook(
                         &webhook_url,
                         WebhookEvent::JobCompleted,
@@ -353,7 +361,8 @@ impl DownloadWorker {
                         &job.track_id,
                         &job.category,
                         &job.destination,
-                        &job.path,
+                        output_base,
+                        files,
                         None,
                     )
                     .await;
@@ -370,7 +379,8 @@ impl DownloadWorker {
                         &job.track_id,
                         &job.category,
                         &job.destination,
-                        &job.path,
+                        None,
+                        Vec::new(),
                         Some(err),
                     )
                     .await;
@@ -379,6 +389,7 @@ impl DownloadWorker {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn send_webhook(
         &self,
         url: &str,
@@ -387,7 +398,8 @@ impl DownloadWorker {
         name: &str,
         category: &Option<String>,
         destination: &Option<String>,
-        path: &Option<String>,
+        path: Option<String>,
+        files: Vec<String>,
         error: Option<String>,
     ) {
         if url.is_empty() {
@@ -398,14 +410,15 @@ impl DownloadWorker {
             .send(
                 url,
                 &WebhookPayload {
-                    event,
-                    job_id,
+                    id: job_id,
+                    status: event.status_str(),
                     name: name.to_string(),
                     category: category.clone(),
                     destination: destination.clone(),
-                    path: path.clone(),
+                    path,
                     error,
                     timestamp: Utc::now(),
+                    files,
                 },
             )
             .await;
