@@ -579,6 +579,19 @@ async fn handle_launch(
             }
         };
 
+        // Isolate this session's socket directory before the container mounts
+        // it, hard-linking the shared compositor/pulse sockets in. Best-effort:
+        // on failure the container still starts (Docker creates the mount
+        // source), the game just won't find the Wayland/pulse sockets — logged
+        // so it isn't silent.
+        if let Err(e) = crate::docker::provision_session_socket_dir(
+            &xdg_runtime,
+            &session_id,
+            wayland_display.as_deref(),
+        ) {
+            log::warn!("Failed to provision session socket dir for {session_id}: {e}");
+        }
+
         let container_session = ContainerSession {
             session_id: session_id.clone(),
             width: launch.width,
@@ -1137,8 +1150,12 @@ fn handle_ws_message(text: &str, session: &Session, state: &Arc<AppState>) {
                             // (it ignores a pre-set SWAYSOCK), and /tmp/sockets is a
                             // shared mount so stale sockets from past sessions linger —
                             // probe each candidate and use the one that answers.
+                            // With a per-session runtime dir sway binds the
+                            // deterministic $SWAYSOCK (/tmp/sockets/sway.socket);
+                            // fall back to the pid-named default if it ever
+                            // couldn't. Probe each and use the one that answers.
                             let script = format!(
-                                "for s in /tmp/sockets/sway-ipc.*.sock; do \
+                                "for s in /tmp/sockets/sway.socket /tmp/sockets/sway-ipc.*.sock; do \
                                    SWAYSOCK=\"$s\" swaymsg -t get_version >/dev/null 2>&1 && \
                                    exec env SWAYSOCK=\"$s\" swaymsg output '*' resolution {res}; \
                                  done; exit 1"
