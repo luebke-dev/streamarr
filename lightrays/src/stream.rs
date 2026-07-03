@@ -865,11 +865,8 @@ impl StreamSession {
             log::info!("Compositor pipeline stopped");
         }
 
-        // Clean up sockets, then remove the per-session runtime directory
-        // so a session can't leave Wayland/X11 sockets behind for the next
-        // one to trip over (S-H1).
+        // Clean up sockets
         crate::pipeline::compositor::cleanup_stale_sockets(&inner.xdg_runtime_dir);
-        let _ = std::fs::remove_dir_all(&inner.xdg_runtime_dir);
 
         // Clear channel
         inner.signaling_tx = None;

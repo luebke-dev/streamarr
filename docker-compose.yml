@@ -241,6 +241,11 @@ services:
       - LIGHTRAYS_TURN_USERNAME=${LIGHTRAYS_TURN_USERNAME:-}
       - LIGHTRAYS_TURN_PASSWORD=${LIGHTRAYS_TURN_PASSWORD:-}
       - LIGHTRAYS_GOW_IMAGE=${LIGHTRAYS_GOW_IMAGE:-ghcr.io/games-on-whales/steam:edge}
+      # GOW/gamescope requires the DRM *primary* node (/dev/dri/card*), not just
+      # the render node — Vulkan aborts with "physical device has no primary
+      # node" otherwise. So card nodes are exposed by default for the Docker
+      # GOW path. (The renderD-only hardening only fits non-gamescope workloads.)
+      - LIGHTRAYS_ALLOW_CARD_NODES=${LIGHTRAYS_ALLOW_CARD_NODES:-true}
       - LIGHTRAYS_RECONNECT_GRACE_SECS=${LIGHTRAYS_RECONNECT_GRACE_SECS:-30}
       - LIGHTRAYS_WS_TICKET_TTL_SECS=${LIGHTRAYS_WS_TICKET_TTL_SECS:-120}
       - LIGHTRAYS_SESSION_TIMEOUT_SECS=${LIGHTRAYS_SESSION_TIMEOUT_SECS:-3600}
