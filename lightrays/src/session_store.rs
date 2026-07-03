@@ -67,7 +67,12 @@ pub async fn stop_session(state: &AppState, session_id: &str) {
 }
 
 async fn cleanup_session(session: &Session, runtime: Option<&dyn Runtime>) {
-    session.stream.stop();
+    // R-M5: StreamSession::stop blocks (pipeline NULL + thread join, up to
+    // ~3 s) — run it on a blocking worker so it never stalls a Tokio worker.
+    {
+        let stream = session.stream.clone();
+        let _ = tokio::task::spawn_blocking(move || stream.stop()).await;
+    }
     if let Some(ref name) = session.container_name {
         if let Some(runtime) = runtime {
             // Cleanup is best-effort across multiple subsystems; if the

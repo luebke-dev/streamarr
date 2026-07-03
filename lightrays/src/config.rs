@@ -57,6 +57,18 @@ pub struct ServerConfig {
     pub ws_ticket_ttl_secs: u64,
     /// Server-side image used by the built-in Games on Whales Steam profile.
     pub gow_image: String,
+    /// Registry hosts a client-supplied `docker_image` override may pull
+    /// from. Empty disables the check. Defaults to the registry host of
+    /// `gow_image`. (S-C1)
+    pub allowed_registries: Vec<String>,
+    /// Expected JWT audience (`aud`). When non-empty, tokens must carry a
+    /// matching `aud` claim. Empty disables audience validation. (S-M3)
+    pub jwt_audience: String,
+    /// Maximum number of concurrent sessions across all users (0 = unlimited).
+    pub max_sessions_global: usize,
+    /// Maximum number of concurrent sessions per authenticated user
+    /// (`owner_sub`) (0 = unlimited).
+    pub max_sessions_per_user: usize,
 }
 
 impl ServerConfig {
@@ -96,6 +108,23 @@ impl ServerConfig {
                 );
             }
         }
+
+        let gow_image = std::env::var("LIGHTRAYS_GOW_IMAGE")
+            .or_else(|_| std::env::var("LIGHTRAYS_DEFAULT_IMAGE"))
+            .unwrap_or_else(|_| "ghcr.io/games-on-whales/steam:edge".into());
+
+        // Registry allowlist for client image overrides. Default: the
+        // registry host of the configured GOW image, so overrides can only
+        // pull from the same trusted registry unless an operator widens it.
+        let allowed_registries: Vec<String> = std::env::var("LIGHTRAYS_ALLOWED_REGISTRIES")
+            .ok()
+            .map(|v| {
+                v.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_else(|| vec![crate::launch::image_registry_host(&gow_image)]);
 
         let config = Self {
             runtime_backend,
@@ -141,9 +170,18 @@ impl ServerConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(120),
-            gow_image: std::env::var("LIGHTRAYS_GOW_IMAGE")
-                .or_else(|_| std::env::var("LIGHTRAYS_DEFAULT_IMAGE"))
-                .unwrap_or_else(|_| "ghcr.io/games-on-whales/steam:edge".into()),
+            gow_image,
+            allowed_registries,
+            jwt_audience: std::env::var("LIGHTRAYS_JWT_AUDIENCE")
+                .unwrap_or_else(|_| "lightrays".into()),
+            max_sessions_global: std::env::var("LIGHTRAYS_MAX_SESSIONS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0),
+            max_sessions_per_user: std::env::var("LIGHTRAYS_MAX_SESSIONS_PER_USER")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0),
         };
 
         config.validate()?;

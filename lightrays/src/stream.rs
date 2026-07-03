@@ -16,8 +16,9 @@ use gstreamer_sdp as gst_sdp;
 use gstreamer_webrtc as gst_webrtc;
 
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::mpsc;
 
 use crate::encoder::{build_encoder_pipeline, select_encoder, H264_MAX_WIDTH};
@@ -133,6 +134,47 @@ pub(crate) struct SessionInner {
 
     // Channel to async WebSocket handler
     pub(crate) signaling_tx: Option<mpsc::UnboundedSender<SignalingMessage>>,
+
+    /// Fires `true` when a pipeline bus posts ERROR/EOS (or a resize
+    /// rebuild fails) so the async WS handler tears the session down
+    /// instead of freezing on a black frame (R-M3/R-M4/R-M6).
+    pub(crate) pipeline_error_tx: Option<tokio::sync::watch::Sender<bool>>,
+    /// Stops the compositor bus-watch thread on teardown.
+    pub(crate) compositor_watch_stop: Arc<AtomicBool>,
+
+    // Input token bucket + activity tracking (S-M5, R-H1).
+    pub(crate) input_tokens: f64,
+    pub(crate) input_rate: f64,
+    pub(crate) input_last_refill: Instant,
+    /// Unix seconds of the last input event, updated by BOTH the WebSocket
+    /// and the WebRTC data-channel paths so an actively-played session over
+    /// the data channel is never idle-reaped (R-H1).
+    pub(crate) input_activity: Arc<AtomicI64>,
+}
+
+fn unix_secs_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+impl SessionInner {
+    /// Record an input event and return whether it is within the per-session
+    /// rate budget. Runs under the `inner` lock held by the caller.
+    pub(crate) fn note_and_allow_input(&mut self) -> bool {
+        self.input_activity.store(unix_secs_now(), Ordering::Relaxed);
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.input_last_refill).as_secs_f64();
+        self.input_last_refill = now;
+        self.input_tokens = (self.input_tokens + elapsed * self.input_rate).min(self.input_rate);
+        if self.input_tokens >= 1.0 {
+            self.input_tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// High-performance streaming session managing compositor + WebRTC pipelines.
@@ -150,6 +192,15 @@ impl StreamSession {
         fps: u32,
     ) -> anyhow::Result<Self> {
         gst::init()?;
+
+        // Per-connection input rate budget (events/sec + 1 s burst). High
+        // enough to never throttle legitimate mouse motion, low enough to
+        // stop a flood (S-M5).
+        let input_rate = std::env::var("LIGHTRAYS_INPUT_RATE_LIMIT")
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .filter(|&r| r > 0.0)
+            .unwrap_or(2000.0);
 
         Ok(Self {
             inner: Arc::new(Mutex::new(SessionInner {
@@ -172,6 +223,12 @@ impl StreamSession {
                 resize_in_progress: false,
                 pending_target: None,
                 signaling_tx: None,
+                pipeline_error_tx: None,
+                compositor_watch_stop: Arc::new(AtomicBool::new(false)),
+                input_tokens: input_rate,
+                input_rate,
+                input_last_refill: Instant::now(),
+                input_activity: Arc::new(AtomicI64::new(unix_secs_now())),
             })),
         })
     }
@@ -204,8 +261,20 @@ impl StreamSession {
         let (compositor, display) = crate::pipeline::compositor::start(&xdg, &render, w, h, fps)?;
 
         let mut inner = self.inner.lock();
+        inner.compositor_watch_stop.store(false, Ordering::SeqCst);
+        // Watch the compositor bus so a waylanddisplaysrc crash tears the
+        // session down instead of silently freezing the stream (R-M4).
+        let watch_bus = compositor.pipeline.bus();
         inner.compositor = Some(compositor);
         inner.phase = Phase::CompositorRunning;
+        if let Some(bus) = watch_bus {
+            crate::webrtc::spawn_bus_watch(
+                bus,
+                Arc::clone(&inner.compositor_watch_stop),
+                Arc::downgrade(&self.inner),
+                "compositor",
+            );
+        }
         Ok(display)
     }
 
@@ -436,6 +505,18 @@ impl StreamSession {
                 None
             };
 
+        // Actively poll the WebRTC pipeline bus for fatal errors (R-M3).
+        // bridge_stop doubles as the watch's stop flag: stop_webrtc sets it
+        // before tearing the pipeline down, so the watch exits cleanly.
+        if let Some(bus) = pipeline.bus() {
+            crate::webrtc::spawn_bus_watch(
+                bus,
+                Arc::clone(&inner.bridge_stop),
+                Arc::downgrade(&self.inner),
+                "webrtc",
+            );
+        }
+
         inner.webrtc = Some(Webrtc {
             pipeline,
             webrtcbin,
@@ -492,9 +573,14 @@ impl StreamSession {
         Ok(())
     }
 
-    /// Send a JSON input event to the compositor.
+    /// Send a JSON input event to the compositor, honouring the per-session
+    /// input rate budget. Over-budget events are dropped (S-M5). Activity is
+    /// recorded so the idle reaper sees data-channel/WS input (R-H1).
     pub fn send_input(&self, json_str: &str) {
-        let inner = self.inner.lock();
+        let mut inner = self.inner.lock();
+        if !inner.note_and_allow_input() {
+            return;
+        }
         if let Some(el) = inner.compositor.as_ref().and_then(|c| c.element.as_ref()) {
             input::handle_input_json(
                 el,
@@ -503,6 +589,25 @@ impl StreamSession {
                 inner.compositor_height,
             );
         }
+    }
+
+    /// Whether a WebRTC stream is currently live. Used to reject a second
+    /// WebSocket to an already-streaming session (R-M1).
+    pub fn is_streaming(&self) -> bool {
+        self.inner.lock().phase == Phase::Streaming
+    }
+
+    /// Seconds elapsed since the last input event over any transport.
+    /// Used by the idle reaper (R-H1).
+    pub fn seconds_since_input(&self) -> i64 {
+        let last = self.inner.lock().input_activity.load(Ordering::Relaxed);
+        (unix_secs_now() - last).max(0)
+    }
+
+    /// Install the watch sender the pipeline bus-watch threads use to
+    /// signal fatal errors to the async WS handler (R-M3/R-M4/R-M6).
+    pub fn set_error_sender(&self, tx: tokio::sync::watch::Sender<bool>) {
+        self.inner.lock().pipeline_error_tx = Some(tx);
     }
 
     /// Request an IDR keyframe from the encoder.
@@ -542,9 +647,6 @@ impl StreamSession {
         // to NULL flushes appsrc, push_sample returns FlowError::Flushing,
         // and the bridge loop exits cleanly.
         if let Some(webrtc) = webrtc {
-            if let Some(bus) = webrtc.pipeline.bus() {
-                bus.remove_signal_watch();
-            }
             let _ = webrtc.pipeline.set_state(gst::State::Null);
             let _ = webrtc.pipeline.state(gst::ClockTime::from_seconds(3));
             log::info!("WebRTC pipeline stopped");
@@ -703,14 +805,23 @@ impl StreamSession {
                     inner.webrtc_turn_server.clone(),
                 )
             };
-            self.start_webrtc(
+            if let Err(e) = self.start_webrtc(
                 bitrate,
                 &audio_device,
                 &pulse_server,
                 &stun_server,
                 &turn_server,
                 signaling_tx,
-            )?;
+            ) {
+                // Rebuilding at the new size failed — rather than leave the
+                // client staring at a frozen/black frame with no encoder,
+                // signal the async handler to tear the session down (R-M6).
+                log::error!("Resize rebuild failed ({e}); signalling session teardown");
+                if let Some(tx) = self.inner.lock().pipeline_error_tx.as_ref() {
+                    let _ = tx.send(true);
+                }
+                return Err(e);
+            }
 
             log::info!(
                 "Resolution change complete: {}x{} → {}x{} — WebRTC pipeline restarted",
@@ -743,6 +854,10 @@ impl StreamSession {
 
         let mut inner = self.inner.lock();
 
+        // Stop the compositor bus-watch thread before tearing the pipeline
+        // down so it doesn't misread the shutdown EOS as a fatal error.
+        inner.compositor_watch_stop.store(true, Ordering::SeqCst);
+
         // Stop compositor pipeline. Taking ownership drops the contained
         // element/capsfilter/sink with the struct.
         if let Some(compositor) = inner.compositor.take() {
@@ -750,8 +865,11 @@ impl StreamSession {
             log::info!("Compositor pipeline stopped");
         }
 
-        // Clean up sockets
+        // Clean up sockets, then remove the per-session runtime directory
+        // so a session can't leave Wayland/X11 sockets behind for the next
+        // one to trip over (S-H1).
         crate::pipeline::compositor::cleanup_stale_sockets(&inner.xdg_runtime_dir);
+        let _ = std::fs::remove_dir_all(&inner.xdg_runtime_dir);
 
         // Clear channel
         inner.signaling_tx = None;

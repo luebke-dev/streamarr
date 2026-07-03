@@ -48,6 +48,14 @@ class TestCreateLightraysToken:
         token = create_lightrays_token("user-1")
         assert token == ""
 
+    def test_token_includes_lightrays_audience(self):
+        """Tokens carry aud='lightrays' so they pass Lightrays' aud check."""
+        from jose import jwt as jose_jwt
+
+        token = create_lightrays_token("user-1")
+        claims = jose_jwt.get_unverified_claims(token)
+        assert claims["aud"] == "lightrays"
+
 
 # ---------------------------------------------------------------------------
 # HTTP calls (mocked)

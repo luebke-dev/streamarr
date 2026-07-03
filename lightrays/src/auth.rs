@@ -49,15 +49,27 @@ pub struct JwtClaims {
     pub scope: Option<String>,
     #[serde(default)]
     pub sid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aud: Option<String>,
 }
 
-/// Validate a raw JWT string against the shared secret.
-fn verify_jwt(token: &str, secret: &str) -> Result<JwtClaims, AuthError> {
+/// Validate a raw JWT string against the shared secret. When `audience` is
+/// non-empty the token must carry a matching `aud` claim (S-M3).
+fn verify_jwt(token: &str, secret: &str, audience: &str) -> Result<JwtClaims, AuthError> {
     let key = DecodingKey::from_secret(secret.as_bytes());
     let mut validation = Validation::new(jsonwebtoken::Algorithm::HS256);
-    validation.required_spec_claims = ["exp", "sub"].iter().map(|s| s.to_string()).collect();
     validation.validate_exp = true;
-    validation.validate_aud = false;
+    if audience.is_empty() {
+        validation.required_spec_claims = ["exp", "sub"].iter().map(|s| s.to_string()).collect();
+        validation.validate_aud = false;
+    } else {
+        // Require `aud` so a token that simply omits it is rejected rather
+        // than silently accepted (jsonwebtoken only checks aud when present).
+        validation.required_spec_claims =
+            ["exp", "sub", "aud"].iter().map(|s| s.to_string()).collect();
+        validation.set_audience(&[audience]);
+        validation.validate_aud = true;
+    }
 
     let data = jsonwebtoken::decode::<JwtClaims>(token, &key, &validation).map_err(|e| {
         log::warn!("JWT verification failed: {e}");
@@ -89,6 +101,7 @@ fn principal_from_claims(claims: &JwtClaims) -> Principal {
 pub fn verify_bearer(
     headers: &axum::http::HeaderMap,
     secret: &str,
+    audience: &str,
 ) -> Result<Principal, AuthError> {
     if secret.is_empty() {
         return Ok(Principal::anonymous());
@@ -106,7 +119,7 @@ pub fn verify_bearer(
         )
     })?;
 
-    let claims = verify_jwt(token, secret)?;
+    let claims = verify_jwt(token, secret, audience)?;
     Ok(principal_from_claims(&claims))
 }
 
@@ -115,6 +128,7 @@ pub fn verify_bearer(
 pub fn verify_ws_token(
     headers: &axum::http::HeaderMap,
     secret: &str,
+    audience: &str,
     session_id: &str,
 ) -> Result<Principal, AuthError> {
     if secret.is_empty() {
@@ -124,7 +138,7 @@ pub fn verify_ws_token(
     // Try Authorization header first for non-browser clients.
     if let Some(auth) = headers.get("authorization").and_then(|v| v.to_str().ok()) {
         if let Some(token) = auth.strip_prefix("Bearer ") {
-            let claims = verify_jwt(token, secret)?;
+            let claims = verify_jwt(token, secret, audience)?;
             return Ok(principal_from_claims(&claims));
         }
     }
@@ -138,7 +152,7 @@ pub fn verify_ws_token(
             .map(str::trim)
             .find(|value| !value.is_empty() && *value != "lightrays");
         if let Some(ticket) = ticket {
-            let claims = verify_jwt(ticket, secret)?;
+            let claims = verify_jwt(ticket, secret, audience)?;
             let scopes = principal_from_claims(&claims);
             if !scopes.has_scope("lightrays:ws") {
                 return Err((
@@ -167,6 +181,7 @@ pub fn verify_ws_token(
 pub fn create_ws_ticket(
     secret: &str,
     ttl_secs: u64,
+    audience: &str,
     principal: &Principal,
     session_id: &str,
 ) -> Option<String> {
@@ -180,6 +195,11 @@ pub fn create_ws_ticket(
         iat: Some(now as usize),
         scope: Some("lightrays:ws".to_string()),
         sid: Some(session_id.to_string()),
+        aud: if audience.is_empty() {
+            None
+        } else {
+            Some(audience.to_string())
+        },
     };
     jsonwebtoken::encode(
         &Header::new(jsonwebtoken::Algorithm::HS256),
@@ -218,6 +238,7 @@ mod tests {
             iat: Some(now as usize),
             scope: scope.map(str::to_string),
             sid: sid.map(str::to_string),
+            aud: None,
         };
         jsonwebtoken::encode(
             &Header::new(jsonwebtoken::Algorithm::HS256),
@@ -255,7 +276,7 @@ mod tests {
     #[test]
     fn bearer_disabled_when_secret_empty() {
         let headers = HeaderMap::new();
-        let p = verify_bearer(&headers, "").expect("auth disabled");
+        let p = verify_bearer(&headers, "", "").expect("auth disabled");
         assert_eq!(p.subject, "anonymous");
     }
 
@@ -264,9 +285,42 @@ mod tests {
         let token = mint("topsecret", "alice", Some("lightrays:user"), None);
         let mut headers = HeaderMap::new();
         headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
-        let p = verify_bearer(&headers, "topsecret").expect("token accepted");
+        let p = verify_bearer(&headers, "topsecret", "").expect("token accepted");
         assert_eq!(p.subject, "alice");
         assert!(p.has_scope("lightrays:user"));
+    }
+
+    #[test]
+    fn bearer_rejects_wrong_audience() {
+        // Token minted without aud must fail when an audience is required.
+        let token = mint("topsecret", "alice", Some("lightrays:user"), None);
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        let err = verify_bearer(&headers, "topsecret", "lightrays").expect_err("aud required");
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn bearer_accepts_matching_audience() {
+        let now = unix_now();
+        let claims = JwtClaims {
+            sub: "alice".into(),
+            exp: (now + 60) as usize,
+            iat: Some(now as usize),
+            scope: Some("lightrays:user".into()),
+            sid: None,
+            aud: Some("lightrays".into()),
+        };
+        let token = jsonwebtoken::encode(
+            &Header::new(jsonwebtoken::Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(b"topsecret"),
+        )
+        .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        let p = verify_bearer(&headers, "topsecret", "lightrays").expect("aud matches");
+        assert_eq!(p.subject, "alice");
     }
 
     #[test]
@@ -277,7 +331,7 @@ mod tests {
             "sec-websocket-protocol",
             format!("lightrays, {ticket}").parse().unwrap(),
         );
-        let err = verify_ws_token(&headers, "k", "session-b").expect_err("sid mismatch");
+        let err = verify_ws_token(&headers, "k", "", "session-b").expect_err("sid mismatch");
         assert_eq!(err.0, StatusCode::UNAUTHORIZED);
     }
 
@@ -289,7 +343,7 @@ mod tests {
             "sec-websocket-protocol",
             format!("lightrays, {ticket}").parse().unwrap(),
         );
-        let err = verify_ws_token(&headers, "k", "s1").expect_err("missing scope");
+        let err = verify_ws_token(&headers, "k", "", "s1").expect_err("missing scope");
         assert_eq!(err.0, StatusCode::UNAUTHORIZED);
     }
 
@@ -301,7 +355,7 @@ mod tests {
             "sec-websocket-protocol",
             format!("lightrays, {ticket}").parse().unwrap(),
         );
-        let p = verify_ws_token(&headers, "k", "s1").expect("ticket valid");
+        let p = verify_ws_token(&headers, "k", "", "s1").expect("ticket valid");
         assert_eq!(p.subject, "alice");
     }
 }

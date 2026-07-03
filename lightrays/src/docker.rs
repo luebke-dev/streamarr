@@ -43,11 +43,15 @@ pub struct ContainerConfig {
     pub mounts: Vec<String>,
     pub base_create_json: String,
     /// Optional stable identifier used to derive per-app persistent state
-    /// (`apps_state/<app_id>`). Falls back to `sanitize_title(title)` when
-    /// unset. Callers use this to scope state per user (e.g.
+    /// (`apps_state/<owner>/<app_id>`). Falls back to `sanitize_title(title)`
+    /// when unset. Callers use this to scope state per user (e.g.
     /// `<user_guid>-<game_guid>`) so concurrent users don't share
     /// `/home/retro` between sessions.
     pub app_id: Option<String>,
+    /// Authenticated owner subject. The persistent state directory is
+    /// namespaced under this so user A can never mount user B's
+    /// `/home/retro` by guessing an `app_id`/title (S-M1).
+    pub owner_sub: String,
 }
 
 /// Information needed by the Docker runner to set up a container.
@@ -84,9 +88,14 @@ impl DockerRunner {
             app.image
         );
 
-        // Resolve host/container paths
-        let host_xdg = std::env::var("LIGHTRAYS_HOST_XDG_RUNTIME_DIR")
-            .unwrap_or_else(|_| session.xdg_runtime_dir.clone());
+        // Resolve host/container paths. Per-session XDG runtime dir (S-H1):
+        // when LIGHTRAYS_HOST_XDG_RUNTIME_DIR is set (Docker-in-Docker) it
+        // is a *base* host path; the per-session subdirectory is appended
+        // so a container only ever sees its own Wayland/X11 sockets.
+        let host_xdg = match std::env::var("LIGHTRAYS_HOST_XDG_RUNTIME_DIR") {
+            Ok(base) => format!("{}/{}", base.trim_end_matches('/'), session.session_id),
+            Err(_) => session.xdg_runtime_dir.clone(),
+        };
         let host_state_dir = std::env::var("LIGHTRAYS_HOST_STATE_DIR").unwrap_or_else(|_| {
             std::env::var("LIGHTRAYS_STATE_DIR").unwrap_or_else(|_| "/etc/lightrays".to_string())
         });
@@ -95,18 +104,28 @@ impl DockerRunner {
         // Per-app state key — caller-supplied `app_id` takes precedence so
         // different users can run the same title without sharing
         // `/home/retro`. Falls back to the sanitized title for backwards
-        // compatibility with clients that don't set app_id.
+        // compatibility with clients that don't set app_id. The key is
+        // additionally namespaced under the sanitized owner subject so a
+        // user cannot mount another user's home by guessing app_id/title.
         let app_key = app
             .app_id
             .as_ref()
             .map(|s| sanitize_title(s))
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| sanitize_title(&app.title));
-        let host_app_state = format!("{}/apps_state/{}", host_state_dir, app_key);
+        let owner_key = {
+            let k = sanitize_title(&app.owner_sub);
+            if k.is_empty() {
+                "anonymous".to_string()
+            } else {
+                k
+            }
+        };
+        let host_app_state = format!("{}/apps_state/{}/{}", host_state_dir, owner_key, app_key);
 
         let local_state_dir =
             std::env::var("LIGHTRAYS_STATE_DIR").unwrap_or_else(|_| "/etc/lightrays".to_string());
-        let local_app_state = format!("{}/apps_state/{}", local_state_dir, app_key);
+        let local_app_state = format!("{}/apps_state/{}/{}", local_state_dir, owner_key, app_key);
         tokio::fs::create_dir_all(&local_app_state).await?;
         tokio::fs::create_dir_all(&session.xdg_runtime_dir).await?;
 
@@ -162,6 +181,10 @@ impl DockerRunner {
             );
         }
 
+        // Per-session resource limits (S-H4). All opt-in via env; unset
+        // leaves the field at Docker's default (unlimited).
+        let (memory, nano_cpus, pids_limit) = resource_limits();
+
         // Create and start
         let host_config = HostConfig {
             binds: Some(binds),
@@ -185,6 +208,9 @@ impl DockerRunner {
             } else {
                 Some(device_cgroup_rules)
             },
+            memory,
+            nano_cpus,
+            pids_limit,
             ipc_mode,
             ..Default::default()
         };
@@ -641,6 +667,10 @@ fn build_volume_binds(
 }
 
 /// Build device mappings from user config + auto-detect /dev/dri devices.
+///
+/// By default only render nodes (`renderD*`) are passed through — the
+/// `card*` modesetting nodes are withheld (S-M4). Set
+/// `LIGHTRAYS_ALLOW_CARD_NODES=true` if a GOW feature needs `card*`.
 fn build_device_mappings(user_devices: &[String]) -> Vec<DeviceMapping> {
     let mut devices = Vec::new();
     for dev_str in user_devices {
@@ -649,10 +679,20 @@ fn build_device_mappings(user_devices: &[String]) -> Vec<DeviceMapping> {
         }
     }
 
-    // Auto-add /dev/dri devices
+    let allow_card_nodes = std::env::var("LIGHTRAYS_ALLOW_CARD_NODES")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+
+    // Auto-add /dev/dri render nodes (and card* only when explicitly enabled)
     if let Ok(entries) = std::fs::read_dir("/dev/dri") {
         for entry in entries.flatten() {
             let path = entry.path();
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy();
+            let is_render = name.starts_with("renderD");
+            if !is_render && !allow_card_nodes {
+                continue;
+            }
             if path
                 .metadata()
                 .map(|m| m.file_type().is_char_device())
@@ -670,6 +710,27 @@ fn build_device_mappings(user_devices: &[String]) -> Vec<DeviceMapping> {
     devices
 }
 
+/// Resolve optional per-session resource limits from the environment.
+/// Returns `(memory_bytes, nano_cpus, pids_limit)` where a `None` leaves
+/// Docker's default (unlimited). (S-H4)
+fn resource_limits() -> (Option<i64>, Option<i64>, Option<i64>) {
+    let memory = std::env::var("LIGHTRAYS_SESSION_MEMORY_MB")
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|&mb| mb > 0)
+        .map(|mb| mb * 1024 * 1024);
+    let nano_cpus = std::env::var("LIGHTRAYS_SESSION_CPUS")
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|&c| c > 0.0)
+        .map(|c| (c * 1_000_000_000.0) as i64);
+    let pids_limit = std::env::var("LIGHTRAYS_SESSION_PIDS_LIMIT")
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|&p| p > 0);
+    (memory, nano_cpus, pids_limit)
+}
+
 /// Parse HostConfig overrides from base_create_json.
 /// Returns (cap_add, security_opt, device_cgroup_rules, ipc_mode).
 fn parse_host_config_overrides(
@@ -678,7 +739,15 @@ fn parse_host_config_overrides(
     let mut cap_add = Vec::new();
     let mut security_opt = Vec::new();
     let mut device_cgroup_rules = Vec::new();
-    let mut ipc_mode = Some("host".to_string());
+    // S-H2: default to a private per-container IPC namespace. Only use host
+    // IPC when an operator explicitly opts in with LIGHTRAYS_IPC_MODE=host
+    // (or another value understood by Docker). `None` means private.
+    let mut ipc_mode = match std::env::var("LIGHTRAYS_IPC_MODE") {
+        Ok(v) if !v.trim().is_empty() && !v.eq_ignore_ascii_case("private") => {
+            Some(v.trim().to_string())
+        }
+        _ => None,
+    };
 
     if !base_create_json.is_empty() {
         if let Ok(bcj) = serde_json::from_str::<serde_json::Value>(base_create_json) {

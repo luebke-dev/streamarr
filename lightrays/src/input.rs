@@ -180,6 +180,11 @@ pub fn handle_input_json(
             let y = data.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let client_w = data.get("w").and_then(|v| v.as_f64()).unwrap_or(1920.0);
             let client_h = data.get("h").and_then(|v| v.as_f64()).unwrap_or(1080.0);
+            // Reject non-finite coordinates (NaN/inf) — a malicious client
+            // could otherwise poison the compositor's pointer state (S-M5).
+            if !x.is_finite() || !y.is_finite() || !client_w.is_finite() || !client_h.is_finite() {
+                return;
+            }
             let target_x = if client_w > 0.0 {
                 x * (screen_w as f64 / client_w)
             } else {
@@ -190,6 +195,9 @@ pub fn handle_input_json(
             } else {
                 y
             };
+            // Clamp into the compositor's coordinate space.
+            let target_x = target_x.clamp(0.0, screen_w as f64);
+            let target_y = target_y.clamp(0.0, screen_h as f64);
             let s = gst::Structure::builder("MouseMoveAbsolute")
                 .field("pointer_x", target_x)
                 .field("pointer_y", target_y)

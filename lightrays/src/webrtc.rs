@@ -176,41 +176,77 @@ pub fn setup_signals(
         log::info!("WebRTC connection state: {:?}", state);
     });
 
-    // Bus message watch — newly created pipelines always have a bus.
-    let bus = pipeline.bus().expect("pipeline bus");
-    bus.add_signal_watch();
-    bus.connect_message(None, |_bus, msg| match msg.view() {
-        gst::MessageView::Error(e) => {
-            log::error!(
-                "WebRTC pipeline ERROR: {}\n{}",
-                e.error(),
-                e.debug().unwrap_or_default()
-            );
-        }
-        gst::MessageView::Warning(w) => {
-            log::warn!(
-                "WebRTC pipeline WARNING: {}\n{}",
-                w.error(),
-                w.debug().unwrap_or_default()
-            );
-        }
-        gst::MessageView::Eos(_) => {
-            log::info!("WebRTC pipeline EOS");
-        }
-        gst::MessageView::StateChanged(sc) => {
-            if let Some(src) = msg.src() {
-                if src.type_() == gst::Pipeline::static_type() {
-                    log::info!(
-                        "Pipeline state: {:?} → {:?} (pending: {:?})",
-                        sc.old(),
-                        sc.current(),
-                        sc.pending()
-                    );
+    // NOTE: bus observation is handled by an actively-polled watch thread
+    // (see `spawn_bus_watch`), NOT `bus.add_signal_watch()` — Lightrays has
+    // no GLib main loop, so signal-watch callbacks would never fire.
+}
+
+/// Spawn a dedicated OS thread that polls `bus` for ERROR/EOS/WARNING.
+///
+/// Lightrays runs no GLib main loop, so `bus.add_signal_watch()` callbacks
+/// never dispatch. This thread uses the blocking `timed_pop_filtered` API
+/// instead. On a fatal ERROR or EOS it signals the async WS handler via the
+/// session's `pipeline_error_tx` so the session is torn down instead of
+/// silently freezing (R-M3/R-M4). The thread exits when `stop` is set (the
+/// pipeline is being torn down) or the bus is dropped.
+pub fn spawn_bus_watch(
+    bus: gst::Bus,
+    stop: Arc<AtomicBool>,
+    inner_weak: std::sync::Weak<Mutex<SessionInner>>,
+    label: &'static str,
+) {
+    let _ = std::thread::Builder::new()
+        .name(format!("bus-watch-{label}"))
+        .spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let msg = bus.timed_pop_filtered(
+                    gst::ClockTime::from_mseconds(200),
+                    &[
+                        gst::MessageType::Error,
+                        gst::MessageType::Eos,
+                        gst::MessageType::Warning,
+                    ],
+                );
+                let Some(msg) = msg else { continue };
+                match msg.view() {
+                    gst::MessageView::Warning(w) => {
+                        log::warn!(
+                            "{label} pipeline WARNING: {}\n{}",
+                            w.error(),
+                            w.debug().unwrap_or_default()
+                        );
+                    }
+                    gst::MessageView::Error(e) => {
+                        log::error!(
+                            "{label} pipeline ERROR: {}\n{}",
+                            e.error(),
+                            e.debug().unwrap_or_default()
+                        );
+                        if !stop.load(Ordering::Relaxed) {
+                            if let Some(inner) = inner_weak.upgrade() {
+                                if let Some(tx) = inner.lock().pipeline_error_tx.as_ref() {
+                                    let _ = tx.send(true);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    gst::MessageView::Eos(_) => {
+                        log::info!("{label} pipeline EOS");
+                        if !stop.load(Ordering::Relaxed) {
+                            if let Some(inner) = inner_weak.upgrade() {
+                                if let Some(tx) = inner.lock().pipeline_error_tx.as_ref() {
+                                    let _ = tx.send(true);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    _ => {}
                 }
             }
-        }
-        _ => {}
-    });
+            log::debug!("{label} bus-watch thread exiting");
+        });
 }
 
 /// Create the WebRTC data channel for input events with fallback.
@@ -242,16 +278,24 @@ pub fn setup_data_channel(webrtcbin: &gst::Element, inner_arc: &Arc<Mutex<Sessio
                     // that's where the game's surface lives. The stream
                     // resolution (inner.width/height) is decoupled and
                     // only affects encoder output, not input geometry.
-                    let (el_opt, w, h) = {
-                        let inner = inner_clone.lock();
+                    //
+                    // note_and_allow_input records activity (R-H1) and
+                    // enforces the per-session input rate budget (S-M5)
+                    // under the same lock.
+                    let (allowed, el_opt, w, h) = {
+                        let mut inner = inner_clone.lock();
+                        let allowed = inner.note_and_allow_input();
                         (
+                            allowed,
                             inner.compositor.as_ref().and_then(|c| c.element.clone()),
                             inner.compositor_width,
                             inner.compositor_height,
                         )
                     };
-                    if let Some(el) = el_opt {
-                        input::handle_input_json(&el, &message, w, h);
+                    if allowed {
+                        if let Some(el) = el_opt {
+                            input::handle_input_json(&el, &message, w, h);
+                        }
                     }
                 }
                 None

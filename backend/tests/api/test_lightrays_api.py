@@ -102,6 +102,33 @@ class TestLightraysLaunch:
             assert data["websocket_url"] == "ws://localhost:8009/api/lightrays-ws/sess-123"
             assert data["ws_ticket"] == "ws-ticket-abc"
 
+    async def test_launch_passes_media_id_for_atomic_bookkeeping(
+        self,
+        client: AsyncClient,
+        test_user: User,
+        user_headers,
+        game_media: MediaItem,
+    ):
+        """The endpoint delegates bookkeeping to launch_session via media_id
+        (single record_session path with built-in rollback)."""
+        launch_mock = AsyncMock(
+            return_value={
+                "session_id": "sess-123",
+                "websocket_url": "ws://x",
+                "ws_ticket": "",
+                "ice_servers": [],
+            }
+        )
+        with patch("pyrate.api.v1.lightrays.launch_session", launch_mock):
+            resp = await client.post(
+                f"/api/lightrays/launch/{game_media.guid}",
+                json={"width": 1920, "height": 1080, "fps": 60, "bitrate_kbps": 10000},
+                headers=user_headers,
+            )
+
+        assert resp.status_code == 200
+        assert launch_mock.await_args.kwargs["media_id"] == str(game_media.guid)
+
     async def test_launch_uses_game_docker_image(
         self,
         client: AsyncClient,
@@ -332,6 +359,25 @@ class TestLightraysStop:
             )
             assert resp.status_code == 403
 
+    async def test_stop_unknown_session_fails_closed(
+        self, client: AsyncClient, test_user: User, user_headers
+    ):
+        """No Redis record => unknown session => 404, never proxied on."""
+        with patch(
+            "pyrate.api.v1.lightrays.get_session_record",
+            new_callable=AsyncMock,
+            return_value=None,
+        ), patch(
+            "pyrate.api.v1.lightrays.stop_session", new_callable=AsyncMock
+        ) as stop_mock:
+            resp = await client.post(
+                "/api/lightrays/stop",
+                json={"session_id": "sess-unknown"},
+                headers=user_headers,
+            )
+            assert resp.status_code == 404
+            stop_mock.assert_not_awaited()
+
 
 # ---------------------------------------------------------------------------
 # GET /api/lightrays/stats/{session_id}
@@ -392,3 +438,21 @@ class TestLightraysStats:
                 headers=user_headers,
             )
             assert resp.status_code == 403
+
+    async def test_stats_unknown_session_fails_closed(
+        self, client: AsyncClient, test_user: User, user_headers
+    ):
+        """No Redis record => unknown session => 404, never proxied on."""
+        with patch(
+            "pyrate.api.v1.lightrays.get_session_record",
+            new_callable=AsyncMock,
+            return_value=None,
+        ), patch(
+            "pyrate.api.v1.lightrays.get_stats", new_callable=AsyncMock
+        ) as stats_mock:
+            resp = await client.get(
+                "/api/lightrays/stats/sess-unknown",
+                headers=user_headers,
+            )
+            assert resp.status_code == 404
+            stats_mock.assert_not_awaited()

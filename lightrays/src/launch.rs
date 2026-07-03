@@ -237,6 +237,36 @@ fn validate_docker_image(value: &str) -> Result<String, JsonError> {
     Ok(image.to_string())
 }
 
+/// Extract the registry host from an image reference following Docker's
+/// convention: the first path segment is a registry host only when it
+/// contains a `.` or `:` or is exactly `localhost`; otherwise the image
+/// lives on Docker Hub (`docker.io`).
+pub fn image_registry_host(image: &str) -> String {
+    let first = image.split('/').next().unwrap_or("");
+    if first.contains('.') || first.contains(':') || first == "localhost" {
+        first.to_string()
+    } else {
+        "docker.io".to_string()
+    }
+}
+
+/// Enforce a registry allowlist on a client-supplied image override. An
+/// empty allowlist disables the check (registry pinning off). Returns a
+/// 403 when the image's registry host is not allowed. (S-C1)
+pub fn validate_image_registry(image: &str, allowed: &[String]) -> Result<(), JsonError> {
+    if allowed.is_empty() {
+        return Ok(());
+    }
+    let host = image_registry_host(image);
+    if allowed.iter().any(|a| a == &host) {
+        Ok(())
+    } else {
+        Err(forbidden(&format!(
+            "image registry '{host}' is not in LIGHTRAYS_ALLOWED_REGISTRIES"
+        )))
+    }
+}
+
 pub fn bad_request(message: &str) -> JsonError {
     (
         StatusCode::BAD_REQUEST,
@@ -254,6 +284,7 @@ pub fn forbidden(message: &str) -> JsonError {
 pub fn build_container_config(
     config: &ServerConfig,
     launch: &ValidatedLaunch,
+    owner_sub: &str,
 ) -> Result<Option<ContainerConfig>, JsonError> {
     match launch.runtime_profile.as_str() {
         "none" => Ok(None),
@@ -264,7 +295,7 @@ pub fn build_container_config(
                 .clone()
                 .unwrap_or_else(|| config.gow_image.clone()),
             env: vec![
-                "GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*".to_string(),
+                "GOW_REQUIRED_DEVICES=/dev/dri/* /dev/nvidia*".to_string(),
                 format!("XKB_DEFAULT_LAYOUT={}", launch.keyboard_layout),
                 "RUN_GAMESCOPE=1".to_string(),
             ],
@@ -272,15 +303,22 @@ pub fn build_container_config(
             mounts: Vec::new(),
             base_create_json: gow_base_create_json(),
             app_id: launch.app_id.clone(),
+            owner_sub: owner_sub.to_string(),
         })),
         _ => Err(bad_request("unsupported runtime_profile")),
     }
 }
 
 fn gow_base_create_json() -> String {
+    // Isolation-hardened GOW HostConfig (see S-H2 / S-H3):
+    //  * IpcMode is intentionally omitted so each session gets a private
+    //    IPC namespace (override with LIGHTRAYS_IPC_MODE=host if a future
+    //    GOW feature needs the host IPC).
+    //  * DeviceCgroupRules allow /dev/uinput (major 10, minor 223) so GOW
+    //    can create virtual input devices, but NOT the physical host input
+    //    devices (major 13). Major 244 is kept for GOW's uhid/hidraw path.
     serde_json::json!({
         "HostConfig": {
-            "IpcMode": "host",
             "CapAdd": [
                 "SYS_ADMIN",
                 "SYS_NICE",
@@ -290,7 +328,7 @@ fn gow_base_create_json() -> String {
                 "NET_ADMIN"
             ],
             "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
-            "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+            "DeviceCgroupRules": ["c 10:223 rmw", "c 244:* rmw"]
         }
     })
     .to_string()
@@ -412,11 +450,15 @@ mod tests {
             reconnect_grace_secs: 30,
             ws_ticket_ttl_secs: 120,
             gow_image: "image:tag".into(),
+            allowed_registries: vec![],
+            jwt_audience: String::new(),
+            max_sessions_global: 0,
+            max_sessions_per_user: 0,
         };
         let mut req = base_launch();
         req.runtime_profile = Some("none".to_string());
         let launch = validate_launch_request(&req).expect("valid");
-        let result = build_container_config(&config, &launch).expect("valid");
+        let result = build_container_config(&config, &launch, "alice").expect("valid");
         assert!(result.is_none());
     }
 
@@ -443,6 +485,10 @@ mod tests {
             reconnect_grace_secs: 30,
             ws_ticket_ttl_secs: 120,
             gow_image: "image:tag".into(),
+            allowed_registries: vec![],
+            jwt_audience: String::new(),
+            max_sessions_global: 0,
+            max_sessions_per_user: 0,
         };
         let servers = build_ice_servers(&config);
         assert_eq!(servers.len(), 2);
