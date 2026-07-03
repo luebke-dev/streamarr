@@ -1,0 +1,66 @@
+{{- if .Values.scheduler.enabled -}}
+{{- $name := printf "%s-scheduler" (include "pyrate.fullname" .) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "scheduler") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    # Scheduler must be a singleton — the cron source enforces it on broker
+    # side, but Recreate keeps things simple if we ever change brokers.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "scheduler") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "scheduler") | nindent 8 }}
+    spec:
+      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        # Cilium drops the first egress packets while a fresh pod's
+        # security identity propagates, surfacing as ECONNREFUSED /
+        # EPERM ("Operation not permitted") to the app. TaskIQ doesn't
+        # retry on broker-startup failure, so block here until the
+        # broker is reachable from this pod.
+        - name: wait-for-redis
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - 'until nc -z {{ include "pyrate.redisHost" . }} {{ .Values.redis.service.port }}; do echo "waiting for redis"; sleep 2; done'
+      {{- with .Values.scheduler.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.scheduler.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.scheduler.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: scheduler
+          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.scheduler.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            - uv
+            - run
+            - taskiq
+            - scheduler
+            - pyrate.worker:scheduler
+          env:
+            {{- include "pyrate.commonEnv" . | nindent 12 }}
+            - name: DATABASE_URL
+              value: {{ include "pyrate.databaseUrlAsync" . | quote }}
+            - name: PROJECT_ROOT
+              value: "/data/"
+          resources:
+            {{- toYaml .Values.scheduler.resources | nindent 12 }}
+{{- end -}}

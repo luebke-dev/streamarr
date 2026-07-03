@@ -1,0 +1,1 @@
+{"main":{"identifier":"main","description":"Permissions for the main Pyrate desktop window","local":true,"windows":["main"],"permissions":["core:default","core:app:default","opener:allow-default-urls"]}}

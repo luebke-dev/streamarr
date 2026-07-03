@@ -1,0 +1,185 @@
+stages:
+  - test
+  - build
+  - tauri
+  - android
+
+variables:
+  IMAGE: $CI_REGISTRY_IMAGE
+
+test:unit:
+  stage: test
+  rules:
+    - when: never  # temporarily disabled
+  image: node:22
+  cache:
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - node_modules/
+  before_script:
+    - yarn install --frozen-lockfile
+  script:
+    - yarn test:unit:coverage
+  coverage: '/^All files\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*([\d.]+)/'
+  artifacts:
+    when: always
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+    paths:
+      - coverage/
+    expire_in: 7 days
+
+.build_base:
+  stage: build
+  image: quay.io/buildah/stable
+  variables:
+    STORAGE_DRIVER: vfs
+  before_script:
+    - buildah login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+build:dev:
+  extends: .build_base
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - buildah bud -f Containerfile -t $IMAGE:dev .
+    - buildah push $IMAGE:dev
+
+build:release:
+  extends: .build_base
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^\d{4}\.\d+\.\d+$/
+  script:
+    - buildah bud -f Containerfile -t $IMAGE:$CI_COMMIT_TAG -t $IMAGE:latest .
+    - buildah push $IMAGE:$CI_COMMIT_TAG
+    - buildah push $IMAGE:latest
+
+.tauri_base:
+  stage: tauri
+  image: node:22-bookworm
+  cache:
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - node_modules/
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends curl build-essential pkg-config libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev
+    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+    - . "$HOME/.cargo/env"
+    - yarn install --frozen-lockfile
+
+build:tauri:linux:
+  extends: .tauri_base
+  rules:
+    - when: never  # temporarily disabled
+  script:
+    - yarn build:tauri -- --bundles appimage,deb
+  artifacts:
+    name: "pyrate-desktop-linux-$CI_COMMIT_REF_SLUG"
+    expire_in: 7 days
+    when: always
+    paths:
+      - src-tauri/target/release/bundle/appimage/*.AppImage
+      - src-tauri/target/release/bundle/deb/*.deb
+
+build:tauri:windows:
+  extends: .tauri_base
+  rules:
+    - when: never  # temporarily disabled
+  script:
+    - yarn build:tauri -- --bundles nsis
+  artifacts:
+    name: "pyrate-desktop-windows-$CI_COMMIT_REF_SLUG"
+    expire_in: 7 days
+    when: always
+    paths:
+      - src-tauri/target/release/bundle/nsis/*.exe
+
+# ─── Android ─────────────────────────────────────────────────────────────────
+# Required CI variables for release signing:
+#   ANDROID_KEYSTORE_BASE64  – base64-encoded .jks keystore file
+#   ANDROID_STORE_PASSWORD   – keystore password
+#   ANDROID_KEY_ALIAS        – key alias
+#   ANDROID_KEY_PASSWORD     – key password
+
+.android_base:
+  stage: android
+  image: eclipse-temurin:21-jdk-jammy
+  variables:
+    ANDROID_HOME: $CI_PROJECT_DIR/.android-sdk
+    GRADLE_USER_HOME: $CI_PROJECT_DIR/.gradle-cache
+  cache:
+    - key:
+        prefix: android-node
+        files:
+          - yarn.lock
+      paths:
+        - node_modules/
+    - key: android-sdk
+      paths:
+        - .android-sdk/
+    - key: android-gradle-$CI_COMMIT_REF_SLUG
+      paths:
+        - .gradle-cache/
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends curl unzip wget ca-certificates
+    - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    - apt-get install -y nodejs
+    - |
+      if [ ! -f "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" ]; then
+        mkdir -p "${ANDROID_HOME}/cmdline-tools"
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+          -O /tmp/cmdtools.zip
+        unzip -q /tmp/cmdtools.zip -d "${ANDROID_HOME}/cmdline-tools"
+        mv "${ANDROID_HOME}/cmdline-tools/cmdline-tools" "${ANDROID_HOME}/cmdline-tools/latest"
+      fi
+    - export PATH="${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools"
+    - yes | sdkmanager --licenses > /dev/null 2>&1 || true
+    - sdkmanager "platforms;android-35" "build-tools;35.0.1" "platform-tools"
+    - npm install -g @quasar/cli
+    - yarn install --frozen-lockfile
+    - |
+      if [ ! -d "src-capacitor/android" ]; then
+        cd src-capacitor
+        yarn install --frozen-lockfile
+        npx cap add android
+        cd ..
+      fi
+
+build:android:debug:
+  extends: .android_base
+  rules:
+    - when: never  # temporarily disabled
+  script:
+    - export PATH="${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools"
+    - quasar build -m capacitor -T android
+  artifacts:
+    name: "pyrate-android-debug-$CI_COMMIT_REF_SLUG"
+    expire_in: 7 days
+    paths:
+      - dist/capacitor/
+      - src-capacitor/android/app/build/outputs/apk/debug/
+
+build:android:release:
+  extends: .android_base
+  rules:
+    - when: never  # temporarily disabled
+  script:
+    - export PATH="${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools"
+    - quasar build -m capacitor -T android --skip-pkg
+    - echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/release.jks
+    - |
+      cd src-capacitor/android
+      ./gradlew bundleRelease \
+        -Pandroid.injected.signing.store.file=/tmp/release.jks \
+        -Pandroid.injected.signing.store.password="${ANDROID_STORE_PASSWORD}" \
+        -Pandroid.injected.signing.key.alias="${ANDROID_KEY_ALIAS}" \
+        -Pandroid.injected.signing.key.password="${ANDROID_KEY_PASSWORD}"
+  artifacts:
+    name: "pyrate-android-$CI_COMMIT_TAG"
+    expire_in: 90 days
+    paths:
+      - src-capacitor/android/app/build/outputs/bundle/release/

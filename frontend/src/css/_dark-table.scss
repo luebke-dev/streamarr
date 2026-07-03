@@ -1,0 +1,101 @@
+// Shared dark-themed q-table styling used by media tables
+// Apply via:  @include dark-table-theme;  inside a .table-wrapper class
+@mixin dark-table-theme {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+  overflow: hidden;
+
+  :deep(thead) {
+    .q-th {
+      background: rgba(0, 0, 0, 0.6) !important;
+      color: #ffffff !important;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 0.75rem;
+      border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+      padding: 16px 12px;
+    }
+  }
+
+  .table-row {
+    background: rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .q-td {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 16px 12px;
+      color: #ffffff;
+    }
+  }
+
+  .action-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+
+    .q-btn {
+      transition: all 0.2s ease;
+
+      &:hover {
+        transform: scale(1.1);
+      }
+    }
+  }
+
+  :deep(.q-table__bottom) {
+    background: rgba(0, 0, 0, 0.4);
+    color: #ffffff;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+
+    .q-table__control {
+      color: #ffffff;
+    }
+
+    .q-btn {
+      color: #ffffff;
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      &.disabled {
+        color: rgba(255, 255, 255, 0.3);
+      }
+    }
+
+    .q-field {
+      .q-field__control {
+        color: #ffffff;
+      }
+
+      .q-field__native {
+        color: #ffffff;
+      }
+    }
+  }
+
+  :deep(.q-table__loading) {
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(10px);
+  }
+
+  :deep(.q-table__message) {
+    background: rgba(0, 0, 0, 0.3);
+    color: rgba(255, 255, 255, 0.6);
+    padding: 40px;
+  }
+}
+
+// Shared empty/loading state container styling
+@mixin dark-table-empty-state {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}

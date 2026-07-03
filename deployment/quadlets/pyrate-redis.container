@@ -1,0 +1,15 @@
+[Unit]
+Description=Pyrate Media Redis Cache
+
+[Container]
+Image=redis:7-alpine
+ContainerName=pyrate-redis
+
+Volume=${DATA_DIR}/redis:/data:rw,z
+
+[Service]
+Restart=unless-stopped
+TimeoutStartSec=30
+
+[Install]
+WantedBy=default.target

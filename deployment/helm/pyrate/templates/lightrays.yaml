@@ -1,0 +1,183 @@
+{{- if .Values.lightrays.enabled -}}
+{{- $name := printf "%s-lightrays" (include "pyrate.fullname" .) -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: api
+      port: {{ .Values.lightrays.service.apiPort }}
+      targetPort: api
+    - name: streaming
+      port: {{ .Values.lightrays.service.streamingPort }}
+      targetPort: streaming
+  selector:
+    {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+spec:
+  replicas: {{ .Values.lightrays.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "lightrays") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 8 }}
+    spec:
+      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      {{- if eq .Values.lightrays.runtime "kubernetes" }}
+      serviceAccountName: {{ $name }}
+      {{- end }}
+      {{- with .Values.lightrays.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.lightrays.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: lightrays
+          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.lightrays.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          # Lightrays drops every Linux capability, blocks privilege
+          # escalation, and pins seccomp to RuntimeDefault. The session
+          # workloads (gow pods) get their own security context — see
+          # ``lightrays.session.securityContext`` for the per-session pod
+          # spec. Add caps here only if you've audited the actual need.
+          securityContext:
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+              {{- with .Values.lightrays.securityContext.additionalCapabilities }}
+              add:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+            {{- with .Values.lightrays.securityContext.runAsUser }}
+            runAsUser: {{ . }}
+            {{- end }}
+            {{- if .Values.lightrays.securityContext.readOnlyRootFilesystem }}
+            readOnlyRootFilesystem: true
+            {{- end }}
+          env:
+            - name: LIGHTRAYS_HOSTNAME
+              value: {{ include "pyrate.lightraysHost" . | quote }}
+            - name: LIGHTRAYS_API_PORT
+              value: {{ .Values.lightrays.service.apiPort | quote }}
+            - name: LIGHTRAYS_STREAMING_PORT
+              value: {{ .Values.lightrays.service.streamingPort | quote }}
+            - name: LIGHTRAYS_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pyrate.secretName" . }}
+                  key: lightrays-jwt-secret
+            - name: LIGHTRAYS_STUN_SERVER
+              value: {{ .Values.lightrays.stunServer | quote }}
+            - name: LIGHTRAYS_TURN_SERVER
+              value: {{ .Values.lightrays.turnServer | quote }}
+            - name: LIGHTRAYS_TURN_USERNAME
+              value: {{ .Values.lightrays.turnUsername | quote }}
+            - name: LIGHTRAYS_TURN_PASSWORD
+              value: {{ .Values.lightrays.turnPassword | quote }}
+            - name: LIGHTRAYS_GOW_IMAGE
+              value: {{ .Values.lightrays.gowImage | quote }}
+            - name: LIGHTRAYS_RECONNECT_GRACE_SECS
+              value: {{ .Values.lightrays.reconnectGraceSeconds | quote }}
+            - name: LIGHTRAYS_WS_TICKET_TTL_SECS
+              value: {{ .Values.lightrays.wsTicketTtlSeconds | quote }}
+            - name: LIGHTRAYS_SESSION_TIMEOUT_SECS
+              value: {{ .Values.lightrays.sessionTimeoutSeconds | quote }}
+            - name: LIGHTRAYS_CORS_ORIGINS
+              value: {{ .Values.lightrays.corsOrigins | quote }}
+            - name: LIGHTRAYS_DOCKER_SOCKET
+              value: /var/run/docker.sock
+            - name: XDG_RUNTIME_DIR
+              value: /tmp/lightrays-runtime
+            - name: LIGHTRAYS_STATE_DIR
+              value: /state/lightrays
+            - name: LIGHTRAYS_HOST_XDG_RUNTIME_DIR
+              value: {{ .Values.lightrays.hostXdgRuntimeDir | quote }}
+            - name: LIGHTRAYS_HOST_STATE_DIR
+              value: {{ .Values.lightrays.hostStateDir | quote }}
+            - name: LIGHTRAYS_RUNTIME
+              value: {{ .Values.lightrays.runtime | quote }}
+            {{- if eq .Values.lightrays.runtime "kubernetes" }}
+            - name: LIGHTRAYS_K8S_SESSION_NAMESPACE
+              value: {{ .Values.lightrays.k8s.sessionNamespace | quote }}
+            {{- with .Values.lightrays.k8s.sessionNodeSelector }}
+            - name: LIGHTRAYS_K8S_SESSION_NODE_SELECTOR
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            - name: RUST_LOG
+              value: info
+          ports:
+            - name: api
+              containerPort: 8080
+            - name: streaming
+              containerPort: 8081
+          readinessProbe:
+            tcpSocket:
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.lightrays.resources | nindent 12 }}
+          volumeMounts:
+            {{- if and (eq .Values.lightrays.runtime "docker") .Values.lightrays.hostDockerSocket }}
+            - { name: docker-sock, mountPath: /var/run/docker.sock }
+            {{- end }}
+            - { name: runtime, mountPath: /tmp/lightrays-runtime }
+            - { name: state,   mountPath: /state/lightrays }
+            {{- if .Values.lightrays.gpu.enabled }}
+            - { name: gpu,     mountPath: /dev/dri }
+            {{- end }}
+            {{- if .Values.lightrays.securityContext.readOnlyRootFilesystem }}
+            # readOnlyRootFilesystem forces these writeable paths to live
+            # on emptyDir mounts — anything Lightrays needs to scribble
+            # into / at runtime goes here.
+            - { name: tmp,  mountPath: /tmp }
+            - { name: var-log, mountPath: /var/log }
+            {{- end }}
+      volumes:
+        {{- if and (eq .Values.lightrays.runtime "docker") .Values.lightrays.hostDockerSocket }}
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+        {{- end }}
+        - name: runtime
+          hostPath:
+            path: {{ .Values.lightrays.hostXdgRuntimeDir }}
+            type: DirectoryOrCreate
+        - name: state
+          hostPath:
+            path: {{ .Values.lightrays.hostStateDir }}
+            type: DirectoryOrCreate
+        {{- if .Values.lightrays.gpu.enabled }}
+        - name: gpu
+          hostPath:
+            path: {{ .Values.lightrays.gpu.hostPath }}
+        {{- end }}
+        {{- if .Values.lightrays.securityContext.readOnlyRootFilesystem }}
+        - name: tmp
+          emptyDir: {}
+        - name: var-log
+          emptyDir: {}
+        {{- end }}
+{{- end -}}

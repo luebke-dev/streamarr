@@ -1,0 +1,14 @@
+{{ i18n.heading }}
+{{ "=" * i18n.heading|length }}
+
+{{ i18n.greeting }} {{ user_name }},
+
+{{ i18n.body }}
+
+{{ verify_url }}
+
+{{ i18n.expiry_note }}
+
+--
+{{ app_name }}
+{{ app_url }}

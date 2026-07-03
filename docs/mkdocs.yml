@@ -1,0 +1,114 @@
+site_name: Pyrate.Media Documentation
+site_url: https://docs.pyrate.luebke.dev
+site_description: All-in-One Media Management and Automation
+site_author: Pyrate.Media Team
+
+repo_name: pyrate.media
+repo_url: https://github.com/luebke-dev/pyrate.media
+
+theme:
+  name: material
+  language: en
+  palette:
+    # Palette toggle for light mode
+    - scheme: default
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - search.highlight
+    - search.share
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+
+plugins:
+  - search
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - pymdownx.critic
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Overview: getting-started/overview.md
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quick-start.md
+  - User Guide:
+    - Account & Login: user-guide/account.md
+    - Dashboard & Home: user-guide/dashboard.md
+    - Search: user-guide/search.md
+    - Movies & Shows: user-guide/movies.md
+    - Shows in Detail: user-guide/shows.md
+    - Games: user-guide/games.md
+    - Streaming & Playback: user-guide/streaming.md
+    - Lists & Collections: user-guide/lists.md
+    - Favorites: user-guide/favorites.md
+    - Viewing History: user-guide/history.md
+    - Watch Parties: user-guide/watch-parties.md
+    - Friends & Invites: user-guide/friends.md
+    - User Settings: user-guide/settings.md
+    - Membership: user-guide/membership.md
+  - Administration:
+    - Overview: administration/overview.md
+    - Dashboard: administration/dashboard.md
+    - Libraries: administration/libraries.md
+    - Plugins: administration/plugins.md
+    - Indexers: administration/indexers.md
+    - Download Clients: administration/downloaders.md
+    - Transcoding: administration/transcoding.md
+    - Page Layouts: administration/page-layouts.md
+    - Users & Groups: administration/user-management.md
+    - System Settings: administration/system-configuration.md
+    - Banners: administration/banners.md
+    - Monitoring: administration/monitoring.md
+  - Development:
+    - Overview: developer-guide/overview.md
+  - Deployment:
+    - Overview: deployment/overview.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/luebke-dev/pyrate.media
+
+copyright: Copyright &copy; 2024 Pyrate.Media Team

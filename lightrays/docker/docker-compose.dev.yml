@@ -1,0 +1,40 @@
+# Lightrays — local development override.
+#
+# Grants direct host access, disables JWT auth, raises log verbosity, and
+# binds the source tree. Never layer this onto a production deployment.
+#
+# Usage (from this directory):
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+services:
+  lightrays:
+    environment:
+      LIGHTRAYS_AUTH_DISABLED: "true"
+      LIGHTRAYS_JWT_SECRET: ""
+      LIGHTRAYS_CORS_ORIGINS: "*"
+      RUST_LOG: "info,lightrays::docker=debug,lightrays::server=debug"
+      LIGHTRAYS_DUMP_CONTAINER_LOGS: "true"
+      LIGHTRAYS_DOCKER_SOCKET: /var/run/docker.sock
+
+    volumes:
+      # Live bind-mount of the source tree for fast iteration. Has no
+      # effect on the running binary (it is baked into the image); the
+      # mount is here so ``cargo run`` outside Docker can share state.
+      - ../src:/app/src
+      # Direct Docker socket — fast and convenient locally. Production
+      # routes this through a proxy (see docker-compose.prod.yml).
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/lightrays-runtime:/tmp/lightrays-runtime
+      - /etc/lightrays:/etc/lightrays
+      - /dev/dri:/dev/dri
+      - /dev/input:/dev/input
+      - /run/user/1000/pulse:/run/user/1000/pulse
+
+    devices:
+      - /dev/dri:/dev/dri
+
+    # Broad cap set — easier to debug compositor / encoder errors when
+    # the container isn't sandboxed too tightly.
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN

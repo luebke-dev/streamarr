@@ -1,0 +1,100 @@
+{{- if .Values.elasticsearch.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pyrate.elasticsearchHost" . }}
+  labels:
+    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "elasticsearch") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.elasticsearch.service.port }}
+      targetPort: http
+  selector:
+    {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "elasticsearch") | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "pyrate.elasticsearchHost" . }}
+  labels:
+    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "elasticsearch") | nindent 4 }}
+spec:
+  serviceName: {{ include "pyrate.elasticsearchHost" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "elasticsearch") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "elasticsearch") | nindent 8 }}
+    spec:
+      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        fsGroup: 1000
+      # ES needs vm.max_map_count >= 262144 on the node. Either pre-tune the
+      # node or run a privileged init container that does sysctl -w. The
+      # in-line option below is gated by `elasticsearch.tuneVmMaxMapCount`.
+      {{- if .Values.elasticsearch.tuneVmMaxMapCount }}
+      initContainers:
+        - name: configure-sysctl
+          image: busybox:1.36
+          command:
+            - sysctl
+            - -w
+            - vm.max_map_count=262144
+          securityContext:
+            privileged: true
+            runAsUser: 0
+      {{- end }}
+      containers:
+        - name: elasticsearch
+          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.elasticsearch.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          env:
+            - name: discovery.type
+              value: single-node
+            - name: xpack.security.enabled
+              value: "false"
+            - name: xpack.monitoring.collection.enabled
+              value: "false"
+            - name: ES_JAVA_OPTS
+              value: "-Xms{{ .Values.elasticsearch.heapSizeMb }}m -Xmx{{ .Values.elasticsearch.heapSizeMb }}m"
+          ports:
+            - name: http
+              containerPort: 9200
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 60
+            timeoutSeconds: 10
+          resources:
+            {{- toYaml .Values.elasticsearch.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+  {{- if .Values.elasticsearch.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if or .Values.elasticsearch.persistence.storageClass .Values.global.storageClass }}
+        storageClassName: {{ default .Values.global.storageClass .Values.elasticsearch.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.elasticsearch.persistence.size }}
+  {{- end }}
+{{- end -}}

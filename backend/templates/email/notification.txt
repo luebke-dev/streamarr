@@ -1,0 +1,15 @@
+{{ app_name }}
+{{ "=" * app_name|length }}
+
+{{ notification_type|upper }}
+
+{{ subject }}
+
+{{ message }}
+
+---
+
+{{ i18n.footer }}
+{{ app_url }}
+
+{{ i18n.ignore_hint }}

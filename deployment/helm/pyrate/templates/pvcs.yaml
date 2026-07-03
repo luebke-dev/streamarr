@@ -1,0 +1,29 @@
+{{/*
+Shared library / downloads / cache / temp / users PVCs. Skipped when
+`persistence.mode=hostPath` — in that case pods reference the host directory
+directly. ReadWriteMany is required for `pvc` mode because multiple pods
+reference the same data; make sure your storage class supports it (NFS,
+CephFS, Longhorn-RWX, etc.).
+*/}}
+{{- if ne (default "pvc" .Values.persistence.mode) "hostPath" -}}
+{{- range $key, $cfg := .Values.persistence }}
+{{- if and (kindIs "map" $cfg) (hasKey $cfg "size") }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pyrate.fullname" $ }}-{{ $key }}
+  labels:
+    {{- include "pyrate.componentLabels" (dict "ctx" $ "component" (printf "shared-%s" $key)) | nindent 4 }}
+spec:
+  accessModes:
+    - {{ default "ReadWriteMany" $cfg.accessMode }}
+  {{- if or $cfg.storageClass $.Values.global.storageClass }}
+  storageClassName: {{ default $.Values.global.storageClass $cfg.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $cfg.size }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,23 @@
+[Unit]
+Description=Pyrate Media Task Scheduler (TaskIQ)
+After=pyrate-postgres.service pyrate-redis.service
+
+[Container]
+Image=registry.gitlab.com/pyrate.media/backend:latest
+ContainerName=pyrate-scheduler
+
+Exec=uv run taskiq scheduler pyrate.worker:scheduler
+
+Environment=DATABASE_URL=postgresql+asyncpg://pyrate:${POSTGRES_PASSWORD}@pyrate-postgres:5432/pyrate
+Environment=REDIS_URL=redis://pyrate-redis:6379/0
+Environment=ELASTICSEARCH_HOST=pyrate-elasticsearch
+Environment=ELASTICSEARCH_PORT=9200
+Environment=SECRET_KEY=${SECRET_KEY}
+Environment=PROJECT_ROOT=${PROJECT_ROOT}
+
+[Service]
+Restart=unless-stopped
+TimeoutStartSec=60
+
+[Install]
+WantedBy=default.target

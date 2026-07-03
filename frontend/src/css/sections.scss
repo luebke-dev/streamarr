@@ -1,0 +1,93 @@
+// Shared styles for media section components (genre rows, lists, etc.)
+
+.section-container {
+  max-width: 1800px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 3rem;
+  padding: 0 3rem;
+
+  @media (max-width: 1024px) {
+    padding: 0 1.5rem;
+  }
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.section-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: white;
+  margin: 0;
+}
+
+.see-all-btn {
+  text-transform: none;
+}
+
+.media-row {
+  position: relative;
+}
+
+.media-scrollable-row {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  padding: 16px 4px;
+  margin: -16px -4px;
+  scroll-behavior: smooth;
+
+  &::-webkit-scrollbar {
+    height: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+  }
+}
+
+.media-item {
+  flex: 0 0 auto;
+  width: 200px;
+
+  @media (max-width: 768px) {
+    width: 150px;
+  }
+}
+
+.genre-media-card {
+  width: 100%;
+}
+
+.media-row-placeholder {
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+}
+
+.placeholder-content {
+  text-align: center;
+  padding: 2rem;
+}
+
+.genre-sections {
+  margin-top: 2rem;
+}

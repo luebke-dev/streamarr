@@ -1,0 +1,37 @@
+FROM ubuntu:24.04 AS gst-wl-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl gcc g++ make pkg-config git ca-certificates \
+        libwayland-dev libxkbcommon-dev libinput-dev libgbm-dev libdrm-dev \
+        libudev-dev libseat-dev libssl-dev \
+        libegl-dev libgl-dev \
+        libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+        libgstreamer-plugins-bad1.0-dev \
+        libclang-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH="/usr/local/cargo/bin:$PATH"
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --default-toolchain 1.89.0 \
+    && cargo install cargo-c --version 0.10.18 --locked
+
+ARG GST_WAYLAND_DISPLAY_REV=bc021a4
+RUN git clone https://github.com/games-on-whales/gst-wayland-display.git \
+        /build/gst-wayland-display \
+    && git -C /build/gst-wayland-display checkout "$GST_WAYLAND_DISPLAY_REV"
+WORKDIR /build/gst-wayland-display
+
+COPY docker/gst-wayland-display-resize.patch /tmp/gst-wayland-display-resize.patch
+RUN git apply /tmp/gst-wayland-display-resize.patch
+
+RUN cargo cinstall --prefix=/usr/local --release 2>&1
+
+RUN mkdir -p /output && \
+    cp -v /usr/local/lib/gstreamer-1.0/libgstwaylanddisplaysrc.so /output/ 2>/dev/null || \
+    find /usr/local -name "*.so" -path "*/gstreamer*" -exec cp -v {} /output/ \; || \
+    find /usr/local -name "libgstwaylanddisplay*" -exec cp -v {} /output/ \;

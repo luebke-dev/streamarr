@@ -1,0 +1,17 @@
+// app global css in SCSS form
+@import './sections';
+
+// Safe area insets for native apps (status bar, navigation bar)
+body.capacitor,
+body.cordova {
+  .q-header {
+    padding-top: env(safe-area-inset-top);
+  }
+  .q-drawer {
+    padding-top: env(safe-area-inset-top);
+  }
+  .q-footer,
+  .q-page-container > :last-child {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

@@ -1,0 +1,44 @@
+[Unit]
+Description=Pyrate Media Backend API
+After=pyrate-postgres.service pyrate-redis.service pyrate-elasticsearch.service
+
+[Container]
+Image=registry.gitlab.com/pyrate.media/backend:latest
+ContainerName=pyrate-backend
+
+Exec=uv run uvicorn pyrate.web:app --host 0.0.0.0 --port 8000 --workers 2
+
+SecurityLabelDisable=true
+PodmanArgs=--privileged
+
+PublishPort=8000:8000
+
+# Database & services
+Environment=DATABASE_URL=postgresql+asyncpg://pyrate:${POSTGRES_PASSWORD}@pyrate-postgres:5432/pyrate
+Environment=REDIS_URL=redis://pyrate-redis:6379/0
+Environment=ELASTICSEARCH_HOST=pyrate-elasticsearch
+Environment=ELASTICSEARCH_PORT=9200
+Environment=SECRET_KEY=${SECRET_KEY}
+Environment=LIGHTRAYS_URL=http://pyrate-lightrays:8080
+Environment=LIGHTRAYS_JWT_SECRET=${LIGHTRAYS_JWT_SECRET}
+Environment=DOWNLOADER_WEBHOOK_SECRET=${DOWNLOADER_WEBHOOK_SECRET}
+# Absolute HOST path to the install dir — used to bind-mount media into FFmpeg
+# transcoding containers spawned via the docker socket. Must match .env.example.
+Environment=PROJECT_ROOT=${PROJECT_ROOT}
+
+# Library mounts
+Volume=${DATA_DIR}/library/movies:/library/movies:rw,z
+Volume=${DATA_DIR}/library/shows:/library/shows:rw,z
+Volume=${DATA_DIR}/library/music:/library/music:rw,z
+Volume=${DATA_DIR}/sabnzbd/downloads:/downloads:rw,z
+Volume=${DATA_DIR}/sabnzbd/incomplete:/incomplete:rw,z
+Volume=${DATA_DIR}/cache:/cache:rw,z
+Volume=${DATA_DIR}/temp:/temp:rw,z
+Volume=/var/run/docker.sock:/var/run/docker.sock:rw,z
+
+[Service]
+Restart=unless-stopped
+TimeoutStartSec=90
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,55 @@
+[package]
+name = "lightrays"
+version = "0.1.0"
+edition = "2021"
+description = "WebRTC desktop streaming server — pure Rust"
+
+[[bin]]
+name = "lightrays"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time", "process", "fs", "io-util"] }
+
+# Web framework
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["cors"] }
+
+# GStreamer
+gstreamer = "0.23"
+gstreamer-app = "0.23"
+gstreamer-sdp = "0.23"
+gstreamer-webrtc = "0.23"
+gstreamer-video = "0.23"
+glib = "0.20"
+
+# Docker
+bollard = "0.18"
+
+# Kubernetes (in-cluster pod runtime)
+kube = { version = "0.95", default-features = false, features = ["client", "rustls-tls", "runtime"] }
+k8s-openapi = { version = "0.23", features = ["latest"] }
+
+# Async trait objects for the Runtime abstraction
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Metrics
+prometheus = "0.13"
+
+# JWT authentication
+jsonwebtoken = "9"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+futures = "0.3"
+anyhow = "1"
+parking_lot = "0.12"

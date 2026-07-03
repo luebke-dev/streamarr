@@ -1,0 +1,12 @@
+{
+  "name": "pyrate.media",
+  "version": "2026.2.1",
+  "description": "A streaming media center.",
+  "author": "Sebastian Lübke <pyrate@luebke.dev>",
+  "private": true,
+  "dependencies": {
+    "@capacitor/app": "^7.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0"
+  }
+}

@@ -1,0 +1,22 @@
+[Unit]
+Description=Pyrate Media SABnzbd Usenet Downloader
+
+[Container]
+Image=linuxserver/sabnzbd:latest
+ContainerName=pyrate-sabnzbd
+
+Environment=PUID=1000
+Environment=PGID=1000
+
+Volume=${DATA_DIR}/sabnzbd/config:/config:rw,z
+Volume=${DATA_DIR}/sabnzbd/downloads:/downloads:rw,z
+Volume=${DATA_DIR}/sabnzbd/incomplete:/incomplete:rw,z
+
+PublishPort=8080:8080
+
+[Service]
+Restart=unless-stopped
+TimeoutStartSec=60
+
+[Install]
+WantedBy=default.target

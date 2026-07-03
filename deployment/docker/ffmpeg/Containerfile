@@ -1,0 +1,26 @@
+FROM jellyfin/jellyfin:latest AS source
+
+FROM debian:trixie-slim
+
+# Copy jellyfin-ffmpeg binaries and libraries
+COPY --from=source /usr/lib/jellyfin-ffmpeg /usr/lib/jellyfin-ffmpeg
+
+# Install runtime dependencies for jellyfin-ffmpeg and chromaprint
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libchromaprint-tools \
+        libva2 libva-drm2 libdrm2 \
+        libvulkan1 mesa-vulkan-drivers \
+        ocl-icd-libopencl1 \
+        libass9 libfreetype6 libfribidi0 libfontconfig1 libharfbuzz0b \
+        libmp3lame0 libopus0 libvorbis0a libvorbisenc2 libtheora0 \
+        libdav1d7 libsvtav1enc2 libvpx9 libwebp7 \
+        libx264-164 libx265-215 \
+        libbluray2 libgnutls30t64 libgmp10 \
+        libzimg2 libplacebo349 libshaderc1 \
+        libxml2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Symlink so ffmpeg/ffprobe/fpcalc are in PATH
+RUN ln -s /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg && \
+    ln -s /usr/lib/jellyfin-ffmpeg/ffprobe /usr/local/bin/ffprobe

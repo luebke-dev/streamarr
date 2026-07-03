@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:enableMajor",
+    ":automergeMinor",
+    ":automergePatch",
+    ":semanticCommits"
+  ],
+  "packageRules": [
+    {
+      "description": "Group all Rust dependency updates",
+      "matchManagers": ["cargo"],
+      "groupName": "rust dependencies"
+    },
+    {
+      "description": "Group Docker base image updates",
+      "matchManagers": ["dockerfile"],
+      "groupName": "docker base images"
+    }
+  ]
+}
