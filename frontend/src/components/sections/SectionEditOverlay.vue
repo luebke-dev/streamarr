@@ -76,7 +76,9 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useLayoutEditorInject } from 'src/composables/useLayoutEditor'
+import { getSectionIcon, getSectionLabel } from 'src/components/sections/sectionRegistry'
 
 const props = defineProps({
   section: { type: Object, required: true },
@@ -85,39 +87,13 @@ const props = defineProps({
   isLast: { type: Boolean, default: false },
 })
 
+const { t } = useI18n()
 const editor = useLayoutEditorInject()
 const confirmDelete = ref(false)
 
-const sectionIcons = {
-  hero_carousel: 'mdi-image-multiple',
-  genre: 'mdi-tag',
-  all_genres: 'mdi-tag-multiple',
-  list: 'mdi-format-list-bulleted',
-  dynamic_search: 'mdi-magnify',
-  latest_items: 'mdi-clock-outline',
-  continue_watching: 'mdi-play-circle',
-  favorites: 'mdi-heart',
-  platforms: 'mdi-gamepad-variant',
-  trailers: 'mdi-movie-open-play',
-}
-
-const sectionLabels = {
-  hero_carousel: 'Hero Carousel',
-  genre: 'Genre',
-  all_genres: 'All Genres',
-  list: 'List',
-  dynamic_search: 'Dynamic Search',
-  latest_items: 'Latest Items',
-  continue_watching: 'Continue Watching',
-  favorites: 'Favorites',
-  platforms: 'Platforms',
-  trailers: 'Trailers',
-}
-
-const sectionIcon = computed(() => sectionIcons[props.section.section_type] || 'mdi-view-dashboard')
+const sectionIcon = computed(() => getSectionIcon(props.section.section_type))
 const sectionLabel = computed(
-  () =>
-    props.section.title || sectionLabels[props.section.section_type] || props.section.section_type,
+  () => props.section.title || getSectionLabel(props.section.section_type, t),
 )
 
 function doDelete() {

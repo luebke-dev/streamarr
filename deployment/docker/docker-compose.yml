@@ -4,6 +4,24 @@
 services:
 
   # ---------------------------------------------------------------------------
+  # Database migrations (one-shot)
+  # Runs `alembic upgrade head` exactly once before any app process starts.
+  # backend / worker / scheduler depend on this completing successfully, so
+  # migrations never race across multiple app containers.
+  # ---------------------------------------------------------------------------
+  migrate:
+    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/backend:${IMAGE_TAG:-latest}
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    restart: "no"
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
   # Backend API
   # ---------------------------------------------------------------------------
   backend:
@@ -52,6 +70,8 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -89,6 +109,8 @@ services:
       - ${DATA_DIR:-./data}/temp:/temp:rw,z
       - /var/run/docker.sock:/var/run/docker.sock:rw,z
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -112,6 +134,8 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - PROJECT_ROOT=${PROJECT_ROOT:?PROJECT_ROOT must be set to an absolute host path (see .env.example)}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -278,7 +302,7 @@ services:
   # Elasticsearch
   # ---------------------------------------------------------------------------
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ES_IMAGE_TAG:-9.2.0}
     restart: unless-stopped
     environment:
       - discovery.type=single-node

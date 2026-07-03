@@ -277,12 +277,6 @@ def _resolve_download_path(file_path: str, allowed_roots: list[Path]) -> Path:
 
 async def _allowed_download_roots(db: AsyncSession, media_item: MediaItem) -> list[Path]:
     roots = list(_FALLBACK_DOWNLOAD_ROOTS)
-    if media_item.library_guid:
-        library = await db.get(Library, media_item.library_guid)
-        if library and library.path:
-            roots.insert(0, Path(library.path))
-            return roots
-
     library_type = get_library_type_for_media_item_type(media_item.media_type.value)
     if not library_type:
         return roots

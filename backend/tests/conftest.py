@@ -103,6 +103,13 @@ class _FakeBroker:
 
         return wrapper
 
+    def on_event(self, *events):
+        # @broker.on_event(...) — passthrough decorator for startup hooks.
+        def wrapper(f):
+            return f
+
+        return wrapper
+
 
 _taskiq_redis_mod = MagicMock()
 _taskiq_redis_mod.RedisStreamBroker.return_value = _FakeBroker()

@@ -228,10 +228,11 @@ import { useI18n } from 'vue-i18n'
 import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
 import SectionConfigDialog from 'src/components/sections/SectionConfigDialog.vue'
+import { getSectionIcon, getSectionLabel } from 'src/components/sections/sectionRegistry'
 
 const route = useRoute()
 const router = useRouter()
-useI18n()
+const { t } = useI18n()
 
 const isCreateMode = computed(() => route.params.guid === 'create')
 const layoutGuid = computed(() => (isCreateMode.value ? null : route.params.guid))
@@ -261,36 +262,12 @@ const libraryOptions = ref([])
 const genreOptions = ref([])
 const listOptions = ref([])
 
-const sectionTypeOptions = [
-  { value: 'hero_carousel', label: 'Hero Carousel' },
-  { value: 'genre', label: 'Specific Genre' },
-  { value: 'all_genres', label: 'All Genres' },
-  { value: 'list', label: 'List' },
-  { value: 'dynamic_search', label: 'Dynamic Search' },
-  { value: 'latest_items', label: 'Latest Items' },
-  { value: 'continue_watching', label: 'Continue Watching' },
-  { value: 'favorites', label: 'Favorites' },
-  { value: 'trailers', label: 'Trailers' },
-]
-
 function sectionTypeIcon(type) {
-  const icons = {
-    hero_carousel: 'mdi-image-multiple',
-    genre: 'mdi-tag',
-    all_genres: 'mdi-tag-multiple',
-    list: 'mdi-format-list-bulleted',
-    dynamic_search: 'mdi-magnify',
-    latest_items: 'mdi-clock-outline',
-    continue_watching: 'mdi-play-circle',
-    favorites: 'mdi-heart',
-    trailers: 'mdi-movie-open-play',
-  }
-  return icons[type] || 'mdi-view-dashboard'
+  return getSectionIcon(type)
 }
 
 function sectionTypeLabel(type) {
-  const opt = sectionTypeOptions.find((o) => o.value === type)
-  return opt ? opt.label : type
+  return getSectionLabel(type, t)
 }
 
 // Load layout data

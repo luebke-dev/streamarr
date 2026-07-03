@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import fakeredis.aioredis
 import pytest
 import pytest_asyncio
 
@@ -288,6 +289,118 @@ class TestBroadcastAndUtility:
 
             await mgr.disconnect(conn1)
             await mgr.disconnect(conn2)
+
+
+# ---------------------------------------------------------------------------
+# Cross-replica command routing and presence (multi-process scalability)
+# ---------------------------------------------------------------------------
+
+class TestCrossReplicaRouting:
+    """The socket may live on another backend replica. Presence/routing must
+    consult Redis instead of the process-local ``_connections`` map."""
+
+    def _manager_with_fakeredis(self, fake):
+        mock_svc = MagicMock()
+        mock_svc.subscribe = AsyncMock()
+        mock_svc.unsubscribe = AsyncMock()
+        mock_svc.publish = AsyncMock()
+        mock_svc.publish_device_command = AsyncMock()
+        mock_svc.publish_device_presence = AsyncMock()
+        mock_svc._get_redis = AsyncMock(return_value=fake)
+        with patch(
+            "pyrate.services.websocket.get_redis_event_service",
+            return_value=mock_svc,
+        ):
+            mgr = WebSocketManager()
+        return mgr, mock_svc
+
+    @pytest.mark.asyncio
+    async def test_command_routes_to_other_replica(self):
+        """Device connected on another replica (only in Redis) → publish, no 409."""
+        fake = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        await fake.sadd("ws:connected_devices", "remote-dev")
+        await fake.sadd("ws:connected_devices:u1", "remote-dev")
+
+        mgr, mock_svc = self._manager_with_fakeredis(fake)
+
+        result = await mgr.send_remote_control_command(
+            user_id="u1",
+            target_device_id="remote-dev",
+            command="pause",
+        )
+
+        assert result["status"] == "sent"
+        mock_svc.publish_device_command.assert_awaited_once()
+        args = mock_svc.publish_device_command.await_args
+        assert args.args[0] == "remote-dev"
+        assert args.args[1]["command"] == "pause"
+
+    @pytest.mark.asyncio
+    async def test_command_to_unknown_device_raises(self):
+        """Device connected nowhere (not in Redis) → RemoteControlError."""
+        fake = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        mgr, mock_svc = self._manager_with_fakeredis(fake)
+
+        from pyrate.services.websocket import RemoteControlError
+
+        with pytest.raises(RemoteControlError, match="not connected"):
+            await mgr.send_remote_control_command(
+                user_id="u1",
+                target_device_id="ghost-dev",
+                command="pause",
+            )
+        mock_svc.publish_device_command.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_local_command_takes_fast_path(self):
+        """A locally-held socket is delivered directly, never via Redis."""
+        fake = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        mgr, mock_svc = self._manager_with_fakeredis(fake)
+
+        ws = _make_ws()
+        conn = await mgr.connect(ws, user_id="u1", device_id="local-dev")
+
+        result = await mgr.send_remote_control_command(
+            user_id="u1",
+            target_device_id="local-dev",
+            command="pause",
+        )
+
+        assert result["status"] == "sent"
+        mock_svc.publish_device_command.assert_not_awaited()
+        assert any(
+            c[0][0].get("event") == "remote_control"
+            for c in ws.send_json.call_args_list
+        )
+        await mgr.disconnect(conn)
+
+    @pytest.mark.asyncio
+    async def test_presence_mirror_includes_remote_devices(self):
+        """A presence event from another replica surfaces in the accessors."""
+        fake = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        mgr, _ = self._manager_with_fakeredis(fake)
+
+        await mgr._on_presence_event(
+            {
+                "event": "device_online",
+                "data": {"device_id": "remote-dev", "user_id": "u1"},
+            }
+        )
+
+        assert "remote-dev" in mgr.get_connected_device_ids_for_user("u1")
+        assert "remote-dev" in mgr.get_all_connected_device_ids()
+        assert "u1" in mgr.get_online_user_ids()
+        sessions = mgr.get_active_device_sessions("u1")
+        assert any(s["device_id"] == "remote-dev" for s in sessions)
+
+        # Going offline clears it from the mirror.
+        await mgr._on_presence_event(
+            {
+                "event": "device_offline",
+                "data": {"device_id": "remote-dev", "user_id": "u1"},
+            }
+        )
+        assert "remote-dev" not in mgr.get_all_connected_device_ids()
 
 
 # ---------------------------------------------------------------------------

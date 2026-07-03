@@ -60,6 +60,9 @@ from pyrate.workers.favorites_monitor_worker import (
 )
 from pyrate.workers.rss_sync_worker import rss_sync_impl
 from pyrate.workers.upgrade_scan_worker import tick_upgrade_scan_impl
+# Registers the incremental/delta Elasticsearch sync tasks (and their
+# schedule) on the broker so the worker process consumes them.
+from pyrate.workers import search_index_worker  # noqa: F401
 from pyrate.workers.smart_collection_worker import (
     run_smart_collection_rule_impl,
     tick_smart_collections_impl,

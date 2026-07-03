@@ -1,6 +1,8 @@
 [Unit]
 Description=Pyrate Media Background Worker (TaskIQ)
-After=pyrate-postgres.service pyrate-redis.service
+After=pyrate-postgres.service pyrate-redis.service pyrate-migrate.service
+# Block startup until DB migrations have completed successfully.
+Requires=pyrate-migrate.service
 
 [Container]
 Image=registry.gitlab.com/pyrate.media/backend:latest

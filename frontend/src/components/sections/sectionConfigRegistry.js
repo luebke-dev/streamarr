@@ -1,36 +1,16 @@
-import ContinueWatchingConfigForm from 'src/components/sections/configForms/ContinueWatchingConfigForm.vue'
-import DynamicSearchConfigForm from 'src/components/sections/configForms/DynamicSearchConfigForm.vue'
-import GenreSectionConfigForm from 'src/components/sections/configForms/GenreSectionConfigForm.vue'
-import HeroCarouselConfigForm from 'src/components/sections/configForms/HeroCarouselConfigForm.vue'
-import LatestItemsConfigForm from 'src/components/sections/configForms/LatestItemsConfigForm.vue'
-import ListSectionConfigForm from 'src/components/sections/configForms/ListSectionConfigForm.vue'
-import TrailersConfigForm from 'src/components/sections/configForms/TrailersConfigForm.vue'
+// Section-type -> component/config-form/icon/label/defaults now live in a single
+// source of truth (sectionRegistry). These exports are thin adapters kept for
+// backwards compatibility with existing callers (SectionConfigDialog).
+import {
+  getSectionConfigComponents,
+  getSectionDefaultConfig,
+  getSectionTypeOptions,
+} from 'src/components/sections/sectionRegistry'
 
-export const SECTION_CONFIG_COMPONENTS = {
-  hero_carousel: HeroCarouselConfigForm,
-  genre: GenreSectionConfigForm,
-  all_genres: GenreSectionConfigForm,
-  list: ListSectionConfigForm,
-  dynamic_search: DynamicSearchConfigForm,
-  latest_items: LatestItemsConfigForm,
-  continue_watching: ContinueWatchingConfigForm,
-  trailers: TrailersConfigForm,
-}
+export const SECTION_CONFIG_COMPONENTS = getSectionConfigComponents()
 
 export function createSectionDefaultConfig(sectionType) {
-  const defaults = {
-    hero_carousel: { source_type: 'trending', filters: {} },
-    genre: { filters: {}, max_items: 20 },
-    all_genres: { filters: {}, max_items_per_genre: 20 },
-    list: { filters: {}, max_items: 20, max_rows: 5 },
-    dynamic_search: { filters: { sort_order: 'desc' }, max_items: 20 },
-    latest_items: { max_items: 20 },
-    continue_watching: {},
-    favorites: {},
-    platforms: {},
-    trailers: { max_items: 20 },
-  }
-  return JSON.parse(JSON.stringify(defaults[sectionType] || { filters: {} }))
+  return getSectionDefaultConfig(sectionType)
 }
 
 export function createSectionConfigOptions(t) {
@@ -62,21 +42,7 @@ export function createSectionConfigOptions(t) {
       playedState: label('playedState', 'Played state'),
       hasBackdrop: label('hasBackdrop', 'Has backdrop'),
     },
-    sectionTypeOptions: [
-      { value: 'hero_carousel', label: label('sectionTypes.heroCarousel', 'Hero Carousel') },
-      { value: 'genre', label: label('sectionTypes.genre', 'Specific Genre') },
-      { value: 'all_genres', label: label('sectionTypes.allGenres', 'All Genres') },
-      { value: 'list', label: label('sectionTypes.list', 'List') },
-      { value: 'dynamic_search', label: label('sectionTypes.dynamicSearch', 'Dynamic Search') },
-      { value: 'latest_items', label: label('sectionTypes.latestItems', 'Latest Items') },
-      {
-        value: 'continue_watching',
-        label: label('sectionTypes.continueWatching', 'Continue Watching'),
-      },
-      { value: 'favorites', label: label('sectionTypes.favorites', 'Favorites') },
-      { value: 'platforms', label: label('sectionTypes.platforms', 'Platforms') },
-      { value: 'trailers', label: label('sectionTypes.trailers', 'Trailers') },
-    ],
+    sectionTypeOptions: getSectionTypeOptions(t),
     carouselSourceOptions: [
       { value: 'trending', label: label('sourceTypes.trending', 'Trending (default)') },
       { value: 'list', label: label('sourceTypes.list', 'Specific list') },

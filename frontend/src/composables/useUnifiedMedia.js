@@ -44,8 +44,9 @@ export async function getMediaItem(itemGuid, options = {}) {
     load_releases: options.load_releases !== false,
     load_external_ids: options.load_external_ids !== false,
   }
-  const fetcher = options.cache === false ? api.get : cachedApiGet
-  const response = await fetcher(
+  // Always go through the response cache so reads are consistent (no runtime
+  // fetcher switch that bypasses caching / dedup).
+  const response = await cachedApiGet(
     `/api/media/${itemGuid}`,
     { params },
     { ttlMs: 60_000, staleTtlMs: 10 * 60_000 },

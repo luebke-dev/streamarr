@@ -37,16 +37,7 @@
 
 <script setup>
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
-import HeroCarouselSection from './HeroCarouselSection.vue'
-import GenreSection from './GenreSection.vue'
-import AllGenresSection from './AllGenresSection.vue'
-import ListSection from './ListSection.vue'
-import DynamicSearchSection from './DynamicSearchSection.vue'
-import LatestItemsSection from './LatestItemsSection.vue'
-import ContinueWatchingSection from './ContinueWatchingSection.vue'
-import FavoritesSection from './FavoritesSection.vue'
-import PlatformsSection from './PlatformsSection.vue'
-import TrailersSection from './TrailersSection.vue'
+import { getSectionComponent, getSectionIcon } from './sectionRegistry'
 
 const props = defineProps({
   section: {
@@ -65,36 +56,8 @@ const props = defineProps({
 
 defineEmits(['navigate-to-item', 'play-item'])
 
-const sectionComponentMap = {
-  hero_carousel: HeroCarouselSection,
-  genre: GenreSection,
-  all_genres: AllGenresSection,
-  list: ListSection,
-  dynamic_search: DynamicSearchSection,
-  latest_items: LatestItemsSection,
-  continue_watching: ContinueWatchingSection,
-  favorites: FavoritesSection,
-  platforms: PlatformsSection,
-  trailers: TrailersSection,
-}
-
-const sectionIconMap = {
-  hero_carousel: 'mdi-image-multiple',
-  genre: 'mdi-tag',
-  all_genres: 'mdi-tag-multiple',
-  list: 'mdi-format-list-bulleted',
-  dynamic_search: 'mdi-magnify',
-  latest_items: 'mdi-clock-outline',
-  continue_watching: 'mdi-play-circle',
-  favorites: 'mdi-heart',
-  platforms: 'mdi-gamepad-variant',
-  trailers: 'mdi-movie-open-play',
-}
-
-const sectionComponent = computed(() => sectionComponentMap[props.section.section_type] || null)
-const sectionTypeIcon = computed(
-  () => sectionIconMap[props.section.section_type] || 'mdi-view-dashboard',
-)
+const sectionComponent = computed(() => getSectionComponent(props.section.section_type))
+const sectionTypeIcon = computed(() => getSectionIcon(props.section.section_type))
 
 // Lazy loading: only render when section is near the viewport
 const sectionRef = ref(null)

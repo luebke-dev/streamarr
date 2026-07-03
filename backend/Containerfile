@@ -32,5 +32,8 @@ RUN chown -R appuser:appgroup /app
 # Expose port 8000 (non-privileged port)
 EXPOSE 8000
 
-# Run database migrations and then start the application with DB-backed network settings
-CMD ["sh", "-c", "uv run alembic upgrade head && uv run python -m pyrate.server"]
+# Start the application. Database migrations are NOT run here — they are a
+# dedicated one-shot step (compose `migrate` service / Helm pre-upgrade hook /
+# `pyrate-migrate` quadlet) so exactly one process migrates before the app
+# containers start. See deployment/README.md.
+CMD ["uv", "run", "python", "-m", "pyrate.server"]

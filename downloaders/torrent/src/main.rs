@@ -49,7 +49,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Torrent engine initialized (DHT: {})", config.torrent.enable_dht);
 
     let queue = Arc::new(PriorityQueue::new());
-    let webhook_client = Arc::new(WebhookClient::new(config.webhooks.clone()));
+    let webhook_client = Arc::new(WebhookClient::new(config.webhooks.clone(), db.clone()));
+
+    // Webhook outbox redelivery: attempt undelivered terminal events on startup
+    // and every 60s thereafter so completions survive backend downtime.
+    let redeliver_client = webhook_client.clone();
+    tokio::spawn(async move {
+        loop {
+            redeliver_client.redeliver_pending().await;
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
 
     // Start download worker
     let worker = Arc::new(DownloadWorker::new(

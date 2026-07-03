@@ -46,8 +46,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(RwLock::new(Some(session)));
 
     let queue = Arc::new(PriorityQueue::new());
-    let webhook_client = Arc::new(WebhookClient::new(config.webhooks.clone()));
+    let webhook_client = Arc::new(WebhookClient::new(config.webhooks.clone(), db.clone()));
     let output_dir = Arc::new(PathBuf::from(&config.download_dir));
+
+    // Webhook outbox redelivery: attempt undelivered terminal events on startup
+    // and every 60s thereafter so completions survive backend downtime.
+    let redeliver_client = webhook_client.clone();
+    tokio::spawn(async move {
+        loop {
+            redeliver_client.redeliver_pending().await;
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
 
     let worker = spotify::DownloadWorker::new(
         session_lock.clone(),

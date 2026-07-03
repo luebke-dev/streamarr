@@ -24,14 +24,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { cachedApiGet } from 'src/composables/useApiResponseCache'
+import { useSectionData } from 'src/composables/useSectionData'
 import { useMediaHelpers } from 'src/composables/useMediaHelpers'
 import { getItemType } from 'src/composables/useMediaFormatters'
 import PosterCard from 'src/components/PosterCard.vue'
 import MediaRowSection from 'src/components/sections/MediaRowSection.vue'
-import { logger } from 'src/utils/logger'
 
 const props = defineProps({
   section: { type: Object, required: true },
@@ -42,12 +42,6 @@ defineEmits(['navigate-to-item'])
 
 const { t } = useI18n()
 const { getPosterUrl: getMediaPosterUrl, formatYear } = useMediaHelpers()
-
-const items = ref([])
-const loading = ref(false)
-const hasRenderedItems = computed(() =>
-  Object.prototype.hasOwnProperty.call(props.section, 'rendered_items'),
-)
 
 const sectionTitle = computed(() => props.section.title || t('common.myFavorites'))
 
@@ -73,17 +67,14 @@ function matchesFavoriteType(item, targetType) {
 }
 
 
-async function loadFavorites() {
-  if (hasRenderedItems.value) {
-    items.value = (props.section.rendered_items || [])
-      .map(normalizeFavoriteItem)
-      .filter((item) => getPosterUrl(item))
-    loading.value = false
-    return
-  }
-
-  loading.value = true
-  try {
+const { items, loading } = useSectionData({
+  section: () => props.section,
+  mediaType: () => props.mediaType,
+  // Preserve legacy behaviour: keep the previously loaded favorites on error.
+  clearOnError: false,
+  mapRendered: (rendered) =>
+    rendered.map(normalizeFavoriteItem).filter((item) => getPosterUrl(item)),
+  loader: async () => {
     // No trailing slash — FastAPI's redirect_slashes turns "/favorites/" into a
     // 307 that some browser/axios combos handle poorly (auth header or query
     // params drop in transit), and the section silently shows "no favorites".
@@ -104,21 +95,11 @@ async function loadFavorites() {
         BOOKS: 'book',
       }
       const targetType = typeMap[mt]
-      items.value = allFavorites
+      return allFavorites
         .map(normalizeFavoriteItem)
         .filter((item) => matchesFavoriteType(item, targetType) && getPosterUrl(item))
-    } else {
-      items.value = allFavorites.map(normalizeFavoriteItem).filter((item) => getPosterUrl(item))
     }
-  } catch (error) {
-    logger.error('Error loading favorites:', error)
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(loadFavorites)
-watch(() => [props.mediaType, props.section.config, props.section.rendered_items], loadFavorites, {
-  deep: true,
+    return allFavorites.map(normalizeFavoriteItem).filter((item) => getPosterUrl(item))
+  },
 })
 </script>

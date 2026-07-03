@@ -57,6 +57,37 @@ export default [
 
       // allow debugger during development only
       'no-debugger': process.env.NODE_ENV === 'production' ? 'error' : 'off',
+
+      // Consolidate the data layer: raw `api`/axios access should flow through
+      // useUnifiedMedia / useSectionData / a service, not `boot/axios` directly.
+      // `warn` (not error) so the large body of existing call sites stays green
+      // while new violations surface in review.
+      'no-restricted-imports': [
+        'warn',
+        {
+          patterns: [
+            {
+              group: ['boot/axios', 'src/boot/axios'],
+              message:
+                'Do not import boot/axios directly. Use useUnifiedMedia / useSectionData / useApiResponseCache or a service in src/services instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  {
+    // Data-layer / boot files are allowed to import boot/axios directly.
+    files: [
+      'src/services/**',
+      'src/composables/useUnifiedMedia.js',
+      'src/composables/useSectionData.js',
+      'src/composables/useApiResponseCache.js',
+      'src/boot/**',
+    ],
+    rules: {
+      'no-restricted-imports': 'off',
     },
   },
 

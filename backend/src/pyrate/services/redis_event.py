@@ -149,6 +149,43 @@ class RedisEventService:
             },
         )
 
+    async def publish_device_command(
+        self,
+        device_id: str,
+        envelope: dict[str, Any],
+    ) -> int:
+        """Route a remote-control command to the replica holding the socket.
+
+        Published on the per-device ``device:{device_id}`` channel; the
+        backend process where the device's WebSocket lives is subscribed and
+        forwards the command to the client.
+        """
+        return await self.publish(
+            channel=f"device:{device_id}",
+            event="remote_control",
+            data=envelope,
+        )
+
+    async def publish_device_presence(
+        self,
+        *,
+        device_id: str,
+        user_id: str,
+        online: bool,
+        connected_at: str | None = None,
+    ) -> int:
+        """Broadcast a device connect/disconnect so every replica's presence
+        mirror stays consistent across processes."""
+        return await self.publish(
+            channel="ws:presence",
+            event="device_online" if online else "device_offline",
+            data={
+                "device_id": device_id,
+                "user_id": user_id,
+                "connected_at": connected_at,
+            },
+        )
+
     async def subscribe(
         self,
         channel: str,

@@ -17,6 +17,29 @@ services:
       - backend-python
 
   # ---------------------------------------------------------------------------
+  # Database migrations (one-shot)
+  # Runs `alembic upgrade head` exactly once before any app process starts.
+  # backend-python / worker / scheduler depend on this completing successfully,
+  # so migrations never race across multiple app containers.
+  # ---------------------------------------------------------------------------
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Containerfile
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    restart: "no"
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - SECRET_KEY=${SECRET_KEY}
+    volumes:
+      - ./backend/src:/app/src:rw,z
+      - ./backend/alembic:/app/alembic:rw,z
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
   # Backend API — Python (FastAPI)
   # ---------------------------------------------------------------------------
   backend-python:
@@ -67,6 +90,8 @@ services:
       - ${DATA_DIR:-./data}/users:/user-data:rw,z
       - /var/run/docker.sock:/var/run/docker.sock:rw,z
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -108,6 +133,8 @@ services:
       - ${DATA_DIR:-./data}/users:/user-data:rw,z
       - /var/run/docker.sock:/var/run/docker.sock:rw,z
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -133,6 +160,8 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - PROJECT_ROOT=${PROJECT_ROOT:-/root/pyrate.media/}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -339,7 +368,7 @@ services:
     # Match the k8s deployment (manifests/apps/pyrate.yaml). The Python
     # client is pinned to 9.2.0 in pyproject.toml and refuses to talk to
     # an 8.x server (HEAD / returns 400 over the version handshake).
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.2.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ES_IMAGE_TAG:-9.2.0}
     restart: unless-stopped
     environment:
       - discovery.type=single-node

@@ -44,6 +44,20 @@ impl Database {
         )
         .ok();
 
+        // Outbox for terminal webhook events that could not be delivered live.
+        // Guarantees completion/failure notifications survive backend downtime.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS pending_webhooks (
+                id          TEXT PRIMARY KEY,
+                url         TEXT NOT NULL,
+                event_type  TEXT NOT NULL,
+                payload     TEXT NOT NULL,
+                job_id      TEXT NOT NULL,
+                created_at  TEXT NOT NULL,
+                attempts    INTEGER NOT NULL DEFAULT 0
+            );",
+        )?;
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -154,6 +168,88 @@ impl Database {
             .filter_map(|r| r.ok())
             .collect()
     }
+
+    // ---- Webhook outbox ----------------------------------------------------
+
+    /// Persist a terminal webhook event that could not be delivered live so it
+    /// can be redelivered later. Errors are logged, never silently dropped.
+    pub fn insert_pending_webhook(&self, url: &str, event_type: &str, payload: &str, job_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        if let Err(e) = conn.execute(
+            "INSERT INTO pending_webhooks (id, url, event_type, payload, job_id, created_at, attempts)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+            params![
+                Uuid::new_v4().to_string(),
+                url,
+                event_type,
+                payload,
+                job_id,
+                Utc::now().to_rfc3339(),
+            ],
+        ) {
+            tracing::error!("Failed to persist pending webhook for job {}: {}", job_id, e);
+        }
+    }
+
+    pub fn get_pending_webhooks(&self) -> Vec<PendingWebhook> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = match conn.prepare(
+            "SELECT id, url, event_type, payload, job_id, attempts
+             FROM pending_webhooks ORDER BY created_at ASC",
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("Failed to prepare pending_webhooks query: {}", e);
+                return Vec::new();
+            }
+        };
+
+        let rows = match stmt.query_map([], |row| {
+            Ok(PendingWebhook {
+                id: row.get(0)?,
+                url: row.get(1)?,
+                event_type: row.get(2)?,
+                payload: row.get(3)?,
+                job_id: row.get(4)?,
+                attempts: row.get(5)?,
+            })
+        }) {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::error!("Failed to query pending_webhooks: {}", e);
+                return Vec::new();
+            }
+        };
+        rows.filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn delete_pending_webhook(&self, id: &str) {
+        let conn = self.conn.lock().unwrap();
+        if let Err(e) = conn.execute("DELETE FROM pending_webhooks WHERE id = ?1", params![id]) {
+            tracing::error!("Failed to delete pending webhook {}: {}", id, e);
+        }
+    }
+
+    pub fn increment_webhook_attempts(&self, id: &str) {
+        let conn = self.conn.lock().unwrap();
+        if let Err(e) = conn.execute(
+            "UPDATE pending_webhooks SET attempts = attempts + 1 WHERE id = ?1",
+            params![id],
+        ) {
+            tracing::error!("Failed to increment attempts for pending webhook {}: {}", id, e);
+        }
+    }
+}
+
+/// A persisted, not-yet-delivered terminal webhook event.
+#[derive(Debug, Clone)]
+pub struct PendingWebhook {
+    pub id: String,
+    pub url: String,
+    pub event_type: String,
+    pub payload: String,
+    pub job_id: String,
+    pub attempts: i64,
 }
 
 fn row_to_job(row: &rusqlite::Row) -> rusqlite::Result<Job> {

@@ -26,15 +26,15 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { cachedApiGet } from 'src/composables/useApiResponseCache'
+import { useSectionData } from 'src/composables/useSectionData'
 import { useMediaHelpers } from 'src/composables/useMediaHelpers'
 import { getItemType } from 'src/composables/useMediaFormatters'
 import PosterCard from 'src/components/PosterCard.vue'
 import MediaRowSection from 'src/components/sections/MediaRowSection.vue'
-import { logger } from 'src/utils/logger'
 
 const props = defineProps({
   section: { type: Object, required: true },
@@ -46,12 +46,6 @@ defineEmits(['navigate-to-item'])
 const { t } = useI18n()
 const router = useRouter()
 const { getPosterUrl: getMediaPosterUrl, formatYear } = useMediaHelpers()
-
-const items = ref([])
-const loading = ref(false)
-const hasRenderedItems = computed(() =>
-  Object.prototype.hasOwnProperty.call(props.section, 'rendered_items'),
-)
 
 const sectionTitle = computed(() => props.section.title || t('pageLayouts.latestItems'))
 const effectiveMediaType = computed(
@@ -77,15 +71,11 @@ function viewAll() {
   router.push(`/search?${params.toString()}`)
 }
 
-async function loadLatestItems() {
-  if (hasRenderedItems.value) {
-    items.value = (props.section.rendered_items || []).filter((item) => getPosterUrl(item))
-    loading.value = false
-    return
-  }
-
-  loading.value = true
-  try {
+const { items, loading } = useSectionData({
+  section: () => props.section,
+  mediaType: () => props.mediaType,
+  mapRendered: (rendered) => rendered.filter((item) => getPosterUrl(item)),
+  loader: async () => {
     const params = { limit: maxItems.value }
     if (effectiveMediaType.value) params.media_type = effectiveMediaType.value
     const response = await cachedApiGet(
@@ -93,19 +83,7 @@ async function loadLatestItems() {
       { params },
       { ttlMs: 2 * 60_000, staleTtlMs: 20 * 60_000 },
     )
-    items.value = (response.data.items || []).filter((item) => getPosterUrl(item))
-  } catch (error) {
-    logger.error('Error loading latest items:', error)
-    items.value = []
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(loadLatestItems)
-watch(
-  () => [props.mediaType, props.section.config, props.section.rendered_items],
-  loadLatestItems,
-  { deep: true },
-)
+    return (response.data.items || []).filter((item) => getPosterUrl(item))
+  },
+})
 </script>

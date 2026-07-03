@@ -52,6 +52,15 @@ async def _invalidator_loop() -> None:
                 _cache.clear()
             else:
                 _cache.pop(key, None)
+            # Re-hydrate the process-global settings snapshot so worker/
+            # scheduler/web processes pick up admin changes live, not just on
+            # restart. Best-effort: a failure must not kill the loop.
+            try:
+                from pyrate.config import load_settings_from_database
+
+                await load_settings_from_database()
+            except Exception:
+                logger.exception("Settings invalidator: snapshot re-hydrate failed")
     except asyncio.CancelledError:
         raise
     except Exception:
