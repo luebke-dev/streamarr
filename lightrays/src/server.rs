@@ -403,6 +403,20 @@ async fn handle_launch(
         }
     }
 
+    // S-C1: app_mounts bind a host directory into the same privileged
+    // container, so — exactly like docker_image — they are a trusted,
+    // admin-gated capability. A caller holding only a session's `lightrays:ws`
+    // ticket (e.g. a compromised session container) must never be able to
+    // mount a host path in, so require the same scope. The strict path/prefix
+    // validation runs later in `build_container_config`.
+    if !launch.app_mounts.is_empty()
+        && !principal.has_scope("lightrays:admin")
+        && !principal.has_scope("lightrays:image")
+    {
+        return forbidden("app_mounts requires the lightrays:image or lightrays:admin scope")
+            .into_response();
+    }
+
     let container_config =
         match build_container_config(&state.config, &launch, &principal.subject) {
             Ok(config) => config,

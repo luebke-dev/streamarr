@@ -153,6 +153,7 @@ class TestResolveLaunchConfig:
             "docker_image": STEAM_IMAGE,
             "runtime_profile": "gow-app",
             "app_env": {},
+            "app_mounts": [],
             "state_scope": "user",
             "profile_name": "steam",
         }
@@ -212,6 +213,7 @@ class TestResolveLaunchConfig:
             "docker_image": None,
             "runtime_profile": None,
             "app_env": {},
+            "app_mounts": [],
             "state_scope": "game",
             "profile_name": None,
         }
@@ -223,6 +225,7 @@ class TestResolveLaunchConfig:
             "docker_image": "custom/img:tag",
             "runtime_profile": None,
             "app_env": {"K": "v"},
+            "app_mounts": [],
             "state_scope": "game",
             "profile_name": None,
         }
@@ -272,6 +275,133 @@ class TestAppRefTemplate:
             "STEAM_STARTUP_FLAGS": "-bigpicture steam://rungameid/70",
             "EXTRA": "1",
         }
+
+
+# ── app_mounts resolution ────────────────────────────────────────────────────
+
+
+class TestResolveAppMounts:
+    """`resolve_launch_config` surfaces sanctioned host→container bind mounts
+    under ``app_mounts`` — profile-level mounts first, per-game mounts after,
+    each normalised to ``{host,container,ro}`` with invalid entries dropped."""
+
+    @pytest.mark.asyncio
+    async def test_empty_when_no_mounts(
+        self, db_session: AsyncSession, steam_profile
+    ):
+        cfg = await cp.resolve_launch_config(db_session, _media(None))
+        assert cfg["app_mounts"] == []
+
+    @pytest.mark.asyncio
+    async def test_game_mounts_normalised(
+        self, db_session: AsyncSession, steam_profile
+    ):
+        cfg = await cp.resolve_launch_config(
+            db_session,
+            _media(
+                {
+                    "mounts": [
+                        {"host": "/srv/games/wine", "container": "/games/wine"},
+                        {
+                            "host": "/srv/games/ro",
+                            "container": "/games/ro",
+                            "ro": True,
+                        },
+                    ]
+                }
+            ),
+        )
+        assert cfg["app_mounts"] == [
+            {"host": "/srv/games/wine", "container": "/games/wine", "ro": False},
+            {"host": "/srv/games/ro", "container": "/games/ro", "ro": True},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_ro_defaults_false(self, db_session: AsyncSession, steam_profile):
+        cfg = await cp.resolve_launch_config(
+            db_session,
+            _media({"mounts": [{"host": "/a", "container": "/b"}]}),
+        )
+        assert cfg["app_mounts"] == [{"host": "/a", "container": "/b", "ro": False}]
+
+    @pytest.mark.asyncio
+    async def test_aliases_accepted(self, db_session: AsyncSession, steam_profile):
+        cfg = await cp.resolve_launch_config(
+            db_session,
+            _media(
+                {
+                    "mounts": [
+                        {
+                            "source": "/host/wine",
+                            "target": "/games/wine",
+                            "read_only": True,
+                        }
+                    ]
+                }
+            ),
+        )
+        assert cfg["app_mounts"] == [
+            {"host": "/host/wine", "container": "/games/wine", "ro": True}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_invalid_entries_dropped(
+        self, db_session: AsyncSession, steam_profile
+    ):
+        cfg = await cp.resolve_launch_config(
+            db_session,
+            _media(
+                {
+                    "mounts": [
+                        {"host": "", "container": "/b"},  # empty host
+                        {"host": "/a"},  # missing container
+                        {"container": "/b"},  # missing host
+                        {"host": "relative/path", "container": "/b"},  # not abs
+                        {"host": "/a", "container": "rel/dir"},  # container not abs
+                        "not-a-dict",  # wrong type
+                        {"host": "/ok", "container": "/ok"},  # valid → kept
+                    ]
+                }
+            ),
+        )
+        assert cfg["app_mounts"] == [{"host": "/ok", "container": "/ok", "ro": False}]
+
+    @pytest.mark.asyncio
+    async def test_no_profile_still_returns_game_mounts(
+        self, db_session: AsyncSession
+    ):
+        # Empty DB (no profile resolves): app_mounts still carries the game's
+        # own mounts.
+        cfg = await cp.resolve_launch_config(
+            db_session,
+            _media({"mounts": [{"host": "/a", "container": "/b"}]}),
+        )
+        assert cfg["app_mounts"] == [{"host": "/a", "container": "/b", "ro": False}]
+
+    @pytest.mark.asyncio
+    async def test_profile_mounts_precede_game_mounts(
+        self, db_session: AsyncSession
+    ):
+        # A profile that carries mounts (via a duck-typed attribute the model
+        # may grow later) contributes them first; per-game mounts follow.
+        profile = await cp.create(
+            db_session, name="withmounts", kind="generic", docker_image="repo/a:1"
+        )
+        # Simulate a future profile-level mounts field via a plain attribute.
+        profile.mounts = [{"host": "/profile/dir", "container": "/shared"}]
+        cfg = await cp.resolve_launch_config(
+            db_session,
+            _media(
+                {
+                    "profile": "withmounts",
+                    "mounts": [{"host": "/game/dir", "container": "/game"}],
+                }
+            ),
+        )
+        assert cfg["app_mounts"] == [
+            {"host": "/profile/dir", "container": "/shared", "ro": False},
+            {"host": "/game/dir", "container": "/game", "ro": False},
+        ]
 
 
 # ── state_scope resolution ───────────────────────────────────────────────────

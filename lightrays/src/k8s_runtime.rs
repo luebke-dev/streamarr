@@ -442,6 +442,7 @@ impl ServerConfig {
             gow_image: "ghcr.io/games-on-whales/steam:edge".into(),
             gow_compositor: "gamescope".into(),
             allowed_registries: vec![],
+            allowed_mount_prefixes: vec![],
             jwt_audience: String::new(),
             max_sessions_global: 0,
             max_sessions_per_user: 0,

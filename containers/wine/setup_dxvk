@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+#
+# setup_dxvk — install the DXVK DLLs baked at $DXVK_DIR into $WINEPREFIX and
+# register native DLL overrides so Wine loads DXVK instead of built-in
+# wined3d. Idempotent: re-running just re-copies the DLLs and re-asserts the
+# overrides. Deliberately dependency-free (the upstream v3.0 tarball no
+# longer ships its own setup_dxvk.sh).
+#
+# Usage: setup_dxvk [install|uninstall]
+set -euo pipefail
+
+action="${1:-install}"
+DXVK_DIR="${DXVK_DIR:-/opt/pyrate/dxvk}"
+: "${WINEPREFIX:?WINEPREFIX must be set}"
+
+sys32="$WINEPREFIX/drive_c/windows/system32"
+syswow64="$WINEPREFIX/drive_c/windows/syswow64"
+
+# DLLs shipped by DXVK. d3d9 is the one WoW 3.3.5 (D3D9) actually uses; the
+# rest cover newer titles and are harmless to install.
+dlls=(d3d8 d3d9 d3d10core d3d11 dxgi)
+
+copy_dll() { # <src-dll> <dest-dir>
+    install -Dm644 "$1" "$2/$(basename "$1")"
+}
+
+set_override() { # <dll> <native|builtin>
+    # `wine reg add` reliably persists the value into the prefix's user.reg
+    # (a .reg file import via regedit does not, in the headless WoW64 build).
+    wine reg add 'HKCU\Software\Wine\DllOverrides' \
+        /v "$1" /d "$2" /f >/dev/null 2>&1
+}
+
+apply_overrides() { # <native|builtin>
+    local mode="$1" d
+    for d in "${dlls[@]}"; do
+        set_override "$d" "$mode"
+    done
+    # Flush so the values are on disk before we return.
+    wineserver -w 2>/dev/null || true
+}
+
+case "$action" in
+    install)
+        if [ ! -d "$DXVK_DIR/x64" ] || [ ! -d "$DXVK_DIR/x32" ]; then
+            echo "setup_dxvk: DXVK payload not found under $DXVK_DIR" >&2
+            exit 1
+        fi
+        if [ -d "$syswow64" ]; then
+            # 64-bit (WoW64) prefix: 64-bit DLLs -> system32, 32-bit -> syswow64.
+            for d in "${dlls[@]}"; do
+                copy_dll "$DXVK_DIR/x64/$d.dll" "$sys32"
+                copy_dll "$DXVK_DIR/x32/$d.dll" "$syswow64"
+            done
+        else
+            # 32-bit (win32) prefix: 32-bit DLLs go straight into system32.
+            for d in "${dlls[@]}"; do
+                copy_dll "$DXVK_DIR/x32/$d.dll" "$sys32"
+            done
+        fi
+        apply_overrides native
+        echo "setup_dxvk: DXVK ${DXVK_VERSION:-} installed into $WINEPREFIX"
+        ;;
+    uninstall)
+        # Drop the overrides; Wine falls back to built-in wined3d. Leaving the
+        # DLL files in place is harmless once they're no longer overridden.
+        apply_overrides builtin
+        echo "setup_dxvk: DXVK overrides removed from $WINEPREFIX"
+        ;;
+    *)
+        echo "usage: setup_dxvk [install|uninstall]" >&2
+        exit 2
+        ;;
+esac
