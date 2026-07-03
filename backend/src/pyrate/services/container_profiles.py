@@ -143,6 +143,31 @@ def _clean_env(value: Any) -> dict[str, str]:
     return {str(k): str(v) for k, v in value.items() if k is not None}
 
 
+APP_REF_PLACEHOLDER = "{app_ref}"
+
+
+def _apply_app_ref(env: dict[str, str], app_ref: str | None) -> dict[str, str]:
+    """Fill the per-game ``{app_ref}`` placeholder in profile/game env values.
+
+    A profile carries its launch template ONCE (e.g.
+    ``STEAM_STARTUP_FLAGS="-bigpicture steam://rungameid/{app_ref}"``) so every
+    game shares the same env and only supplies its own ``app_ref`` (the Steam
+    app id, a ROM path, …). Values whose placeholder can't be filled — no
+    ``app_ref`` given — are dropped rather than left as a broken literal, so a
+    profile game without a target falls back to the container's default
+    behaviour (e.g. Steam Big Picture) instead of a malformed launch command.
+    """
+    result: dict[str, str] = {}
+    for key, val in env.items():
+        if APP_REF_PLACEHOLDER in val:
+            if app_ref:
+                result[key] = val.replace(APP_REF_PLACEHOLDER, app_ref)
+            # else: drop this key — nothing to launch
+        else:
+            result[key] = val
+    return result
+
+
 async def resolve_launch_config(
     db: AsyncSession, media_item: Any
 ) -> dict[str, Any]:
@@ -167,6 +192,10 @@ async def resolve_launch_config(
 
     per_game_image = _clean_str(lr.get("docker_image"))
     per_game_env = _clean_env(lr.get("env"))
+    # Per-game launch target (e.g. Steam app id) substituted into the
+    # profile's `{app_ref}` launch template so the profile holds the launch
+    # command once and each game supplies only its own id.
+    app_ref = _clean_str(lr.get("app_ref"))
 
     profile: ContainerProfile | None = None
     ref = _clean_str(lr.get("profile"))
@@ -184,12 +213,12 @@ async def resolve_launch_config(
         return {
             "docker_image": per_game_image,
             "runtime_profile": None,
-            "app_env": per_game_env,
+            "app_env": _apply_app_ref(per_game_env, app_ref),
         }
 
     profile_env = _clean_env(profile.env)
     return {
         "docker_image": per_game_image or profile.docker_image,
         "runtime_profile": profile.runtime_profile,
-        "app_env": {**profile_env, **per_game_env},
+        "app_env": _apply_app_ref({**profile_env, **per_game_env}, app_ref),
     }
