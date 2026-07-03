@@ -548,6 +548,35 @@ impl Runtime for DockerRunner {
         self.get_container_stats(name).await
     }
 
+    async fn exec(&self, name: &str, cmd: Vec<String>, env: Vec<String>) -> Result<()> {
+        use bollard::exec::{CreateExecOptions, StartExecResults};
+        let exec = self
+            .docker
+            .create_exec(
+                name,
+                CreateExecOptions {
+                    cmd: Some(cmd),
+                    env: if env.is_empty() { None } else { Some(env) },
+                    attach_stdout: Some(true),
+                    attach_stderr: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await
+            .with_context(|| format!("create_exec on {name}"))?;
+        // Start and drain the output so the command actually runs to
+        // completion (a detached/undrained exec may never execute).
+        if let StartExecResults::Attached { mut output, .. } = self
+            .docker
+            .start_exec(&exec.id, None)
+            .await
+            .with_context(|| format!("start_exec on {name}"))?
+        {
+            while output.next().await.is_some() {}
+        }
+        Ok(())
+    }
+
     async fn reconcile_orphans(&self, active: &HashSet<String>, min_age_secs: i64) -> usize {
         self.sweep_orphan_containers(active, min_age_secs).await
     }

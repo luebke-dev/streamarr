@@ -45,6 +45,14 @@ pub trait Runtime: Send + Sync {
     /// One-shot resource usage snapshot.
     async fn stats(&self, name: &str) -> Result<ContainerStats>;
 
+    /// Run a one-shot command inside a running workload and wait for it to
+    /// finish. Used to drive the in-container compositor at runtime (e.g.
+    /// `swaymsg output * resolution WxH` so the sway session re-lays-out
+    /// live). Defaults to unsupported for backends without an exec path.
+    async fn exec(&self, _name: &str, _cmd: Vec<String>, _env: Vec<String>) -> Result<()> {
+        anyhow::bail!("exec is not supported by this runtime backend")
+    }
+
     /// Remove workloads that belong to Lightrays' reserved namespace but
     /// are not in `active` (orphans left behind by a crashed process, or a
     /// workload the in-memory session map has lost track of).

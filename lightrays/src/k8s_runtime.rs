@@ -440,6 +440,7 @@ impl ServerConfig {
             reconnect_grace_secs: 30,
             ws_ticket_ttl_secs: 120,
             gow_image: "ghcr.io/games-on-whales/steam:edge".into(),
+            gow_compositor: "gamescope".into(),
             allowed_registries: vec![],
             jwt_audience: String::new(),
             max_sessions_global: 0,
