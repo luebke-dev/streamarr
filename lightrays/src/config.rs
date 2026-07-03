@@ -65,6 +65,12 @@ pub struct ServerConfig {
     /// from. Empty disables the check. Defaults to the registry host of
     /// `gow_image`. (S-C1)
     pub allowed_registries: Vec<String>,
+    /// Absolute host-path prefixes under which an admin-gated `app_mounts`
+    /// bind may expose a host directory (e.g. a Wine game folder) inside the
+    /// privileged `gow-app` container. An **empty** list disables the feature
+    /// entirely (fail-closed): no `app_mounts` are accepted. Set via
+    /// `LIGHTRAYS_ALLOWED_MOUNT_PREFIXES` (comma-separated). (S-C1)
+    pub allowed_mount_prefixes: Vec<String>,
     /// Expected JWT audience (`aud`). When non-empty, tokens must carry a
     /// matching `aud` claim. Empty disables audience validation. (S-M3)
     pub jwt_audience: String,
@@ -130,6 +136,19 @@ impl ServerConfig {
             })
             .unwrap_or_else(|| vec![crate::launch::image_registry_host(&gow_image)]);
 
+        // Host-path prefixes that admin-gated app_mounts may bind from. Empty
+        // (the default) keeps the feature off — fail-closed.
+        let allowed_mount_prefixes: Vec<String> =
+            std::env::var("LIGHTRAYS_ALLOWED_MOUNT_PREFIXES")
+                .ok()
+                .map(|v| {
+                    v.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+
         let config = Self {
             runtime_backend,
             k8s_session_namespace: std::env::var("LIGHTRAYS_K8S_SESSION_NAMESPACE")
@@ -179,6 +198,7 @@ impl ServerConfig {
                 .unwrap_or_else(|_| "gamescope".into())
                 .to_ascii_lowercase(),
             allowed_registries,
+            allowed_mount_prefixes,
             jwt_audience: std::env::var("LIGHTRAYS_JWT_AUDIENCE")
                 .unwrap_or_else(|_| "lightrays".into()),
             max_sessions_global: std::env::var("LIGHTRAYS_MAX_SESSIONS")

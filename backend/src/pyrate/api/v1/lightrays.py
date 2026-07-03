@@ -182,6 +182,10 @@ async def lightrays_launch(
     docker_image = _validate_lightrays_docker_image(launch_config.get("docker_image"))
     runtime_profile = launch_config.get("runtime_profile")
     app_env = launch_config.get("app_env") or None
+    # Sanctioned host→container bind mounts merged from the container profile +
+    # per-game config. Already normalised/validated to {host,container,ro} by
+    # resolve_launch_config; Lightrays enforces the host-path allowlist.
+    app_mounts = launch_config.get("app_mounts") or None
 
     # Derive the persistent-state key (mounted as /home/retro). A "user"-scoped
     # profile (e.g. steam) shares ONE state per user across all of that user's
@@ -224,6 +228,7 @@ async def lightrays_launch(
             docker_image=docker_image,
             runtime_profile=runtime_profile,
             app_env=app_env,
+            app_mounts=app_mounts,
             keyboard_layout=keyboard_layout,
             mouse_speed=mouse_speed,
             media_id=str(media_item.guid),

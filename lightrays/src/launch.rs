@@ -18,6 +18,25 @@ use serde::Deserialize;
 
 pub type JsonError = (StatusCode, Json<serde_json::Value>);
 
+/// A single sanctioned, admin-gated bind mount for the generic `gow-app`
+/// runtime profile. Exposes a host directory (e.g. a Wine game folder) inside
+/// the privileged streaming container. This is deliberately a distinct,
+/// structured type — NOT the deprecated raw `mounts: Vec<String>` field, which
+/// is still rejected outright by [`reject_raw_docker_fields`]. Every field is
+/// re-validated server-side against [`ServerConfig::allowed_mount_prefixes`]
+/// and a fixed deny-list of critical container paths before it can ever reach
+/// the Docker bind list. (S-C1)
+#[derive(Debug, Clone, Deserialize)]
+pub struct AppMount {
+    /// Absolute host path. Must sit under an allowed prefix.
+    pub host: String,
+    /// Absolute container mount point. Must not clobber critical paths.
+    pub container: String,
+    /// Mount read-only when true (default read-write).
+    #[serde(default)]
+    pub ro: bool,
+}
+
 #[derive(Deserialize)]
 pub struct LaunchRequest {
     // Stream settings
@@ -38,6 +57,14 @@ pub struct LaunchRequest {
     /// (no shell), so there is no injection surface, and the lightrays-managed
     /// streaming-contract variables always take precedence over it.
     pub app_env: Option<HashMap<String, String>>,
+    /// Sanctioned, admin-gated host bind mounts for the `gow-app` profile.
+    /// Distinct from the rejected raw `mounts` field below: each entry is a
+    /// structured [`AppMount`] that is strictly re-validated (allowed host
+    /// prefix, no `..` traversal, protected container paths) before it is
+    /// turned into a Docker bind. Requires the `lightrays:image` or
+    /// `lightrays:admin` scope (enforced in `server.rs`), and is only honoured
+    /// for the `gow-app` runtime profile. (S-C1)
+    pub app_mounts: Option<Vec<AppMount>>,
     // Deprecated unsafe raw Docker fields. They are still deserialized so the
     // server can reject them explicitly instead of silently ignoring them.
     pub image: Option<String>,
@@ -70,6 +97,12 @@ pub struct ValidatedLaunch {
     /// Validated sanctioned app environment (empty keys dropped). Merged into
     /// the container env for the `gow-app` profile; ignored otherwise.
     pub app_env: HashMap<String, String>,
+    /// Requested sanctioned bind mounts, carried through structurally so the
+    /// server-side scope gate can see whether any were asked for. The strict
+    /// path/prefix validation and bind-string assembly happen later, in
+    /// [`build_container_config`], where the config allow-list is available.
+    /// Only honoured for the `gow-app` profile.
+    pub app_mounts: Vec<AppMount>,
     pub start_compositor: bool,
     pub start_audio: bool,
     pub render_node: String,
@@ -184,6 +217,14 @@ pub fn validate_launch_request(req: &LaunchRequest) -> Result<ValidatedLaunch, J
         .unwrap_or_else(|| "/dev/dri/renderD128".into());
     validate_render_node(&render_node)?;
 
+    // Sanctioned bind mounts are carried through verbatim here; the strict
+    // security validation (allowed host prefix, `..` traversal, protected
+    // container paths, fail-closed empty allow-list) runs in
+    // `build_container_config`, which has access to the server config's
+    // allow-list. The server.rs scope gate only needs to know whether any
+    // mounts were requested at all.
+    let app_mounts = req.app_mounts.clone().unwrap_or_default();
+
     Ok(ValidatedLaunch {
         width,
         height,
@@ -195,6 +236,7 @@ pub fn validate_launch_request(req: &LaunchRequest) -> Result<ValidatedLaunch, J
         docker_image,
         keyboard_layout,
         app_env,
+        app_mounts,
         start_compositor: req.start_virtual_compositor.unwrap_or(true),
         start_audio: req.start_audio_server.unwrap_or(true),
         render_node,
@@ -294,6 +336,118 @@ pub fn validate_image_registry(image: &str, allowed: &[String]) -> Result<(), Js
     }
 }
 
+/// Container mount points that a sanctioned `app_mount` may never target,
+/// including everything beneath them. These are the paths lightrays relies on
+/// for the streaming contract, the session sockets, and host integrity; a
+/// bind that clobbered one could break isolation or hijack the session.
+const FORBIDDEN_MOUNT_SUBTREES: [&str; 6] = [
+    "/tmp/sockets", // per-session XDG_RUNTIME_DIR / compositor + pulse sockets
+    "/dev",
+    "/proc",
+    "/sys",
+    "/etc",
+    "/opt/pyrate",
+];
+
+/// True when a path contains a `..` segment (traversal). Split on `/` so
+/// only whole segments count — a filename that merely embeds `..` (e.g.
+/// `/games/a..b`) is fine, but `/games/../etc` is rejected.
+fn path_has_dotdot(path: &str) -> bool {
+    path.split('/').any(|seg| seg == "..")
+}
+
+/// String-level canonical prefix check: `path` is under `prefix` when it
+/// equals the (trailing-slash-trimmed) prefix or starts with `prefix + "/"`.
+/// This prevents `/games` from matching a sibling like `/games-secret`. An
+/// empty or root (`/`) prefix never matches, so an operator cannot open the
+/// whole filesystem through the allow-list.
+fn path_is_under_prefix(path: &str, prefix: &str) -> bool {
+    let prefix = prefix.trim_end_matches('/');
+    if prefix.is_empty() {
+        return false;
+    }
+    path == prefix || path.starts_with(&format!("{prefix}/"))
+}
+
+/// True when a container mount target is protected. Exact-only for `/` and
+/// `/home/retro` (a subdirectory of the per-app home is a legitimate target),
+/// subtree-wide for the system/socket paths in [`FORBIDDEN_MOUNT_SUBTREES`].
+fn is_forbidden_container_path(container: &str) -> bool {
+    let trimmed = container.trim_end_matches('/');
+    let c = if trimmed.is_empty() { "/" } else { trimmed };
+    if c == "/" || c == "/home/retro" {
+        return true;
+    }
+    FORBIDDEN_MOUNT_SUBTREES
+        .iter()
+        .any(|p| c == *p || c.starts_with(&format!("{p}/")))
+}
+
+/// Validate a single sanctioned bind mount and render its Docker bind string
+/// `"{host}:{container}:{rw|ro}"` (matching the plain `:rw` form the other GOW
+/// binds use in `build_volume_binds`). The caller guarantees the allow-list is
+/// non-empty. (S-C1)
+fn validate_app_mount(mount: &AppMount, allowed_prefixes: &[String]) -> Result<String, JsonError> {
+    let host = mount.host.trim();
+    let container = mount.container.trim();
+
+    // Host: absolute, no traversal, and under an allowed prefix.
+    if !host.starts_with('/') {
+        return Err(bad_request("app_mounts host must be an absolute path"));
+    }
+    if path_has_dotdot(host) {
+        return Err(bad_request("app_mounts host must not contain a '..' segment"));
+    }
+    if !allowed_prefixes
+        .iter()
+        .any(|prefix| path_is_under_prefix(host, prefix))
+    {
+        return Err(forbidden(
+            "app_mounts host is not under an allowed prefix (LIGHTRAYS_ALLOWED_MOUNT_PREFIXES)",
+        ));
+    }
+
+    // Container: absolute, no traversal, and not a protected path.
+    if !container.starts_with('/') {
+        return Err(bad_request("app_mounts container must be an absolute path"));
+    }
+    if path_has_dotdot(container) {
+        return Err(bad_request(
+            "app_mounts container must not contain a '..' segment",
+        ));
+    }
+    if is_forbidden_container_path(container) {
+        return Err(forbidden(
+            "app_mounts container path targets a protected location",
+        ));
+    }
+
+    let mode = if mount.ro { "ro" } else { "rw" };
+    Ok(format!("{host}:{container}:{mode}"))
+}
+
+/// Validate the whole set of requested `app_mounts` and return their Docker
+/// bind strings. **Fail-closed:** if any mounts were requested but the
+/// allow-list is empty, the feature is off and the request is rejected. With
+/// no mounts requested this is a no-op regardless of the allow-list. (S-C1)
+pub fn validate_app_mounts(
+    mounts: &[AppMount],
+    allowed_prefixes: &[String],
+) -> Result<Vec<String>, JsonError> {
+    if mounts.is_empty() {
+        return Ok(Vec::new());
+    }
+    if allowed_prefixes.is_empty() {
+        return Err(forbidden(
+            "app_mounts are disabled: LIGHTRAYS_ALLOWED_MOUNT_PREFIXES is empty",
+        ));
+    }
+    mounts
+        .iter()
+        .map(|mount| validate_app_mount(mount, allowed_prefixes))
+        .collect()
+}
+
 pub fn bad_request(message: &str) -> JsonError {
     (
         StatusCode::BAD_REQUEST,
@@ -315,24 +469,34 @@ pub fn build_container_config(
 ) -> Result<Option<ContainerConfig>, JsonError> {
     match launch.runtime_profile.as_str() {
         "none" => Ok(None),
-        // The established Steam profile does not merge any extra app env; it
-        // shares the exact same builder as `gow-app` with an empty overlay,
-        // so its behaviour is byte-for-byte identical to before.
+        // The established Steam profile does not merge any extra app env and
+        // takes no app_mounts; it shares the exact same builder as `gow-app`
+        // with an empty overlay and no extra binds, so its behaviour is
+        // byte-for-byte identical to before.
         "gow-steam" => Ok(Some(build_gow_container_config(
             config,
             launch,
             owner_sub,
             &HashMap::new(),
+            &[],
         ))),
         // Generic, GOW-agnostic profile: same privileged base + streaming
         // contract as gow-steam, but additionally merges the sanctioned
-        // `app_env` (e.g. a Steam AppID) into the container env.
-        "gow-app" => Ok(Some(build_gow_container_config(
-            config,
-            launch,
-            owner_sub,
-            &launch.app_env,
-        ))),
+        // `app_env` (e.g. a Steam AppID) into the container env and appends the
+        // strictly-validated sanctioned bind mounts.
+        "gow-app" => {
+            // Strict, security-critical validation of the admin-gated mounts
+            // against the config allow-list (fail-closed when it is empty).
+            let app_mount_binds =
+                validate_app_mounts(&launch.app_mounts, &config.allowed_mount_prefixes)?;
+            Ok(Some(build_gow_container_config(
+                config,
+                launch,
+                owner_sub,
+                &launch.app_env,
+                &app_mount_binds,
+            )))
+        }
         _ => Err(bad_request("unsupported runtime_profile")),
     }
 }
@@ -341,11 +505,14 @@ pub fn build_container_config(
 /// profiles. `app_env` is an optional sanctioned overlay merged FIRST; the
 /// lightrays-managed streaming-contract variables are applied afterwards so
 /// they always win and `app_env` can never break the stream contract.
+/// `app_mount_binds` are already-validated Docker bind strings (empty for
+/// gow-steam) appended to the container's mount list after the standard binds.
 fn build_gow_container_config(
     config: &ServerConfig,
     launch: &ValidatedLaunch,
     owner_sub: &str,
     app_env: &HashMap<String, String>,
+    app_mount_binds: &[String],
 ) -> ContainerConfig {
     // Ordered key/value list so env output is deterministic and duplicate-free.
     let mut env: Vec<(String, String)> = Vec::new();
@@ -401,7 +568,9 @@ fn build_gow_container_config(
             .map(|(k, v)| format!("{k}={v}"))
             .collect(),
         devices: Vec::new(),
-        mounts: Vec::new(),
+        // Standard binds are added by `build_volume_binds`; the sanctioned
+        // app_mounts (empty for gow-steam) are appended after them there.
+        mounts: app_mount_binds.to_vec(),
         base_create_json: gow_base_create_json(),
         app_id: launch.app_id.clone(),
         owner_sub: owner_sub.to_string(),
@@ -502,6 +671,7 @@ mod tests {
             gow_image: "image:tag".into(),
             gow_compositor: "gamescope".into(),
             allowed_registries: vec![],
+            allowed_mount_prefixes: vec![],
             jwt_audience: String::new(),
             max_sessions_global: 0,
             max_sessions_per_user: 0,
@@ -520,6 +690,7 @@ mod tests {
             keyboard_layout: Some("de".to_string()),
             mouse_speed: None,
             app_env: None,
+            app_mounts: None,
             image: None,
             container_name: None,
             env: None,
@@ -598,6 +769,7 @@ mod tests {
             gow_image: "image:tag".into(),
             gow_compositor: "gamescope".into(),
             allowed_registries: vec![],
+            allowed_mount_prefixes: vec![],
             jwt_audience: String::new(),
             max_sessions_global: 0,
             max_sessions_per_user: 0,
@@ -688,6 +860,170 @@ mod tests {
         );
     }
 
+    fn mount(host: &str, container: &str, ro: bool) -> AppMount {
+        AppMount {
+            host: host.to_string(),
+            container: container.to_string(),
+            ro,
+        }
+    }
+
+    #[test]
+    fn app_mounts_valid_bind_string_and_ro_flag() {
+        let prefixes = vec!["/srv/games".to_string()];
+        // Read-write mount into a subdirectory of the per-app home.
+        let rw = validate_app_mounts(
+            &[mount("/srv/games/witcher", "/home/retro/game", false)],
+            &prefixes,
+        )
+        .expect("valid rw mount");
+        assert_eq!(rw, vec!["/srv/games/witcher:/home/retro/game:rw".to_string()]);
+        // Read-only mount flips the suffix.
+        let ro = validate_app_mounts(&[mount("/srv/games/witcher", "/mnt/game", true)], &prefixes)
+            .expect("valid ro mount");
+        assert_eq!(ro, vec!["/srv/games/witcher:/mnt/game:ro".to_string()]);
+    }
+
+    #[test]
+    fn app_mounts_host_outside_allowlist_rejected() {
+        let prefixes = vec!["/srv/games".to_string()];
+        // Completely different tree.
+        assert!(validate_app_mounts(&[mount("/etc", "/mnt/x", false)], &prefixes).is_err());
+        // Sibling that merely shares a string prefix must NOT match.
+        assert!(
+            validate_app_mounts(&[mount("/srv/games-secret/x", "/mnt/x", false)], &prefixes)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn app_mounts_empty_allowlist_is_fail_closed() {
+        // Requesting any mount with no allow-list configured is rejected.
+        assert!(validate_app_mounts(&[mount("/srv/games/x", "/mnt/x", false)], &[]).is_err());
+        // But requesting NO mounts is always a no-op, even with empty allow-list.
+        assert!(validate_app_mounts(&[], &[]).expect("no-op").is_empty());
+    }
+
+    #[test]
+    fn app_mounts_dotdot_traversal_rejected() {
+        let prefixes = vec!["/srv/games".to_string()];
+        // Traversal in the host path.
+        assert!(
+            validate_app_mounts(&[mount("/srv/games/../../etc", "/mnt/x", false)], &prefixes)
+                .is_err()
+        );
+        // Traversal in the container path.
+        assert!(
+            validate_app_mounts(&[mount("/srv/games/x", "/mnt/../etc", false)], &prefixes).is_err()
+        );
+    }
+
+    #[test]
+    fn app_mounts_require_absolute_paths() {
+        let prefixes = vec!["/srv/games".to_string()];
+        assert!(validate_app_mounts(&[mount("srv/games/x", "/mnt/x", false)], &prefixes).is_err());
+        assert!(validate_app_mounts(&[mount("/srv/games/x", "mnt/x", false)], &prefixes).is_err());
+    }
+
+    #[test]
+    fn app_mounts_forbidden_container_paths_rejected() {
+        let prefixes = vec!["/srv/games".to_string()];
+        for bad in [
+            "/",
+            "/home/retro",
+            "/tmp/sockets",
+            "/tmp/sockets/x",
+            "/dev",
+            "/dev/dri",
+            "/proc",
+            "/sys",
+            "/etc",
+            "/etc/passwd",
+            "/opt/pyrate",
+            "/opt/pyrate/bin",
+        ] {
+            assert!(
+                validate_app_mounts(&[mount("/srv/games/x", bad, false)], &prefixes).is_err(),
+                "container path {bad} must be rejected"
+            );
+        }
+        // A subdirectory of /home/retro (not the exact home) is allowed.
+        assert!(
+            validate_app_mounts(&[mount("/srv/games/x", "/home/retro/games", false)], &prefixes)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn gow_app_appends_validated_mounts() {
+        std::env::remove_var("LIGHTRAYS_GOW_COMPOSITOR");
+        let mut config = test_config();
+        config.allowed_mount_prefixes = vec!["/srv/games".to_string()];
+        let mut req = base_launch();
+        req.runtime_profile = Some("gow-app".to_string());
+        req.app_mounts = Some(vec![mount(
+            "/srv/games/witcher",
+            "/home/retro/Games/witcher",
+            true,
+        )]);
+        let launch = validate_launch_request(&req).expect("valid");
+        let cfg = build_container_config(&config, &launch, "alice")
+            .expect("valid")
+            .expect("some container");
+        assert_eq!(
+            cfg.mounts,
+            vec!["/srv/games/witcher:/home/retro/Games/witcher:ro".to_string()]
+        );
+    }
+
+    #[test]
+    fn gow_app_rejects_mount_outside_allowlist() {
+        let mut config = test_config();
+        config.allowed_mount_prefixes = vec!["/srv/games".to_string()];
+        let mut req = base_launch();
+        req.runtime_profile = Some("gow-app".to_string());
+        req.app_mounts = Some(vec![mount("/etc", "/mnt/x", false)]);
+        let launch = validate_launch_request(&req).expect("valid");
+        assert!(build_container_config(&config, &launch, "alice").is_err());
+    }
+
+    #[test]
+    fn gow_app_empty_allowlist_rejects_requested_mount() {
+        let config = test_config(); // allowed_mount_prefixes is empty (feature off)
+        let mut req = base_launch();
+        req.runtime_profile = Some("gow-app".to_string());
+        req.app_mounts = Some(vec![mount("/srv/games/x", "/mnt/x", false)]);
+        let launch = validate_launch_request(&req).expect("valid");
+        assert!(build_container_config(&config, &launch, "alice").is_err());
+    }
+
+    #[test]
+    fn gow_steam_ignores_app_mounts_and_stays_identical() {
+        std::env::remove_var("LIGHTRAYS_GOW_COMPOSITOR");
+        let mut config = test_config();
+        // Even with a permissive allow-list AND requested mounts, the
+        // established gow-steam profile never adds app_mounts.
+        config.allowed_mount_prefixes = vec!["/srv/games".to_string()];
+        let mut req = base_launch();
+        req.runtime_profile = Some("gow-steam".to_string());
+        req.app_mounts = Some(vec![mount("/srv/games/x", "/mnt/x", false)]);
+        let launch = validate_launch_request(&req).expect("valid");
+        let cfg = build_container_config(&config, &launch, "alice")
+            .expect("valid")
+            .expect("some container");
+        // No app_mounts leak into the steam profile.
+        assert!(cfg.mounts.is_empty());
+        // Env is byte-for-byte the historical vector.
+        assert_eq!(
+            cfg.env,
+            vec![
+                "GOW_REQUIRED_DEVICES=/dev/dri/* /dev/nvidia*".to_string(),
+                "XKB_DEFAULT_LAYOUT=de".to_string(),
+                "RUN_GAMESCOPE=1".to_string(),
+            ]
+        );
+    }
+
     #[test]
     fn build_ice_servers_with_turn_credentials() {
         let config = ServerConfig {
@@ -713,6 +1049,7 @@ mod tests {
             gow_image: "image:tag".into(),
             gow_compositor: "gamescope".into(),
             allowed_registries: vec![],
+            allowed_mount_prefixes: vec![],
             jwt_audience: String::new(),
             max_sessions_global: 0,
             max_sessions_per_user: 0,

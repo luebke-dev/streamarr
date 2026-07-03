@@ -129,6 +129,7 @@ async def launch_session(
     runtime_profile: str | None = None,
     docker_image: str | None = None,
     app_env: dict[str, str] | None = None,
+    app_mounts: list[dict] | None = None,
     keyboard_layout: str | None = None,
     mouse_speed: float | None = None,
     media_id: str | None = None,
@@ -143,6 +144,10 @@ async def launch_session(
     mount, and container-name choices are resolved by Lightrays from a
     server-side ``runtime_profile``. ``docker_image`` is the only optional image
     override and is intended for values already validated by Pyrate.
+    ``app_mounts`` carries sanctioned host→container bind mounts (each a
+    ``{"host", "container", "ro"}`` dict) resolved from the admin-controlled
+    container profile / per-game config; Lightrays enforces the host-path
+    allowlist.
 
     The launch request goes through the shared resilience wrapper (retry +
     backoff on transient connect failures / 5xx, plus a per-host circuit
@@ -190,6 +195,16 @@ async def launch_session(
     # field is intentionally not used. System-level env is set by Lightrays.
     if app_env:
         payload["app_env"] = app_env
+    # Sanctioned per-game/profile host→container bind mounts (e.g. a Wine game
+    # folder), resolved from the container profile + extra_data.lightrays.mounts.
+    # Sent as the new ``app_mounts`` field only when non-empty; the deprecated
+    # raw ``mounts`` field is intentionally not used. Each entry is a
+    # ``{"host": str, "container": str, "ro": bool}`` dict. Like ``docker_image``
+    # these are admin-mediated (profiles/extra_data are admin/superuser-set), so
+    # they ride the same ``lightrays:image`` scope; Lightrays enforces the
+    # authoritative host-path allowlist.
+    if app_mounts:
+        payload["app_mounts"] = app_mounts
     if keyboard_layout:
         payload["keyboard_layout"] = keyboard_layout
     if mouse_speed is not None:

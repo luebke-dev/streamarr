@@ -15,6 +15,7 @@ references no profile launches with the same image and behaviour as before.
 
 import json
 import logging
+import os
 import uuid
 from typing import Any
 
@@ -152,6 +153,43 @@ def _clean_env(value: Any) -> dict[str, str]:
     return {str(k): str(v) for k, v in value.items() if k is not None}
 
 
+def _clean_mounts(value: Any) -> list[dict[str, Any]]:
+    """Normalise a raw mounts list into validated ``{host,container,ro}`` dicts.
+
+    Each entry must be a dict carrying an absolute host path and an absolute
+    container target path. The canonical keys are ``host`` / ``container`` /
+    ``ro``; the tolerant aliases ``source`` / ``target`` / ``read_only`` are
+    accepted too. ``ro`` defaults to ``False``.
+
+    Entries that aren't dicts, or whose host/container is missing, empty, or not
+    an absolute path, are dropped **silently** — Pyrate validates only the
+    *shape* of a mount here. The authoritative host-path allowlist (which host
+    directories may actually be exposed) is enforced by Lightrays, not here.
+    """
+    if not isinstance(value, list):
+        return []
+    mounts: list[dict[str, Any]] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        host = _clean_str(entry.get("host") if "host" in entry else entry.get("source"))
+        container = _clean_str(
+            entry.get("container") if "container" in entry else entry.get("target")
+        )
+        if not host or not container:
+            continue
+        if not (os.path.isabs(host) and os.path.isabs(container)):
+            continue
+        if "ro" in entry:
+            ro = bool(entry["ro"])
+        elif "read_only" in entry:
+            ro = bool(entry["read_only"])
+        else:
+            ro = False
+        mounts.append({"host": host, "container": container, "ro": ro})
+    return mounts
+
+
 APP_REF_PLACEHOLDER = "{app_ref}"
 
 
@@ -183,8 +221,8 @@ async def resolve_launch_config(
     """Resolve the effective launch config for a game.
 
     Returns
-    ``{"docker_image", "runtime_profile", "app_env", "state_scope",
-    "profile_name"}`` where:
+    ``{"docker_image", "runtime_profile", "app_env", "app_mounts",
+    "state_scope", "profile_name"}`` where:
 
     - The profile is chosen from ``extra_data.lightrays.profile`` (name OR
       guid); falling back to the default ``steam`` profile by name. If no
@@ -198,6 +236,13 @@ async def resolve_launch_config(
     - ``app_env`` = ``{**profile.env, **per_game_env}`` (per-game wins).
       Only profile + game env are merged here; the system layer is set by
       the Lightrays service itself.
+    - ``app_mounts`` = profile-level mounts (read from ``profile.mounts`` via
+      ``getattr`` if the model ever grows the field; empty otherwise) followed
+      by per-game mounts (``extra_data.lightrays.mounts``). Each entry is
+      normalised/validated to ``{"host", "container", "ro"}`` (absolute paths
+      required, invalid entries dropped silently). Sanctioned host→container
+      binds (e.g. a Wine game folder); the real host-path allowlist is enforced
+      by Lightrays.
     - ``state_scope`` = the resolved profile's persistent-state scope
       (``"game"`` or ``"user"``); ``"game"`` when no profile resolved. The
       caller uses it to derive the ``/home/retro`` mount key so a
@@ -213,6 +258,8 @@ async def resolve_launch_config(
 
     per_game_image = _clean_str(lr.get("docker_image"))
     per_game_env = _clean_env(lr.get("env"))
+    # Sanctioned per-game host→container mounts (e.g. a Wine game folder).
+    per_game_mounts = _clean_mounts(lr.get("mounts"))
     # Per-game launch target (e.g. Steam app id) substituted into the
     # profile's `{app_ref}` launch template so the profile holds the launch
     # command once and each game supplies only its own id.
@@ -235,16 +282,21 @@ async def resolve_launch_config(
             "docker_image": per_game_image,
             "runtime_profile": None,
             "app_env": _apply_app_ref(per_game_env, app_ref),
+            "app_mounts": per_game_mounts,
             "state_scope": "game",
             "profile_name": None,
         }
 
     profile_env = _clean_env(profile.env)
+    # Profile-level mounts (optional; the ContainerProfile model may not carry
+    # the field yet). Profile mounts come first, per-game mounts after.
+    profile_mounts = _clean_mounts(getattr(profile, "mounts", None))
     state_scope = _clean_str(getattr(profile, "state_scope", None)) or "game"
     return {
         "docker_image": per_game_image or profile.docker_image,
         "runtime_profile": profile.runtime_profile,
         "app_env": _apply_app_ref({**profile_env, **per_game_env}, app_ref),
+        "app_mounts": [*profile_mounts, *per_game_mounts],
         "state_scope": state_scope,
         "profile_name": profile.name,
     }

@@ -257,6 +257,10 @@ services:
       # original GOW model and is required for the Steam profile. (The private-
       # IPC hardening only fits non-Steam/non-gamescope workloads.)
       - LIGHTRAYS_IPC_MODE=${LIGHTRAYS_IPC_MODE:-host}
+      # Host-path prefixes an admin-gated app_mounts bind may expose inside a
+      # game container (e.g. a downloaded Wine game dir). Empty = feature off
+      # (fail-closed). Comma-separated absolute host paths.
+      - LIGHTRAYS_ALLOWED_MOUNT_PREFIXES=${LIGHTRAYS_ALLOWED_MOUNT_PREFIXES:-/root/pyrate.media/data/deluge/downloads,/root/pyrate.media/data/games}
       - LIGHTRAYS_RECONNECT_GRACE_SECS=${LIGHTRAYS_RECONNECT_GRACE_SECS:-30}
       - LIGHTRAYS_WS_TICKET_TTL_SECS=${LIGHTRAYS_WS_TICKET_TTL_SECS:-120}
       - LIGHTRAYS_SESSION_TIMEOUT_SECS=${LIGHTRAYS_SESSION_TIMEOUT_SECS:-3600}
