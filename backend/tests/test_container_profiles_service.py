@@ -22,7 +22,12 @@ def _media(lightrays: dict | None):
 
 @pytest_asyncio.fixture
 async def steam_profile(db_session: AsyncSession) -> ContainerProfile:
-    """Seed the builtin default ``steam`` profile (as the migration would)."""
+    """Seed the builtin default ``steam`` profile (as the migration would).
+
+    The migration marks the builtin steam profile ``state_scope="user"`` so a
+    user's Steam games share one persistent ``/home/retro`` (single login +
+    library); the fixture mirrors that.
+    """
     return await cp.create(
         db_session,
         name="steam",
@@ -31,6 +36,7 @@ async def steam_profile(db_session: AsyncSession) -> ContainerProfile:
         runtime_profile="gow-app",
         env={},
         is_builtin=True,
+        state_scope="user",
     )
 
 
@@ -88,6 +94,32 @@ class TestContainerProfileCRUD:
         assert updated.is_builtin is False
 
     @pytest.mark.asyncio
+    async def test_create_state_scope(self, db_session: AsyncSession):
+        # Defaults to "game"; an explicit "user" scope is persisted.
+        default = await cp.create(
+            db_session, name="sg", kind="generic", docker_image="repo/a:1"
+        )
+        assert default.state_scope == "game"
+
+        user_scoped = await cp.create(
+            db_session,
+            name="su",
+            kind="steam",
+            docker_image="repo/a:1",
+            state_scope="user",
+        )
+        assert user_scoped.state_scope == "user"
+
+    @pytest.mark.asyncio
+    async def test_update_state_scope(self, db_session: AsyncSession):
+        profile = await cp.create(
+            db_session, name="ss", kind="generic", docker_image="repo/a:1"
+        )
+        assert profile.state_scope == "game"
+        updated = await cp.update(db_session, profile, state_scope="user")
+        assert updated.state_scope == "user"
+
+    @pytest.mark.asyncio
     async def test_delete_non_builtin(self, db_session: AsyncSession):
         profile = await cp.create(
             db_session, name="tmp", kind="generic", docker_image="repo/a:1"
@@ -114,12 +146,15 @@ class TestResolveLaunchConfig:
         self, db_session: AsyncSession, steam_profile
     ):
         # A game referencing no profile falls back to the builtin "steam"
-        # profile → same image/runtime_profile as today.
+        # profile → same image/runtime_profile as today, and its user-scoped
+        # state_scope/profile_name surface for the app_id computation.
         cfg = await cp.resolve_launch_config(db_session, _media(None))
         assert cfg == {
             "docker_image": STEAM_IMAGE,
             "runtime_profile": "gow-app",
             "app_env": {},
+            "state_scope": "user",
+            "profile_name": "steam",
         }
 
     @pytest.mark.asyncio
@@ -177,6 +212,8 @@ class TestResolveLaunchConfig:
             "docker_image": None,
             "runtime_profile": None,
             "app_env": {},
+            "state_scope": "game",
+            "profile_name": None,
         }
 
         cfg2 = await cp.resolve_launch_config(
@@ -186,6 +223,8 @@ class TestResolveLaunchConfig:
             "docker_image": "custom/img:tag",
             "runtime_profile": None,
             "app_env": {"K": "v"},
+            "state_scope": "game",
+            "profile_name": None,
         }
 
 
@@ -233,3 +272,93 @@ class TestAppRefTemplate:
             "STEAM_STARTUP_FLAGS": "-bigpicture steam://rungameid/70",
             "EXTRA": "1",
         }
+
+
+# ── state_scope resolution ───────────────────────────────────────────────────
+
+
+class TestResolveStateScope:
+    @pytest.mark.asyncio
+    async def test_user_scope_for_steam_profile(
+        self, db_session: AsyncSession, steam_profile
+    ):
+        # The user-scoped (steam) profile surfaces state_scope="user" and its
+        # canonical name for the per-user state key.
+        cfg = await cp.resolve_launch_config(db_session, _media(None))
+        assert cfg["state_scope"] == "user"
+        assert cfg["profile_name"] == "steam"
+
+    @pytest.mark.asyncio
+    async def test_game_scope_for_generic_profile(self, db_session: AsyncSession):
+        # A profile created without an explicit scope is "game"-scoped.
+        await cp.create(
+            db_session, name="generic", kind="generic", docker_image="repo/g:1"
+        )
+        cfg = await cp.resolve_launch_config(
+            db_session, _media({"profile": "generic"})
+        )
+        assert cfg["state_scope"] == "game"
+        assert cfg["profile_name"] == "generic"
+
+    @pytest.mark.asyncio
+    async def test_game_scope_when_no_profile_resolves(self, db_session: AsyncSession):
+        # Empty DB: no profile → default "game" scope, no profile name.
+        cfg = await cp.resolve_launch_config(db_session, _media(None))
+        assert cfg["state_scope"] == "game"
+        assert cfg["profile_name"] is None
+
+
+# ── app_id (persistent-state key) computation ────────────────────────────────
+
+
+class TestComputeAppId:
+    USER = "11111111-1111-1111-1111-111111111111"
+    GAME = "22222222-2222-2222-2222-222222222222"
+
+    def test_game_scope_keeps_per_game_key(self):
+        assert (
+            cp.compute_app_id(self.USER, self.GAME, "game")
+            == f"{self.USER}-{self.GAME}"
+        )
+
+    def test_game_scope_ignores_profile_name(self):
+        # Profile name is irrelevant when scope is per-game.
+        assert (
+            cp.compute_app_id(self.USER, self.GAME, "game", profile_name="steam")
+            == f"{self.USER}-{self.GAME}"
+        )
+
+    def test_user_scope_drops_game_guid(self):
+        # A stable per-user key that does NOT include the game guid, so all of
+        # the user's games on this profile share one state.
+        key = cp.compute_app_id(self.USER, self.GAME, "user", profile_name="steam")
+        assert key == f"{self.USER}-steam"
+        assert self.GAME not in key
+
+    def test_user_scope_shared_across_games(self):
+        other_game = "33333333-3333-3333-3333-333333333333"
+        a = cp.compute_app_id(self.USER, self.GAME, "user", profile_name="steam")
+        b = cp.compute_app_id(self.USER, other_game, "user", profile_name="steam")
+        assert a == b
+
+    def test_user_scope_fallback_when_no_name(self):
+        assert (
+            cp.compute_app_id(self.USER, self.GAME, "user", profile_name=None)
+            == f"{self.USER}-app"
+        )
+
+    def test_user_scope_name_slugged_ascii_safe(self):
+        # Admin-authored names are slugged to an ascii-safe, deterministic
+        # token before use as a mount key.
+        key = cp.compute_app_id(
+            self.USER, self.GAME, "user", profile_name="Mön Steam!"
+        )
+        assert key == f"{self.USER}-MnSteam"
+        assert all(ch.isascii() for ch in key)
+
+    def test_user_scope_all_stripped_name_falls_back(self):
+        # A name with no allowed chars slugs to empty → "app".
+        assert (
+            cp.compute_app_id(self.USER, self.GAME, "user", profile_name="の")
+            == f"{self.USER}-app"
+        )

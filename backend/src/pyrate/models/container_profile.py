@@ -37,6 +37,14 @@ class ContainerProfile(Base):
         default="gow-app", server_default="gow-app"
     )
 
+    # Persistent-state scope for the launch's ``/home/retro`` mount:
+    # ``"game"`` gives each game its own state (default, legacy behaviour);
+    # ``"user"`` shares ONE state per user across all games on this profile
+    # (e.g. a single Steam login + one shared library for all Steam games).
+    state_scope: Mapped[str] = mapped_column(
+        default="game", server_default="game"
+    )
+
     # Shared, admin-controlled container env (string→string). Merged with the
     # per-game env at launch time; JSONB on PostgreSQL, JSON on SQLite (tests).
     env: Mapped[dict] = mapped_column(

@@ -1,6 +1,7 @@
 """Lightrays cloud-gaming API — launch / stop / stats for game streaming sessions."""
 
 import logging
+import os
 import time
 from typing import Any
 from uuid import UUID
@@ -10,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from pyrate.api.dependencies import CurrentUser, DatabaseSession, UserPermissionsDep
 from pyrate.models.media import MediaType
-from pyrate.services.container_profiles import resolve_launch_config
+from pyrate.services.container_profiles import compute_app_id, resolve_launch_config
 from pyrate.services.lightrays import (
     get_session_record,
     get_stats,
@@ -22,11 +23,38 @@ from pyrate.services.lightrays import (
 )
 from pyrate.services.media import MediaService
 from pyrate.services.media_access import require_media_play_access
+from pyrate.services.steam_import import import_steam_games
+from pyrate.services.steam_library import read_steam_library
 from pyrate.services.viewing_history import ViewingHistoryService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Root of the Lightrays persistent-state dir, mounted (read-only) into the
+# backend by the compose stack. Lightrays lays out per-app state under
+# ``{LIGHTRAYS_STATE_DIR}/apps_state/<app_id>`` and mounts each as the
+# container's ``/home/retro``. The user-scoped ``steam`` profile shares one
+# app_id per user (``<user_guid>-steam``; see
+# :func:`container_profiles.compute_app_id`), so that dir holds the user's
+# single Steam install + login we read the library from. Override with the
+# ``LIGHTRAYS_STATE_DIR`` env var; the default mirrors the compose value.
+LIGHTRAYS_STATE_DIR = os.environ.get("LIGHTRAYS_STATE_DIR", "/state/lightrays")
+
+
+def _user_steam_state_dir(user_guid: str) -> str:
+    """Resolve the on-disk Steam persistent-state dir for a user.
+
+    Mirrors the ``<user_guid>-steam`` app_id the user-scoped steam profile
+    launches with, so the import reads exactly the state a launched Steam
+    session persisted.
+    """
+    return os.path.join(LIGHTRAYS_STATE_DIR, "apps_state", f"{user_guid}-steam")
+
+
+def _steam_dir_exists(path: str) -> bool:
+    """Whether the resolved Steam state dir exists (isolated for testability)."""
+    return os.path.isdir(path)
 
 
 # ── Request / Response schemas ──────────────────────────────────────────────
@@ -48,6 +76,19 @@ class LaunchResponse(BaseModel):
 
 class StopRequest(BaseModel):
     session_id: str
+
+
+class SteamImportResponse(BaseModel):
+    created: int
+    updated: int
+    skipped: int
+    read: int
+    items: list[str] = []
+
+
+class SteamStatusResponse(BaseModel):
+    linked: bool
+    games: int
 
 
 def _validate_lightrays_docker_image(value: Any) -> str | None:
@@ -142,6 +183,17 @@ async def lightrays_launch(
     runtime_profile = launch_config.get("runtime_profile")
     app_env = launch_config.get("app_env") or None
 
+    # Derive the persistent-state key (mounted as /home/retro). A "user"-scoped
+    # profile (e.g. steam) shares ONE state per user across all of that user's
+    # games — a single Steam login + one shared library — while a "game"-scoped
+    # profile keeps the legacy per-user-per-game isolation.
+    app_id = compute_app_id(
+        user_guid=str(current_user.guid),
+        game_guid=str(media_item.guid),
+        state_scope=launch_config.get("state_scope") or "game",
+        profile_name=launch_config.get("profile_name"),
+    )
+
     # Atomically reserve a concurrency slot. ``None`` means the user is
     # already at the cap. The reservation counts toward the cap until the
     # real session record replaces it, closing the count→check→launch race.
@@ -164,10 +216,11 @@ async def lightrays_launch(
             fps=body.fps,
             bitrate_kbps=body.bitrate_kbps,
             user_id=str(current_user.guid),
-            # Per-user-per-game app_id so each user's Steam profile and
-            # installed games are isolated, and concurrent launches from
-            # different users don't collide on /home/retro.
-            app_id=f"{current_user.guid}-{media_item.guid}",
+            # Per-profile state scope (see compute_app_id above): user-scoped
+            # profiles share one /home/retro per user (single Steam login +
+            # shared library); game-scoped profiles stay per-user-per-game.
+            # Concurrent launches from different users never collide either way.
+            app_id=app_id,
             docker_image=docker_image,
             runtime_profile=runtime_profile,
             app_env=app_env,
@@ -291,3 +344,79 @@ async def lightrays_stats(session_id: str, current_user: CurrentUser):
         raise HTTPException(
             status_code=502, detail="Failed to get session stats"
         ) from exc
+
+
+# ── Steam library link / import ──────────────────────────────────────────────
+
+
+@router.post("/steam/import", response_model=SteamImportResponse)
+async def lightrays_steam_import(
+    db: DatabaseSession,
+    current_user: CurrentUser,
+):
+    """Import the current user's Steam library into GAMES media items.
+
+    Reads the on-disk Steam state a launched Steam session persisted (the
+    user-scoped ``<user_guid>-steam`` app dir mounted read-only from the
+    Lightrays state dir), then upserts each owned/installed app as a game.
+
+    Scoped to the authenticated user's own Steam state — a superuser importing
+    their own library is fine, but there is no cross-user import path. Degrades
+    gracefully: a missing dir, an empty library or a read/parse error surfaces
+    as a clear 4xx (never a 500) so the UI can prompt the user to launch and
+    log into Steam first.
+    """
+    steam_dir = _user_steam_state_dir(str(current_user.guid))
+    if not _steam_dir_exists(steam_dir):
+        raise HTTPException(
+            status_code=409,
+            detail="No Steam data found — launch and log into Steam first.",
+        )
+
+    try:
+        games = read_steam_library(steam_dir)
+    except Exception as exc:  # noqa: BLE001 — defensive: never surface a 500
+        logger.warning(
+            "Failed to read Steam library for user %s: %s", current_user.guid, exc
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Could not read Steam library — the data may be incomplete "
+            "or corrupt.",
+        ) from exc
+
+    if not games:
+        raise HTTPException(
+            status_code=409,
+            detail="No Steam games found — launch and log into Steam first.",
+        )
+
+    result = await import_steam_games(db, games)
+    return SteamImportResponse(
+        created=int(result.get("created", 0)),
+        updated=int(result.get("updated", 0)),
+        skipped=int(result.get("skipped", 0)),
+        read=len(games),
+        items=list(result.get("items", [])),
+    )
+
+
+@router.get("/steam/status", response_model=SteamStatusResponse)
+async def lightrays_steam_status(current_user: CurrentUser):
+    """Report whether the user's Steam state is linked and how many games read.
+
+    Lets the UI show a "linked / N games" indicator without mutating anything.
+    Never raises on a missing dir or a read error — reports ``linked=False`` /
+    ``games=0`` instead.
+    """
+    steam_dir = _user_steam_state_dir(str(current_user.guid))
+    if not _steam_dir_exists(steam_dir):
+        return SteamStatusResponse(linked=False, games=0)
+    try:
+        games = read_steam_library(steam_dir)
+    except Exception as exc:  # noqa: BLE001 — status must never 500
+        logger.warning(
+            "Failed to read Steam library for user %s: %s", current_user.guid, exc
+        )
+        return SteamStatusResponse(linked=True, games=0)
+    return SteamStatusResponse(linked=True, games=len(games))
