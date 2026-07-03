@@ -25,7 +25,13 @@ pub fn cleanup_stale_sockets(xdg_runtime_dir: &str) {
     for entry in dir.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with("wayland-") || name.starts_with("sway-ipc.") {
+        // Only reap `wayland-*`: waylanddisplaysrc refuses to bind a socket
+        // name that already exists, so a crashed session's leftover must go.
+        // Do NOT touch `sway-ipc.<uid>.<pid>.sock`: those names are pid-unique
+        // (a new sway never needs to reclaim them) and /tmp/sockets is a
+        // shared mount, so reaping them here would wipe the LIVE IPC socket of
+        // another running sway session — breaking its resize/control channel.
+        if name.starts_with("wayland-") {
             if let Err(e) = std::fs::remove_file(entry.path()) {
                 log::debug!("Failed to remove stale socket {}: {}", name, e);
             } else {
