@@ -1908,6 +1908,7 @@ export default {
     failedToStartGame: 'Failed to start game streaming session',
     gameFullscreen: 'Fullscreen',
     gamePointerLock: 'Lock Mouse',
+    gameMatchResolution: 'Match resolution',
     gameDisconnect: 'Disconnect',
     gameStreaming: 'Game is streaming',
   },

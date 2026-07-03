@@ -27,6 +27,17 @@
           flat
           dense
           size="sm"
+          icon="mdi-fit-to-screen-outline"
+          tabindex="-1"
+          @click="onMatchResolution"
+        >
+          <span class="gt-md q-ml-xs">{{ $t('playPage.gameMatchResolution') }}</span>
+          <q-tooltip class="lt-lg">{{ $t('playPage.gameMatchResolution') }}</q-tooltip>
+        </q-btn>
+        <q-btn
+          flat
+          dense
+          size="sm"
           icon="mdi-mouse"
           tabindex="-1"
           @click="stream.togglePointerLock()"
@@ -170,6 +181,15 @@ function onFullscreen() {
   stream.toggleFullscreen()
   document.activeElement?.blur()
   toolbarVisible.value = false
+}
+
+// Deliberate resolution re-match: streams normally keep their launch
+// resolution and the video scales client-side (instant). This asks the
+// server to re-encode at the current window size for a crisp native frame,
+// which briefly rebuilds the pipeline — hence it's user-initiated only.
+function onMatchResolution() {
+  stream.applyResolution()
+  document.activeElement?.blur()
 }
 
 async function stopRemoteSession() {

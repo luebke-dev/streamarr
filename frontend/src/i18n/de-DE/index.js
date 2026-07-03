@@ -1531,6 +1531,7 @@ export default {
     failedToStartGame: 'Spielstreaming-Sitzung konnte nicht gestartet werden',
     gameFullscreen: 'Vollbild',
     gamePointerLock: 'Maus sperren',
+    gameMatchResolution: 'Auflösung anpassen',
     gameDisconnect: 'Trennen',
     gameStreaming: 'Spiel wird gestreamt',
   },
