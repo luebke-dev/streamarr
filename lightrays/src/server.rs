@@ -381,13 +381,20 @@ async fn handle_launch(
         Err(e) => return e.into_response(),
     };
 
-    // S-C1: a client-supplied raw `docker_image` runs inside a privileged
-    // container, so it is an admin-only capability and must additionally
-    // pass the registry allowlist. Normal users get a 403.
+    // S-C1: a `docker_image` runs inside a privileged container, so it is a
+    // trusted capability and must additionally pass the registry allowlist.
+    // The `lightrays:image` scope marks a caller that has already vetted the
+    // image server-side — the pyrate backend mints it for every launch because
+    // the image only ever comes from admin-managed container profiles / a
+    // superuser-set per-game override, never from the end user. `lightrays:admin`
+    // also satisfies it. A caller with neither (e.g. a compromised container
+    // holding only a session's `lightrays:ws` ticket) gets a 403.
     if let Some(image) = launch.docker_image.as_deref() {
-        if !principal.has_scope("lightrays:admin") {
-            return forbidden("docker_image override requires the lightrays:admin scope")
-                .into_response();
+        if !principal.has_scope("lightrays:admin") && !principal.has_scope("lightrays:image") {
+            return forbidden(
+                "docker_image requires the lightrays:image or lightrays:admin scope",
+            )
+            .into_response();
         }
         if let Err(e) =
             crate::launch::validate_image_registry(image, &state.config.allowed_registries)

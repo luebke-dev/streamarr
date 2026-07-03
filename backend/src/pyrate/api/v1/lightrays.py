@@ -1,6 +1,5 @@
 """Lightrays cloud-gaming API — launch / stop / stats for game streaming sessions."""
 
-import json
 import logging
 import time
 from typing import Any
@@ -11,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from pyrate.api.dependencies import CurrentUser, DatabaseSession, UserPermissionsDep
 from pyrate.models.media import MediaType
+from pyrate.services.container_profiles import resolve_launch_config
 from pyrate.services.lightrays import (
     get_session_record,
     get_stats,
@@ -50,21 +50,6 @@ class StopRequest(BaseModel):
     session_id: str
 
 
-def _load_media_extra_data(media_item: Any) -> dict[str, Any]:
-    raw = getattr(media_item, "extra_data", None)
-    if not raw:
-        return {}
-    if isinstance(raw, dict):
-        return raw
-    if not isinstance(raw, str):
-        return {}
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
 def _validate_lightrays_docker_image(value: Any) -> str | None:
     if value is None:
         return None
@@ -82,14 +67,6 @@ def _validate_lightrays_docker_image(value: Any) -> str | None:
     ):
         raise HTTPException(status_code=400, detail="Invalid Lightrays Docker image")
     return image
-
-
-def _game_lightrays_docker_image(media_item: Any) -> str | None:
-    extra_data = _load_media_extra_data(media_item)
-    lightrays_data = extra_data.get("lightrays")
-    if isinstance(lightrays_data, dict):
-        return _validate_lightrays_docker_image(lightrays_data.get("docker_image"))
-    return _validate_lightrays_docker_image(extra_data.get("lightrays_docker_image"))
 
 
 async def _safe_release_slot(user_id: str, token: str) -> None:
@@ -155,7 +132,15 @@ async def lightrays_launch(
         if not 0.1 <= mouse_speed <= 5.0:
             raise HTTPException(status_code=400, detail="Invalid mouse speed")
 
-    docker_image = _game_lightrays_docker_image(media_item)
+    # Resolve the effective launch config from the game's container profile
+    # (extra_data.lightrays.profile) merged with any per-game overrides. When a
+    # game references no profile this falls back to the builtin "steam" profile,
+    # preserving today's image/runtime_profile behaviour. The resulting Docker
+    # image still goes through the same admin-gated validation as before.
+    launch_config = await resolve_launch_config(db, media_item)
+    docker_image = _validate_lightrays_docker_image(launch_config.get("docker_image"))
+    runtime_profile = launch_config.get("runtime_profile")
+    app_env = launch_config.get("app_env") or None
 
     # Atomically reserve a concurrency slot. ``None`` means the user is
     # already at the cap. The reservation counts toward the cap until the
@@ -184,6 +169,8 @@ async def lightrays_launch(
             # different users don't collide on /home/retro.
             app_id=f"{current_user.guid}-{media_item.guid}",
             docker_image=docker_image,
+            runtime_profile=runtime_profile,
+            app_env=app_env,
             keyboard_layout=keyboard_layout,
             mouse_speed=mouse_speed,
             media_id=str(media_item.guid),

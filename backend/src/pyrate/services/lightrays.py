@@ -128,6 +128,7 @@ async def launch_session(
     app_id: str | None = None,
     runtime_profile: str | None = None,
     docker_image: str | None = None,
+    app_env: dict[str, str] | None = None,
     keyboard_layout: str | None = None,
     mouse_speed: float | None = None,
     media_id: str | None = None,
@@ -184,6 +185,11 @@ async def launch_session(
         payload["app_id"] = effective_app_id
     if docker_image:
         payload["docker_image"] = docker_image
+    # Merged profile + per-game container env (admin-controlled). Sent as the
+    # new ``app_env`` field only when non-empty; the deprecated raw ``env``
+    # field is intentionally not used. System-level env is set by Lightrays.
+    if app_env:
+        payload["app_env"] = app_env
     if keyboard_layout:
         payload["keyboard_layout"] = keyboard_layout
     if mouse_speed is not None:
@@ -208,7 +214,12 @@ async def launch_session(
             lambda: client.post(
                 f"{LIGHTRAYS_URL}/api/launch",
                 json=payload,
-                headers=_auth_headers(user_id),
+                # `lightrays:image` marks the backend as having vetted the
+                # container image server-side (it always comes from an
+                # admin-managed container profile or a superuser-set per-game
+                # override, never from the end user), which the Lightrays S-C1
+                # gate requires for any `docker_image`.
+                headers=_auth_headers(user_id, scope="lightrays:image"),
             ),
             breaker_key=_breaker_key(),
             # Non-idempotent POST: only retry when the request provably never
