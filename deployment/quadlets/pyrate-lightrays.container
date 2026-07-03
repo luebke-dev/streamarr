@@ -6,6 +6,11 @@ After=pyrate-backend.service
 Image=registry.gitlab.com/pyrate.media/lightrays:latest
 ContainerName=pyrate-lightrays
 
+# Secrets & host paths (POSTGRES_PASSWORD, SECRET_KEY, DATA_DIR,
+# PROJECT_ROOT, ...) are injected from this file. Create it with mode 0600,
+# owned by root. See deployment/README.md.
+EnvironmentFile=/etc/pyrate/pyrate.env
+
 # Lightrays requires privileged mode for Wayland compositor + GPU access
 SecurityLabelDisable=true
 PodmanArgs=--privileged

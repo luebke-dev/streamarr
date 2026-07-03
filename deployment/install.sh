@@ -327,6 +327,8 @@ LIGHTRAYS_PORT=${LIGHTRAYS_PORT}
 # --- Performance ---
 BACKEND_WORKERS=2
 WORKER_REPLICAS=2
+# Elasticsearch image tag — must be a 9.x line (client pinned to >=9.2.0).
+ES_IMAGE_TAG=9.2.0
 ES_HEAP_SIZE=512
 
 # --- Lightrays (game streaming) ---
@@ -350,6 +352,13 @@ EOF
 write_docker_compose() {
     local compose_path="${INSTALL_DIR}/${COMPOSE_FILE}"
 
+    # NOTE: the maintained source of truth for the single-host production stack
+    # is deployment/docker/docker-compose.yml. This function emits a generated
+    # SUBSET (only the services the user opted into) and must be kept in sync
+    # with that file — in particular the `migrate` one-shot step, the
+    # Elasticsearch image tag, and the sabnzbd/* volume layout. If you need the
+    # full service set (Rust downloaders, backend nginx proxy, ...) deploy the
+    # maintained compose file directly instead of using this installer.
     info "Writing docker-compose.yml..."
 
     cat > "$compose_path" << 'COMPOSE_START'
@@ -389,7 +398,10 @@ COMPOSE_START
         cat >> "$compose_path" << 'COMPOSE_ES'
   # ── Elasticsearch ─────────────────────────────────────────
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    # Pinned to the 9.x line: the Python client is pinned to elasticsearch>=9.2.0
+    # and refuses the version handshake against an 8.x server. Keep in sync with
+    # deployment/docker/docker-compose.yml (source of truth).
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ES_IMAGE_TAG:-9.2.0}
     restart: unless-stopped
     environment:
       - discovery.type=single-node
@@ -413,8 +425,10 @@ COMPOSE_START
 COMPOSE_ES
     fi
 
-    # Backend — build depends_on dynamically
-    local backend_depends="      db:\n        condition: service_healthy\n      redis:\n        condition: service_started"
+    # Backend — build depends_on dynamically. The migrate one-shot must complete
+    # before backend/worker/scheduler start (the backend image CMD no longer runs
+    # `alembic upgrade head`, so migrations only ever run via this service).
+    local backend_depends="      migrate:\n        condition: service_completed_successfully\n      db:\n        condition: service_healthy\n      redis:\n        condition: service_started"
     if [[ "$ENABLE_ELASTICSEARCH" == true ]]; then
         backend_depends="${backend_depends}\n      elasticsearch:\n        condition: service_healthy"
     fi
@@ -425,6 +439,20 @@ COMPOSE_ES
     fi
 
     cat >> "$compose_path" << COMPOSE_BACKEND
+  # ── DB migrations (one-shot) ──────────────────────────────
+  # Runs \`alembic upgrade head\` exactly once before any app process starts.
+  migrate:
+    image: \${REGISTRY:-registry.gitlab.com/pyrate.media}/backend:\${IMAGE_TAG:-latest}
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    restart: "no"
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://\${POSTGRES_USER:-pyrate}:\${POSTGRES_PASSWORD}@db:5432/\${POSTGRES_DB:-pyrate}
+      - SECRET_KEY=\${SECRET_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+
   # ── Backend API ───────────────────────────────────────────
   backend:
     image: \${REGISTRY:-registry.gitlab.com/pyrate.media}/backend:\${IMAGE_TAG:-latest}
@@ -478,6 +506,8 @@ $(echo -e "$es_env")
       - \${DATA_DIR}/temp:/temp:rw
       - /var/run/docker.sock:/var/run/docker.sock:rw
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -497,6 +527,8 @@ $(echo -e "$es_env")
 $(echo -e "$es_env")
       - SECRET_KEY=\${SECRET_KEY}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:

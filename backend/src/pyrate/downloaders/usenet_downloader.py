@@ -14,9 +14,6 @@ class UsenetDownloader(DownloaderBase):
     URL to an NZB file (e.g. ``https://indexer.example/get/abc123``).
     """
 
-    REMOTE_PREFIX = "/downloads"
-    LOCAL_PREFIX = "/downloads"
-
     def __init__(self, base_url: str, api_key: str | None = None):
         self.base_url = base_url.rstrip("/")
         self.client = make_async_client()
@@ -79,8 +76,8 @@ class UsenetDownloader(DownloaderBase):
             status = job.get("status", "unknown")
             progress = job.get("progress", 0)
             mapped_status = self._map_status(status)
-            destination = job.get("destination") or self.REMOTE_PREFIX
-            destination = self._map_path(destination)
+            # Empty destination resolves to the downloader's local base dir.
+            destination = self._map_path(job.get("destination") or "")
             downloads.append(
                 {
                     "external_id": job.get("id"),
@@ -128,10 +125,14 @@ class UsenetDownloader(DownloaderBase):
 
     @classmethod
     def _map_path(cls, path: str) -> str:
-        """Rewrite a container path to the backend mount path."""
-        if path.startswith(cls.REMOTE_PREFIX):
-            return cls.LOCAL_PREFIX + path[len(cls.REMOTE_PREFIX):]
-        return path
+        """Rewrite a container path to the backend mount path.
+
+        Delegates to the single configurable mount translation so the
+        remote/local prefixes live in exactly one place.
+        """
+        from pyrate.api.v1.webhooks import map_download_path
+
+        return map_download_path("usenet", path)
 
     @staticmethod
     def _map_status(status: str) -> str:

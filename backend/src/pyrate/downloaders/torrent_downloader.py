@@ -14,9 +14,6 @@ class TorrentDownloader(DownloaderBase):
     magnet URI (e.g. ``magnet:?xt=urn:btih:...``) or a torrent file URL.
     """
 
-    REMOTE_PREFIX = "/downloads"
-    LOCAL_PREFIX = "/torrent-downloads"
-
     def __init__(self, base_url: str, api_key: str | None = None):
         self.base_url = base_url.rstrip("/")
         self.client = make_async_client()
@@ -141,10 +138,14 @@ class TorrentDownloader(DownloaderBase):
 
     @classmethod
     def _map_path(cls, path: str) -> str:
-        """Rewrite a container path to the backend mount path."""
-        if path.startswith(cls.REMOTE_PREFIX):
-            return cls.LOCAL_PREFIX + path[len(cls.REMOTE_PREFIX) :]
-        return path
+        """Rewrite a container path to the backend mount path.
+
+        Delegates to the single configurable mount translation so the
+        remote/local prefixes live in exactly one place.
+        """
+        from pyrate.api.v1.webhooks import map_download_path
+
+        return map_download_path("torrent", path)
 
     @staticmethod
     def _map_status(status: str) -> str:
