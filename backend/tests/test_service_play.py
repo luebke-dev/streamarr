@@ -474,8 +474,8 @@ class TestProbeVideoWithComputingService:
         mock_computing.stop_task = AsyncMock()
         mock_computing.delete_task = AsyncMock()
 
-        with patch("pyrate.services.play._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
-             patch("pyrate.services.play.ComputingService", return_value=mock_computing), \
+        with patch("pyrate.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
+             patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             result = await _probe_video_with_computing_service("/library/movies/test.mkv", db_session)
 
@@ -494,8 +494,8 @@ class TestProbeVideoWithComputingService:
         mock_computing.get_task_logs = AsyncMock(return_value="error: file not found")
         mock_computing.delete_task = AsyncMock()
 
-        with patch("pyrate.services.play._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
-             patch("pyrate.services.play.ComputingService", return_value=mock_computing):
+        with patch("pyrate.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
+             patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
             result = await _probe_video_with_computing_service("/library/movies/test.mkv", db_session)
 
         assert result is None
@@ -513,8 +513,8 @@ class TestProbeVideoWithComputingService:
         mock_computing.get_task_logs = AsyncMock(return_value="not valid json{{{")
         mock_computing.delete_task = AsyncMock()
 
-        with patch("pyrate.services.play._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
-             patch("pyrate.services.play.ComputingService", return_value=mock_computing):
+        with patch("pyrate.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
+             patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
             result = await _probe_video_with_computing_service("/library/movies/test.mkv", db_session)
 
         assert result is None
@@ -532,8 +532,8 @@ class TestProbeVideoWithComputingService:
         mock_computing.get_task_logs = AsyncMock(return_value="   ")
         mock_computing.delete_task = AsyncMock()
 
-        with patch("pyrate.services.play._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
-             patch("pyrate.services.play.ComputingService", return_value=mock_computing):
+        with patch("pyrate.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
+             patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
             result = await _probe_video_with_computing_service("/library/movies/test.mkv", db_session)
 
         assert result is None
@@ -543,7 +543,7 @@ class TestProbeVideoWithComputingService:
         """Probe returns None on general exception (line 600)."""
         from pyrate.services.play import _probe_video_with_computing_service
 
-        with patch("pyrate.services.play._get_base_library_path", new_callable=AsyncMock, side_effect=Exception("boom")):
+        with patch("pyrate.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, side_effect=Exception("boom")):
             result = await _probe_video_with_computing_service("/library/movies/test.mkv", db_session)
 
         assert result is None

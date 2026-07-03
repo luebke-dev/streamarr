@@ -1,4 +1,19 @@
-"""Backup and restore endpoints."""
+"""Settings/config-migration export endpoints (NOT disaster recovery).
+
+The JSON export/restore endpoints in this module are a **settings and config
+migration** aid: they serialize a redactable subset of database rows (settings,
+selected tables) so config can be moved between installs, diffed, or seeded.
+The row-by-row restore has no referential-integrity transaction guarantee and
+the export omits binary/large data, so it is **not** a disaster-recovery (DR)
+mechanism.
+
+Real DR lives in ``deployment/backup/`` (``pg_dump`` custom-format archives +
+optional Elasticsearch snapshot + separate media-file backup, with off-site
+upload and cron scheduling). The ``/disaster-recovery/*`` endpoints below expose
+the *status* of, and a manual *trigger* for, a server-side ``pg_dump`` (which
+only works if ``pg_dump`` is on the container PATH); the shell scripts remain
+the primary, fully-featured path. See ``deployment/backup/README.md``.
+"""
 
 from __future__ import annotations
 
@@ -262,7 +277,12 @@ async def export_database_backup(
     include_secrets: bool = Query(False),
     limit_per_table: int = Query(10_000, ge=1, le=100_000),
 ):
-    """Export database table rows as a JSON backup payload."""
+    """Export database table rows as a JSON **config-migration** payload.
+
+    This is not a disaster-recovery backup: rows are truncated per table, secrets
+    are redacted by default, and the row-by-row restore has no referential
+    transaction guarantee. For DR use ``deployment/backup/backup.sh`` (pg_dump).
+    """
     tables = dict(Base.metadata.tables)
     tables.setdefault(Setting.__tablename__, Setting.__table__)
 
@@ -663,4 +683,102 @@ async def restore_settings_backup(
     return SettingsRestoreResponse(
         restored_count=restored_count,
         skipped_count=skipped_count,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Disaster recovery (real backups): status + server-side pg_dump trigger.
+#
+# The JSON endpoints above are config migration, not DR. These endpoints expose
+# the real DR path (deployment/backup/backup.sh) and, where pg_dump happens to
+# be installed in the container, a manual trigger for it.
+# ---------------------------------------------------------------------------
+
+
+class DisasterRecoveryStatus(BaseModel):
+    pg_dump_available: bool
+    backup_dir: str
+    elasticsearch_host: str
+    elasticsearch_reindexable: bool = True
+    scripts_path: str = "deployment/backup"
+    note: str
+
+
+class PgDumpTriggerResponse(BaseModel):
+    status: str
+    file: str | None = None
+    bytes: int | None = None
+    reason: str | None = None
+
+
+@router.get("/disaster-recovery/status", response_model=DisasterRecoveryStatus)
+async def disaster_recovery_status(
+    current_user: CurrentSuperuser,  # noqa: ARG001
+):
+    """Report the real disaster-recovery capabilities of this deployment.
+
+    The JSON export endpoints are config migration only; genuine DR is
+    ``deployment/backup/backup.sh`` (pg_dump + optional ES snapshot + media).
+    """
+    from pyrate.config import settings as app_settings
+    from pyrate.workers.backup_worker import backup_dir, pg_dump_available
+
+    available = pg_dump_available()
+    note = (
+        "Server-side pg_dump is available; POST /disaster-recovery/pg-dump to run it."
+        if available
+        else (
+            "pg_dump is not installed in this container. Use "
+            "deployment/backup/backup.sh (runs pg_dump inside the Postgres container)."
+        )
+    )
+    return DisasterRecoveryStatus(
+        pg_dump_available=available,
+        backup_dir=str(backup_dir()),
+        elasticsearch_host=f"{app_settings.elasticsearch.host}:{app_settings.elasticsearch.port}",
+        note=note,
+    )
+
+
+@router.post("/disaster-recovery/pg-dump", response_model=PgDumpTriggerResponse)
+async def trigger_pg_dump_backup(
+    db: DatabaseSession,
+    current_user: CurrentSuperuser,
+):
+    """Trigger a server-side ``pg_dump`` custom-format backup, if available.
+
+    Returns HTTP 503 with guidance when ``pg_dump`` is not installed in the
+    container (the default images ship without it) — use the shell scripts.
+    """
+    from pyrate.workers.backup_worker import run_pg_dump_backup
+
+    result = await run_pg_dump_backup("manual")
+    if result.get("skipped") == "pg_dump_unavailable":
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "pg_dump is not available in this container. Run "
+                "deployment/backup/backup.sh instead (it dumps inside the "
+                "Postgres container)."
+            ),
+        )
+
+    await ActivityLogService(db).create(
+        ActivityLogCreate(
+            event_type="backup.pg_dump",
+            message=f"Triggered server-side pg_dump backup ({result.get('file')})",
+            entity_type="backup",
+            extra_data=json.dumps(
+                {"bytes": result.get("bytes"), "reason": result.get("reason")},
+                sort_keys=True,
+            ),
+        ),
+        actor_guid=current_user.guid,
+    )
+
+    return PgDumpTriggerResponse(
+        status=result.get("status", "completed"),
+        file=result.get("file"),
+        bytes=result.get("bytes"),
+        reason=result.get("reason"),
     )

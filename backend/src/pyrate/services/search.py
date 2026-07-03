@@ -7,6 +7,19 @@ This service implements a search strategy that:
 3. Queues found items for metadata import
 4. Only searches for media types that have active libraries
 5. Uses Redis locks to prevent duplicate import queueing
+
+``SearchService`` is a thin facade / orchestrator. Two responsibilities have
+been extracted into mixins to keep this module focused on orchestration and
+the shared client/DB/Redis state:
+
+* :class:`pyrate.services.provider_search.ProviderSearchMixin` — provider
+  transforms and per-provider search calls.
+* :class:`pyrate.services.search_import_queue.SearchImportQueueMixin` — import
+  locking, background import-queue dispatch and synchronous provider imports.
+
+The public API is unchanged: ``SearchService`` and the module-level names
+(``IMPORT_LOCK_PREFIX``, ``IMPORT_LOCK_TTL_SECONDS``, ``TRANSIENT_SEARCH_ERRORS``,
+client classes …) remain importable from ``pyrate.services.search``.
 """
 
 import asyncio
@@ -14,7 +27,6 @@ import logging
 import uuid
 from typing import Any
 
-import httpx
 import redis.asyncio as aioredis
 from sqlalchemy import select, tuple_
 from sqlalchemy.exc import IntegrityError
@@ -22,22 +34,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from pyrate.config import settings
-from pyrate.models.library import Library
-from pyrate.models.media import MediaExternalId, MediaItem, MediaType
-from pyrate.metadata.tmdb import TMDB
 from pyrate.metadata.igdb import IGDB
 from pyrate.metadata.spotify import Spotify
+from pyrate.metadata.tmdb import TMDB
+from pyrate.models.library import Library
+from pyrate.models.media import MediaExternalId, MediaItem, MediaType
 from pyrate.schemas.search import SearchRequest, SearchType
 from pyrate.services.elasticsearch import elasticsearch_service
 from pyrate.services.media import MediaService
+from pyrate.services.provider_search import TRANSIENT_SEARCH_ERRORS, ProviderSearchMixin
+from pyrate.services.search_import_queue import (
+    IMPORT_LOCK_PREFIX,
+    IMPORT_LOCK_TTL_SECONDS,
+    SearchImportQueueMixin,
+)
 from pyrate.services.settings import SettingsService
 
 logger = logging.getLogger(__name__)
 
-# Redis key prefix for import locks
-IMPORT_LOCK_PREFIX = "pyrate:import_lock:"
-IMPORT_LOCK_TTL_SECONDS = 300  # 5 minutes
-TRANSIENT_SEARCH_ERRORS = (httpx.HTTPError, TimeoutError, ConnectionError, OSError)
+# Re-exported for backward compatibility (previously defined here).
+__all__ = [
+    "SearchService",
+    "IMPORT_LOCK_PREFIX",
+    "IMPORT_LOCK_TTL_SECONDS",
+    "TRANSIENT_SEARCH_ERRORS",
+]
 
 
 async def _none() -> None:
@@ -45,7 +66,7 @@ async def _none() -> None:
     return None
 
 
-class SearchService:
+class SearchService(ProviderSearchMixin, SearchImportQueueMixin):
     """Service for unified search across metadata providers and local database."""
 
     def __init__(self, db: AsyncSession):
@@ -66,31 +87,6 @@ class SearchService:
                 decode_responses=True,
             )
         return self._redis
-
-    async def _acquire_import_lock(self, media_type: str, external_id: int | str) -> bool:
-        """
-        Try to acquire a lock for importing a media item.
-
-        Returns True if lock was acquired (item should be queued for import).
-        Returns False if lock already exists (item is already being imported).
-        """
-        redis = await self._get_redis()
-        lock_key = f"{IMPORT_LOCK_PREFIX}{media_type}:{external_id}"
-
-        # SET with NX (only set if not exists) and EX (expiry in seconds)
-        result = await redis.set(lock_key, "1", nx=True, ex=IMPORT_LOCK_TTL_SECONDS)
-
-        if result:
-            logger.debug("Acquired import lock for %s %s", media_type, external_id)
-            return True
-        else:
-            logger.debug("Import lock already exists for %s %s", media_type, external_id)
-            return False
-
-    async def _release_import_lock(self, media_type: str, external_id: int | str) -> None:
-        """Release a previously acquired import lock."""
-        redis = await self._get_redis()
-        await redis.delete(f"{IMPORT_LOCK_PREFIX}{media_type}:{external_id}")
 
     # ── Generic client helper ────────────────────────────────────────────
 
@@ -238,10 +234,9 @@ class SearchService:
 
     async def search_lists(self, query: str, user_guid) -> list[dict]:
         """Search lists by name. Returns system lists, own lists, and public lists."""
-        from pyrate.models.list import List, ListItem, ListType, ListVisibility
-        from pyrate.models.user import User
+        from sqlalchemy import and_, or_
 
-        from sqlalchemy import or_, and_
+        from pyrate.models.list import List, ListItem, ListType, ListVisibility
 
         # Visibility rules:
         # - System lists: always visible
@@ -271,7 +266,7 @@ class SearchService:
         lists = result.scalars().all()
 
         # Get item_types for each list
-        list_guids = [l.guid for l in lists]
+        list_guids = [lst.guid for lst in lists]
         item_types_map: dict[str, list[str]] = {}
         if list_guids:
             types_result = await self.db.execute(
@@ -287,18 +282,18 @@ class SearchService:
 
         return [
             {
-                "guid": str(l.guid),
-                "name": l.name,
-                "description": l.description,
-                "list_type": l.list_type.value if hasattr(l.list_type, "value") else str(l.list_type),
-                "visibility": l.visibility.value if hasattr(l.visibility, "value") else str(l.visibility),
-                "owner_name": f"{l.owner.first_name} {l.owner.last_name}".strip() if l.owner else None,
-                "item_count": l.item_count,
-                "like_count": l.like_count,
-                "poster_path": l.poster_path,
-                "item_types": item_types_map.get(str(l.guid), []),
+                "guid": str(lst.guid),
+                "name": lst.name,
+                "description": lst.description,
+                "list_type": lst.list_type.value if hasattr(lst.list_type, "value") else str(lst.list_type),
+                "visibility": lst.visibility.value if hasattr(lst.visibility, "value") else str(lst.visibility),
+                "owner_name": f"{lst.owner.first_name} {lst.owner.last_name}".strip() if lst.owner else None,
+                "item_count": lst.item_count,
+                "like_count": lst.like_count,
+                "poster_path": lst.poster_path,
+                "item_types": item_types_map.get(str(lst.guid), []),
             }
-            for l in lists
+            for lst in lists
         ]
 
     @staticmethod
@@ -655,398 +650,6 @@ class SearchService:
         filtered["total_pages"] = (filtered["total"] + per_page - 1) // per_page
         return filtered
 
-    async def _search_tmdb_movies(
-        self, tmdb: TMDB, request: SearchRequest
-    ) -> dict[str, Any]:
-        """Search TMDB for movies."""
-        try:
-            year = None
-            if request.year_from and request.year_from == request.year_to:
-                year = request.year_from
-
-            logger.debug("Calling TMDB search_movies: query='%s', year=%s", request.query, year)
-            results = await tmdb.search_movies(request.query, year=year)
-            logger.debug(
-                "TMDB search_movies raw result: %s - keys: %s",
-                type(results), results.keys() if isinstance(results, dict) else 'N/A',
-            )
-
-            if not results or "results" not in results:
-                logger.warning("TMDB search_movies returned no 'results' key: %s", results)
-                return {"hits": [], "total": 0}
-
-            hits = []
-            for idx, movie in enumerate(results.get("results", [])):
-                hit = self._transform_tmdb_movie(movie, idx)
-                hits.append(hit)
-
-            return {
-                "hits": hits,
-                "total": results.get("total_results", len(hits)),
-            }
-
-        except TRANSIENT_SEARCH_ERRORS as e:
-            logger.error("TMDB movie search error: %s", e)
-            return {"hits": [], "total": 0, "error": str(e)}
-
-    async def _search_tmdb_shows(
-        self, tmdb: TMDB, request: SearchRequest
-    ) -> dict[str, Any]:
-        """Search TMDB for TV shows."""
-        try:
-            # TMDB uses different endpoint for TV search
-            params = {"query": request.query}
-            if request.year_from and request.year_from == request.year_to:
-                params["first_air_date_year"] = request.year_from
-
-            logger.debug("Calling TMDB search/tv: params=%s", params)
-            results = await tmdb._request("search/tv", params=params)
-            logger.debug(
-                "TMDB search/tv raw result: %s - keys: %s",
-                type(results), results.keys() if isinstance(results, dict) else 'N/A',
-            )
-
-            if not results or "results" not in results:
-                logger.warning("TMDB search/tv returned no 'results' key: %s", results)
-                return {"hits": [], "total": 0}
-
-            hits = []
-            for idx, show in enumerate(results.get("results", [])):
-                hit = self._transform_tmdb_show(show, idx)
-                hits.append(hit)
-
-            return {
-                "hits": hits,
-                "total": results.get("total_results", len(hits)),
-            }
-
-        except TRANSIENT_SEARCH_ERRORS as e:
-            logger.error("TMDB show search error: %s", e)
-            return {"hits": [], "total": 0, "error": str(e)}
-
-    # ── Search-hit builder ─────────────────────────────────────────────
-
-    @staticmethod
-    def _relevance_score(raw: float, index: int, divisor: float = 100) -> float:
-        """Compute a 0-10 relevance score from a raw value and result position."""
-        base = (raw or 0) / divisor
-        position_boost = max(0, 1 - (index * 0.05))
-        return min(base + position_boost, 10.0)
-
-    @staticmethod
-    def _build_search_hit(*, overrides: dict[str, Any]) -> dict[str, Any]:
-        """
-        Return a search-hit dict with sensible defaults.
-
-        Callers pass only the fields that differ from the defaults via
-        *overrides*.
-        """
-        hit: dict[str, Any] = {
-            "id": None,
-            "tmdb_id": None,
-            "igdb_id": None,
-            "spotify_id": None,
-            "type": SearchType.MOVIES,
-            "score": 0.0,
-            "title": "",
-            "original_title": None,
-            "description": None,
-            "tagline": None,
-            "poster_path": None,
-            "backdrop_path": None,
-            "release_date": None,
-            "first_air_date": None,
-            "genres": [],
-            "genre_ids": [],
-            "created_at": None,
-            "updated_at": None,
-            "status": None,
-            "number_of_seasons": None,
-            "number_of_episodes": None,
-            "popularity": None,
-            "vote_average": None,
-            "vote_count": None,
-            "source": "provider",
-            "in_library": False,
-        }
-        hit.update(overrides)
-        return hit
-
-    # ── Transform helpers ────────────────────────────────────────────────
-
-    def _transform_tmdb_movie(self, movie: dict, index: int) -> dict[str, Any]:
-        """Transform TMDB movie result to unified search hit format."""
-        return self._build_search_hit(overrides={
-            "tmdb_id": movie.get("id"),
-            "type": SearchType.MOVIES,
-            "score": self._relevance_score(movie.get("popularity", 0), index),
-            "title": movie.get("title", ""),
-            "original_title": movie.get("original_title"),
-            "description": movie.get("overview"),
-            "poster_path": movie.get("poster_path"),
-            "backdrop_path": movie.get("backdrop_path"),
-            "release_date": movie.get("release_date"),
-            "genre_ids": movie.get("genre_ids", []),
-            "popularity": movie.get("popularity"),
-            "vote_average": movie.get("vote_average"),
-            "vote_count": movie.get("vote_count"),
-            "source": "tmdb",
-        })
-
-    def _transform_tmdb_show(self, show: dict, index: int) -> dict[str, Any]:
-        """Transform TMDB show result to unified search hit format."""
-        return self._build_search_hit(overrides={
-            "tmdb_id": show.get("id"),
-            "type": SearchType.SHOWS,
-            "score": self._relevance_score(show.get("popularity", 0), index),
-            "title": show.get("name", ""),
-            "original_title": show.get("original_name"),
-            "description": show.get("overview"),
-            "poster_path": show.get("poster_path"),
-            "backdrop_path": show.get("backdrop_path"),
-            "first_air_date": show.get("first_air_date"),
-            "genre_ids": show.get("genre_ids", []),
-            "popularity": show.get("popularity"),
-            "vote_average": show.get("vote_average"),
-            "vote_count": show.get("vote_count"),
-            "source": "tmdb",
-        })
-
-    async def _search_igdb_games(
-        self, igdb: IGDB, request: SearchRequest
-    ) -> dict[str, Any]:
-        """Search IGDB for games."""
-        try:
-            logger.debug("Calling IGDB search_games: query='%s'", request.query)
-            results = await igdb.search_games(request.query, limit=20)
-
-            if not results:
-                return {"hits": [], "total": 0}
-
-            hits = []
-            for idx, game in enumerate(results):
-                hit = self._transform_igdb_game(game, idx)
-                hits.append(hit)
-
-            return {
-                "hits": hits,
-                "total": len(hits),
-            }
-
-        except TRANSIENT_SEARCH_ERRORS as e:
-            logger.error("IGDB game search error: %s", e)
-            return {"hits": [], "total": 0, "error": str(e)}
-
-    @staticmethod
-    def _igdb_cover_url(cover: dict | None) -> str | None:
-        """Build a poster URL from an IGDB cover dict."""
-        if isinstance(cover, dict) and cover.get("image_id"):
-            return f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover['image_id']}.jpg"
-        return None
-
-    @staticmethod
-    def _igdb_release_date(timestamp: int | None) -> str | None:
-        """Convert a UNIX timestamp to a YYYY-MM-DD string."""
-        if not timestamp:
-            return None
-        from datetime import UTC, datetime as dt
-        try:
-            return dt.fromtimestamp(timestamp, tz=UTC).strftime("%Y-%m-%d")
-        except (OSError, ValueError):
-            return None
-
-    def _transform_igdb_game(self, game: dict, index: int) -> dict[str, Any]:
-        """Transform IGDB game result to unified search hit format."""
-        genres = [g.get("name") for g in game.get("genres", []) if g.get("name")]
-
-        return self._build_search_hit(overrides={
-            "igdb_id": game.get("id"),
-            "type": SearchType.GAMES,
-            "score": self._relevance_score(game.get("rating", 0), index, divisor=10),
-            "title": game.get("name", ""),
-            "description": game.get("summary"),
-            "poster_path": self._igdb_cover_url(game.get("cover")),
-            "release_date": self._igdb_release_date(game.get("first_release_date")),
-            "genres": genres,
-            "vote_average": game.get("rating"),
-            "vote_count": game.get("rating_count"),
-            "source": "igdb",
-        })
-
-    async def _search_openlibrary_books(
-        self, request: SearchRequest
-    ) -> dict[str, Any]:
-        """Search Open Library for books."""
-        try:
-            from pyrate.metadata.openlibrary import OpenLibrary
-
-            client = OpenLibrary()
-            try:
-                results = await client.search(request.query, limit=20)
-            finally:
-                await client.close()
-
-            if not results:
-                return {"hits": [], "total": 0}
-
-            hits = []
-            for idx, book in enumerate(results):
-                author_str = ", ".join(book.get("authors", []))
-                year = book.get("year")
-                hit = self._build_search_hit(overrides={
-                    "openlibrary_id": book.get("id"),
-                    "type": SearchType.BOOKS,
-                    "score": max(0.0, 10.0 - idx * 0.5),
-                    "title": book.get("title", ""),
-                    "description": author_str,
-                    "poster_path": book.get("cover_url"),
-                    "release_date": f"{year}-01-01" if year else None,
-                    "genres": book.get("subjects", [])[:5],
-                    "vote_average": None,
-                    "source": "openlibrary",
-                })
-                hits.append(hit)
-
-            return {"hits": hits, "total": len(hits)}
-
-        except TRANSIENT_SEARCH_ERRORS as e:
-            logger.error("Open Library book search error: %s", e)
-            return {"hits": [], "total": 0, "error": str(e)}
-
-    async def _search_spotify_albums(
-        self, spotify: Spotify, request: SearchRequest
-    ) -> dict[str, Any]:
-        """Search Spotify for music albums."""
-        try:
-            logger.debug("Calling Spotify search_albums: query='%s'", request.query)
-            results = await spotify.search_albums(request.query, limit=20)
-
-            if not results:
-                return {"hits": [], "total": 0}
-
-            hits = []
-            for idx, album in enumerate(results):
-                hit = self._transform_spotify_album(album, idx)
-                hits.append(hit)
-
-            return {
-                "hits": hits,
-                "total": len(hits),
-            }
-
-        except TRANSIENT_SEARCH_ERRORS as e:
-            logger.error("Spotify album search error: %s", e)
-            return {"hits": [], "total": 0, "error": str(e)}
-
-    @staticmethod
-    def _spotify_image_url(images: list[dict]) -> str | None:
-        """Return the URL of the first (largest) Spotify image, or None."""
-        return images[0].get("url") if images else None
-
-    @staticmethod
-    def _artist_names_str(artists: list[dict]) -> str | None:
-        """Join artist names into a comma-separated string."""
-        names = [a.get("name") for a in artists if a.get("name")]
-        return ", ".join(names) if names else None
-
-    def _transform_spotify_album(self, album: dict, index: int) -> dict[str, Any]:
-        """Transform Spotify album result to unified search hit format."""
-        return self._build_search_hit(overrides={
-            "spotify_id": album.get("id"),
-            "type": SearchType.MUSIC,
-            "score": self._relevance_score(album.get("popularity", 0), index),
-            "title": album.get("name", ""),
-            "description": self._artist_names_str(album.get("artists", [])),
-            "poster_path": self._spotify_image_url(album.get("images", [])),
-            "release_date": album.get("release_date"),
-            "status": album.get("album_type"),
-            "number_of_episodes": album.get("total_tracks"),
-            "popularity": album.get("popularity"),
-            "source": "spotify",
-        })
-
-    async def _search_spotify_artists(
-        self, spotify: Spotify, request: SearchRequest
-    ) -> dict[str, Any]:
-        """Search Spotify for artists."""
-        try:
-            logger.debug("Calling Spotify search_artists: query='%s'", request.query)
-            results = await spotify.search_artists(request.query, limit=10)
-
-            if not results:
-                return {"hits": [], "total": 0}
-
-            hits = []
-            for idx, artist in enumerate(results):
-                hit = self._transform_spotify_artist(artist, idx)
-                hits.append(hit)
-
-            return {
-                "hits": hits,
-                "total": len(hits),
-            }
-
-        except TRANSIENT_SEARCH_ERRORS as e:
-            logger.error("Spotify artist search error: %s", e)
-            return {"hits": [], "total": 0, "error": str(e)}
-
-    def _transform_spotify_artist(self, artist: dict, index: int) -> dict[str, Any]:
-        """Transform Spotify artist result to unified search hit format."""
-        return self._build_search_hit(overrides={
-            "spotify_id": artist.get("id"),
-            "type": SearchType.MUSIC,
-            "music_type": "artist",
-            "score": self._relevance_score(artist.get("popularity", 0), index),
-            "title": artist.get("name", ""),
-            "poster_path": self._spotify_image_url(artist.get("images", [])),
-            "genres": artist.get("genres", []),
-            "popularity": artist.get("popularity"),
-            "source": "spotify",
-        })
-
-    async def _search_spotify_tracks(
-        self, spotify: Spotify, request: SearchRequest
-    ) -> dict[str, Any]:
-        """Search Spotify for tracks."""
-        try:
-            logger.debug("Calling Spotify search_tracks: query='%s'", request.query)
-            results = await spotify.search_tracks(request.query, limit=10)
-
-            if not results:
-                return {"hits": [], "total": 0}
-
-            hits = []
-            for idx, track in enumerate(results):
-                hit = self._transform_spotify_track(track, idx)
-                hits.append(hit)
-
-            return {
-                "hits": hits,
-                "total": len(hits),
-            }
-
-        except TRANSIENT_SEARCH_ERRORS as e:
-            logger.error("Spotify track search error: %s", e)
-            return {"hits": [], "total": 0, "error": str(e)}
-
-    def _transform_spotify_track(self, track: dict, index: int) -> dict[str, Any]:
-        """Transform Spotify track result to unified search hit format."""
-        album = track.get("album", {})
-
-        return self._build_search_hit(overrides={
-            "spotify_id": track.get("id"),
-            "album_spotify_id": album.get("id"),
-            "type": SearchType.MUSIC,
-            "music_type": "track",
-            "score": self._relevance_score(track.get("popularity", 0), index),
-            "title": track.get("name", ""),
-            "description": self._artist_names_str(track.get("artists", [])),
-            "poster_path": self._spotify_image_url(album.get("images", [])),
-            "release_date": album.get("release_date"),
-            "popularity": track.get("popularity"),
-            "source": "spotify",
-        })
-
     async def _search_local(self, request: SearchRequest) -> dict[str, Any]:
         """Fall back to local Elasticsearch search."""
         try:
@@ -1094,77 +697,6 @@ class SearchService:
             .limit(1)
         )
         return result.scalar_one_or_none() is not None
-
-    @staticmethod
-    async def _dispatch_import(hit_type, hit: dict, external_id) -> None:
-        """Send a single item to the appropriate import worker task."""
-        from pyrate.worker import import_album, import_artist, import_book, import_game, import_movie, import_show
-
-        if hit_type == SearchType.BOOKS:
-            await import_book.kiq(external_id)
-            logger.debug("Queued book import: OpenLibrary %s", external_id)
-        elif hit_type == SearchType.MOVIES:
-            await import_movie.kiq(external_id)
-            logger.debug("Queued movie import: TMDB %s", external_id)
-        elif hit_type == SearchType.SHOWS:
-            await import_show.kiq(external_id)
-            logger.debug("Queued show import: TMDB %s", external_id)
-        elif hit_type == SearchType.GAMES:
-            await import_game.kiq(external_id)
-            logger.debug("Queued game import: IGDB %s", external_id)
-        elif hit_type == SearchType.MUSIC:
-            if hit.get("music_type") == "artist":
-                await import_artist.kiq(external_id)
-                logger.debug("Queued artist import: Spotify %s", external_id)
-            else:
-                await import_album.kiq(external_id)
-                logger.debug("Queued album import: Spotify %s", external_id)
-
-    async def _queue_imports(self, hits: list[dict], search_type: SearchType) -> None:
-        """
-        Queue search results for metadata import.
-
-        Only queues items that:
-        1. Have an active library for their type
-        2. Don't already exist in the library
-        3. Don't have an existing import lock (not already queued)
-        """
-        try:
-            active_types = await self._get_active_library_types()
-
-            for hit in hits:
-                resolved = self._resolve_hit_provider(hit, fallback_type=search_type)
-                if not resolved:
-                    continue
-                external_id, provider, type_str, media_type = resolved
-
-                if type_str not in active_types:
-                    logger.info(
-                        "Skipping import for %s %s - no active %s library (active: %s)",
-                        provider, external_id, type_str, active_types,
-                    )
-                    continue
-
-                try:
-                    if await self._exists_in_library(provider, external_id, media_type):
-                        logger.debug("Skipping import for %s %s - already in library", provider, external_id)
-                        continue
-
-                    if not await self._acquire_import_lock(type_str, external_id):
-                        logger.info("Skipping import for %s %s - already queued (lock exists)", provider, external_id)
-                        continue
-
-                    hit_type = hit.get("type", search_type)
-                    logger.info("Dispatching import: type=%s provider=%s id=%s", hit_type, provider, external_id)
-                    await self._dispatch_import(hit_type, hit, external_id)
-
-                except Exception as e:
-                    logger.warning("Failed to queue import for %s %s: %s", provider, external_id, e)
-
-        except ImportError as e:
-            logger.warning("Could not import worker tasks for queuing: %s", e)
-        except Exception as e:
-            logger.error("Error queuing imports: %s", e)
 
     async def enrich_with_library_status(self, hits: list[dict]) -> list[dict]:
         """Enrich search results with library status (presence of a local row).
@@ -1266,300 +798,6 @@ class SearchService:
             if guid:
                 hit["in_library"] = True
                 hit["id"] = guid
-
-    # ── Per-provider synchronous import helpers ───────────────────────────
-
-    async def _import_igdb_game(self, external_id, media_service) -> Any:
-        """Fetch and persist a game from IGDB. Returns the new MediaItem."""
-        from datetime import UTC, datetime as dt
-        from pyrate.models.media import AvailabilityStatus, MediaType
-
-        igdb = await self._get_igdb_client()
-        if not igdb:
-            logger.error("IGDB client not available for synchronous import")
-            return None
-
-        details = await igdb.get_game_details(int(external_id))
-        if not details:
-            logger.error("IGDB returned no details for game %s", external_id)
-            return None
-
-        release_date = None
-        if details.get("first_release_date"):
-            try:
-                release_date = dt.fromtimestamp(details["first_release_date"], tz=UTC).date()
-            except (OSError, ValueError):
-                logger.debug("Invalid IGDB timestamp: %s", details["first_release_date"])
-
-        media_item = await media_service.create_media_item(
-            media_type=MediaType.GAMES,
-            title=details.get("name", "Unknown"),
-            description=details.get("summary"),
-            release_date=release_date,
-            poster_path=self._igdb_cover_url(details.get("cover")),
-            availability_status=AvailabilityStatus.DOWNLOADABLE,
-            commit=False,
-        )
-
-        await media_service.add_external_id(
-            media_item_guid=media_item.guid,
-            provider="igdb",
-            external_id=str(external_id),
-            commit=False,
-        )
-
-        genres = [g.get("name") for g in details.get("genres", []) if g.get("name")]
-        if genres:
-            await media_service.set_genres(media_item.guid, genres, commit=False)
-
-        return media_item
-
-    async def _import_spotify_album(self, external_id, media_service) -> Any:
-        """Fetch and persist an album from Spotify. Returns the new MediaItem."""
-        from pyrate.models.media import AvailabilityStatus, MediaType
-
-        spotify = await self._get_spotify_client()
-        if not spotify:
-            logger.error("Spotify client not available for synchronous import")
-            return None
-
-        details = await spotify.get_album_details(str(external_id))
-        if not details:
-            logger.error("Spotify returned no details for album %s", external_id)
-            return None
-
-        release_date = self._parse_spotify_date(details.get("release_date"))
-
-        artists = details.get("artists", [])
-        artist_names = [a.get("name") for a in artists if a.get("name")]
-        description = ", ".join(artist_names) if artist_names else None
-
-        media_item = await media_service.create_media_item(
-            media_type=MediaType.ALBUMS,
-            title=details.get("name", "Unknown"),
-            description=description,
-            release_date=release_date,
-            poster_path=self._spotify_image_url(details.get("images", [])),
-            availability_status=AvailabilityStatus.DOWNLOADABLE,
-            commit=False,
-        )
-
-        await media_service.add_external_id(
-            media_item_guid=media_item.guid,
-            provider="spotify",
-            external_id=str(external_id),
-            commit=False,
-        )
-
-        # Spotify rarely populates genres at album level;
-        # fall back to the primary artist's genres.
-        genres = details.get("genres", [])
-        if not genres and artists:
-            primary_artist_id = artists[0].get("id")
-            if primary_artist_id:
-                artist_details = await spotify.get_artist_details(primary_artist_id)
-                genres = artist_details.get("genres", [])
-        if genres:
-            await media_service.set_genres(media_item.guid, genres, commit=False)
-
-        return media_item
-
-    async def _import_spotify_artist(self, external_id, media_service) -> Any:
-        """Fetch and persist an artist from Spotify. Returns the new MediaItem."""
-        from pyrate.models.media import AvailabilityStatus, MediaType
-
-        spotify = await self._get_spotify_client()
-        if not spotify:
-            logger.error("Spotify client not available for synchronous import")
-            return None
-
-        details = await spotify.get_artist_details(str(external_id))
-        if not details:
-            logger.error("Spotify returned no details for artist %s", external_id)
-            return None
-
-        media_item = await media_service.create_media_item(
-            media_type=MediaType.ARTISTS,
-            title=details.get("name", "Unknown"),
-            poster_path=self._spotify_image_url(details.get("images", [])),
-            availability_status=AvailabilityStatus.DOWNLOADABLE,
-            commit=False,
-        )
-
-        await media_service.add_external_id(
-            media_item_guid=media_item.guid,
-            provider="spotify",
-            external_id=str(external_id),
-            commit=False,
-        )
-
-        genres = details.get("genres", [])
-        if genres:
-            await media_service.set_genres(media_item.guid, genres, commit=False)
-
-        # Queue album imports for this artist in the background
-        try:
-            from pyrate.worker import import_album as import_album_task
-
-            artist_albums = await spotify.get_artist_albums(str(external_id), limit=20)
-            for album in artist_albums:
-                album_id = album.get("id")
-                if album_id:
-                    await import_album_task.kiq(album_id)
-        except Exception as e:
-            logger.warning("Failed to queue artist album imports: %s", e)
-
-        return media_item
-
-    async def _import_spotify_song(self, external_id) -> dict[str, str] | None:
-        """Import a song by importing its parent album, then look up the track."""
-        from pyrate.models.media import MediaExternalId, MediaItem, MediaType
-
-        spotify = await self._get_spotify_client()
-        if not spotify:
-            logger.error("Spotify client not available for synchronous import")
-            return None
-
-        track_details = await spotify.get_track_details(str(external_id))
-        if not track_details:
-            logger.error("Spotify returned no details for track %s", external_id)
-            return None
-
-        album_spotify_id = track_details.get("album", {}).get("id")
-        if not album_spotify_id:
-            logger.error("Track %s has no parent album", external_id)
-            return None
-
-        # Import the full album hierarchy (creates artist -> album -> songs)
-        from pyrate.worker import import_album as _sync_import_album
-        await _sync_import_album(album_spotify_id)
-
-        result = await self.db.execute(
-            select(MediaItem.guid)
-            .join(MediaExternalId)
-            .where(MediaExternalId.external_id == str(external_id))
-            .where(MediaExternalId.provider == "spotify")
-            .where(MediaItem.media_type == MediaType.SONGS)
-            .limit(1)
-        )
-        row = result.first()
-        if row:
-            await self.db.commit()
-            return {"guid": str(row[0]), "library_guid": None}
-
-        logger.error("Song %s not found after album import", external_id)
-        return None
-
-    async def _import_tmdb_movie(self, tmdb_id, media_service) -> Any:
-        """Fetch and persist a movie from TMDB. Returns the new MediaItem."""
-        from pyrate.models.media import AvailabilityStatus, MediaType
-
-        tmdb = await self._get_tmdb_client()
-        if not tmdb:
-            logger.error("TMDB client not available for synchronous import")
-            return None
-
-        details = await tmdb.get_movie_details(str(tmdb_id))
-        if not details:
-            logger.error("TMDB returned no details for movie %s", tmdb_id)
-            return None
-
-        media_item = await media_service.create_media_item(
-            media_type=MediaType.MOVIES,
-            title=details.get("title", "Unknown"),
-            original_title=details.get("original_title"),
-            description=details.get("overview"),
-            release_date=self._parse_date(details.get("release_date"), label="TMDB release date"),
-            poster_path=details.get("poster_path"),
-            backdrop_path=details.get("backdrop_path"),
-            extra_data=(
-                {"original_language": details["original_language"]}
-                if details.get("original_language")
-                else None
-            ),
-            availability_status=AvailabilityStatus.DOWNLOADABLE,
-            commit=False,
-        )
-
-        await media_service.add_external_id(
-            media_item_guid=media_item.guid,
-            provider="tmdb",
-            external_id=str(tmdb_id),
-            commit=False,
-        )
-        external_ids = details.get("external_ids", {})
-        if external_ids.get("imdb_id"):
-            await media_service.add_external_id(
-                media_item_guid=media_item.guid,
-                provider="imdb",
-                external_id=external_ids["imdb_id"],
-                commit=False,
-            )
-
-        genres = [g.get("name") for g in details.get("genres", []) if g.get("name")]
-        if genres:
-            await media_service.set_genres(media_item.guid, genres, commit=False)
-
-        return media_item
-
-    async def _import_tmdb_show(self, tmdb_id, media_service) -> Any:
-        """Fetch and persist a show from TMDB. Returns the new MediaItem."""
-        from pyrate.models.media import AvailabilityStatus, MediaType
-
-        tmdb = await self._get_tmdb_client()
-        if not tmdb:
-            logger.error("TMDB client not available for synchronous import")
-            return None
-
-        details = await tmdb.get_show_details(str(tmdb_id))
-        if not details:
-            logger.error("TMDB returned no details for show %s", tmdb_id)
-            return None
-
-        media_item = await media_service.create_media_item(
-            media_type=MediaType.SHOWS,
-            title=details.get("name", "Unknown"),
-            original_title=details.get("original_name"),
-            description=details.get("overview"),
-            release_date=self._parse_date(details.get("first_air_date"), label="TMDB first_air_date"),
-            poster_path=details.get("poster_path"),
-            backdrop_path=details.get("backdrop_path"),
-            extra_data=(
-                {"original_language": details["original_language"]}
-                if details.get("original_language")
-                else None
-            ),
-            availability_status=AvailabilityStatus.DOWNLOADABLE,
-            commit=False,
-        )
-
-        await media_service.add_external_id(
-            media_item_guid=media_item.guid,
-            provider="tmdb",
-            external_id=str(tmdb_id),
-            commit=False,
-        )
-        external_ids = details.get("external_ids", {})
-        if external_ids.get("tvdb_id"):
-            await media_service.add_external_id(
-                media_item_guid=media_item.guid,
-                provider="tvdb",
-                external_id=str(external_ids["tvdb_id"]),
-                commit=False,
-            )
-        if external_ids.get("imdb_id"):
-            await media_service.add_external_id(
-                media_item_guid=media_item.guid,
-                provider="imdb",
-                external_id=external_ids["imdb_id"],
-                commit=False,
-            )
-
-        genres = [g.get("name") for g in details.get("genres", []) if g.get("name")]
-        if genres:
-            await media_service.set_genres(media_item.guid, genres, commit=False)
-
-        return media_item
 
     # ── Public import entry point ───────────────────────────────────────
 

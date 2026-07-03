@@ -10,6 +10,7 @@ from sqlalchemy import String, cast, extract, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from pyrate.libraries import get_registered_plugins
 from pyrate.models.library import Library
 from pyrate.models.media import (
     AvailabilityStatus,
@@ -19,7 +20,7 @@ from pyrate.models.media import (
     MediaRelease,
     MediaType,
 )
-from pyrate.libraries import get_registered_plugins
+from pyrate.services.media import MediaService
 from pyrate.services.settings import SettingsService
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,17 @@ class LibraryService:
         self._plugin_classes = {}
         for library_type_str, plugin_class in get_registered_plugins().items():
             self._plugin_classes[library_type_str] = plugin_class
+        # Lazily-created shared MediaService (same session) so the unified
+        # media operations below delegate to a single canonical implementation
+        # instead of duplicating create/read/delete logic.
+        self._media_service: MediaService | None = None
+
+    @property
+    def media(self) -> MediaService:
+        """Shared MediaService bound to the same session (canonical impl)."""
+        if self._media_service is None:
+            self._media_service = MediaService(self.db)
+        return self._media_service
 
     def get_plugin(self, library_type: str, config: dict | None = None):
         """Get the plugin instance for a specific library type.
@@ -315,7 +327,8 @@ class LibraryService:
         Returns:
             The created media item
         """
-        # Determine media type
+        # Determine media type (LibraryService-specific backwards-compat:
+        # resolve the type from a library_guid when not given explicitly).
         if media_type is None:
             if library_guid is None:
                 raise ValueError("media_type must be provided")
@@ -325,22 +338,13 @@ class LibraryService:
             # library.type is already a string, convert it to MediaType enum
             media_type = MediaType(library.type)
 
-        media_item = MediaItem(
-            guid=uuid.uuid4(),
+        # Delegate persistence to the canonical MediaService implementation.
+        return await self.media.create_media_item(
             media_type=media_type,
             title=title,
+            commit=commit,
             **kwargs,
         )
-
-        self.db.add(media_item)
-        if commit:
-            await self.db.commit()
-        else:
-            await self.db.flush()
-        await self.db.refresh(media_item)
-
-        logger.info("Created media item: %s (%s)", title, media_type.value)
-        return media_item
 
     async def get_media_item(
         self,
@@ -1107,19 +1111,11 @@ class LibraryService:
         *,
         commit: bool = True,
     ) -> bool:
-        """Delete media item (cascades to files, releases, etc.)."""
-        media_item = await self.get_media_item(item_guid)
-        if not media_item:
-            return False
+        """Delete media item (cascades to files, releases, etc.).
 
-        await self.db.delete(media_item)
-        if commit:
-            await self.db.commit()
-        else:
-            await self.db.flush()
-
-        logger.info("Deleted media item: %s (%s)", media_item.title, item_guid)
-        return True
+        Delegates to the canonical ``MediaService.delete``.
+        """
+        return await self.media.delete(item_guid, commit=commit)
 
     async def get_children(
         self,
@@ -1129,21 +1125,18 @@ class LibraryService:
         """
         Get child media items (e.g., seasons of a show, episodes of a season).
 
+        Delegates to the canonical ``MediaService.get_children`` but eager-loads
+        the full detail relations LibraryService callers expect.
+
         Args:
             parent_guid: Parent media item GUID
             order_by_sequence: Order by sequence_number if True
         """
-        query = (
-            select(MediaItem)
-            .options(*_MEDIA_ITEM_LOAD_OPTIONS)
-            .where(MediaItem.parent_guid == parent_guid)
+        return await self.media.get_children(
+            parent_guid,
+            order_by_sequence=order_by_sequence,
+            load_options=_MEDIA_ITEM_LOAD_OPTIONS,
         )
-
-        if order_by_sequence:
-            query = query.order_by(MediaItem.sequence_number)
-
-        result = await self.db.execute(query)
-        return list(result.scalars().all())
 
     async def get_children_bulk(
         self,
@@ -1173,22 +1166,17 @@ class LibraryService:
         external_id: str,
         media_type: MediaType | None = None,
     ) -> MediaItem | None:
-        """Get media item by external ID (e.g., TMDB ID)."""
-        query = (
-            select(MediaItem)
-            .options(*_MEDIA_ITEM_LOAD_OPTIONS)
-            .join(MediaExternalId)
-            .where(
-                MediaExternalId.provider == provider,
-                MediaExternalId.external_id == external_id,
-            )
+        """Get media item by external ID (e.g., TMDB ID).
+
+        Delegates to the canonical ``MediaService.get_by_external_id`` with the
+        full detail eager-load LibraryService callers expect.
+        """
+        return await self.media.get_by_external_id(
+            provider,
+            external_id,
+            media_type=media_type,
+            load_options=_MEDIA_ITEM_LOAD_OPTIONS,
         )
-
-        if media_type:
-            query = query.where(MediaItem.media_type == media_type)
-
-        result = await self.db.execute(query)
-        return result.scalars().first()
 
     async def add_external_id(
         self,
@@ -1198,20 +1186,13 @@ class LibraryService:
     ) -> MediaExternalId:
         """Add external ID mapping (TMDB, IGDB, etc.).
 
-        No post-insert refresh: callers fire-and-forget, and the only
-        server-side default (``created_at``) is not consumed downstream.
+        Delegates to the canonical ``MediaService.add_external_id`` (add +
+        commit, no refresh) — behaviourally identical to the previous inline
+        implementation.
         """
-        ext_id = MediaExternalId(
-            guid=uuid.uuid4(),
-            media_item_guid=media_item_guid,
-            provider=provider,
-            external_id=external_id,
+        return await self.media.add_external_id(
+            media_item_guid, provider, external_id
         )
-
-        self.db.add(ext_id)
-        await self.db.commit()
-
-        return ext_id
 
     async def scan_library_for_media(
         self,
@@ -1271,27 +1252,25 @@ class LibraryService:
         title: str,
         **kwargs: Any,
     ) -> MediaRelease:
-        """Create a media release entry."""
-        release = MediaRelease(
-            guid=uuid.uuid4(),
-            media_item_guid=media_item_guid,
-            title=title,
-            **kwargs,
+        """Create a media release entry.
+
+        Delegates to the canonical ``MediaService.create_media_release``
+        (add + commit + refresh) — behaviourally identical.
+        """
+        return await self.media.create_media_release(
+            media_item_guid, title, **kwargs
         )
-
-        self.db.add(release)
-        await self.db.commit()
-        await self.db.refresh(release)
-
-        return release
 
     async def update_availability_status(
         self,
         item_guid: uuid.UUID,
         status: AvailabilityStatus,
     ) -> MediaItem | None:
-        """Update availability status."""
-        return await self.update_media_item(item_guid, availability_status=status)
+        """Update availability status.
+
+        Delegates to the canonical ``MediaService.update_availability_status``.
+        """
+        return await self.media.update_availability_status(item_guid, status)
 
     async def rescore_releases(
         self,

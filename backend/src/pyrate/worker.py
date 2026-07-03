@@ -1621,5 +1621,22 @@ async def run_mass_operation_rule(
     return await run_mass_operation_rule_impl(rule_guid, dry_run)
 
 
+# ------------------------------------------------------------------
+# Disaster-recovery database backup (pg_dump)
+# ------------------------------------------------------------------
+
+
+@broker.task(schedule=[{"cron": "0 2 * * *"}])  # Daily 02:00
+async def scheduled_database_backup() -> dict:
+    """Nightly pg_dump custom-format archive for disaster recovery.
+
+    No-ops gracefully when pg_dump is not on PATH (the default backend/worker
+    images ship without it) — deployment/backup/backup.sh is the primary path.
+    """
+    from pyrate.workers.backup_worker import run_pg_dump_backup
+
+    return await run_pg_dump_backup("scheduled")
+
+
 # Create scheduler with Redis source after task registration.
 scheduler = create_scheduler()

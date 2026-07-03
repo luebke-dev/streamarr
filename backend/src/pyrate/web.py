@@ -14,12 +14,10 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import Response
 
 from pyrate.api.router import router as api_router
+from pyrate.api.v1.health import router as health_router
 from pyrate.config import connection_settings, load_settings_from_database, settings
 from pyrate.services.elasticsearch import elasticsearch_service
-from pyrate.services.metrics_sampler import (
-    metrics_sampler_loop,
-    sample_inventory_metrics,
-)
+from pyrate.services.metrics_sampler import metrics_sampler_loop
 from pyrate.utils.logging import request_id_var, setup_logging
 
 # Configure logging before anything else
@@ -62,10 +60,9 @@ async def lifespan(_app: FastAPI):
 
     # Initialize Elasticsearch connection
     await elasticsearch_service.initialize()
-    try:
-        await sample_inventory_metrics()
-    except Exception:
-        logger.warning("Initial metrics sample failed", exc_info=True)
+    # The sampler loop performs the first sample itself (gated by the leader
+    # lock), so no separate warm-up call is needed here — that would sample
+    # redundantly on every replica.
     metrics_task = asyncio.create_task(
         metrics_sampler_loop(metrics_stop_event),
         name="pyrate-metrics-sampler",
@@ -80,6 +77,36 @@ async def lifespan(_app: FastAPI):
                 await metrics_task
             except asyncio.CancelledError:
                 pass
+        # Drain active WebSocket connections so clients receive a clean close
+        # frame (going away) instead of a dropped TCP connection during a
+        # rollout. The manager has no bulk-close method, so iterate a snapshot
+        # of its connections and tear each one down individually.
+        try:
+            from pyrate.services.websocket import get_websocket_manager
+
+            manager = get_websocket_manager()
+            for connection in list(manager._connections.values()):
+                try:
+                    await connection.websocket.close(code=1001)
+                except Exception:
+                    pass
+                try:
+                    await manager.disconnect(connection)
+                except Exception:
+                    pass
+        except Exception:
+            logger.warning("Failed to drain WebSocket connections", exc_info=True)
+
+        # Shutdown: stop the Redis pub/sub event service (subscriber task +
+        # client). Defined but previously never invoked, leaking the connection
+        # on shutdown.
+        try:
+            from pyrate.services.redis_event import shutdown_redis_event_service
+
+            await shutdown_redis_event_service()
+        except Exception:
+            logger.warning("Failed to shut down Redis event service", exc_info=True)
+
         # Shutdown: Close Elasticsearch connection
         await elasticsearch_service.close()
 
@@ -209,4 +236,7 @@ static_dir = backend_dir / "static"
 # Ensure static directory exists
 static_dir.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+# Liveness/readiness probes at the app root, without the /api prefix and
+# without authentication so orchestrators can reach them directly.
+app.include_router(health_router)
 app.include_router(api_router, prefix="/api")
