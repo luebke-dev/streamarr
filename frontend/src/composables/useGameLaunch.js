@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { api } from 'boot/axios'
+import { launchGameSession } from 'src/services/lightraysService'
 import { logger } from 'src/utils/logger'
 
 export function useGameLaunch({ uuid, status, loading, errorMessage, t }) {
@@ -20,17 +20,12 @@ export function useGameLaunch({ uuid, status, loading, errorMessage, t }) {
       const width = Math.max(64, Math.min(7680, evenWidth))
       const height = Math.max(64, Math.min(4320, evenHeight))
 
-      const response = await api.post(`/api/lightrays/launch/${uuid.value}`, {
-        width,
-        height,
-        fps: 60,
-        bitrate_kbps: 10000,
-      })
+      const data = await launchGameSession(uuid.value, { width, height })
 
-      gameSessionId.value = response.data.session_id
-      wsTicket.value = response.data.ws_ticket || ''
-      websocketUrl.value = response.data.websocket_url || ''
-      gameIceServers.value = response.data.ice_servers || []
+      gameSessionId.value = data.session_id
+      wsTicket.value = data.ws_ticket || ''
+      websocketUrl.value = data.websocket_url || ''
+      gameIceServers.value = data.ice_servers || []
       status.value = 'game-streaming'
       loading.value = false
     } catch (error) {
