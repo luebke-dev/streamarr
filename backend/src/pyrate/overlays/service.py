@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -168,7 +169,7 @@ class OverlayService:
             )
 
         entries = iter_template_entries(applicable)
-        precomputed_hash = self.renderer.compute_hash(base_bytes, entries)
+        precomputed_hash = self.renderer.compute_hash(base_bytes, entries, context)
 
         existing = await self._existing_application(media_guid, target)
         if (
@@ -187,7 +188,9 @@ class OverlayService:
             )
 
         try:
-            render = self.renderer.render(base_bytes, entries, context)
+            render = await asyncio.to_thread(
+                self.renderer.render, base_bytes, entries, context
+            )
         except OverlayRenderError as exc:
             return OverlayApplyResult(
                 media_guid=media_guid,
@@ -196,6 +199,16 @@ class OverlayService:
                 templates_evaluated=len(templates),
                 templates_applied=len(applicable),
                 skipped_reason=f"render-failed: {exc}",
+            )
+
+        if render.error_count:
+            return OverlayApplyResult(
+                media_guid=media_guid,
+                target=target,
+                rendered=False,
+                templates_evaluated=len(templates),
+                templates_applied=len(applicable),
+                skipped_reason=f"element-error: {render.error_count} element(s) failed",
             )
 
         output_path = await self.image_cache.write_overlay(

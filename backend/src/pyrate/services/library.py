@@ -266,19 +266,21 @@ class LibraryService:
         """
         created = []
 
-        for lib_type, plugin in self._plugins.items():
+        for lib_type, plugin_class in self._plugin_classes.items():
             # Check if library of this type already exists
             existing = await self.get_library_by_type(lib_type)
             if existing:
                 logger.info("Library for %s already exists: %s", lib_type, existing.name)
                 continue
 
+            plugin = plugin_class()
             # Create default library
             try:
                 default_path = await plugin.get_default_path()
                 library = await self.create_library(
                     name=f"Default {plugin.get_name()}",
                     type=lib_type,
+                    plugin_id=lib_type.lower(),
                     path=default_path,
                     enabled=True,
                     description=f"Default {plugin.get_name().lower()} storage",
@@ -628,9 +630,15 @@ class LibraryService:
             )
 
         if user_guid is not None and is_favorite is not None:
-            from pyrate.models.favorite import Favorite
-            favorite_items = select(Favorite.media_item_guid).where(
-                Favorite.user_id == user_guid
+            from pyrate.models.list import List as ListModel
+            from pyrate.models.list import ListItem, ListType
+            favorite_items = select(ListItem.item_guid).where(
+                ListItem.list_guid.in_(
+                    select(ListModel.guid).where(
+                        ListModel.owner_guid == user_guid,
+                        ListModel.list_type == ListType.FAVORITES,
+                    )
+                )
             )
             query = query.where(
                 MediaItem.guid.in_(favorite_items)
@@ -918,9 +926,15 @@ class LibraryService:
             )
 
         if user_guid is not None and is_favorite is not None:
-            from pyrate.models.favorite import Favorite
-            favorite_items = select(Favorite.media_item_guid).where(
-                Favorite.user_id == user_guid
+            from pyrate.models.list import List as ListModel
+            from pyrate.models.list import ListItem, ListType
+            favorite_items = select(ListItem.item_guid).where(
+                ListItem.list_guid.in_(
+                    select(ListModel.guid).where(
+                        ListModel.owner_guid == user_guid,
+                        ListModel.list_type == ListType.FAVORITES,
+                    )
+                )
             )
             query = query.where(
                 MediaItem.guid.in_(favorite_items)
@@ -1309,14 +1323,15 @@ class LibraryService:
                 # Inject publish_date for age-based scoring
                 if hasattr(release, "publish_date") and release.publish_date:
                     metadata["publish_date"] = release.publish_date.isoformat()
-                release.release_metadata = metadata
-                updated = True
 
                 # Calculate new score
                 new_score = await plugin.score_release(metadata, scoring_preferences)
                 new_score_int = int(new_score)
 
+                # Only persist when the score actually changes so pure GETs
+                # (detail/releases) don't write to the DB on every request.
                 if release.score != new_score_int:
+                    release.release_metadata = metadata
                     release.score = new_score_int
                     updated = True
 

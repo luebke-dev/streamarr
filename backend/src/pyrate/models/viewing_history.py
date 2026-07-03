@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, func, text, types
+from sqlalchemy import ForeignKey, UniqueConstraint, func, text, types
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from . import Base
@@ -9,6 +9,11 @@ from . import Base
 
 class ViewingHistory(Base):
     __tablename__ = "viewing_history"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_guid", "media_item_guid", name="uq_viewing_history_user_item"
+        ),
+    )
 
     guid: Mapped[uuid.UUID] = mapped_column(
         types.Uuid,

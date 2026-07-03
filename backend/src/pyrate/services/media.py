@@ -625,11 +625,18 @@ class MediaService:
 
         return True
 
-    async def delete_release(self, release_guid: uuid.UUID, *, commit: bool = True) -> bool:
+    async def delete_release(
+        self,
+        release_guid: uuid.UUID,
+        *,
+        media_item_guid: uuid.UUID | None = None,
+        commit: bool = True,
+    ) -> bool:
         """Delete a media release."""
-        result = await self.db.execute(
-            select(MediaRelease).where(MediaRelease.guid == release_guid)
-        )
+        stmt = select(MediaRelease).where(MediaRelease.guid == release_guid)
+        if media_item_guid is not None:
+            stmt = stmt.where(MediaRelease.media_item_guid == media_item_guid)
+        result = await self.db.execute(stmt)
         release = result.scalars().first()
 
         if not release:
@@ -1023,66 +1030,62 @@ class MediaService:
             )
             media_files = files_result.scalars().all()
 
+            # Delete DB rows first, then touch disk. Committing the DB before
+            # unlinking guarantees we never leave the DB pointing at a file we
+            # already deleted (or a file-less torso) if the transaction rolls back.
+            paths_to_delete: list[Path] = []
             for media_file in media_files:
                 # If specific file_path provided, only delete that one
                 if file_path and media_file.file_path != file_path:
                     continue
 
-                # Delete physical file
-                file_path_obj = Path(media_file.file_path)
-                if file_path_obj.exists():
-                    try:
-                        file_path_obj.unlink()
-                        result["files_deleted_from_disk"] += 1
-                        logger.info(
-                            "Deleted media file from disk: %s", media_file.file_path
-                        )
-
-                        # Also try to remove empty parent directories
-                        self._cleanup_empty_dirs(file_path_obj.parent)
-                    except Exception as e:
-                        result["errors"].append(
-                            f"Failed to delete {media_file.file_path}: {e}"
-                        )
-                        logger.warning(
-                            "Failed to delete media file %s: %s", media_file.file_path, e
-                        )
-                else:
-                    logger.debug(
-                        "Media file not on disk (already deleted?): %s", media_file.file_path
-                    )
-
-                # Delete from database
+                paths_to_delete.append(Path(media_file.file_path))
                 await self.db.delete(media_file)
                 result["files_deleted_from_db"] += 1
                 logger.info("Deleted media file from DB: %s", media_file.guid)
 
-            await self.db.commit()
-
-            # Check if we should delete the MediaItem
+            # Delete the media item in the same transaction when no files remain.
             if delete_media_item:
-                # Check if any files remain
+                await self.db.flush()
                 remaining_result = await self.db.execute(
                     select(MediaFile).where(
                         MediaFile.media_item_guid == media_item_guid
                     )
                 )
-                remaining_files = remaining_result.scalars().all()
-
-                if not remaining_files:
-                    # No files left, delete the media item
+                if remaining_result.scalars().first() is None:
                     media_item_result = await self.db.execute(
                         select(MediaItem).where(MediaItem.guid == media_item_guid)
                     )
                     media_item = media_item_result.scalars().first()
-
                     if media_item:
                         await self.db.delete(media_item)
-                        await self.db.commit()
                         result["media_item_deleted"] = True
                         logger.info(
                             "Deleted media item from DB: %s (%s)", media_item.guid, media_item.title
                         )
+
+            await self.db.commit()
+
+            # DB is now consistent; remove the physical files it no longer references.
+            for file_path_obj in paths_to_delete:
+                if file_path_obj.exists():
+                    try:
+                        file_path_obj.unlink()
+                        result["files_deleted_from_disk"] += 1
+                        logger.info("Deleted media file from disk: %s", file_path_obj)
+                        # Also try to remove empty parent directories
+                        self._cleanup_empty_dirs(file_path_obj.parent)
+                    except Exception as e:
+                        result["errors"].append(
+                            f"Failed to delete {file_path_obj}: {e}"
+                        )
+                        logger.warning(
+                            "Failed to delete media file %s: %s", file_path_obj, e
+                        )
+                else:
+                    logger.debug(
+                        "Media file not on disk (already deleted?): %s", file_path_obj
+                    )
 
         except Exception as e:
             result["errors"].append(f"Database error: {e}")

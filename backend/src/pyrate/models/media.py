@@ -4,7 +4,16 @@ import uuid
 from datetime import UTC, datetime
 from enum import Enum, StrEnum
 
-from sqlalchemy import BigInteger, Column, ForeignKey, Index, Table, inspect, types
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    ForeignKey,
+    Index,
+    Table,
+    UniqueConstraint,
+    inspect,
+    types,
+)
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -277,6 +286,9 @@ class MediaExternalId(Base):
 
     __table_args__ = (
         Index("ix_media_external_id_provider_external", "provider", "external_id"),
+        UniqueConstraint(
+            "provider", "external_id", name="uq_media_external_id_provider_external"
+        ),
     )
 
 

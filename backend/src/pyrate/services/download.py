@@ -217,6 +217,7 @@ class DownloadService:
         if download.external_id and download.downloader_id:
             downloader = await self.db.get(Downloader, download.downloader_id)
             if downloader is not None:
+                client = None
                 try:
                     client = self.get_downloader_client(downloader)
                     await client.remove(download.external_id)
@@ -232,6 +233,9 @@ class DownloadService:
                         "Could not cancel %s on downloader %s: %s",
                         download.external_id, downloader.label, exc,
                     )
+                finally:
+                    if client is not None:
+                        await client.close()
 
         await self.db.delete(download)
         await self.db.commit()
@@ -254,6 +258,7 @@ class DownloadService:
 
         downloader = await self.db.get(Downloader, download.downloader_id)
         if downloader is not None:
+            client = None
             try:
                 client = self.get_downloader_client(downloader)
                 if paused:
@@ -269,8 +274,11 @@ class DownloadService:
                     exc,
                 )
                 raise
+            finally:
+                if client is not None:
+                    await client.close()
 
-        download.status = "Paused" if paused else "Queued"
+        download.status = DownloadStatus.QUEUED
         if not paused:
             download.speed_bps = 0
         self.db.add(download)
@@ -419,7 +427,16 @@ class DownloadService:
         # Try each compatible downloader until one succeeds
         for downloader in compatible:
             client = self.get_downloader_client(downloader)
-            status = await client.add_by_url(release_link.link)
+            try:
+                status = await client.add_by_url(release_link.link)
+            except Exception as exc:
+                logger.warning(
+                    "Downloader %s failed to accept %s: %s",
+                    downloader.guid, media_item.title, exc,
+                )
+                continue
+            finally:
+                await client.close()
             external_id = await self.extract_external_id_from_response(
                 downloader, status
             )
@@ -499,7 +516,10 @@ class DownloadService:
             Dictionary with statistics: {'updated': count, 'completed': count, 'failed': count}
         """
         client = self.get_downloader_client(downloader)
-        status = await client.get_downloads()
+        try:
+            status = await client.get_downloads()
+        finally:
+            await client.close()
 
         # Batch fetch all downloads by external IDs
         external_ids = [item["external_id"] for item in status]
@@ -826,7 +846,10 @@ class DownloadService:
                 return None
 
             client = self.get_downloader_client(downloader)
-            status = await client.add_by_url(alt_link.link)
+            try:
+                status = await client.add_by_url(alt_link.link)
+            finally:
+                await client.close()
             external_id = await self.extract_external_id_from_response(downloader, status)
             if not external_id:
                 return None
@@ -970,7 +993,7 @@ class DownloadService:
         # ~30s dir cache. The webhook-triggered TaskIQ handler races ahead of
         # the cache, so the freshly-finished directory may not be visible yet.
         for attempt in range(6):
-            if folder.exists():
+            if await asyncio.to_thread(folder.exists):
                 break
             await asyncio.sleep(2 ** min(attempt, 3))
         else:
@@ -1015,7 +1038,7 @@ class DownloadService:
 
         await self.db.refresh(media_item, attribute_names=["external_ids"])
 
-        if folder.is_file():
+        if await asyncio.to_thread(folder.is_file):
             files = [folder]
         else:
             # Authoritative whitelist: the downloader tells us which files it
@@ -1024,16 +1047,20 @@ class DownloadService:
             # ignored.  Retry a few times while the rclone VFS settles.
             whitelist = {Path(n).name for n in (expected_files or []) if n}
             files = []
-            for attempt in range(6):
+
+            def _scan_media_files() -> list[Path]:
                 try:
-                    entries = [
+                    return [
                         f
                         for f in folder.iterdir()
                         if f.is_file()
                         and self.is_valid_media_file(f, media_item.media_type)
                     ]
                 except FileNotFoundError:
-                    entries = []
+                    return []
+
+            for attempt in range(6):
+                entries = await asyncio.to_thread(_scan_media_files)
 
                 if whitelist:
                     entries = [f for f in entries if f.name in whitelist]
@@ -1053,10 +1080,13 @@ class DownloadService:
         # that would otherwise be imported under the wrong media item.
         library_type = get_library_type_for_media_item_type(media_item.media_type)
         if library_type in ("SHOWS", "MOVIES") and len(files) > 1:
-            best = max(files, key=lambda f: f.stat().st_size)
+            sizes = await asyncio.to_thread(
+                lambda: {f: f.stat().st_size for f in files}
+            )
+            best = max(files, key=lambda f: sizes[f])
             logger.info(
                 "Download %s: selected largest file %s (%d bytes) out of %d candidates",
-                download.external_id, best.name, best.stat().st_size, len(files),
+                download.external_id, best.name, sizes[best], len(files),
             )
             files = [best]
 

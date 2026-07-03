@@ -60,6 +60,22 @@ from pyrate.models.viewing_history import ViewingHistory  # noqa: F401
 # ---------------------------------------------------------------------------
 # Engine & session fixtures
 # ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def _ssrf_guard_resolves_test_hosts():
+    """Test hosts (``*.example``, ``*.example.com`` subdomains) don't resolve via
+    real DNS, which the SSRF guard would reject. Treat them as a public address
+    so integration tests exercise endpoint logic; the guard's IP policy is
+    covered by its own unit tests."""
+    import ipaddress
+    from unittest.mock import patch
+
+    with patch(
+        "pyrate.utils.net._resolve_host",
+        return_value=[ipaddress.ip_address("93.184.216.34")],
+    ):
+        yield
+
+
 @pytest.fixture(scope="session")
 def event_loop():
     loop = asyncio.get_event_loop_policy().new_event_loop()

@@ -183,6 +183,8 @@ class LocalSearchService:
             MediaType.SHOWS: SearchType.SHOWS,
             MediaType.GAMES: SearchType.GAMES,
             MediaType.ALBUMS: SearchType.MUSIC,
+            MediaType.ARTISTS: SearchType.MUSIC,
+            MediaType.BOOKS: SearchType.BOOKS,
         }
         hit_type = type_map.get(item.media_type, SearchType.MOVIES)
         tmdb_id, igdb_id, spotify_id = cls._extract_external_ids(item.external_ids)

@@ -8,6 +8,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pyrate.config import settings
 from pyrate.models.group import Group
 from pyrate.models.subscription import (
     PaymentHistory,
@@ -559,7 +560,9 @@ class TestSubscribeWithPayment:
             )
             assert resp.status_code == 201
             data = resp.json()
-            assert data["status"] == "active"
+            # Subscriptions are created PENDING; access is granted only after
+            # the payment provider confirms payment via webhook.
+            assert data["status"] == "pending"
         finally:
             app.dependency_overrides.pop(get_payment_service, None)
 
@@ -651,126 +654,29 @@ class TestCancelWithPayment:
 # POST /api/subscriptions/webhooks/stripe WITH payment service mocked
 # ---------------------------------------------------------------------------
 class TestStripeWebhookWithPayment:
+    """Webhook tests.
+
+    The endpoint now verifies the Stripe signature over the raw request body:
+    it requires a ``Stripe-Signature`` header and a configured webhook secret,
+    then delegates to ``provider.verify_webhook_signature(payload, signature)``
+    whose return value is the parsed event dict that drives dispatch. These
+    tests supply a signature header, mock the verification to return an event
+    matching the posted body, and enable a webhook secret so the signature
+    check is genuinely exercised (not bypassed).
+    """
+
+    _SIG_HEADERS = {"Stripe-Signature": "test-sig"}
+
     async def test_webhook_payment_succeeded(self, client: AsyncClient):
         """Webhook processes invoice.payment_succeeded event."""
+        event = {
+            "type": "invoice.payment_succeeded",
+            "data": {"object": {"id": "inv_123"}},
+        }
         mock_payment_service = AsyncMock()
         mock_payment_service.handle_payment_succeeded = AsyncMock()
-
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
-
-        app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
-
-        try:
-            resp = await client.post(
-                "/api/subscriptions/webhooks/stripe",
-                json={
-                    "type": "invoice.payment_succeeded",
-                    "data": {"object": {"id": "inv_123"}},
-                },
-            )
-            assert resp.status_code == 200
-            assert resp.json()["status"] == "success"
-            mock_payment_service.handle_payment_succeeded.assert_called_once()
-        finally:
-            app.dependency_overrides.pop(get_payment_service, None)
-
-    async def test_webhook_payment_failed(self, client: AsyncClient):
-        """Webhook processes invoice.payment_failed event."""
-        mock_payment_service = AsyncMock()
-        mock_payment_service.handle_payment_failed = AsyncMock()
-
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
-
-        app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
-
-        try:
-            resp = await client.post(
-                "/api/subscriptions/webhooks/stripe",
-                json={
-                    "type": "invoice.payment_failed",
-                    "data": {"object": {"id": "inv_fail"}},
-                },
-            )
-            assert resp.status_code == 200
-            mock_payment_service.handle_payment_failed.assert_called_once()
-        finally:
-            app.dependency_overrides.pop(get_payment_service, None)
-
-    async def test_webhook_subscription_updated(self, client: AsyncClient):
-        """Webhook processes customer.subscription.updated event."""
-        mock_payment_service = AsyncMock()
-        mock_payment_service.handle_subscription_updated = AsyncMock()
-
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
-
-        app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
-
-        try:
-            resp = await client.post(
-                "/api/subscriptions/webhooks/stripe",
-                json={
-                    "type": "customer.subscription.updated",
-                    "data": {"object": {"id": "sub_upd"}},
-                },
-            )
-            assert resp.status_code == 200
-            mock_payment_service.handle_subscription_updated.assert_called_once()
-        finally:
-            app.dependency_overrides.pop(get_payment_service, None)
-
-    async def test_webhook_subscription_deleted(self, client: AsyncClient):
-        """Webhook processes customer.subscription.deleted event."""
-        mock_payment_service = AsyncMock()
-        mock_payment_service.handle_subscription_deleted = AsyncMock()
-
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
-
-        app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
-
-        try:
-            resp = await client.post(
-                "/api/subscriptions/webhooks/stripe",
-                json={
-                    "type": "customer.subscription.deleted",
-                    "data": {"object": {"id": "sub_del"}},
-                },
-            )
-            assert resp.status_code == 200
-            mock_payment_service.handle_subscription_deleted.assert_called_once()
-        finally:
-            app.dependency_overrides.pop(get_payment_service, None)
-
-    async def test_webhook_unknown_event(self, client: AsyncClient):
-        """Webhook with unknown event type returns success (no-op)."""
-        mock_payment_service = AsyncMock()
-
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
-
-        app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
-
-        try:
-            resp = await client.post(
-                "/api/subscriptions/webhooks/stripe",
-                json={
-                    "type": "some.unknown.event",
-                    "data": {"object": {}},
-                },
-            )
-            assert resp.status_code == 200
-            assert resp.json()["status"] == "success"
-        finally:
-            app.dependency_overrides.pop(get_payment_service, None)
-
-    async def test_webhook_handler_exception(self, client: AsyncClient):
-        """Webhook handler raises exception -> 400."""
-        mock_payment_service = AsyncMock()
-        mock_payment_service.handle_payment_succeeded = AsyncMock(
-            side_effect=ValueError("bad event data")
+        mock_payment_service.provider.verify_webhook_signature = AsyncMock(
+            return_value=event
         )
 
         from pyrate.api.dependencies import get_payment_service
@@ -779,13 +685,224 @@ class TestStripeWebhookWithPayment:
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
         try:
-            resp = await client.post(
-                "/api/subscriptions/webhooks/stripe",
-                json={
-                    "type": "invoice.payment_succeeded",
-                    "data": {"object": {"id": "inv_bad"}},
-                },
-            )
+            with patch.object(
+                settings.payment, "stripe_webhook_secret", "whsec_test"
+            ):
+                resp = await client.post(
+                    "/api/subscriptions/webhooks/stripe",
+                    json=event,
+                    headers=self._SIG_HEADERS,
+                )
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "success"
+            mock_payment_service.provider.verify_webhook_signature.assert_awaited_once()
+            mock_payment_service.handle_payment_succeeded.assert_called_once()
+        finally:
+            app.dependency_overrides.pop(get_payment_service, None)
+
+    async def test_webhook_payment_failed(self, client: AsyncClient):
+        """Webhook processes invoice.payment_failed event."""
+        event = {
+            "type": "invoice.payment_failed",
+            "data": {"object": {"id": "inv_fail"}},
+        }
+        mock_payment_service = AsyncMock()
+        mock_payment_service.handle_payment_failed = AsyncMock()
+        mock_payment_service.provider.verify_webhook_signature = AsyncMock(
+            return_value=event
+        )
+
+        from pyrate.api.dependencies import get_payment_service
+        from pyrate.web import app
+
+        app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
+
+        try:
+            with patch.object(
+                settings.payment, "stripe_webhook_secret", "whsec_test"
+            ):
+                resp = await client.post(
+                    "/api/subscriptions/webhooks/stripe",
+                    json=event,
+                    headers=self._SIG_HEADERS,
+                )
+            assert resp.status_code == 200
+            mock_payment_service.handle_payment_failed.assert_called_once()
+        finally:
+            app.dependency_overrides.pop(get_payment_service, None)
+
+    async def test_webhook_subscription_updated(self, client: AsyncClient):
+        """Webhook processes customer.subscription.updated event."""
+        event = {
+            "type": "customer.subscription.updated",
+            "data": {"object": {"id": "sub_upd"}},
+        }
+        mock_payment_service = AsyncMock()
+        mock_payment_service.handle_subscription_updated = AsyncMock()
+        mock_payment_service.provider.verify_webhook_signature = AsyncMock(
+            return_value=event
+        )
+
+        from pyrate.api.dependencies import get_payment_service
+        from pyrate.web import app
+
+        app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
+
+        try:
+            with patch.object(
+                settings.payment, "stripe_webhook_secret", "whsec_test"
+            ):
+                resp = await client.post(
+                    "/api/subscriptions/webhooks/stripe",
+                    json=event,
+                    headers=self._SIG_HEADERS,
+                )
+            assert resp.status_code == 200
+            mock_payment_service.handle_subscription_updated.assert_called_once()
+        finally:
+            app.dependency_overrides.pop(get_payment_service, None)
+
+    async def test_webhook_subscription_deleted(self, client: AsyncClient):
+        """Webhook processes customer.subscription.deleted event."""
+        event = {
+            "type": "customer.subscription.deleted",
+            "data": {"object": {"id": "sub_del"}},
+        }
+        mock_payment_service = AsyncMock()
+        mock_payment_service.handle_subscription_deleted = AsyncMock()
+        mock_payment_service.provider.verify_webhook_signature = AsyncMock(
+            return_value=event
+        )
+
+        from pyrate.api.dependencies import get_payment_service
+        from pyrate.web import app
+
+        app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
+
+        try:
+            with patch.object(
+                settings.payment, "stripe_webhook_secret", "whsec_test"
+            ):
+                resp = await client.post(
+                    "/api/subscriptions/webhooks/stripe",
+                    json=event,
+                    headers=self._SIG_HEADERS,
+                )
+            assert resp.status_code == 200
+            mock_payment_service.handle_subscription_deleted.assert_called_once()
+        finally:
+            app.dependency_overrides.pop(get_payment_service, None)
+
+    async def test_webhook_unknown_event(self, client: AsyncClient):
+        """Webhook with unknown event type returns success (no-op)."""
+        event = {
+            "type": "some.unknown.event",
+            "data": {"object": {}},
+        }
+        mock_payment_service = AsyncMock()
+        mock_payment_service.provider.verify_webhook_signature = AsyncMock(
+            return_value=event
+        )
+
+        from pyrate.api.dependencies import get_payment_service
+        from pyrate.web import app
+
+        app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
+
+        try:
+            with patch.object(
+                settings.payment, "stripe_webhook_secret", "whsec_test"
+            ):
+                resp = await client.post(
+                    "/api/subscriptions/webhooks/stripe",
+                    json=event,
+                    headers=self._SIG_HEADERS,
+                )
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "success"
+        finally:
+            app.dependency_overrides.pop(get_payment_service, None)
+
+    async def test_webhook_missing_signature(self, client: AsyncClient):
+        """Webhook without a Stripe-Signature header is rejected with 400."""
+        mock_payment_service = AsyncMock()
+
+        from pyrate.api.dependencies import get_payment_service
+        from pyrate.web import app
+
+        app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
+
+        try:
+            with patch.object(
+                settings.payment, "stripe_webhook_secret", "whsec_test"
+            ):
+                resp = await client.post(
+                    "/api/subscriptions/webhooks/stripe",
+                    json={
+                        "type": "invoice.payment_succeeded",
+                        "data": {"object": {}},
+                    },
+                )
+            assert resp.status_code == 400
+        finally:
+            app.dependency_overrides.pop(get_payment_service, None)
+
+    async def test_webhook_invalid_signature(self, client: AsyncClient):
+        """Signature verification failure is rejected with 400."""
+        mock_payment_service = AsyncMock()
+        mock_payment_service.provider.verify_webhook_signature = AsyncMock(
+            side_effect=ValueError("bad signature")
+        )
+
+        from pyrate.api.dependencies import get_payment_service
+        from pyrate.web import app
+
+        app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
+
+        try:
+            with patch.object(
+                settings.payment, "stripe_webhook_secret", "whsec_test"
+            ):
+                resp = await client.post(
+                    "/api/subscriptions/webhooks/stripe",
+                    json={
+                        "type": "invoice.payment_succeeded",
+                        "data": {"object": {}},
+                    },
+                    headers=self._SIG_HEADERS,
+                )
+            assert resp.status_code == 400
+        finally:
+            app.dependency_overrides.pop(get_payment_service, None)
+
+    async def test_webhook_handler_exception(self, client: AsyncClient):
+        """Webhook handler raises exception -> 400."""
+        event = {
+            "type": "invoice.payment_succeeded",
+            "data": {"object": {"id": "inv_bad"}},
+        }
+        mock_payment_service = AsyncMock()
+        mock_payment_service.handle_payment_succeeded = AsyncMock(
+            side_effect=ValueError("bad event data")
+        )
+        mock_payment_service.provider.verify_webhook_signature = AsyncMock(
+            return_value=event
+        )
+
+        from pyrate.api.dependencies import get_payment_service
+        from pyrate.web import app
+
+        app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
+
+        try:
+            with patch.object(
+                settings.payment, "stripe_webhook_secret", "whsec_test"
+            ):
+                resp = await client.post(
+                    "/api/subscriptions/webhooks/stripe",
+                    json=event,
+                    headers=self._SIG_HEADERS,
+                )
             assert resp.status_code == 400
             assert "Webhook processing failed" in resp.json()["detail"]
         finally:
@@ -881,7 +998,24 @@ class TestStartSession:
     async def test_start_session_limit_reached(
         self, client: AsyncClient, db_session, test_user, user_headers
     ):
-        pkg = await _create_package(db_session, max_concurrent_sessions=1)
+        # The concurrent-session limit comes from the linked group's
+        # ``max_concurrent_streams``. Build a group that allows a single
+        # stream so one existing session already exhausts the limit.
+        group = Group(
+            guid=uuid.uuid4(),
+            name=f"Limit Group-{uuid.uuid4().hex[:8]}",
+            description="single stream",
+            is_active=True,
+            allowed_libraries=["movies", "shows"],
+            max_concurrent_streams=1,
+            max_video_quality="fhd",
+            max_audio_quality="lossless",
+        )
+        db_session.add(group)
+        await db_session.commit()
+        await db_session.refresh(group)
+
+        pkg = await _create_package(db_session, group_id=group.guid)
         sub = await _create_subscription(db_session, test_user.guid, pkg.guid)
         await _create_session(db_session, test_user.guid, sub.guid)
 
@@ -890,8 +1024,8 @@ class TestStartSession:
             json={"device_info": "Chrome2", "ip_address": "127.0.0.1"},
             headers=user_headers,
         )
-        # 429 when limit reached, 500 may occur due to SQLite limitations
-        assert resp.status_code in (429, 500)
+        # One active session already fills the single-stream limit.
+        assert resp.status_code == 429
 
 
 # ---------------------------------------------------------------------------

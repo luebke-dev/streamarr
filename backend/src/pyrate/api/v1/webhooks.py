@@ -28,21 +28,24 @@ _WARNED_ABOUT_MISSING_SECRET = False
 def _verify_webhook_secret(x_webhook_secret: str | None, downloader_name: str) -> None:
     """Fail with 401 if the shared-secret header doesn't match.
 
-    When ``DOWNLOADER_WEBHOOK_SECRET`` is unset we log once and allow the call
-    (dev parity); production deployments must set the env var.
+    Fails closed: if ``DOWNLOADER_WEBHOOK_SECRET`` is unset the endpoint is
+    unavailable rather than accepting unauthenticated callbacks.
     """
     global _WARNED_ABOUT_MISSING_SECRET
     configured = settings.downloader_webhook_secret
 
     if not configured:
         if not _WARNED_ABOUT_MISSING_SECRET:
-            logger.warning(
-                "DOWNLOADER_WEBHOOK_SECRET is not set — %s webhooks accept "
-                "unauthenticated callbacks. Set the env var in production.",
+            logger.error(
+                "DOWNLOADER_WEBHOOK_SECRET is not set — rejecting %s webhooks. "
+                "Set the env var to enable downloader callbacks.",
                 downloader_name,
             )
             _WARNED_ABOUT_MISSING_SECRET = True
-        return
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook secret is not configured",
+        )
 
     if not x_webhook_secret or not hmac.compare_digest(x_webhook_secret, configured):
         logger.warning("Rejecting %s webhook: invalid or missing secret", downloader_name)

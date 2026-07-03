@@ -3,8 +3,7 @@ from datetime import UTC
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -12,7 +11,6 @@ logger = logging.getLogger(__name__)
 from ...auth.dependencies import get_current_superuser, get_current_user
 from ...config import settings
 from ...database import get_db_session
-from ...models.group import UserGroupLink
 from ...models.user import User
 from ...schemas.subscription import (
     PaymentHistoryResponse,
@@ -235,29 +233,13 @@ async def create_user_subscription(
             payment_method_id=subscription_data.payment_method_id,
         )
 
-        # Create subscription in database
+        # Create subscription in database (PENDING until payment confirmed)
         subscription = await service.create_subscription(
             user_id=current_user.guid,
             package_id=subscription_data.package_id,
             stripe_subscription_id=stripe_subscription.id,
             stripe_customer_id=stripe_subscription.customer,
         )
-
-        # Grant the user the package's linked group (subscription = group membership)
-        existing_link = await db.execute(
-            select(UserGroupLink).where(
-                UserGroupLink.user_id == current_user.guid,
-                UserGroupLink.group_id == package.group_id,
-            )
-        )
-        if existing_link.scalar_one_or_none() is None:
-            db.add(
-                UserGroupLink(
-                    user_id=current_user.guid,
-                    group_id=package.group_id,
-                )
-            )
-            await db.commit()
 
         return UserSubscriptionResponse.model_validate(subscription)
 
@@ -335,23 +317,19 @@ async def cancel_my_subscription(
         )
 
     try:
-        # Cancel subscription via payment provider
         await payment_service.cancel_subscription(subscription.stripe_subscription_id)
 
-        # Update subscription in database
         updated_subscription = await service.cancel_subscription(subscription.guid)
-
-        # Revoke the package's linked group from the user
-        await db.execute(
-            delete(UserGroupLink).where(
-                UserGroupLink.user_id == current_user.guid,
-                UserGroupLink.group_id == subscription.package.group_id,
+        if updated_subscription is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No active subscription found",
             )
-        )
-        await db.commit()
 
         return UserSubscriptionResponse.model_validate(updated_subscription)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to cancel subscription: %s", e)
         raise HTTPException(
@@ -392,6 +370,7 @@ async def start_session(
     # Create new session
     session = await service.create_session(
         user_id=current_user.guid,
+        subscription_id=subscription.guid,
         device_info=session_data.device_info,
         ip_address=session_data.ip_address,
     )
@@ -545,6 +524,7 @@ async def get_subscription_stats(
     from ...models.subscription import (
         PaymentHistory,
         SubscriptionPackage,
+        SubscriptionStatus,
         UserSubscription,
     )
 
@@ -557,7 +537,7 @@ async def get_subscription_stats(
     # Get active subscriptions
     active_subscriptions_result = await db.execute(
         select(func.count(UserSubscription.guid)).where(
-            UserSubscription.status == "active"
+            UserSubscription.status == SubscriptionStatus.ACTIVE
         )
     )
     active_subscriptions = active_subscriptions_result.scalar() or 0
@@ -574,7 +554,7 @@ async def get_subscription_stats(
             PaymentHistory.status == "succeeded"
         )
     )
-    total_revenue = total_revenue_result.scalar() or Decimal("0.00")
+    total_revenue = Decimal(total_revenue_result.scalar() or 0) / Decimal(100)
 
     # Get monthly revenue (current month)
     from datetime import datetime
@@ -589,7 +569,7 @@ async def get_subscription_stats(
             PaymentHistory.created_at >= current_month_start,
         )
     )
-    monthly_revenue = monthly_revenue_result.scalar() or Decimal("0.00")
+    monthly_revenue = Decimal(monthly_revenue_result.scalar() or 0) / Decimal(100)
 
     return SubscriptionStatsResponse(
         total_packages=total_packages,
@@ -606,7 +586,7 @@ async def get_subscription_stats(
     status_code=status.HTTP_200_OK,
 )
 async def handle_stripe_webhook(
-    request: dict,
+    request: Request,
     payment_service: PaymentServiceDep,
     db: AsyncSession = Depends(get_db_session),
 ):
@@ -616,11 +596,35 @@ async def handle_stripe_webhook(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Payment service is not configured",
         )
+    if not settings.payment.stripe_webhook_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook secret is not configured",
+        )
+
+    payload = await request.body()
+    signature = request.headers.get("Stripe-Signature")
+    if not signature:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing Stripe-Signature header",
+        )
 
     try:
-        event_type = request.get("type")
-        event_data = request.get("data", {}).get("object", {})
+        event = await payment_service.provider.verify_webhook_signature(
+            payload, signature
+        )
+    except ValueError as e:
+        logger.warning("Stripe webhook verification failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Webhook signature verification failed",
+        )
 
+    event_type = event.get("type")
+    event_data = event.get("data", {}).get("object", {})
+
+    try:
         if event_type == "invoice.payment_succeeded":
             await payment_service.handle_payment_succeeded(event_data)
         elif event_type == "invoice.payment_failed":

@@ -84,8 +84,8 @@ class TestInitializeDefaultLibraries:
         mock_plugin = MockPlugin("MOVIES")
         mock_plugin.get_name = lambda: "Movies"
 
-        # The method uses _plugins (not _plugin_classes)
-        service._plugins = {"MOVIES": mock_plugin}
+        # The method iterates _plugin_classes and instantiates each plugin_class()
+        service._plugin_classes = {"MOVIES": lambda: mock_plugin}
 
         with patch.object(service, "get_library_by_type", return_value=None), \
              patch.object(service, "create_library", new_callable=AsyncMock) as mock_create:

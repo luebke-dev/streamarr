@@ -130,10 +130,9 @@ class SmartCollectionService:
             target_list = await self._ensure_target_list(rule)
 
             previous_item_count = target_list.item_count or 0
-            await self._apply_to_list(
+            result.items_added = await self._apply_to_list(
                 target_list, filtered, list_item_type, rule.sync_mode
             )
-            result.items_added = len(filtered)
             if rule.sync_mode == SmartCollectionSyncMode.SYNC:
                 result.items_removed = max(
                     0, previous_item_count - len(filtered)
@@ -196,7 +195,9 @@ class SmartCollectionService:
         filtered: list,
         list_item_type: str,
         sync_mode: SmartCollectionSyncMode,
-    ) -> None:
+    ) -> int:
+        from pyrate.models.list import ListItem
+
         list_service = ListService(self.db)
         items = [
             (item.guid, list_item_type, order)
@@ -204,16 +205,18 @@ class SmartCollectionService:
         ]
         if sync_mode == SmartCollectionSyncMode.SYNC:
             await list_service.replace_items(target_list.guid, items)
-            return
+            return len(items)
         # APPEND: add any items that are not already present.
-        existing_stmt = select(List).where(List.guid == target_list.guid)
-        await self.db.execute(existing_stmt)  # warm cache; not strictly needed
-        existing_guids = {item.item_guid for item in (target_list.items or [])}
-        from pyrate.models.list import ListItem
+        existing_result = await self.db.execute(
+            select(ListItem.item_guid).where(
+                ListItem.list_guid == target_list.guid
+            )
+        )
+        existing_guids = set(existing_result.scalars().all())
 
-        order_start = (target_list.item_count or 0)
+        order_start = target_list.item_count or 0
         added = 0
-        for offset, (item_guid, type_token, _) in enumerate(items):
+        for item_guid, type_token, _ in items:
             if item_guid in existing_guids:
                 continue
             self.db.add(
@@ -221,13 +224,15 @@ class SmartCollectionService:
                     list_guid=target_list.guid,
                     item_type=type_token,
                     item_guid=item_guid,
-                    order_index=order_start + offset,
+                    order_index=order_start + added,
                 )
             )
+            existing_guids.add(item_guid)
             added += 1
-        target_list.item_count = (target_list.item_count or 0) + added
+        target_list.item_count = order_start + added
         target_list.last_auto_update = datetime.now(UTC)
         await self.db.commit()
+        return added
 
     async def _finalize(
         self,

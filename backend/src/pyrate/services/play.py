@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -519,13 +520,14 @@ async def resolve_play_action(
     if file:
         file_path = Path(file.file_path)
         # Retry briefly if file was just imported (rename may still be in progress)
-        if not file_path.exists():
-            import asyncio
+        exists = await asyncio.to_thread(file_path.exists)
+        if not exists:
             for _ in range(3):
                 await asyncio.sleep(1)
-                if file_path.exists():
+                exists = await asyncio.to_thread(file_path.exists)
+                if exists:
                     break
-        if file_path.exists():
+        if exists:
             # Parse probe data
             probe_data = None
             if file.probe_data:
@@ -713,8 +715,6 @@ async def prefetch_next_episode(
     3. Checks if the episode already has a file or download in progress
     4. Triggers search and download for the next episode
     """
-    import asyncio
-
     from pyrate.models.downloads import Download, DownloadStatus
     from pyrate.models.media import (
         MediaFile,
@@ -802,7 +802,9 @@ async def prefetch_next_episode(
             )
         ).scalars().first()
 
-        if existing_file and Path(existing_file.file_path).exists():
+        if existing_file and await asyncio.to_thread(
+            Path(existing_file.file_path).exists
+        ):
             logger.info("Next episode already has a file, skipping prefetch")
             return
 
@@ -1495,7 +1497,7 @@ async def report_stream_problem(
     for media_file in files_result.scalars().all():
         if media_file.file_path:
             try:
-                os.remove(media_file.file_path)
+                await asyncio.to_thread(os.remove, media_file.file_path)
             except FileNotFoundError:
                 logger.warning("File already missing: %s", media_file.file_path)
             except OSError as e:

@@ -245,11 +245,20 @@ class RedisEventService:
                     async with self._lock:
                         handlers = list(self._handlers.get(channel, []))
 
-                    for handler in handlers:
+                    # Run handlers concurrently and bound each one with a
+                    # timeout so a single slow/stuck client (e.g. a WebSocket
+                    # send that never drains) cannot head-of-line-block the
+                    # dispatch for every other subscriber.
+                    async def _dispatch(handler, data=data, channel=channel):
                         try:
-                            await handler(data)
+                            await asyncio.wait_for(handler(data), timeout=5.0)
+                        except TimeoutError:
+                            logger.warning("Handler timed out on %s", channel)
                         except Exception as e:
                             logger.error("Handler error on %s: %s", channel, e)
+
+                    if handlers:
+                        await asyncio.gather(*(_dispatch(h) for h in handlers))
 
                 except asyncio.CancelledError:
                     break

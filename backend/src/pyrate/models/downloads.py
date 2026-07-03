@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, func, text, types
+from sqlalchemy import ForeignKey, Index, func, text, types
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from . import Base
@@ -25,8 +25,23 @@ class DownloadStatus:
     ACTIVE_EXCLUSIONS = ("Failed", "Imported", "Completed")
 
 
+_DOWNLOAD_ACTIVE_WHERE = (
+    "media_release_link_guid IS NOT NULL "
+    "AND status NOT IN ('Failed', 'Imported', 'Completed')"
+)
+
+
 class Download(Base):
     __tablename__ = "download"
+    __table_args__ = (
+        Index(
+            "uq_download_active_release_link",
+            "media_release_link_guid",
+            unique=True,
+            sqlite_where=text(_DOWNLOAD_ACTIVE_WHERE),
+            postgresql_where=text(_DOWNLOAD_ACTIVE_WHERE),
+        ),
+    )
 
     guid: Mapped[uuid.UUID] = mapped_column(
         types.Uuid,

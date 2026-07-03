@@ -21,8 +21,11 @@ from pyrate.services.media import MediaService
 from pyrate.services.media_access import require_media_play_access
 from pyrate.services.media_marker import MediaMarkerService
 from pyrate.services.play import (
+    apply_audio_quality_restrictions,
+    apply_quality_restrictions,
     build_stream_info,
     check_transcode_capacity,
+    extract_source_info,
     is_direct_playable,
     prefetch_next_episode,
     resolve_play_action,
@@ -438,7 +441,7 @@ class PlaybackSessionService:
                 video_codec=request.video_codec,
                 audio_codec=decision.effective_audio_codec,
                 video_bitrate=context.video_bitrate,
-                audio_bitrate=context.audio_bitrate,
+                audio_bitrate=decision.effective_audio_bitrate or context.audio_bitrate,
                 needs_transcode=needs_transcode,
                 start_position=request.start_position,
                 client_context=context.client_context,
@@ -464,13 +467,23 @@ class PlaybackSessionService:
         )
         content_type = content_type_for_media_type(media_item.media_type)
         context = await self._seek_context(current_user, request)
-        needs_transcode = await self._enforce_seek_policy(media_id, request, context)
         video_bitrate, audio_bitrate = _effective_transcode_bitrates(
             context.transcoding_settings,
             request.video_bitrate,
             request.audio_bitrate,
         )
+        resolution, audio_codec, audio_bitrate = self._apply_seek_quality_restrictions(
+            file=file,
+            permissions=permissions,
+            request=request,
+            transcoding_settings=context.transcoding_settings,
+            audio_bitrate=audio_bitrate,
+        )
+        request = replace(request, resolution=resolution, audio_codec=audio_codec)
+        needs_transcode = await self._enforce_seek_policy(media_id, request, context)
 
+        await _enforce_playback_rate_limit(current_user, permissions)
+        await _enforce_concurrent_stream_limit(current_user, permissions)
         await self._terminate_old_session(request.old_session_id)
         selection = _select_playback_streams(
             probe_data=parse_probe_data(file.probe_data),
@@ -822,7 +835,9 @@ class PlaybackSessionService:
         await _enforce_concurrent_stream_limit(request.current_user, request.permissions)
         await self._ensure_transcode_capacity()
         await get_transcoding_session_service().terminate_active_content_sessions(
-            str(request.media_id)
+            str(request.media_id),
+            user_guid=str(request.current_user.guid),
+            exclude_session_id=session_id,
         )
         play_token = await self._create_stream_play_token(request, session_id)
         await self._start_transcode_session(request, session_id, selection)
@@ -1003,6 +1018,36 @@ class PlaybackSessionService:
             video_bitrate=request.video_bitrate,
             audio_bitrate=request.audio_bitrate,
         )
+
+    @staticmethod
+    def _apply_seek_quality_restrictions(
+        *,
+        file: MediaFile,
+        permissions,
+        request: SeekMediaRequest,
+        transcoding_settings: dict,
+        audio_bitrate: str | None,
+    ) -> tuple[str | None, str, str | None]:
+        if permissions is None:
+            return request.resolution, request.audio_codec, audio_bitrate
+        source_info = extract_source_info(parse_probe_data(file.probe_data), file)
+        quality_result = apply_quality_restrictions(
+            max_video_quality=permissions.max_video_quality,
+            client_max_resolution=request.resolution,
+            transcoding_max_resolution=transcoding_settings.get("max_resolution"),
+        )
+        if not quality_result.video_permitted and source_info.get("video_codec"):
+            raise HTTPException(status_code=403, detail=quality_result.denial_reason)
+        audio_quality_result = apply_audio_quality_restrictions(
+            max_audio_quality=permissions.max_audio_quality,
+            requested_audio_codec=request.audio_codec,
+            source_audio_codec=source_info.get("audio_codec"),
+            requested_audio_bitrate=audio_bitrate,
+        )
+        if not audio_quality_result.audio_permitted:
+            raise HTTPException(status_code=403, detail=audio_quality_result.denial_reason)
+        resolution = quality_result.client_max_resolution if request.resolution else None
+        return resolution, audio_quality_result.audio_codec, audio_quality_result.audio_bitrate
 
     async def _enforce_seek_policy(
         self,

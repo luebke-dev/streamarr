@@ -40,6 +40,10 @@ logger = logging.getLogger(__name__)
 
 _TICK_LOCK_KEY = "smart_collections:tick:lock"
 _TICK_LOCK_TTL = 50  # seconds — slightly less than the 1-minute cadence
+_TICK_LOCK_RELEASE = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] "
+    "then return redis.call('del', KEYS[1]) else return 0 end"
+)
 
 
 async def _api_keys(db) -> dict[str, Any]:
@@ -49,27 +53,28 @@ async def _api_keys(db) -> dict[str, Any]:
     return dict(keys) if isinstance(keys, dict) else {}
 
 
-async def _acquire_tick_lock() -> redis_async.Redis | None:
+async def _acquire_tick_lock() -> tuple[redis_async.Redis, str] | tuple[None, None]:
     """Hold a short Redis lock so overlapping ticks no-op cleanly."""
     try:
         rds = redis_async.from_url(
             settings.redis_url, encoding="utf-8", decode_responses=True
         )
-        acquired = await rds.set(_TICK_LOCK_KEY, "1", ex=_TICK_LOCK_TTL, nx=True)
+        token = uuid.uuid4().hex
+        acquired = await rds.set(_TICK_LOCK_KEY, token, ex=_TICK_LOCK_TTL, nx=True)
         if not acquired:
             await rds.close()
-            return None
-        return rds
+            return None, None
+        return rds, token
     except Exception as exc:
         logger.warning("smart-collection tick lock unavailable: %s", exc)
-        return None
+        return None, None
 
 
 async def tick_smart_collections_impl() -> int:
     """Find due rules and enqueue runs. Returns the number enqueued."""
     # Avoid registering the task here; we expose the impl so it can be
     # called both from the @broker.task wrapper and from tests.
-    rds = await _acquire_tick_lock()
+    rds, token = await _acquire_tick_lock()
     if rds is None:
         logger.debug("smart-collection tick skipped (lock held)")
         return 0
@@ -107,7 +112,7 @@ async def tick_smart_collections_impl() -> int:
             logger.info("smart-collection tick enqueued %d run(s)", enqueued)
     finally:
         try:
-            await rds.delete(_TICK_LOCK_KEY)
+            await rds.eval(_TICK_LOCK_RELEASE, 1, _TICK_LOCK_KEY, token)
             await rds.close()
         except Exception:
             pass

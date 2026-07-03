@@ -624,8 +624,8 @@ async def stop_stream(
         delete_library_file=delete_library_file,
     )
 
-    # Remove session from Redis (only if we didn't already terminate it above)
-    if session and not container_stopped:
+    # Remove session from Redis so it stops counting toward concurrency limits.
+    if session:
         await session_service.delete_session(session_id)
 
     # Invalidate play token

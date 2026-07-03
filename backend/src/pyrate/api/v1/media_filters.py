@@ -214,7 +214,7 @@ class MediaListQuery:
             "is_played": self.is_played,
             "user_guid": user_guid,
             "search_term": self.search_term,
-            "top_level_only": self.parent_guid is None and self.media_type is None,
+            "top_level_only": self.parent_guid is None,
             "max_age": max_age,
             "allowed_media_types": allowed_media_types,
         }

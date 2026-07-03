@@ -202,6 +202,9 @@ class TestManageMediaLyrics:
                 return values.get(key, default)
 
         class FakeResponse:
+            is_redirect = False
+            has_redirect_location = False
+
             def raise_for_status(self):
                 pass
 
@@ -228,7 +231,7 @@ class TestManageMediaLyrics:
             async def __aexit__(self, exc_type, exc, tb):
                 return None
 
-            async def get(self, url, params=None, headers=None):
+            async def get(self, url, params=None, headers=None, **kwargs):
                 assert url == "https://lyrics.example/search"
                 assert params == {"track_name": "Network"}
                 assert headers == {"Authorization": "Bearer secret"}
@@ -272,6 +275,9 @@ class TestManageMediaLyrics:
                 return values.get(key, default)
 
         class FakeResponse:
+            is_redirect = False
+            has_redirect_location = False
+
             def raise_for_status(self):
                 pass
 
@@ -296,7 +302,7 @@ class TestManageMediaLyrics:
             async def __aexit__(self, exc_type, exc, tb):
                 return None
 
-            async def get(self, url, params=None, headers=None):
+            async def get(self, url, params=None, headers=None, **kwargs):
                 assert url == "https://lrclib.example/api/search"
                 assert params == {"track_name": "Lyric Song"}
                 assert headers is None

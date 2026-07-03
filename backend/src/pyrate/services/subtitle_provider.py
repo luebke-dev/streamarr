@@ -9,6 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from pyrate.models.media import MediaItem
+from pyrate.utils.net import UnsafeUrlError, assert_safe_url, safe_get
 
 
 class SubtitleProviderError(ValueError):
@@ -206,8 +207,9 @@ class SubtitleProviderService:
             results: list[dict[str, Any]] = []
             for provider_name, url in provider_urls.items():
                 try:
-                    response = await client.get(
+                    response = await safe_get(
                         url,
+                        client=client,
                         params=self._network_search_params(
                             provider_name,
                             media_item,
@@ -309,11 +311,15 @@ class SubtitleProviderService:
                     "OpenSubtitles download requires numeric provider_id"
                 ) from exc
             try:
+                assert_safe_url(download_url)
                 response = await client.post(
                     download_url,
                     json={"file_id": file_id},
                     headers=self._network_headers(provider_name),
+                    follow_redirects=False,
                 )
+                if response.is_redirect:
+                    raise UnsafeUrlError("Download target attempted a redirect")
                 response.raise_for_status()
                 payload = response.json()
             except Exception as exc:

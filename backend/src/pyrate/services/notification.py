@@ -24,6 +24,7 @@ from pyrate.schemas.notification import (
     NotificationUpdate,
 )
 from pyrate.services.settings import SettingsService
+from pyrate.utils.net import UnsafeUrlError, assert_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -457,11 +458,15 @@ class NotificationDispatchService:
                 "detail": "Webhook URL is missing",
             }
         try:
+            assert_safe_url(url)
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
                     url,
                     json={"event_type": event_type, "payload": payload},
+                    follow_redirects=False,
                 )
+                if response.is_redirect:
+                    raise UnsafeUrlError("Webhook target attempted a redirect")
                 response.raise_for_status()
         except Exception as exc:
             logger.warning("Webhook notification provider %s failed: %s", provider_id, exc)
@@ -491,8 +496,11 @@ class NotificationDispatchService:
                 "detail": "Webhook URL is missing",
             }
         try:
+            assert_safe_url(url)
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, follow_redirects=False)
+                if response.is_redirect:
+                    raise UnsafeUrlError("Webhook target attempted a redirect")
                 response.raise_for_status()
         except Exception as exc:
             logger.warning("Notification provider %s failed: %s", provider_id, exc)

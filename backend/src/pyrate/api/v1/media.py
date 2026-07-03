@@ -5,6 +5,7 @@ Provides a single set of endpoints for all media types (movies, shows, games, mu
 Uses MediaType parameter to filter and handle different content types.
 """
 
+import asyncio
 import base64
 import binascii
 import hashlib
@@ -20,11 +21,11 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -96,6 +97,7 @@ from pyrate.services.rate_limiter import check_and_record
 from pyrate.services.recommendation import RecommendationService
 from pyrate.services.show_resume import ShowResumeError, ShowResumeService
 from pyrate.services.translation import TranslationService
+from pyrate.utils.net import UnsafeUrlError, safe_get
 
 add_download = worker_tasks.add_download
 add_music_download = worker_tasks.add_music_download
@@ -599,12 +601,10 @@ def _stored_image_media_type(storage_path: Path) -> str:
 
 
 async def _fetch_remote_image(source_url: str) -> tuple[bytes, str]:
-    parts = urlsplit(source_url)
-    if parts.scheme not in {"http", "https"}:
+    try:
+        response = await safe_get(source_url, timeout=10.0, block_private=True)
+    except UnsafeUrlError:
         raise HTTPException(status_code=422, detail="Only HTTP(S) images can be proxied")
-
-    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-        response = await client.get(source_url)
     if response.status_code >= 400:
         raise HTTPException(
             status_code=502,
@@ -866,7 +866,8 @@ async def proxy_artwork_image(
 
     content, media_type = await _fetch_remote_image(url)
     if transform_params:
-        content, media_type = _transform_image_bytes(
+        content, media_type = await asyncio.to_thread(
+            _transform_image_bytes,
             content,
             content_type=media_type,
             width=width,
@@ -1621,32 +1622,9 @@ async def get_media_item_children(
 
     result = []
     for child in children:
-        children_count = grandchild_counts.get(child.guid, 0)
-
-        child_dict = {
-            "guid": child.guid,
-            "media_type": child.media_type,
-            "parent_guid": child.parent_guid,
-            "title": child.title,
-            "original_title": child.original_title,
-            "description": child.description,
-            "tagline": child.tagline,
-            "release_date": child.release_date,
-            "poster_path": child.poster_path,
-            "backdrop_path": child.backdrop_path,
-            "extra_data": child.extra_data,
-            "sequence_number": child.sequence_number,
-            "availability_status": child.availability_status,
-            "created_at": child.created_at,
-            "updated_at": child.updated_at,
-            "last_searched_at": child.last_searched_at,
-            "last_metadata_updated_at": child.last_metadata_updated_at,
-            "children_count": children_count,  # Add children count
-            "files": [],
-            "releases": [],
-            "external_ids": [],
-        }
-        result.append(MediaItemRead(**child_dict))
+        child_read = MediaItemRead.model_validate(child)
+        child_read.children_count = grandchild_counts.get(child.guid, 0)
+        result.append(child_read)
 
     ts = TranslationService(db)
     await ts.apply_translations(result, current_user.ui_language)
@@ -1666,9 +1644,6 @@ async def get_show_hierarchy(
 
     Returns structured data with show → seasons → episodes.
     """
-    if "series" not in permissions.allowed_libraries:
-        raise HTTPException(status_code=403, detail="Access denied to series library")
-
     service = LibraryService(db)
 
     # Get show
@@ -1677,6 +1652,13 @@ async def get_show_hierarchy(
     )
     if not show or show.media_type not in [MediaType.SHOWS, "SHOWS"]:
         raise HTTPException(status_code=404, detail="Show not found")
+
+    require_media_read_access(
+        current_user,
+        permissions,
+        show,
+        hide_age_denials=True,
+    )
 
     seasons = await service.get_children(show_guid, order_by_sequence=True)
     episodes_by_season = await service.get_children_bulk(
@@ -1704,9 +1686,6 @@ async def get_album_tracks(
     album_guid: uuid.UUID,
 ):
     """Get album with all tracks."""
-    if "music" not in permissions.allowed_libraries:
-        raise HTTPException(status_code=403, detail="Access denied to music library")
-
     service = LibraryService(db)
 
     # Get album
@@ -1715,6 +1694,13 @@ async def get_album_tracks(
     )
     if not album or album.media_type not in [MediaType.ALBUMS, "ALBUMS", "album"]:
         raise HTTPException(status_code=404, detail="Album not found")
+
+    require_media_read_access(
+        current_user,
+        permissions,
+        album,
+        hide_age_denials=True,
+    )
 
     # Get tracks
     tracks = await service.get_children(album_guid, order_by_sequence=True)
@@ -1782,12 +1768,12 @@ async def get_media_item_releases(
 async def delete_media_release(
     db: DatabaseSession,
     current_user: CurrentSuperuser,  # noqa: ARG001
-    item_guid: uuid.UUID,  # noqa: ARG001
+    item_guid: uuid.UUID,
     release_guid: uuid.UUID,
 ):
     """Delete a single release for a media item (admin only)."""
     service = MediaService(db)
-    if not await service.delete_release(release_guid):
+    if not await service.delete_release(release_guid, media_item_guid=item_guid):
         raise HTTPException(status_code=404, detail="Release not found")
 
 
@@ -1798,6 +1784,8 @@ async def delete_all_media_releases(
     item_guid: uuid.UUID,
 ):
     """Delete all releases for a media item (admin only)."""
+    if await db.get(MediaItem, item_guid) is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
     service = MediaService(db)
     await service.delete_all_releases(item_guid)
 
@@ -1844,6 +1832,7 @@ async def create_media_release(
 
 @router.post("/{item_guid}/releases/search", status_code=202)
 async def search_media_releases(
+    db: DatabaseSession,
     item_guid: uuid.UUID,
     current_user: CurrentSuperuser,
 ):
@@ -1852,6 +1841,8 @@ async def search_media_releases(
     Queues a background task to search all configured indexers for releases.
     Results will appear in the releases list once the search completes.
     """
+    if await db.get(MediaItem, item_guid) is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
     await worker_tasks.search_media_item_releases.kiq(
         str(item_guid),
         str(current_user.guid),
@@ -2261,7 +2252,10 @@ async def toggle_media_watch(
     else:
         new_watch = MediaWatch(user_guid=current_user.guid, media_item_guid=item_guid)
         db.add(new_watch)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
         return {"is_watched": True}
 
 
@@ -2557,7 +2551,8 @@ async def proxy_media_image(
         )
     )
     if should_transform:
-        return _transformed_image_bytes_response(
+        return await asyncio.to_thread(
+            _transformed_image_bytes_response,
             content,
             content_type=media_type,
             width=width,
@@ -2716,7 +2711,8 @@ async def transform_uploaded_media_image_content(
     if not storage_path.is_file():
         raise HTTPException(status_code=404, detail="Image not found")
 
-    return _transformed_image_response(
+    return await asyncio.to_thread(
+        _transformed_image_response,
         storage_path,
         width=width,
         height=height,

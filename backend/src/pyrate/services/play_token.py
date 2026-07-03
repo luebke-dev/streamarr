@@ -20,6 +20,12 @@ REDIS_TOKENS_SET = "pyrate:play:tokens"
 DEFAULT_TOKEN_TTL = 2 * 60 * 60
 
 
+def _mask_token(token: str) -> str:
+    if not token:
+        return "<none>"
+    return f"{token[:6]}...<redacted>"
+
+
 class PlayTokenService:
     """Service for managing play tokens in Redis."""
 
@@ -85,7 +91,8 @@ class PlayTokenService:
 
         logger.info(
             "Created play token: %s for %s %s (user: %s)",
-            token.token, token.content_type, token.content_id, token.user_guid,
+            _mask_token(token.token), token.content_type, token.content_id,
+            token.user_guid,
         )
 
         return token
@@ -111,7 +118,7 @@ class PlayTokenService:
             data = json.loads(token_data)
             return PlayToken.from_redis_dict(data)
         except (json.JSONDecodeError, KeyError) as e:
-            logger.error("Error parsing token data for %s: %s", token, e)
+            logger.error("Error parsing token data for %s: %s", _mask_token(token), e)
             return None
 
     async def extend_ttl(self, token: str, ttl: int = DEFAULT_TOKEN_TTL) -> bool:
@@ -188,7 +195,7 @@ class PlayTokenService:
         await r.delete(token_key)
         await r.srem(REDIS_TOKENS_SET, token)
 
-        logger.info("Deleted play token: %s", token)
+        logger.info("Deleted play token: %s", _mask_token(token))
 
         return True
 

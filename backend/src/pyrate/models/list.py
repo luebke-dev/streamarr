@@ -151,6 +151,13 @@ class List(Base):
                 "owner_guid IS NOT NULL AND update_source IS NOT NULL"
             ),
         ),
+        Index(
+            "uq_list_favorites_owner",
+            "owner_guid",
+            unique=True,
+            sqlite_where=text("list_type = 'FAVORITES'"),
+            postgresql_where=text("list_type = 'FAVORITES'"),
+        ),
     )
 
 
@@ -189,6 +196,15 @@ class ListItem(Base):
     # Relationships
     list = relationship("List", back_populates="items")
     added_by = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "list_guid",
+            "item_guid",
+            "item_type",
+            name="uq_list_item_list_item_type",
+        ),
+    )
 
 
 class UserListInteraction(Base):

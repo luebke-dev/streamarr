@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pyrate.plugins as plugin_facade
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyrate.api.dependencies import DatabaseSession, get_db_session
@@ -95,6 +95,17 @@ class LibraryRead(BaseModel):
     updated_at: str
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("settings", mode="before")
+    @classmethod
+    def _coerce_settings(cls, value):
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return None
+            return parsed if isinstance(parsed, dict) else None
+        return value
 
 
 class LibraryUIConfig(BaseModel):

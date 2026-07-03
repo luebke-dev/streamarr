@@ -6,7 +6,7 @@ import string
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -270,7 +270,18 @@ class VoucherService:
             raise VoucherInactiveError("Voucher is not active")
         if voucher.expires_at is not None and voucher.expires_at <= now:
             raise VoucherCodeExpiredError("Voucher code has expired")
-        if voucher.current_uses >= voucher.max_uses:
+
+        # Atomically claim a use so concurrent redemptions can't over-redeem.
+        claimed = await self.db.execute(
+            update(Voucher)
+            .where(
+                Voucher.guid == voucher.guid,
+                Voucher.current_uses < Voucher.max_uses,
+            )
+            .values(current_uses=Voucher.current_uses + 1)
+            .execution_options(synchronize_session=False)
+        )
+        if claimed.rowcount == 0:
             raise VoucherExhaustedError("Voucher has no remaining uses")
 
         # Look at existing active subscription.
@@ -318,8 +329,7 @@ class VoucherService:
                     )
                 )
 
-        # Bump counter + write audit.
-        voucher.current_uses += 1
+        # Write audit (the use was already claimed atomically above).
         self.db.add(
             VoucherRedemption(
                 voucher_id=voucher.guid,

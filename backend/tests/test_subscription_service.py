@@ -8,7 +8,11 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyrate.models.group import Group
-from pyrate.models.subscription import SubscriptionPackage, UserSubscription
+from pyrate.models.subscription import (
+    SubscriptionPackage,
+    SubscriptionStatus,
+    UserSubscription,
+)
 from pyrate.models.user import User
 from pyrate.services.subscription import SubscriptionService
 
@@ -179,7 +183,10 @@ class TestUserSubscription:
         assert sub.user_id == test_user.guid
         assert sub.package_id == sample_package.guid
         assert sub.starts_at is not None
-        assert sub.expires_at > sub.starts_at
+        # A freshly created subscription is PENDING (no access) until the
+        # payment provider confirms via webhook; expires_at is pinned to now.
+        assert sub.status == SubscriptionStatus.PENDING
+        assert sub.expires_at >= sub.starts_at
 
     @pytest.mark.asyncio
     async def test_get_user_subscription(
@@ -195,6 +202,12 @@ class TestUserSubscription:
         test_user: User,
         sample_subscription: UserSubscription,
     ):
+        # New subscriptions start PENDING; activate it (as the payment webhook
+        # would) so it counts as the user's active subscription.
+        sample_subscription.status = SubscriptionStatus.ACTIVE
+        sample_subscription.expires_at = datetime.now(UTC) + timedelta(days=30)
+        await service.db.commit()
+
         result = await service.get_user_active_subscription(test_user.guid)
         assert result is not None
         assert result.guid == sample_subscription.guid
@@ -206,20 +219,28 @@ class TestUserSubscription:
         test_user: User,
         sample_subscription: UserSubscription,
     ):
-        subs = await service.get_user_subscriptions(test_user.guid)
+        # The subscription is PENDING right after creation, so it is only
+        # returned when inactive subscriptions are included.
+        subs = await service.get_user_subscriptions(
+            test_user.guid, include_inactive=True
+        )
         assert len(subs) >= 1
 
     @pytest.mark.asyncio
     async def test_cancel_subscription(
         self, service: SubscriptionService, sample_subscription: UserSubscription
     ):
+        # Cancellation now returns the (marked) subscription object and only
+        # records cancelled_at; access is retained until the period ends.
         result = await service.cancel_subscription(sample_subscription.guid)
-        assert result is True
+        assert result is not None
+        assert result.guid == sample_subscription.guid
+        assert result.cancelled_at is not None
 
     @pytest.mark.asyncio
     async def test_cancel_subscription_not_found(self, service: SubscriptionService):
         result = await service.cancel_subscription(uuid.uuid4())
-        assert result is False
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_extend_subscription(

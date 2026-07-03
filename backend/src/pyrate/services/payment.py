@@ -195,6 +195,37 @@ class PaymentService:
         """Return Stripe invoices for the customer (billing history)."""
         return await self.provider.get_invoices(customer_id, limit=limit)
 
+    @staticmethod
+    def _invoice_period_end(event_data: dict[str, Any]) -> int | None:
+        """Extract the paid period end (unix ts) from a Stripe invoice payload."""
+        lines = event_data.get("lines", {}).get("data", [])
+        if lines:
+            end = lines[0].get("period", {}).get("end")
+            if end is not None:
+                return end
+        return event_data.get("period_end")
+
+    async def _grant_group_link(
+        self,
+        user_subscription: UserSubscription,
+    ) -> None:
+        """Grant the package's linked group to the subscriber (idempotent)."""
+        if user_subscription.package is None:
+            return
+        existing = await self.db.execute(
+            select(UserGroupLink).where(
+                UserGroupLink.user_id == user_subscription.user_id,
+                UserGroupLink.group_id == user_subscription.package.group_id,
+            )
+        )
+        if existing.scalar_one_or_none() is None:
+            self.db.add(
+                UserGroupLink(
+                    user_id=user_subscription.user_id,
+                    group_id=user_subscription.package.group_id,
+                )
+            )
+
     async def handle_payment_succeeded(
         self,
         event_data: dict[str, Any],
@@ -210,11 +241,11 @@ class PaymentService:
             logger.warning("No subscription ID in payment succeeded event")
             return
 
-        # Find user subscription
+        # Find user subscription (eager-load package for group_id)
         result = await self.db.execute(
-            select(UserSubscription).where(
-                UserSubscription.stripe_subscription_id == subscription_id
-            )
+            select(UserSubscription)
+            .options(selectinload(UserSubscription.package))
+            .where(UserSubscription.stripe_subscription_id == subscription_id)
         )
         user_subscription = result.scalar_one_or_none()
 
@@ -222,8 +253,12 @@ class PaymentService:
             logger.warning("No subscription found for provider subscription %s", subscription_id)
             return
 
-        # Update subscription status
-        user_subscription.status = SubscriptionStatus.ACTIVE
+        if user_subscription.status != SubscriptionStatus.CANCELLED:
+            user_subscription.status = SubscriptionStatus.ACTIVE
+            period_end = self._invoice_period_end(event_data)
+            if period_end is not None:
+                user_subscription.expires_at = datetime.fromtimestamp(period_end, tz=UTC)
+            await self._grant_group_link(user_subscription)
 
         # Create payment history record
         payment_history = PaymentHistory(
@@ -322,18 +357,30 @@ class PaymentService:
         # Update subscription details
         if event_data.get("current_period_start"):
             user_subscription.starts_at = datetime.fromtimestamp(
-                event_data["current_period_start"]
+                event_data["current_period_start"], tz=UTC
             )
         if event_data.get("current_period_end"):
             user_subscription.expires_at = datetime.fromtimestamp(
-                event_data["current_period_end"]
+                event_data["current_period_end"], tz=UTC
             )
 
         # Update status based on provider status
         provider_status = event_data.get("status")
-        if provider_status == "active":
+        cancel_at_period_end = event_data.get("cancel_at_period_end", False)
+        if provider_status in ("active", "trialing"):
             user_subscription.status = SubscriptionStatus.ACTIVE
-        elif provider_status == "past_due":
+            if cancel_at_period_end:
+                # Scheduled to cancel: keep access until period end.
+                if user_subscription.cancelled_at is None:
+                    user_subscription.cancelled_at = datetime.now(UTC)
+            else:
+                user_subscription.cancelled_at = None
+                await self._grant_group_link(user_subscription)
+        elif provider_status in ("incomplete", "paused"):
+            user_subscription.status = SubscriptionStatus.PENDING
+        elif provider_status == "incomplete_expired":
+            user_subscription.status = SubscriptionStatus.EXPIRED
+        elif provider_status == "unpaid":
             user_subscription.status = SubscriptionStatus.FAILED
         elif provider_status == "canceled":
             user_subscription.status = SubscriptionStatus.CANCELLED
@@ -346,8 +393,7 @@ class PaymentService:
                         UserGroupLink.group_id == user_subscription.package.group_id,
                     )
                 )
-        elif provider_status == "unpaid":
-            user_subscription.status = SubscriptionStatus.FAILED
+        # past_due: retain current status/access during the retry grace period.
 
         await self.db.commit()
 
@@ -427,11 +473,11 @@ class PaymentService:
             # Update local subscription with provider data
             if provider_data.get("current_period_start"):
                 subscription.starts_at = datetime.fromtimestamp(
-                    provider_data["current_period_start"]
+                    provider_data["current_period_start"], tz=UTC
                 )
             if provider_data.get("current_period_end"):
                 subscription.expires_at = datetime.fromtimestamp(
-                    provider_data["current_period_end"]
+                    provider_data["current_period_end"], tz=UTC
                 )
 
             # Update status
@@ -483,6 +529,7 @@ class PaymentService:
                 )
             )
             .order_by(UserSubscription.created_at.desc())
+            .limit(1)
         )
 
-        return result.scalar_one_or_none()
+        return result.scalars().first()

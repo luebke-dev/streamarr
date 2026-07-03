@@ -156,9 +156,14 @@ async def create_rule(
         enabled=payload.enabled,
         is_system=False,
     )
-    try:
-        rule.next_run_at = next_run_after(payload.schedule_cron)
-    except ValueError:
+    if payload.schedule_cron:
+        try:
+            rule.next_run_at = next_run_after(payload.schedule_cron)
+        except ValueError as exc:
+            raise HTTPException(
+                422, detail=f"Invalid schedule_cron {payload.schedule_cron!r}: {exc}"
+            )
+    else:
         rule.next_run_at = None
     db.add(rule)
     await db.commit()
@@ -195,13 +200,21 @@ async def update_rule(
         raise HTTPException(
             422, detail=f"Unknown builder_type {changes['builder_type']!r}"
         )
+    if "schedule_cron" in changes:
+        cron_value = changes["schedule_cron"]
+        if cron_value:
+            try:
+                next_run_at = next_run_after(cron_value)
+            except ValueError as exc:
+                raise HTTPException(
+                    422, detail=f"Invalid schedule_cron {cron_value!r}: {exc}"
+                )
+        else:
+            next_run_at = None
     for key, value in changes.items():
         setattr(rule, key, value)
-    if changes.get("schedule_cron"):
-        try:
-            rule.next_run_at = next_run_after(rule.schedule_cron)
-        except ValueError:
-            rule.next_run_at = None
+    if "schedule_cron" in changes:
+        rule.next_run_at = next_run_at
     rule.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(rule)

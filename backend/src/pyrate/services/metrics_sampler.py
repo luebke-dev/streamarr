@@ -18,10 +18,9 @@ from pyrate.database import sessionmanager
 from pyrate.models.device import Device
 from pyrate.models.downloader import Downloader
 from pyrate.models.downloads import Download
-from pyrate.models.favorite import Favorite
 from pyrate.models.indexer import Indexer
 from pyrate.models.library import Library
-from pyrate.models.list import List
+from pyrate.models.list import List, ListItem, ListType
 from pyrate.models.media import MediaFile, MediaItem, MediaRelease
 from pyrate.models.notification import Notification
 from pyrate.models.user import User
@@ -295,8 +294,10 @@ async def sample_inventory_metrics() -> None:
 
         favorites: dict[str, int] = {}
         result = await db.execute(
-            select(MediaItem.media_type, func.count(Favorite.guid))
-            .join(MediaItem, Favorite.media_item_guid == MediaItem.guid)
+            select(MediaItem.media_type, func.count(ListItem.guid))
+            .join(MediaItem, ListItem.item_guid == MediaItem.guid)
+            .join(List, List.guid == ListItem.list_guid)
+            .where(List.list_type == ListType.FAVORITES)
             .group_by(MediaItem.media_type)
         )
         for media_type, count in result.all():

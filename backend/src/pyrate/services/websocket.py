@@ -335,6 +335,31 @@ class WebSocketManager:
                 )
                 return
 
+            # download/library events are per-user; only allow subscribing to
+            # one's own channel.
+            if resource_type in ("download", "library") and str(resource_id) != str(
+                connection.user_id
+            ):
+                await connection.send_event(
+                    "error",
+                    {
+                        "message": f"Cannot subscribe to another user's {resource_type} channel",
+                    },
+                )
+                return
+
+            # party channels are restricted to members (owner or joined).
+            if resource_type == "party" and not await self._is_party_member(
+                connection.user_id, resource_id
+            ):
+                await connection.send_event(
+                    "error",
+                    {
+                        "message": "Not a member of this watch party",
+                    },
+                )
+                return
+
             await self.subscribe(connection, resource_type, resource_id)
 
         elif action == "unsubscribe":
@@ -812,6 +837,44 @@ class WebSocketManager:
         await connection.send_event("remote_control_ack", result)
 
 
+    async def _is_party_member(
+        self, user_id: str, party_id: str | UUID
+    ) -> bool:
+        """Return True if the user owns or has joined the given watch party."""
+        try:
+            party_uuid = UUID(str(party_id))
+            user_uuid = UUID(str(user_id))
+        except (ValueError, TypeError):
+            return False
+
+        from sqlalchemy import or_, select
+
+        from pyrate.database import sessionmanager
+        from pyrate.models.party import WatchParty, WatchPartyMember
+
+        try:
+            async with sessionmanager.session() as db:
+                stmt = (
+                    select(WatchParty.guid)
+                    .outerjoin(
+                        WatchPartyMember,
+                        WatchPartyMember.party_id == WatchParty.guid,
+                    )
+                    .where(WatchParty.guid == party_uuid)
+                    .where(
+                        or_(
+                            WatchParty.owner_id == user_uuid,
+                            WatchPartyMember.user_id == user_uuid,
+                        )
+                    )
+                    .limit(1)
+                )
+                result = await db.execute(stmt)
+                return result.first() is not None
+        except Exception as e:
+            logger.warning("Party membership check failed for %s: %s", party_id, e)
+            return False
+
     async def _handle_party_sync(
         self,
         connection: WebSocketConnection,
@@ -842,6 +905,13 @@ class WebSocketManager:
                 {
                     "message": "Missing party_id, current_time, or is_playing",
                 },
+            )
+            return
+
+        if not await self._is_party_member(connection.user_id, party_id):
+            await connection.send_event(
+                "error",
+                {"message": "Not a member of this watch party"},
             )
             return
 
@@ -927,6 +997,13 @@ class WebSocketManager:
             )
             return
 
+        if not await self._is_party_member(connection.user_id, party_id):
+            await connection.send_event(
+                "error",
+                {"message": "Not a member of this watch party"},
+            )
+            return
+
         # Broadcast member update to all party members
         await self.broadcast_to_resource(
             resource_type="party",
@@ -963,6 +1040,13 @@ class WebSocketManager:
             await connection.send_event(
                 "error",
                 {"message": "Missing party_id"},
+            )
+            return
+
+        if not await self._is_party_member(connection.user_id, party_id):
+            await connection.send_event(
+                "error",
+                {"message": "Not a member of this watch party"},
             )
             return
 

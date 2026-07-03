@@ -494,7 +494,7 @@ async def import_movie(tmdb_id: int) -> None:
                     media_type=MediaType.MOVIES,
                 )
                 if media_item:
-                    _notify_import(media_item, "MOVIES", tmdb_id=tmdb_id)
+                    await _notify_import(media_item, "MOVIES", tmdb_id=tmdb_id)
                     await _queue_overlay_render(media_item)
             finally:
                 await tmdb.close()
@@ -585,7 +585,7 @@ async def import_show(tmdb_id: int) -> None:
                     media_type=MediaType.SHOWS,
                 )
                 if media_item:
-                    _notify_import(media_item, "SHOWS", tmdb_id=tmdb_id)
+                    await _notify_import(media_item, "SHOWS", tmdb_id=tmdb_id)
                     await _queue_overlay_render(media_item)
             finally:
                 await tmdb.close()
@@ -618,7 +618,7 @@ async def import_game(igdb_id: int) -> None:
                     media_type=MediaType.GAMES,
                 )
                 if media_item:
-                    _notify_import(media_item, "GAMES", igdb_id=igdb_id)
+                    await _notify_import(media_item, "GAMES", igdb_id=igdb_id)
             finally:
                 await igdb.close()
 
@@ -1417,12 +1417,13 @@ async def rebuild_user_recommendations(user_guid: str) -> None:
         rds = redis_async.from_url(
             settings.redis_url, encoding="utf-8", decode_responses=True
         )
-        debounce_key = f"recs:debounce:{user_guid}"
-        if not await rds.set(debounce_key, "1", ex=300, nx=True):
+        try:
+            debounce_key = f"recs:debounce:{user_guid}"
+            if not await rds.set(debounce_key, "1", ex=300, nx=True):
+                logger.debug("Skipping rebuild for %s (debounced)", user_guid)
+                return
+        finally:
             await rds.close()
-            logger.debug("Skipping rebuild for %s (debounced)", user_guid)
-            return
-        await rds.close()
     except Exception as e:
         logger.warning("Redis debounce lookup failed (%s) — proceeding", e)
 

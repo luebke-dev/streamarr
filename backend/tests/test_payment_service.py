@@ -211,11 +211,15 @@ class TestWebhookHandlers:
         user_subscription: UserSubscription,
         db_session: AsyncSession,
     ):
+        # past_due is a transient grace state during Stripe's retry window:
+        # access and the current status are retained (not marked FAILED).
+        status_before = user_subscription.status
         event_data = {"id": "sub_stripe_001", "status": "past_due"}
         await service.handle_subscription_updated(event_data)
 
         await db_session.refresh(user_subscription)
-        assert user_subscription.status == SubscriptionStatus.FAILED
+        assert user_subscription.status != SubscriptionStatus.FAILED
+        assert user_subscription.status == status_before
 
     @pytest.mark.asyncio
     async def test_handle_subscription_deleted(

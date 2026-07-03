@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -8,6 +10,8 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.responses import Response
 
 from pyrate.api.router import router as api_router
 from pyrate.config import connection_settings, load_settings_from_database, settings
@@ -127,6 +131,32 @@ app.add_middleware(
     ],
     expose_headers=["Content-Range", "Content-Disposition", "ETag", "X-Request-ID"],
 )
+
+allowed_hosts = [
+    h.strip() for h in os.environ.get("ALLOWED_HOSTS", "*").split(",") if h.strip()
+] or ["*"]
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+
+metrics_token = os.environ.get("METRICS_TOKEN", "")
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    """Gate /metrics with an optional token and add baseline security headers."""
+    if request.url.path == "/metrics" and metrics_token:
+        expected = f"Bearer {metrics_token}"
+        if not secrets.compare_digest(request.headers.get("authorization", ""), expected):
+            return Response(status_code=403)
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    if proto == "https":
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
+        )
+    return response
 
 
 @app.middleware("http")

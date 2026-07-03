@@ -28,23 +28,24 @@ class DownloadRefreshWorker:
         try:
             async with sessionmanager.session() as db:
                 downloaders = await self.downloader_service_cls(db).get_all()
-                webhook_types = {"spotdl", "torrent_downloader"}
-                poll_downloaders = [
-                    downloader
-                    for downloader in downloaders
-                    if downloader.type.lower() not in webhook_types
-                ]
 
-                for iteration in range(6):
-                    logger.info(
-                        "Refreshing downloads (iteration %d/6)...",
-                        iteration + 1,
-                    )
-                    for downloader in poll_downloaders:
-                        await refresh_downloader_task.kiq(str(downloader.guid))
+            webhook_types = {"spotdl", "torrent_downloader"}
+            poll_downloaders = [
+                downloader
+                for downloader in downloaders
+                if downloader.type.lower() not in webhook_types
+            ]
 
-                    if iteration < 5:
-                        await asyncio.sleep(10)
+            for iteration in range(6):
+                logger.info(
+                    "Refreshing downloads (iteration %d/6)...",
+                    iteration + 1,
+                )
+                for downloader in poll_downloaders:
+                    await refresh_downloader_task.kiq(str(downloader.guid))
+
+                if iteration < 5:
+                    await asyncio.sleep(10)
         except Exception as exc:
             logger.error("Download refresh failed: %s", exc)
             raise
@@ -79,27 +80,31 @@ class DownloadRefreshWorker:
                 stats["failed"],
             )
 
-            if stats["completed"] > 0:
-                await self._queue_completed_downloads(
-                    download_service,
-                    downloader,
-                    handle_completed_download_task,
-                )
+            if stats["completed"] > 0 or stats["failed"] > 0:
+                client = download_service.get_downloader_client(downloader)
+                try:
+                    if stats["completed"] > 0:
+                        await self._queue_completed_downloads(
+                            download_service,
+                            client,
+                            handle_completed_download_task,
+                        )
 
-            if stats["failed"] > 0:
-                await self._handle_failed_downloads(
-                    download_service,
-                    downloader,
-                    auto_download_media_item_task,
-                )
+                    if stats["failed"] > 0:
+                        await self._handle_failed_downloads(
+                            download_service,
+                            client,
+                            auto_download_media_item_task,
+                        )
+                finally:
+                    await client.close()
 
     async def _queue_completed_downloads(
         self,
         download_service: DownloadService,
-        downloader,
+        client,
         handle_completed_download_task,
     ) -> None:
-        client = download_service.get_downloader_client(downloader)
         status = await client.get_downloads()
         for item in status:
             download = await download_service.get_by_external_id(item["external_id"])
@@ -132,10 +137,9 @@ class DownloadRefreshWorker:
     async def _handle_failed_downloads(
         self,
         download_service: DownloadService,
-        downloader,
+        client,
         auto_download_media_item_task,
     ) -> None:
-        client = download_service.get_downloader_client(downloader)
         status = await client.get_downloads()
         for item in status:
             if item["status"] != DownloadStatus.FAILED:

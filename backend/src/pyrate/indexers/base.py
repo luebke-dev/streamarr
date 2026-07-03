@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from pyrate.utils.http import make_async_client
+from pyrate.utils.net import UnsafeUrlError, assert_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +65,16 @@ class IndexerBase(ABC):
         """
         filtered = {k: v for k, v in (params or {}).items() if v is not None}
 
+        url = f"{self.base_url}/{base}"
+        try:
+            assert_safe_url(url)
+        except UnsafeUrlError as exc:
+            raise IndexerError(f"Refusing to contact unsafe indexer URL {self.base_url}: {exc}") from exc
+
         for attempt in range(1, self.max_retries + 1):
             try:
                 response = await self.client.get(
-                    f"{self.base_url}/{base}",
+                    url,
                     params={
                         "t": function,
                         "o": "json",

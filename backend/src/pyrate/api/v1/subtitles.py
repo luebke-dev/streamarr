@@ -6,7 +6,6 @@ import json
 import uuid
 from datetime import UTC, datetime
 from typing import Literal
-from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -29,6 +28,7 @@ from pyrate.services.subtitle_provider import (
     SubtitleProviderService,
 )
 from pyrate.utils.age_rating import is_allowed
+from pyrate.utils.net import UnsafeUrlError, safe_get
 
 router = APIRouter()
 
@@ -215,14 +215,11 @@ def _get_uploaded_subtitle(media_item: MediaItem, subtitle_id: str) -> dict | No
 
 
 async def _fetch_remote_subtitle(url: str) -> str:
-    parsed = urlsplit(url)
-    if parsed.scheme not in {"http", "https"}:
-        raise HTTPException(status_code=404, detail="Subtitle content not found")
-
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            response = await client.get(url)
-            response.raise_for_status()
+        response = await safe_get(url, timeout=15)
+        response.raise_for_status()
+    except UnsafeUrlError as e:
+        raise HTTPException(status_code=404, detail="Subtitle content not found") from e
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail="Subtitle download failed") from e
 
