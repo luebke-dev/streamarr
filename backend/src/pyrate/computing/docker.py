@@ -46,22 +46,29 @@ class DockerComputingProvider(ComputingBase):
         """Close Docker client.
 
         Timeout handlers are bound to the provider lifecycle: on close we
-        cancel every pending timeout task and force-stop the containers they
-        were guarding, otherwise a container outliving the provider would
-        never be reaped once its timer can no longer fire. ``self._containers``
-        is instance-local, so this only reaps tasks started by this provider.
+        cancel every pending timeout task and force-stop the container it was
+        guarding, otherwise a *guarded* container outliving the provider would
+        never be reaped once its timer can no longer fire.
+
+        Long-running, detached containers WITHOUT a timeout (e.g. transcode /
+        HLS containers) are intentionally NOT reaped here — they must outlive
+        the short-lived provider context that started them and are managed by
+        the transcode monitor / orphan cleanup instead. Reaping them on close
+        would kill playback the moment the ``ComputingService`` context exits.
+        ``self._timeout_tasks`` is instance-local.
         """
+        guarded_task_ids = list(self._timeout_tasks.keys())
         for task in list(self._timeout_tasks.values()):
             task.cancel()
         self._timeout_tasks.clear()
 
         if self.client:
-            for task_id in list(self._containers):
+            for task_id in guarded_task_ids:
                 try:
                     await self.stop_task(task_id, force=True)
                 except Exception as exc:
                     logger.warning(
-                        "Failed to stop container for task %s during close: %s",
+                        "Failed to stop guarded container for task %s during close: %s",
                         task_id,
                         exc,
                     )
