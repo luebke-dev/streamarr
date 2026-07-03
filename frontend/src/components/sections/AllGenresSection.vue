@@ -154,6 +154,8 @@ function createObserver() {
   }
 }
 
+// Filter path only: fetch one genre's items via the search API (the search
+// endpoint is the only one that honours availability/has_poster/platform_id).
 async function loadGenreItems(genreId) {
   if (loadedGenres.has(genreId)) return
   loadedGenres.add(genreId)
@@ -164,39 +166,24 @@ async function loadGenreItems(genreId) {
   genre.loading = true
 
   try {
-    if (!hasFilters.value) {
-      // No filters — use the genres/with-items endpoint for a single genre
-      const params = {
-        max_items_per_genre: maxItemsPerGenre.value,
-        genre_id: genreId,
-      }
-      if (props.mediaType) params.media_type = props.mediaType
-      const response = await api.get('/api/genres/with-items', { params })
-      const data = response.data
-      // The endpoint may return an array; find our genre in it
-      const match = Array.isArray(data) ? data.find((g) => g.id === genreId) : data
-      genre.items = match?.items || []
-    } else {
-      // Filters active — fetch items via search API
-      const f = filters.value
-      const payload = {
-        per_page: maxItemsPerGenre.value,
-        page: 1,
-        genre_id: genreId,
-        search_type: 'all',
-      }
-      if (props.mediaType) {
-        payload.media_type = props.mediaType
-        payload.search_type = props.mediaType.toLowerCase()
-      }
-      if (f.availability) payload.availability = f.availability
-      if (f.has_poster != null) payload.has_poster = f.has_poster
-      if (f.has_description != null) payload.has_description = f.has_description
-      if (f.platform_id) payload.platform_id = f.platform_id
-
-      const res = await api.post('/api/search/', payload)
-      genre.items = (res.data.hits || []).filter((item) => getPosterUrl(item))
+    const f = filters.value
+    const payload = {
+      per_page: maxItemsPerGenre.value,
+      page: 1,
+      genre_id: genreId,
+      search_type: 'all',
     }
+    if (props.mediaType) {
+      payload.media_type = props.mediaType
+      payload.search_type = props.mediaType.toLowerCase()
+    }
+    if (f.availability) payload.availability = f.availability
+    if (f.has_poster != null) payload.has_poster = f.has_poster
+    if (f.has_description != null) payload.has_description = f.has_description
+    if (f.platform_id) payload.platform_id = f.platform_id
+
+    const res = await api.post('/api/search/', payload)
+    genre.items = (res.data.hits || []).filter((item) => getPosterUrl(item))
   } catch (error) {
     logger.error(`Error loading items for genre ${genreId}:`, error)
     genre.items = []
@@ -208,6 +195,32 @@ async function loadGenreItems(genreId) {
     if (el && observer) {
       observer.unobserve(el)
     }
+  }
+}
+
+// No-filter path (the common case): one optimised request returns every genre
+// with its items. Empty or permission-filtered genres simply aren't returned,
+// so there are no wasted per-genre round-trips.
+async function loadAllGenresWithItems() {
+  loadingGenres.value = true
+  try {
+    const params = { max_items_per_genre: maxItemsPerGenre.value }
+    if (props.mediaType) params.media_type = props.mediaType
+    const response = await api.get('/api/genres/with-items', { params })
+    const data = Array.isArray(response.data) ? response.data : []
+    genres.value = data.map((g) =>
+      reactive({
+        id: g.id,
+        name: g.name,
+        loading: false,
+        items: g.items || [],
+      }),
+    )
+  } catch (error) {
+    logger.error('Error loading genres with items:', error)
+    genres.value = []
+  } finally {
+    loadingGenres.value = false
   }
 }
 
@@ -235,8 +248,15 @@ async function loadGenreList() {
 }
 
 onMounted(async () => {
-  await loadGenreList()
-  createObserver()
+  if (hasFilters.value) {
+    // Filters active: fetch the genre list, then lazy-load each genre's items
+    // via the search API as its row scrolls into view.
+    await loadGenreList()
+    createObserver()
+  } else {
+    // No filters: a single request returns all genres with their items.
+    await loadAllGenresWithItems()
+  }
 })
 
 onBeforeUnmount(() => {
