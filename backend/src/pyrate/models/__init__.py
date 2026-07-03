@@ -4,6 +4,7 @@ __all__ = [
     "ApiKey",
     "Banner",
     "UserBannerDismissed",
+    "ContainerProfile",
     "Device",
     "Downloader",
     "Download",
@@ -74,6 +75,7 @@ from pyrate.database import Base
 from pyrate.models.activity_log import ActivityLog
 from pyrate.models.api_key import ApiKey
 from pyrate.models.banner import Banner, UserBannerDismissed
+from pyrate.models.container_profile import ContainerProfile
 from pyrate.models.device import Device
 from pyrate.models.downloader import Downloader
 from pyrate.models.downloads import Download

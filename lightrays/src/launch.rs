@@ -11,6 +11,8 @@
 use crate::config::ServerConfig;
 use crate::docker::ContainerConfig;
 
+use std::collections::HashMap;
+
 use axum::{http::StatusCode, Json};
 use serde::Deserialize;
 
@@ -29,6 +31,13 @@ pub struct LaunchRequest {
     pub docker_image: Option<String>,
     pub keyboard_layout: Option<String>,
     pub mouse_speed: Option<f64>,
+    /// Sanctioned, admin-controlled application/profile environment. Unlike
+    /// the deprecated raw `env` field below (which is rejected outright),
+    /// `app_env` is a curated key/value map merged into the container env for
+    /// the generic `gow-app` runtime profile. It is set via the Docker API
+    /// (no shell), so there is no injection surface, and the lightrays-managed
+    /// streaming-contract variables always take precedence over it.
+    pub app_env: Option<HashMap<String, String>>,
     // Deprecated unsafe raw Docker fields. They are still deserialized so the
     // server can reject them explicitly instead of silently ignoring them.
     pub image: Option<String>,
@@ -58,6 +67,9 @@ pub struct ValidatedLaunch {
     pub runtime_profile: String,
     pub docker_image: Option<String>,
     pub keyboard_layout: String,
+    /// Validated sanctioned app environment (empty keys dropped). Merged into
+    /// the container env for the `gow-app` profile; ignored otherwise.
+    pub app_env: HashMap<String, String>,
     pub start_compositor: bool,
     pub start_audio: bool,
     pub render_node: String,
@@ -117,7 +129,7 @@ pub fn validate_launch_request(req: &LaunchRequest) -> Result<ValidatedLaunch, J
         .runtime_profile
         .clone()
         .unwrap_or_else(|| "gow-steam".into());
-    if !matches!(runtime_profile.as_str(), "gow-steam" | "none") {
+    if !matches!(runtime_profile.as_str(), "gow-steam" | "gow-app" | "none") {
         return Err(bad_request("unsupported runtime_profile"));
     }
 
@@ -127,9 +139,23 @@ pub fn validate_launch_request(req: &LaunchRequest) -> Result<ValidatedLaunch, J
     };
     if runtime_profile == "none" && docker_image.is_some() {
         return Err(bad_request(
-            "docker_image is only supported for gow-steam runtime_profile",
+            "docker_image is only supported for the gow-steam and gow-app runtime_profiles",
         ));
     }
+
+    // Sanctioned app environment: keep only non-empty keys. Values may be any
+    // string; there is no shell involved (set via the Docker API), so no
+    // escaping is required. The map is only merged for the `gow-app` profile.
+    let app_env: HashMap<String, String> = req
+        .app_env
+        .as_ref()
+        .map(|m| {
+            m.iter()
+                .filter(|(k, _)| !k.trim().is_empty())
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
 
     let keyboard_layout = req
         .keyboard_layout
@@ -168,6 +194,7 @@ pub fn validate_launch_request(req: &LaunchRequest) -> Result<ValidatedLaunch, J
         runtime_profile,
         docker_image,
         keyboard_layout,
+        app_env,
         start_compositor: req.start_virtual_compositor.unwrap_or(true),
         start_audio: req.start_audio_server.unwrap_or(true),
         render_node,
@@ -288,40 +315,113 @@ pub fn build_container_config(
 ) -> Result<Option<ContainerConfig>, JsonError> {
     match launch.runtime_profile.as_str() {
         "none" => Ok(None),
-        "gow-steam" => Ok(Some(ContainerConfig {
-            title: launch.title.clone(),
-            image: launch
-                .docker_image
-                .clone()
-                .unwrap_or_else(|| config.gow_image.clone()),
-            env: vec![
-                "GOW_REQUIRED_DEVICES=/dev/dri/* /dev/nvidia*".to_string(),
-                format!("XKB_DEFAULT_LAYOUT={}", launch.keyboard_layout),
-                // In-container compositor. gamescope (default) pins the
-                // resolution at launch, so the whole session is fixed-size;
-                // sway is a real WM, so the Steam UI re-lays-out live when
-                // its output resolution changes (games can still run in a
-                // per-game gamescope via Steam launch options). Both reuse
-                // GAMESCOPE_WIDTH/HEIGHT for the initial size. Selected via
-                // LIGHTRAYS_GOW_COMPOSITOR=gamescope|sway (default gamescope).
-                match std::env::var("LIGHTRAYS_GOW_COMPOSITOR")
-                    .unwrap_or_default()
-                    .to_ascii_lowercase()
-                    .as_str()
-                {
-                    "sway" => "RUN_SWAY=1",
-                    _ => "RUN_GAMESCOPE=1",
-                }
-                .to_string(),
-            ],
-            devices: Vec::new(),
-            mounts: Vec::new(),
-            base_create_json: gow_base_create_json(),
-            app_id: launch.app_id.clone(),
-            owner_sub: owner_sub.to_string(),
-        })),
+        // The established Steam profile does not merge any extra app env; it
+        // shares the exact same builder as `gow-app` with an empty overlay,
+        // so its behaviour is byte-for-byte identical to before.
+        "gow-steam" => Ok(Some(build_gow_container_config(
+            config,
+            launch,
+            owner_sub,
+            &HashMap::new(),
+        ))),
+        // Generic, GOW-agnostic profile: same privileged base + streaming
+        // contract as gow-steam, but additionally merges the sanctioned
+        // `app_env` (e.g. a Steam AppID) into the container env.
+        "gow-app" => Ok(Some(build_gow_container_config(
+            config,
+            launch,
+            owner_sub,
+            &launch.app_env,
+        ))),
         _ => Err(bad_request("unsupported runtime_profile")),
     }
+}
+
+/// Build the GOW container spec shared by the `gow-steam` and `gow-app`
+/// profiles. `app_env` is an optional sanctioned overlay merged FIRST; the
+/// lightrays-managed streaming-contract variables are applied afterwards so
+/// they always win and `app_env` can never break the stream contract.
+fn build_gow_container_config(
+    config: &ServerConfig,
+    launch: &ValidatedLaunch,
+    owner_sub: &str,
+    app_env: &HashMap<String, String>,
+) -> ContainerConfig {
+    // Ordered key/value list so env output is deterministic and duplicate-free.
+    let mut env: Vec<(String, String)> = Vec::new();
+
+    // 1. Sanctioned app env goes in first (sorted for a stable ordering).
+    let mut app_keys: Vec<&String> = app_env.keys().collect();
+    app_keys.sort();
+    for key in app_keys {
+        if key.trim().is_empty() {
+            continue;
+        }
+        env_set(&mut env, key, &app_env[key]);
+    }
+
+    // 2. lightrays-managed streaming contract overrides anything above.
+    env_set(
+        &mut env,
+        "GOW_REQUIRED_DEVICES",
+        "/dev/dri/* /dev/nvidia*",
+    );
+    env_set(
+        &mut env,
+        "XKB_DEFAULT_LAYOUT",
+        &launch.keyboard_layout,
+    );
+    // In-container compositor. gamescope (default) pins the resolution at
+    // launch, so the whole session is fixed-size; sway is a real WM, so the
+    // Steam UI re-lays-out live when its output resolution changes (games can
+    // still run in a per-game gamescope via Steam launch options). Both reuse
+    // GAMESCOPE_WIDTH/HEIGHT for the initial size. Selected via
+    // LIGHTRAYS_GOW_COMPOSITOR=gamescope|sway (default gamescope). Both
+    // compositor variables are contract-managed: the selected one is forced on
+    // and the other removed, so app_env can never toggle the compositor.
+    let (compositor_key, other_key) = match std::env::var("LIGHTRAYS_GOW_COMPOSITOR")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "sway" => ("RUN_SWAY", "RUN_GAMESCOPE"),
+        _ => ("RUN_GAMESCOPE", "RUN_SWAY"),
+    };
+    env_remove(&mut env, other_key);
+    env_set(&mut env, compositor_key, "1");
+
+    ContainerConfig {
+        title: launch.title.clone(),
+        image: launch
+            .docker_image
+            .clone()
+            .unwrap_or_else(|| config.gow_image.clone()),
+        env: env
+            .into_iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect(),
+        devices: Vec::new(),
+        mounts: Vec::new(),
+        base_create_json: gow_base_create_json(),
+        app_id: launch.app_id.clone(),
+        owner_sub: owner_sub.to_string(),
+    }
+}
+
+/// Insert or overwrite `key` in an ordered env list, preserving the position
+/// of an existing entry (so a contract override replaces an app_env value in
+/// place rather than appending a duplicate).
+fn env_set(env: &mut Vec<(String, String)>, key: &str, value: &str) {
+    if let Some(entry) = env.iter_mut().find(|(k, _)| k == key) {
+        entry.1 = value.to_string();
+    } else {
+        env.push((key.to_string(), value.to_string()));
+    }
+}
+
+/// Remove any entry with the given key from an ordered env list.
+fn env_remove(env: &mut Vec<(String, String)>, key: &str) {
+    env.retain(|(k, _)| k != key);
 }
 
 fn gow_base_create_json() -> String {
@@ -378,6 +478,36 @@ pub fn build_ice_servers(config: &ServerConfig) -> Vec<serde_json::Value> {
 mod tests {
     use super::*;
 
+    fn test_config() -> ServerConfig {
+        ServerConfig {
+            runtime_backend: crate::config::RuntimeBackend::Docker,
+            k8s_session_namespace: "lightrays-sessions".into(),
+            k8s_session_node_selector: String::new(),
+            hostname: "x".into(),
+            api_bind_addr: "0.0.0.0".into(),
+            api_port: 8080,
+            streaming_bind_addr: "0.0.0.0".into(),
+            streaming_port: 8081,
+            metrics_bind_addr: "127.0.0.1".into(),
+            metrics_port: 9090,
+            stun_server: String::new(),
+            turn_server: String::new(),
+            turn_username: String::new(),
+            turn_password: String::new(),
+            cors_origins: vec!["*".into()],
+            jwt_secret: String::new(),
+            session_timeout_secs: 3600,
+            reconnect_grace_secs: 30,
+            ws_ticket_ttl_secs: 120,
+            gow_image: "image:tag".into(),
+            gow_compositor: "gamescope".into(),
+            allowed_registries: vec![],
+            jwt_audience: String::new(),
+            max_sessions_global: 0,
+            max_sessions_per_user: 0,
+        }
+    }
+
     fn base_launch() -> LaunchRequest {
         LaunchRequest {
             width: Some(1920),
@@ -389,6 +519,7 @@ mod tests {
             docker_image: None,
             keyboard_layout: Some("de".to_string()),
             mouse_speed: None,
+            app_env: None,
             image: None,
             container_name: None,
             env: None,
@@ -476,6 +607,85 @@ mod tests {
         let launch = validate_launch_request(&req).expect("valid");
         let result = build_container_config(&config, &launch, "alice").expect("valid");
         assert!(result.is_none());
+    }
+
+    fn env_value<'a>(env: &'a [String], key: &str) -> Option<&'a str> {
+        env.iter()
+            .find_map(|e| e.strip_prefix(&format!("{key}=")))
+    }
+
+    #[test]
+    fn gow_app_merges_app_env_but_contract_vars_win() {
+        std::env::remove_var("LIGHTRAYS_GOW_COMPOSITOR");
+        let config = test_config();
+        let mut app_env = std::collections::HashMap::new();
+        // An extra, unmanaged game variable is passed through untouched.
+        app_env.insert("STEAM_APP_ID".to_string(), "570".to_string());
+        // Attempts to override contract variables must NOT win.
+        app_env.insert("XKB_DEFAULT_LAYOUT".to_string(), "evil".to_string());
+        app_env.insert("GOW_REQUIRED_DEVICES".to_string(), "/dev/evil".to_string());
+        app_env.insert("RUN_GAMESCOPE".to_string(), "0".to_string());
+        // A contradictory compositor toggle must be stripped by the contract.
+        app_env.insert("RUN_SWAY".to_string(), "1".to_string());
+        // Empty keys are dropped.
+        app_env.insert(String::new(), "ignored".to_string());
+
+        let mut req = base_launch();
+        req.runtime_profile = Some("gow-app".to_string());
+        req.app_env = Some(app_env);
+        let launch = validate_launch_request(&req).expect("valid");
+        let cfg = build_container_config(&config, &launch, "alice")
+            .expect("valid")
+            .expect("some container");
+
+        // Additional app env survives.
+        assert_eq!(env_value(&cfg.env, "STEAM_APP_ID"), Some("570"));
+        // Contract vars win over app_env attempts.
+        assert_eq!(env_value(&cfg.env, "XKB_DEFAULT_LAYOUT"), Some("de"));
+        assert_eq!(
+            env_value(&cfg.env, "GOW_REQUIRED_DEVICES"),
+            Some("/dev/dri/* /dev/nvidia*")
+        );
+        assert_eq!(env_value(&cfg.env, "RUN_GAMESCOPE"), Some("1"));
+        // The contradictory compositor var was removed by the contract.
+        assert_eq!(env_value(&cfg.env, "RUN_SWAY"), None);
+        // No duplicate keys leaked through the merge.
+        assert_eq!(
+            cfg.env.iter().filter(|e| e.starts_with("RUN_GAMESCOPE=")).count(),
+            1
+        );
+        assert_eq!(
+            cfg.env
+                .iter()
+                .filter(|e| e.starts_with("XKB_DEFAULT_LAYOUT="))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn gow_steam_env_is_unchanged_and_has_no_app_env() {
+        std::env::remove_var("LIGHTRAYS_GOW_COMPOSITOR");
+        let config = test_config();
+        // Even if a caller supplies app_env, the established gow-steam profile
+        // ignores it and produces the exact historical env vector.
+        let mut app_env = std::collections::HashMap::new();
+        app_env.insert("STEAM_APP_ID".to_string(), "570".to_string());
+        let mut req = base_launch();
+        req.runtime_profile = Some("gow-steam".to_string());
+        req.app_env = Some(app_env);
+        let launch = validate_launch_request(&req).expect("valid");
+        let cfg = build_container_config(&config, &launch, "alice")
+            .expect("valid")
+            .expect("some container");
+        assert_eq!(
+            cfg.env,
+            vec![
+                "GOW_REQUIRED_DEVICES=/dev/dri/* /dev/nvidia*".to_string(),
+                "XKB_DEFAULT_LAYOUT=de".to_string(),
+                "RUN_GAMESCOPE=1".to_string(),
+            ]
+        );
     }
 
     #[test]
