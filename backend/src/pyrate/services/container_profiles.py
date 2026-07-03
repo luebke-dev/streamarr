@@ -71,6 +71,7 @@ async def create(
     runtime_profile: str = "gow-app",
     env: dict[str, str] | None = None,
     is_builtin: bool = False,
+    state_scope: str = "game",
 ) -> ContainerProfile:
     """Create and persist a new container profile."""
     profile = ContainerProfile(
@@ -80,6 +81,7 @@ async def create(
         runtime_profile=runtime_profile,
         env=env or {},
         is_builtin=is_builtin,
+        state_scope=state_scope,
     )
     db.add(profile)
     await db.commit()
@@ -95,7 +97,14 @@ async def update(
     Only the recognised, mutable attributes are applied; ``guid``,
     ``is_builtin`` and timestamps are ignored.
     """
-    mutable = {"name", "kind", "docker_image", "runtime_profile", "env"}
+    mutable = {
+        "name",
+        "kind",
+        "docker_image",
+        "runtime_profile",
+        "env",
+        "state_scope",
+    }
     for key, value in fields.items():
         if key in mutable:
             setattr(profile, key, value)
@@ -173,7 +182,9 @@ async def resolve_launch_config(
 ) -> dict[str, Any]:
     """Resolve the effective launch config for a game.
 
-    Returns ``{"docker_image", "runtime_profile", "app_env"}`` where:
+    Returns
+    ``{"docker_image", "runtime_profile", "app_env", "state_scope",
+    "profile_name"}`` where:
 
     - The profile is chosen from ``extra_data.lightrays.profile`` (name OR
       guid); falling back to the default ``steam`` profile by name. If no
@@ -187,6 +198,16 @@ async def resolve_launch_config(
     - ``app_env`` = ``{**profile.env, **per_game_env}`` (per-game wins).
       Only profile + game env are merged here; the system layer is set by
       the Lightrays service itself.
+    - ``state_scope`` = the resolved profile's persistent-state scope
+      (``"game"`` or ``"user"``); ``"game"`` when no profile resolved. The
+      caller uses it to derive the ``/home/retro`` mount key so a
+      user-scoped profile (e.g. ``steam``) shares one state across all of a
+      user's games.
+    - ``profile_name`` = the resolved profile's canonical name (or ``None``
+      when no profile resolved). Used with ``state_scope == "user"`` to build
+      a stable per-user state key (see :func:`compute_app_id`), so every game
+      resolving to the same profile — whether it referenced it by name or by
+      guid — shares one key.
     """
     lr = _load_lightrays_extra(media_item)
 
@@ -214,11 +235,49 @@ async def resolve_launch_config(
             "docker_image": per_game_image,
             "runtime_profile": None,
             "app_env": _apply_app_ref(per_game_env, app_ref),
+            "state_scope": "game",
+            "profile_name": None,
         }
 
     profile_env = _clean_env(profile.env)
+    state_scope = _clean_str(getattr(profile, "state_scope", None)) or "game"
     return {
         "docker_image": per_game_image or profile.docker_image,
         "runtime_profile": profile.runtime_profile,
         "app_env": _apply_app_ref({**profile_env, **per_game_env}, app_ref),
+        "state_scope": state_scope,
+        "profile_name": profile.name,
     }
+
+
+# ── App-id (persistent-state key) computation ────────────────────────────────
+
+# Characters allowed in the user-scoped key's profile-name suffix. Profile
+# names are admin-authored free text, so we slug them down to an ascii-safe,
+# deterministic token before using them in a container/mount key.
+_APP_ID_NAME_ALLOWED = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+
+
+def compute_app_id(
+    user_guid: str,
+    game_guid: str,
+    state_scope: str,
+    profile_name: str | None = None,
+) -> str:
+    """Derive the persistent-state key mounted as ``/home/retro`` at launch.
+
+    - ``state_scope == "user"``: a stable per-user key that OMITS the game
+      guid, so every game a user launches on this profile shares one state
+      (a single Steam login + one shared library). The key is
+      ``f"{user_guid}-{slug(profile_name)}"``; the profile name is slugged to
+      an ascii-safe token (fallback ``"app"``) so it's safe as a mount key.
+    - any other scope (``"game"``): the legacy per-user-per-game key
+      ``f"{user_guid}-{game_guid}"``, keeping each game's state isolated.
+
+    Pure and deterministic; ``user_guid``/``game_guid`` are guids (already
+    ascii-safe).
+    """
+    if state_scope == "user":
+        slug = "".join(ch for ch in (profile_name or "") if ch in _APP_ID_NAME_ALLOWED)
+        return f"{user_guid}-{slug or 'app'}"
+    return f"{user_guid}-{game_guid}"

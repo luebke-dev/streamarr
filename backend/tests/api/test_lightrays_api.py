@@ -456,3 +456,143 @@ class TestLightraysStats:
             )
             assert resp.status_code == 404
             stats_mock.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# POST /api/lightrays/steam/import  +  GET /api/lightrays/steam/status
+# ---------------------------------------------------------------------------
+class TestLightraysSteamImport:
+    async def test_import_no_dir_returns_409(
+        self, client: AsyncClient, test_user: User, user_headers
+    ):
+        """Missing Steam state dir => clear 409, import never called."""
+        with patch(
+            "pyrate.api.v1.lightrays._steam_dir_exists", return_value=False
+        ), patch(
+            "pyrate.api.v1.lightrays.import_steam_games", new_callable=AsyncMock
+        ) as import_mock, patch(
+            "pyrate.api.v1.lightrays.read_steam_library"
+        ) as read_mock:
+            resp = await client.post(
+                "/api/lightrays/steam/import", headers=user_headers
+            )
+
+        assert resp.status_code == 409
+        assert "Steam" in resp.json()["detail"]
+        import_mock.assert_not_awaited()
+        read_mock.assert_not_called()
+
+    async def test_import_happy_path_calls_import_and_returns_counts(
+        self, client: AsyncClient, test_user: User, user_headers
+    ):
+        """Dir present with games => import_steam_games is called and counts
+        are surfaced in the response."""
+        games = [
+            {"app_id": "440", "name": "Team Fortress 2", "installed": True},
+            {"app_id": "570", "name": "Dota 2", "installed": False},
+        ]
+        import_mock = AsyncMock(
+            return_value={
+                "created": 1,
+                "updated": 1,
+                "skipped": 0,
+                "items": ["guid-a", "guid-b"],
+            }
+        )
+        with patch(
+            "pyrate.api.v1.lightrays._steam_dir_exists", return_value=True
+        ), patch(
+            "pyrate.api.v1.lightrays.read_steam_library", return_value=games
+        ), patch("pyrate.api.v1.lightrays.import_steam_games", import_mock):
+            resp = await client.post(
+                "/api/lightrays/steam/import", headers=user_headers
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["created"] == 1
+        assert data["updated"] == 1
+        assert data["skipped"] == 0
+        assert data["read"] == 2
+        assert data["items"] == ["guid-a", "guid-b"]
+        # import_steam_games received the parsed game list.
+        import_mock.assert_awaited_once()
+        assert import_mock.await_args.args[1] == games
+
+    async def test_import_empty_library_returns_409(
+        self, client: AsyncClient, test_user: User, user_headers
+    ):
+        """Dir present but nothing readable => 4xx, import never called."""
+        with patch(
+            "pyrate.api.v1.lightrays._steam_dir_exists", return_value=True
+        ), patch(
+            "pyrate.api.v1.lightrays.read_steam_library", return_value=[]
+        ), patch(
+            "pyrate.api.v1.lightrays.import_steam_games", new_callable=AsyncMock
+        ) as import_mock:
+            resp = await client.post(
+                "/api/lightrays/steam/import", headers=user_headers
+            )
+
+        assert resp.status_code == 409
+        import_mock.assert_not_awaited()
+
+    async def test_import_read_error_returns_400_not_500(
+        self, client: AsyncClient, test_user: User, user_headers
+    ):
+        """A read/parse blowup degrades to a 4xx, never a 500."""
+        with patch(
+            "pyrate.api.v1.lightrays._steam_dir_exists", return_value=True
+        ), patch(
+            "pyrate.api.v1.lightrays.read_steam_library",
+            side_effect=RuntimeError("corrupt vdf"),
+        ), patch(
+            "pyrate.api.v1.lightrays.import_steam_games", new_callable=AsyncMock
+        ) as import_mock:
+            resp = await client.post(
+                "/api/lightrays/steam/import", headers=user_headers
+            )
+
+        assert resp.status_code == 400
+        import_mock.assert_not_awaited()
+
+    async def test_import_unauthenticated(self, client: AsyncClient):
+        resp = await client.post("/api/lightrays/steam/import")
+        assert resp.status_code in (401, 403)
+
+
+class TestLightraysSteamStatus:
+    async def test_status_not_linked(
+        self, client: AsyncClient, test_user: User, user_headers
+    ):
+        with patch("pyrate.api.v1.lightrays._steam_dir_exists", return_value=False):
+            resp = await client.get(
+                "/api/lightrays/steam/status", headers=user_headers
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["linked"] is False
+        assert data["games"] == 0
+
+    async def test_status_linked_reports_game_count(
+        self, client: AsyncClient, test_user: User, user_headers
+    ):
+        games = [
+            {"app_id": "440", "name": "Team Fortress 2", "installed": True},
+            {"app_id": "570", "name": "Dota 2", "installed": False},
+            {"app_id": "620", "name": "Portal 2", "installed": True},
+        ]
+        with patch(
+            "pyrate.api.v1.lightrays._steam_dir_exists", return_value=True
+        ), patch("pyrate.api.v1.lightrays.read_steam_library", return_value=games):
+            resp = await client.get(
+                "/api/lightrays/steam/status", headers=user_headers
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["linked"] is True
+        assert data["games"] == 3
+
+    async def test_status_unauthenticated(self, client: AsyncClient):
+        resp = await client.get("/api/lightrays/steam/status")
+        assert resp.status_code in (401, 403)

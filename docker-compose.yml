@@ -69,6 +69,9 @@ services:
       - LIGHTRAYS_JWT_SECRET=${LIGHTRAYS_JWT_SECRET}
       - LIGHTRAYS_DEFAULT_RUNTIME_PROFILE=${LIGHTRAYS_DEFAULT_RUNTIME_PROFILE:-gow-steam}
       - LIGHTRAYS_SESSION_TIMEOUT_SECS=${LIGHTRAYS_SESSION_TIMEOUT_SECS:-3600}
+      # Lets the Steam library import read a user's persistent Steam state
+      # (apps_state/<user>-steam) written by the Lightrays session container.
+      - LIGHTRAYS_STATE_DIR=/state/lightrays
       - LIGHTRAYS_GAMING_STORAGE_CONTAINER=/user-data
       - LIGHTRAYS_GAMING_STORAGE_HOST=${PROJECT_ROOT:-/root/pyrate.media}/data/users
       - PROJECT_ROOT=${PROJECT_ROOT:-/data/}
@@ -88,6 +91,9 @@ services:
       - ${DATA_DIR:-./data}/cache:/cache:rw,z
       - ${DATA_DIR:-./data}/temp:/temp:rw,z
       - ${DATA_DIR:-./data}/users:/user-data:rw,z
+      # Read-only view of the Lightrays state dir so the backend can read a
+      # user's persistent Steam library (apps_state/<user>-steam) for import.
+      - ${LIGHTRAYS_HOST_STATE_DIR}:/state/lightrays:ro,z
       - /var/run/docker.sock:/var/run/docker.sock:rw,z
     depends_on:
       migrate:
