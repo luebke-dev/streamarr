@@ -48,8 +48,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let jobs: JobStore = Arc::new(RwLock::new(HashMap::new()));
     let queue = Arc::new(PriorityQueue::new());
-    let webhook_client = Arc::new(WebhookClient::new(config.webhooks.clone()));
+    let webhook_client = Arc::new(WebhookClient::new(config.webhooks.clone(), db.clone()));
     let control = Arc::new(DownloadControl::new(config.download.speed_limit_kbps));
+
+    // Webhook outbox redelivery: attempt undelivered terminal events on startup
+    // and every 60s thereafter so completions survive backend downtime.
+    let redeliver_client = webhook_client.clone();
+    tokio::spawn(async move {
+        loop {
+            redeliver_client.redeliver_pending().await;
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
 
     // Restore pending jobs from DB
     let pending_jobs = db

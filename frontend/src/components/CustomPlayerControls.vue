@@ -434,7 +434,6 @@ const streamPosition = computed(() => props.playerState?.streamPosition ?? props
 const bufferedAmount = computed(() => props.playerState?.bufferedAmount ?? props.bufferedAmount)
 const isSeeking = computed(() => props.playerState?.isSeeking ?? props.isSeeking)
 const isPlaying = computed(() => props.playerState?.isPlaying ?? props.isPlaying)
-const currentAudioStreamIndex = computed(() => props.playerState?.currentAudioStreamIndex ?? null)
 const contentId = computed(() => props.mediaState?.contentId ?? props.contentId)
 const contentType = computed(() => props.mediaState?.contentType ?? props.contentType)
 const title = computed(() => props.mediaState?.title ?? props.title)
@@ -475,7 +474,9 @@ const { controlsVisible, showControls, scheduleHideControls } = useControlsAutoH
   isDraggingRef: isDragging,
 })
 
-// Subtitle, audio track, and quality state — managed by composable
+// Subtitle, audio track, and quality state — track lists + selected audio
+// track come from the shared video-player store via useMediaTracks; the
+// v-model (currentAudioTrack) is therefore coupled to the store state.
 const {
   audioTracks,
   subtitleTracks,
@@ -490,7 +491,6 @@ const {
   getContentId: () => contentId.value,
   getContentType: () => contentType.value,
   getPlayer: () => player.value,
-  getCurrentAudioStreamIndex: () => currentAudioStreamIndex.value,
   onChangeAudioTrack: (streamIndex) => emit('change-audio-track', streamIndex),
   onSelectQuality: (level) => emit('select-quality', level),
 })

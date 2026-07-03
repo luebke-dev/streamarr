@@ -7,6 +7,10 @@ from uuid import UUID
 
 from elasticsearch import AsyncElasticsearch
 from elasticsearch.exceptions import ConnectionError, NotFoundError
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_object_session
+from sqlalchemy.orm import selectinload
 
 from ..config import settings
 from ..models.media import MediaItem
@@ -17,6 +21,126 @@ logger = logging.getLogger(__name__)
 # Max items per bulk request. Keeps memory and request size predictable when a
 # caller passes a "full library" list (tens of thousands of rows).
 _BULK_CHUNK_SIZE = 500
+
+
+def _safe_related(obj: Any, attr: str) -> list:
+    """Return a relationship collection, or ``[]`` when it is not loaded.
+
+    Accessing an unloaded lazy relationship raises in an async context, and
+    test doubles may not carry the attribute at all — either way we treat it
+    as empty rather than letting a single item blow up a whole bulk request.
+    """
+    try:
+        value = getattr(obj, attr)
+    except Exception:
+        return []
+    if value is None:
+        return []
+    try:
+        return list(value)
+    except TypeError:
+        return []
+
+
+def _genres_doc(item: MediaItem) -> list[dict[str, Any]]:
+    """Build the nested ``genres`` sub-document (drives the genre facet filter)."""
+    return [{"id": g.id, "name": g.name} for g in _safe_related(item, "genres")]
+
+
+def _external_ids_doc(item: MediaItem) -> dict[str, Any]:
+    """Build the ``external_ids`` sub-document (drives TMDB/IMDb ID lookups)."""
+    ids: dict[str, Any] = {}
+    for ext in _safe_related(item, "external_ids"):
+        provider = getattr(ext, "provider", None)
+        if provider == "tmdb":
+            ids["tmdb_id"] = ext.external_id
+        elif provider == "imdb":
+            ids["imdb_id"] = ext.external_id
+    return ids
+
+
+async def _ensure_facets_loaded(items: list[MediaItem]) -> None:
+    """Eager-load ``genres`` + ``external_ids`` onto ORM items sharing a session.
+
+    The full-reindex path hands us items fetched without these relationships.
+    Loading them here — one selectin round-trip per chunk — is what makes genre
+    filters and ID lookups work after a bulk reindex. No-op for detached
+    objects or non-ORM test doubles.
+    """
+    try:
+        pending: list[MediaItem] = []
+        for item in items:
+            try:
+                unloaded = sa_inspect(item).unloaded
+            except Exception:
+                # Not an ORM instance (e.g. a MagicMock in tests).
+                return
+            if "genres" in unloaded or "external_ids" in unloaded:
+                pending.append(item)
+        if not pending:
+            return
+        session = async_object_session(pending[0])
+        if session is None:
+            return
+        guids = [item.guid for item in pending]
+        # Re-querying the same session with selectinload populates the
+        # identity-mapped instances in place, so the objects the caller holds
+        # gain their genres/external_ids collections.
+        await session.execute(
+            select(MediaItem)
+            .where(MediaItem.guid.in_(guids))
+            .options(
+                selectinload(MediaItem.genres),
+                selectinload(MediaItem.external_ids),
+            )
+        )
+    except Exception as exc:
+        logger.debug("Facet preload skipped: %s", exc)
+
+
+def _movie_doc(movie: MediaItem) -> dict[str, Any]:
+    """Build the Elasticsearch document for a movie (shared by single + bulk)."""
+    return {
+        "id": str(movie.guid),
+        "title": movie.title,
+        "original_title": movie.original_title,
+        "description": movie.description,
+        "tagline": movie.tagline,
+        "release_date": movie.release_date.isoformat()
+        if movie.release_date
+        else None,
+        "poster_path": movie.poster_path,
+        "backdrop_path": movie.backdrop_path,
+        "availability_status": movie.availability_status,
+        "genres": _genres_doc(movie),
+        "external_ids": _external_ids_doc(movie),
+        "created_at": movie.created_at.isoformat() if movie.created_at else None,
+        "updated_at": movie.updated_at.isoformat() if movie.updated_at else None,
+    }
+
+
+def _show_doc(show: MediaItem) -> dict[str, Any]:
+    """Build the Elasticsearch document for a show (shared by single + bulk).
+
+    The unified ``MediaItem`` stores the air date in ``release_date``; it is
+    mapped onto the ``first_air_date`` field the show index/query expect.
+    """
+    return {
+        "id": str(show.guid),
+        "title": show.title,
+        "original_title": show.original_title,
+        "description": show.description,
+        "tagline": show.tagline,
+        "first_air_date": show.release_date.isoformat()
+        if show.release_date
+        else None,
+        "poster_path": show.poster_path,
+        "backdrop_path": show.backdrop_path,
+        "genres": _genres_doc(show),
+        "external_ids": _external_ids_doc(show),
+        "created_at": show.created_at.isoformat() if show.created_at else None,
+        "updated_at": show.updated_at.isoformat() if show.updated_at else None,
+    }
 
 
 class ElasticsearchService:
@@ -230,56 +354,20 @@ class ElasticsearchService:
             logger.error("Fehler beim Erstellen der Indizes: %s", e)
 
     async def index_movie(self, movie: MediaItem) -> bool:
-        """Indexiert einen Film in Elasticsearch."""
+        """Index a single movie in Elasticsearch.
+
+        Uses the shared ``_movie_doc`` builder so a single-item update and a
+        bulk reindex always produce the same document (including real genres
+        and external IDs).
+        """
         if not self.client:
             return False
 
         try:
-            doc = {
-                "id": str(movie.guid),
-                "title": movie.title,
-                "original_title": movie.original_title,
-                "description": movie.description,
-                "tagline": movie.tagline,
-                "release_date": movie.release_date.isoformat()
-                if movie.release_date
-                else None,
-                "poster_path": movie.poster_path,
-                "backdrop_path": movie.backdrop_path,
-                "availability_status": movie.availability_status,
-                "genres": [{"id": g.id, "name": g.name} for g in movie.genres]
-                if movie.genres
-                else [],
-                "external_ids": {
-                    "tmdb_id": next(
-                        (
-                            ext.external_id
-                            for ext in movie.external_ids
-                            if ext.source == "tmdb"
-                        ),
-                        None,
-                    ),
-                    "imdb_id": next(
-                        (
-                            ext.external_id
-                            for ext in movie.external_ids
-                            if ext.source == "imdb"
-                        ),
-                        None,
-                    ),
-                }
-                if movie.external_ids
-                else {},
-                "created_at": movie.created_at.isoformat()
-                if movie.created_at
-                else None,
-                "updated_at": movie.updated_at.isoformat()
-                if movie.updated_at
-                else None,
-            }
-
             index_name = f"{self.index_prefix}_movies"
-            await self.client.index(index=index_name, id=str(movie.guid), body=doc)
+            await self.client.index(
+                index=index_name, id=str(movie.guid), body=_movie_doc(movie)
+            )
             logger.debug("Film '%s' erfolgreich indexiert", movie.title)
             return True
 
@@ -288,61 +376,62 @@ class ElasticsearchService:
             return False
 
     async def index_show(self, show: MediaItem) -> bool:
-        """Indexiert eine Serie in Elasticsearch."""
+        """Index a single show in Elasticsearch.
+
+        Uses the shared ``_show_doc`` builder so a single-item update and a
+        bulk reindex always produce the same document.
+        """
         if not self.client:
             return False
 
         try:
-            doc = {
-                "id": str(show.guid),
-                "title": show.title,
-                "original_title": show.original_title,
-                "description": show.description,
-                "tagline": show.tagline,
-                "first_air_date": show.first_air_date.isoformat()
-                if show.first_air_date
-                else None,
-                "last_air_date": show.last_air_date.isoformat()
-                if show.last_air_date
-                else None,
-                "status": show.status,
-                "poster_path": show.poster_path,
-                "backdrop_path": show.backdrop_path,
-                "genres": [{"id": g.id, "name": g.name} for g in show.genres]
-                if show.genres
-                else [],
-                "external_ids": {
-                    "tmdb_id": next(
-                        (
-                            ext.external_id
-                            for ext in show.external_ids
-                            if ext.source == "tmdb"
-                        ),
-                        None,
-                    ),
-                    "imdb_id": next(
-                        (
-                            ext.external_id
-                            for ext in show.external_ids
-                            if ext.source == "imdb"
-                        ),
-                        None,
-                    ),
-                }
-                if show.external_ids
-                else {},
-                "created_at": show.created_at.isoformat() if show.created_at else None,
-                "updated_at": show.updated_at.isoformat() if show.updated_at else None,
-            }
-
             index_name = f"{self.index_prefix}_shows"
-            await self.client.index(index=index_name, id=str(show.guid), body=doc)
+            await self.client.index(
+                index=index_name, id=str(show.guid), body=_show_doc(show)
+            )
             logger.debug("Serie '%s' erfolgreich indexiert", show.title)
             return True
 
         except Exception as e:
             logger.error("Fehler beim Indexieren der Serie '%s': %s", show.title, e)
             return False
+
+    async def index_media_item(self, item: MediaItem) -> bool:
+        """Index a single media item into the index matching its media type.
+
+        Only the media types that have an index (movies, shows, books) are
+        handled; anything else (episodes, games, music, ...) is a no-op.
+        """
+        media_type = getattr(item.media_type, "value", str(item.media_type))
+        if media_type == "MOVIES":
+            return await self.index_movie(item)
+        if media_type == "SHOWS":
+            return await self.index_show(item)
+        if media_type == "BOOKS":
+            return await self.index_book(item)
+        return False
+
+    async def delete_media_item(self, item_guid: UUID, media_type: Any) -> bool:
+        """Remove a single item from the index matching its media type."""
+        media_type = getattr(media_type, "value", str(media_type))
+        if media_type == "MOVIES":
+            return await self.delete_movie(item_guid)
+        if media_type == "SHOWS":
+            return await self.delete_show(item_guid)
+        if media_type == "BOOKS":
+            if not self.client:
+                return False
+            try:
+                await self.client.delete(
+                    index=f"{self.index_prefix}_books", id=str(item_guid)
+                )
+                return True
+            except NotFoundError:
+                return True
+            except Exception as e:
+                logger.error("Failed to delete book '%s': %s", item_guid, e)
+                return False
+        return False
 
     async def index_book(self, book: MediaItem) -> bool:
         """Index a book in Elasticsearch."""
@@ -872,34 +961,15 @@ class ElasticsearchService:
         for chunk_start in range(0, len(movies), _BULK_CHUNK_SIZE):
             chunk = movies[chunk_start : chunk_start + _BULK_CHUNK_SIZE]
             try:
+                # Load genres + external_ids so the reindexed docs carry real
+                # facets (genre filter + ID lookups) instead of empty stubs.
+                await _ensure_facets_loaded(chunk)
                 actions: list[Any] = []
                 for movie in chunk:
-                    doc = {
-                        "id": str(movie.guid),
-                        "title": movie.title,
-                        "original_title": movie.original_title,
-                        "description": movie.description,
-                        "tagline": movie.tagline,
-                        "release_date": movie.release_date.isoformat()
-                        if movie.release_date
-                        else None,
-                        "poster_path": movie.poster_path,
-                        "backdrop_path": movie.backdrop_path,
-                        "availability_status": movie.availability_status,
-                        # Genres und external_ids werden vorerst leer gelassen, um SQLAlchemy-Beziehungen zu vermeiden
-                        "genres": [],
-                        "external_ids": {},
-                        "created_at": movie.created_at.isoformat()
-                        if movie.created_at
-                        else None,
-                        "updated_at": movie.updated_at.isoformat()
-                        if movie.updated_at
-                        else None,
-                    }
                     actions.append(
                         {"index": {"_index": index_name, "_id": str(movie.guid)}}
                     )
-                    actions.append(doc)
+                    actions.append(_movie_doc(movie))
 
                 response = await self.client.bulk(operations=actions)
 
@@ -935,35 +1005,13 @@ class ElasticsearchService:
         for chunk_start in range(0, len(shows), _BULK_CHUNK_SIZE):
             chunk = shows[chunk_start : chunk_start + _BULK_CHUNK_SIZE]
             try:
+                # Load genres + external_ids so the reindexed docs carry real
+                # facets (genre filter + ID lookups) instead of empty stubs.
+                await _ensure_facets_loaded(chunk)
                 actions: list[Any] = []
                 for show in chunk:
-                    doc = {
-                        "id": str(show.guid),
-                        "title": show.title,
-                        "original_title": show.original_title,
-                        "description": show.description,
-                        "tagline": show.tagline,
-                        "first_air_date": show.first_air_date.isoformat()
-                        if show.first_air_date
-                        else None,
-                        "last_air_date": show.last_air_date.isoformat()
-                        if show.last_air_date
-                        else None,
-                        "status": show.status,
-                        "poster_path": show.poster_path,
-                        "backdrop_path": show.backdrop_path,
-                        # Genres und external_ids werden vorerst leer gelassen, um SQLAlchemy-Beziehungen zu vermeiden
-                        "genres": [],
-                        "external_ids": {},
-                        "created_at": show.created_at.isoformat()
-                        if show.created_at
-                        else None,
-                        "updated_at": show.updated_at.isoformat()
-                        if show.updated_at
-                        else None,
-                    }
                     actions.append({"index": {"_index": index_name, "_id": str(show.guid)}})
-                    actions.append(doc)
+                    actions.append(_show_doc(show))
 
                 response = await self.client.bulk(operations=actions)
 

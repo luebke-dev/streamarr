@@ -22,14 +22,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { cachedApiGet } from 'src/composables/useApiResponseCache'
+import { useSectionData } from 'src/composables/useSectionData'
 import PosterCard from 'src/components/PosterCard.vue'
 import MediaRowSection from 'src/components/sections/MediaRowSection.vue'
 import { useMediaHelpers } from 'src/composables/useMediaHelpers'
 import { getItemType } from 'src/composables/useMediaFormatters'
-import { logger } from 'src/utils/logger'
 
 const props = defineProps({
   section: { type: Object, required: true },
@@ -40,12 +40,6 @@ defineEmits(['navigate-to-item'])
 
 const { t } = useI18n()
 const { getPosterUrl, formatYear } = useMediaHelpers()
-
-const items = ref([])
-const loading = ref(false)
-const hasRenderedItems = computed(() =>
-  Object.prototype.hasOwnProperty.call(props.section, 'rendered_items'),
-)
 
 const sectionTitle = computed(() => props.section.title || t('trailersPage.title'))
 const effectiveMediaType = computed(
@@ -67,15 +61,11 @@ function normalizeTrailerEntry(entry) {
   }
 }
 
-async function loadTrailers() {
-  if (hasRenderedItems.value) {
-    items.value = (props.section.rendered_items || []).map(normalizeTrailerEntry)
-    loading.value = false
-    return
-  }
-
-  loading.value = true
-  try {
+const { items, loading } = useSectionData({
+  section: () => props.section,
+  mediaType: () => props.mediaType,
+  mapRendered: (rendered) => rendered.map(normalizeTrailerEntry),
+  loader: async () => {
     const params = { limit: maxItems.value }
     if (effectiveMediaType.value) params.media_type = effectiveMediaType.value
     if (searchTerm.value) params.search_term = searchTerm.value
@@ -85,17 +75,7 @@ async function loadTrailers() {
       { params },
       { ttlMs: 2 * 60_000, staleTtlMs: 20 * 60_000 },
     )
-    items.value = (response.data.items || []).map(normalizeTrailerEntry)
-  } catch (error) {
-    logger.error('Error loading trailer section:', error)
-    items.value = []
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(loadTrailers)
-watch(() => [props.mediaType, props.section.config, props.section.rendered_items], loadTrailers, {
-  deep: true,
+    return (response.data.items || []).map(normalizeTrailerEntry)
+  },
 })
 </script>

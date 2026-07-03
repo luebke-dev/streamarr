@@ -2,7 +2,7 @@
 Description=Pyrate Media Elasticsearch
 
 [Container]
-Image=docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+Image=docker.elastic.co/elasticsearch/elasticsearch:9.2.0
 ContainerName=pyrate-elasticsearch
 
 Environment=discovery.type=single-node

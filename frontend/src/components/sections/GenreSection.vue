@@ -10,9 +10,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { cachedApiGet, cachedApiPost } from 'src/composables/useApiResponseCache'
+import { useSectionData } from 'src/composables/useSectionData'
 import { useMediaSection } from 'src/composables/useMediaSection'
 import MediaRowSection from 'src/components/sections/MediaRowSection.vue'
 import { logger } from 'src/utils/logger'
@@ -27,12 +28,7 @@ defineEmits(['navigate-to-item'])
 const router = useRouter()
 const { getPosterUrl } = useMediaSection()
 
-const items = ref([])
-const loading = ref(false)
 const genreName = ref('')
-const hasRenderedItems = computed(() =>
-  Object.prototype.hasOwnProperty.call(props.section, 'rendered_items'),
-)
 
 const genreId = computed(() => props.section.config?.genre_id)
 const filters = computed(() => props.section.config?.filters || {})
@@ -52,17 +48,13 @@ function viewAll() {
   router.push(`/search?${params.toString()}`)
 }
 
-async function loadGenreItems() {
-  if (hasRenderedItems.value) {
-    items.value = props.section.rendered_items || []
-    loading.value = false
-    return
-  }
-  if (!genreId.value) return
+const { items, loading } = useSectionData({
+  section: () => props.section,
+  mediaType: () => props.mediaType,
+  loader: async () => {
+    if (!genreId.value) return []
 
-  loading.value = true
-  try {
-    // Load genre name
+    // Load genre name (cosmetic — keep the id-based fallback on failure)
     try {
       const genreResp = await cachedApiGet(
         `/api/genres/${genreId.value}`,
@@ -71,15 +63,12 @@ async function loadGenreItems() {
       )
       genreName.value = genreResp.data.name
     } catch (e) {
-      // Genre name is cosmetic; keep showing the genre id-based fallback
       logger.warn('Failed to load genre name', e)
     }
 
-    const perPage = props.section.config?.max_items || 10
-
     // Use search API to support all filters
     const payload = {
-      per_page: perPage,
+      per_page: props.section.config?.max_items || 10,
       page: 1,
       genre_id: genreId.value,
       search_type: 'all',
@@ -103,19 +92,7 @@ async function loadGenreItems() {
       {},
       { ttlMs: 2 * 60_000, staleTtlMs: 20 * 60_000 },
     )
-    items.value = (response.data.hits || []).filter((item) => getPosterUrl(item))
-  } catch (error) {
-    logger.error(`Error loading items for genre ${genreId.value}:`, error)
-    items.value = []
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(loadGenreItems)
-watch(
-  () => [props.mediaType, props.section.config, props.section.rendered_items],
-  loadGenreItems,
-  { deep: true },
-)
+    return (response.data.hits || []).filter((item) => getPosterUrl(item))
+  },
+})
 </script>

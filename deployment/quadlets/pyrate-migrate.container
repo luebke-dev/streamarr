@@ -1,0 +1,28 @@
+[Unit]
+Description=Pyrate Media DB Migration (Alembic)
+# Migrate once the database is up, before any app container starts. The
+# backend/worker/scheduler units order themselves After=/Requires= this unit.
+After=pyrate-postgres.service
+Requires=pyrate-postgres.service
+
+[Container]
+Image=registry.gitlab.com/pyrate.media/backend:latest
+ContainerName=pyrate-migrate
+
+Exec=uv run alembic upgrade head
+
+Environment=DATABASE_URL=postgresql+asyncpg://pyrate:${POSTGRES_PASSWORD}@pyrate-postgres:5432/pyrate
+Environment=SECRET_KEY=${SECRET_KEY}
+
+# Do not use sd-notify readiness — this is a run-to-completion container.
+Notify=no
+
+[Service]
+# One-shot: the migration runs, exits 0, and the unit is considered "active"
+# thereafter so App units with Requires=/After= start only after it succeeds.
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

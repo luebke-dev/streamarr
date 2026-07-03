@@ -85,7 +85,7 @@ elasticsearch:
   enabled: true
   image:
     repository: docker.elastic.co/elasticsearch/elasticsearch
-    tag: "8.13.4"
+    tag: "9.2.0"
   service:
     port: 9200
   heapSizeMb: 512
@@ -152,6 +152,20 @@ persistence:
     size: 100Gi
     storageClass: ""
     accessMode: ReadWriteMany
+
+## ---------------------------------------------------------------------------
+## Database migrations
+## Runs `alembic upgrade head` as a pre-install/pre-upgrade Helm hook Job so
+## migrations execute exactly once per release, before the app pods roll out.
+## Uses the backend.python image. Disable only if migrations are managed out
+## of band.
+## ---------------------------------------------------------------------------
+migrations:
+  enabled: true
+  # Fail the release if the migration Job doesn't finish in this many seconds.
+  activeDeadlineSeconds: 600
+  backoffLimit: 1
+  resources: {}
 
 ## ---------------------------------------------------------------------------
 ## Backend (nginx proxy in front of backend-python)

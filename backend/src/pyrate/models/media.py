@@ -117,8 +117,14 @@ class MediaItem(Base):
 
     __tablename__ = "media_item"
 
+    # Columns that were removed but may still be passed by older callers/tests.
+    # Accept and ignore them instead of erroring (they were already no-ops).
+    _LEGACY_IGNORED_FIELDS = ("library_guid",)
+
     def __init__(self, **kwargs):
         """Accept legacy constructor fields without reintroducing old columns."""
+        for legacy in self._LEGACY_IGNORED_FIELDS:
+            kwargs.pop(legacy, None)
         for key, value in kwargs.items():
             if not hasattr(type(self), key):
                 raise TypeError(
@@ -129,15 +135,6 @@ class MediaItem(Base):
             self.genres = []
         if "platforms" not in kwargs:
             self.platforms = []
-
-    @property
-    def library_guid(self) -> uuid.UUID | None:
-        """Deprecated compatibility shim; media type now determines library."""
-        return getattr(self, "_legacy_library_guid", None)
-
-    @library_guid.setter
-    def library_guid(self, value: uuid.UUID | None) -> None:
-        self._legacy_library_guid = value
 
     guid: Mapped[uuid.UUID] = mapped_column(
         types.Uuid,
@@ -254,6 +251,8 @@ class MediaItem(Base):
 
     __table_args__ = (
         Index("ix_media_item_parent_sequence", "parent_guid", "sequence_number"),
+        # Covers the most common list query: filter by media_type, sort by created_at
+        Index("ix_media_item_type_created", "media_type", "created_at"),
     )
 
 

@@ -1,7 +1,7 @@
 """WebSocket API endpoint for real-time updates."""
 
-import logging
 import ipaddress
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID

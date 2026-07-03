@@ -93,6 +93,14 @@ class WebSocketManager:
         self._lock = asyncio.Lock()
         self._redis_service = get_redis_event_service()
         self._last_sync_persist: dict[str, float] = {}  # party_id → monotonic timestamp
+        # Cross-replica presence mirror: device_id → session summary for
+        # devices whose WebSocket lives on *another* backend process. Kept
+        # in sync via the ``ws:presence`` Redis pub/sub channel and seeded
+        # from the ``ws:connected_devices`` set on startup. Combined with the
+        # local ``_connections`` this yields a global view of who is online
+        # even when uvicorn runs multiple workers/replicas.
+        self._remote_sessions: dict[str, dict[str, Any]] = {}
+        self._presence_started = False
 
     async def connect(
         self,
@@ -117,19 +125,45 @@ class WebSocketManager:
         connection_id = connection.connection_id
 
         async with self._lock:
+            # Was this device already connected on *this* replica? Only the
+            # first local connection flips global presence to online.
+            already_local = bool(device_id) and any(
+                c.device_id == device_id and c.user_id == user_id
+                for c in self._connections.values()
+            )
             self._connections[connection_id] = connection
             self._update_metrics_locked()
 
-        # Publish connected device_id to Redis so the Rust backend (or any
-        # other process) can see which devices currently have an active
-        # WebSocket — used by /api/devices{,/me}.is_ws_connected.
+        # Publish connected device_id to Redis so every backend process (and
+        # the Rust backend) can see which devices currently have an active
+        # WebSocket — used by /api/devices{,/me}.is_ws_connected and by the
+        # cross-replica command routing below.
         if device_id:
             try:
                 r = await self._redis_service._get_redis()
                 await r.sadd("ws:connected_devices", device_id)
                 await r.sadd(f"ws:connected_devices:{user_id}", device_id)
+                # Reverse map so any replica can reconstruct device→user
+                # presence without a database round-trip.
+                await r.hset("ws:device_user", device_id, user_id)
+                if not already_local:
+                    await self._redis_service.publish_device_presence(
+                        device_id=device_id,
+                        user_id=user_id,
+                        online=True,
+                        connected_at=connection.connected_at.isoformat(),
+                    )
             except Exception as e:
-                logger.debug("Failed to SADD ws:connected_devices: %s", e)
+                logger.debug("Failed to register device presence: %s", e)
+
+            # Subscribe this connection to its directed-command channel so
+            # commands published by *other* replicas reach the socket that
+            # actually lives here.
+            await self._subscribe_device_channel(connection)
+
+        # Make sure this replica is watching global presence changes so its
+        # remote-session mirror stays current.
+        await self._ensure_presence_subscription()
 
         logger.info("WebSocket connected: %s", connection_id)
         record_websocket_connection_event("connect")
@@ -180,8 +214,14 @@ class WebSocketManager:
                     f"ws:connected_devices:{connection.user_id}",
                     connection.device_id,
                 )
+                await r.hdel("ws:device_user", connection.device_id)
+                await self._redis_service.publish_device_presence(
+                    device_id=connection.device_id,
+                    user_id=connection.user_id,
+                    online=False,
+                )
             except Exception as e:
-                logger.debug("Failed to SREM ws:connected_devices: %s", e)
+                logger.debug("Failed to clear device presence: %s", e)
 
         logger.info("WebSocket disconnected: %s", connection_id)
         record_websocket_connection_event("disconnect")
@@ -438,27 +478,157 @@ class WebSocketManager:
             data=data,
         )
 
+    async def _subscribe_device_channel(self, connection: WebSocketConnection):
+        """Subscribe a connection to its directed-command channel.
+
+        Commands published to ``device:{device_id}`` by other replicas are
+        forwarded to this socket. Cleanup rides on the normal subscription
+        teardown in ``disconnect``.
+        """
+        device_id = connection.device_id
+        if not device_id:
+            return
+        channel = f"device:{device_id}"
+        if channel in connection.subscriptions:
+            return
+
+        async def handler(message: dict[str, Any], _conn=connection):
+            try:
+                await _conn.send_event(
+                    event=message.get("event", "remote_control"),
+                    data=message.get("data", {}),
+                )
+            except Exception as e:
+                logger.debug("Failed to forward device command to client: %s", e)
+
+        connection._handlers[channel] = handler
+        connection.subscriptions.add(channel)
+        await self._redis_service.subscribe(channel, handler)
+
+    async def _ensure_presence_subscription(self):
+        """Start watching the global ``ws:presence`` channel (idempotent)."""
+        if self._presence_started:
+            return
+        self._presence_started = True
+        try:
+            await self._redis_service.subscribe("ws:presence", self._on_presence_event)
+        except Exception as e:
+            logger.debug("Failed to subscribe to ws:presence: %s", e)
+        await self._reconcile_remote_presence()
+
+    async def _reconcile_remote_presence(self):
+        """Seed the remote-session mirror from Redis on startup."""
+        try:
+            r = await self._redis_service._get_redis()
+            device_ids = await r.smembers("ws:connected_devices")
+            mapping = await r.hgetall("ws:device_user")
+        except Exception as e:
+            logger.debug("Failed to reconcile remote presence: %s", e)
+            return
+
+        now = datetime.now(UTC)
+        local_devices = {c.device_id for c in self._connections.values() if c.device_id}
+        remote: dict[str, dict[str, Any]] = {}
+        for device_id in device_ids or set():
+            if device_id in local_devices:
+                continue
+            owner = (mapping or {}).get(device_id)
+            if not owner:
+                continue
+            remote[device_id] = {
+                "user_id": owner,
+                "device_id": device_id,
+                "connection_count": 1,
+                "connected_at": now,
+                "last_seen_at": now,
+            }
+        self._remote_sessions = remote
+
+    async def _on_presence_event(self, message: dict[str, Any]):
+        """Apply a presence change broadcast by another replica."""
+        event = message.get("event")
+        data = message.get("data", {}) or {}
+        device_id = data.get("device_id")
+        user_id = data.get("user_id")
+        if not device_id:
+            return
+
+        if event == "device_online":
+            # If the socket is actually here, it lives in ``_connections``;
+            # never mirror our own devices as "remote".
+            local = any(c.device_id == device_id for c in self._connections.values())
+            if local:
+                self._remote_sessions.pop(device_id, None)
+                return
+            now = datetime.now(UTC)
+            raw_connected_at = data.get("connected_at")
+            try:
+                connected_at = (
+                    datetime.fromisoformat(raw_connected_at)
+                    if raw_connected_at
+                    else now
+                )
+            except (TypeError, ValueError):
+                connected_at = now
+            self._remote_sessions[device_id] = {
+                "user_id": user_id,
+                "device_id": device_id,
+                "connection_count": 1,
+                "connected_at": connected_at,
+                "last_seen_at": now,
+            }
+        elif event == "device_offline":
+            self._remote_sessions.pop(device_id, None)
+
+    async def _is_device_connected_elsewhere(
+        self, user_id: str, device_id: str
+    ) -> bool:
+        """Return True if the device has a live WebSocket on any replica."""
+        try:
+            r = await self._redis_service._get_redis()
+            if await r.sismember(f"ws:connected_devices:{user_id}", device_id):
+                return True
+        except Exception as e:
+            logger.debug("Failed to check device presence for %s: %s", device_id, e)
+        return device_id in self._remote_sessions
+
     def get_connected_device_ids_for_user(self, user_id: str) -> set[str]:
-        """Return the set of device_ids that are currently WebSocket-connected for a user."""
-        return {
+        """Return device_ids WebSocket-connected for a user across all replicas."""
+        device_ids = {
             conn.device_id
             for conn in self._connections.values()
             if conn.user_id == user_id and conn.device_id
         }
+        device_ids |= {
+            device_id
+            for device_id, session in self._remote_sessions.items()
+            if session.get("user_id") == user_id
+        }
+        return device_ids
 
     def get_all_connected_device_ids(self) -> set[str]:
-        """Return the set of all device_ids that currently have an active WebSocket connection."""
-        return {conn.device_id for conn in self._connections.values() if conn.device_id}
+        """Return all device_ids with an active WebSocket across all replicas."""
+        device_ids = {
+            conn.device_id for conn in self._connections.values() if conn.device_id
+        }
+        device_ids |= set(self._remote_sessions.keys())
+        return device_ids
 
     def get_online_user_ids(self) -> set[str]:
-        """Return the set of user_ids that currently have at least one live WebSocket."""
-        return {conn.user_id for conn in self._connections.values() if conn.user_id}
+        """Return user_ids with at least one live WebSocket across all replicas."""
+        users = {conn.user_id for conn in self._connections.values() if conn.user_id}
+        users |= {
+            session["user_id"]
+            for session in self._remote_sessions.values()
+            if session.get("user_id")
+        }
+        return users
 
     def get_active_device_sessions(
         self,
         user_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Return live WebSocket-backed device session summaries."""
+        """Return live WebSocket-backed device session summaries (all replicas)."""
         sessions: dict[tuple[str, str], dict[str, Any]] = {}
         for conn in self._connections.values():
             if not conn.user_id or not conn.device_id:
@@ -482,6 +652,25 @@ class WebSocketManager:
             existing["subscription_count"] += len(conn.subscriptions)
             existing["connected_at"] = min(existing["connected_at"], conn.connected_at)
             existing["last_seen_at"] = max(existing["last_seen_at"], conn.last_seen_at)
+
+        # Merge in sessions held by other replicas (best-effort detail).
+        for device_id, session in self._remote_sessions.items():
+            owner = session.get("user_id")
+            if not owner:
+                continue
+            if user_id and owner != user_id:
+                continue
+            key = (owner, device_id)
+            if key in sessions:
+                continue
+            sessions[key] = {
+                "user_id": owner,
+                "device_id": device_id,
+                "connection_count": session.get("connection_count", 1),
+                "subscription_count": 0,
+                "connected_at": session.get("connected_at"),
+                "last_seen_at": session.get("last_seen_at"),
+            }
 
         return sorted(
             sessions.values(),
@@ -748,6 +937,16 @@ class WebSocketManager:
 
         sanitized_payload = self._sanitize_remote_control_payload(command, payload)
 
+        now = datetime.now(UTC).isoformat()
+        envelope = {
+            "command": command,
+            "payload": sanitized_payload,
+            "from_device_id": from_device_id,
+            "from_user_id": actor_user_id or user_id,
+            "timestamp": now,
+        }
+
+        # Fast path: the target socket lives on this replica — deliver directly.
         target_connection = None
         async with self._lock:
             for conn in self._connections.values():
@@ -755,26 +954,31 @@ class WebSocketManager:
                     target_connection = conn
                     break
 
-        if not target_connection:
-            raise RemoteControlError("Target device not connected")
-
-        now = datetime.now(UTC).isoformat()
-        try:
-            await target_connection.send_event(
-                "remote_control",
-                {
-                    "command": command,
-                    "payload": sanitized_payload,
-                    "from_device_id": from_device_id,
-                    "from_user_id": actor_user_id or user_id,
-                    "timestamp": now,
-                },
-            )
-        except Exception as e:
-            logger.error("Error forwarding remote control command: %s", e)
-            raise RemoteControlError(
-                "Failed to send command to target device"
-            ) from e
+        if target_connection is not None:
+            try:
+                await target_connection.send_event("remote_control", envelope)
+            except Exception as e:
+                logger.error("Error forwarding remote control command: %s", e)
+                raise RemoteControlError(
+                    "Failed to send command to target device"
+                ) from e
+        else:
+            # The socket is on another replica (or nowhere). Only 409 when the
+            # device isn't connected *anywhere*; otherwise route the command
+            # over Redis pub/sub so the replica holding the socket delivers it.
+            if not await self._is_device_connected_elsewhere(
+                user_id, target_device_id
+            ):
+                raise RemoteControlError("Target device not connected")
+            try:
+                await self._redis_service.publish_device_command(
+                    target_device_id, envelope
+                )
+            except Exception as e:
+                logger.error("Error routing remote control command: %s", e)
+                raise RemoteControlError(
+                    "Failed to send command to target device"
+                ) from e
 
         logger.info(
             "Remote control: user=%s actor=%s cmd=%s from=%s to=%s",

@@ -99,9 +99,11 @@
 
 <script setup>
 import { computed, defineAsyncComponent, ref, onMounted, onUnmounted, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from 'stores/auth'
+import { useVideoPlayerStore } from 'stores/videoPlayer'
 import { useWebSocket } from 'src/composables/useWebSocket'
 import { useFavorite } from 'src/composables/useFavorite'
 import { useOfflineStore } from 'stores/offline'
@@ -160,25 +162,36 @@ const partyWs = usePartyWebSocket()
 const playbackTimers = useTimeoutRegistry()
 const { waitForHlsStreamReady } = useStreamReadiness()
 
-// State
+// Central video-player state (session, positions, track selection, status).
+// The refs below are storeToRefs-backed writable refs — they are injected into
+// the player composables exactly as before, but now share a single source of
+// truth instead of ~15 loose local refs. `currentAudioStreamIndex` is aliased
+// to the historic `currentAudioTrackIndex` name used throughout this page.
+const videoPlayerStore = useVideoPlayerStore()
+const {
+  status,
+  errorMessage,
+  sessionId,
+  playToken,
+  directStreamUrl,
+  playbackTargetOptions,
+  transcodeStartPosition,
+  streamPosition,
+  videoDuration,
+  duration,
+  bufferedAmount,
+  isPlaying,
+  isSeeking,
+  currentAudioStreamIndex: currentAudioTrackIndex,
+  currentMediaSourceId,
+} = storeToRefs(videoPlayerStore)
+
+// Component-local state (DOM-near player handles + one-off UI state)
 const loading = ref(true)
-const status = ref('') // 'streamable', 'downloading', 'no-release', 'error'
-const errorMessage = ref('')
 const contentInfo = ref(null)
-const duration = ref(0)
-const videoDuration = ref(0)
 const isStartingPlayback = ref(false) // Guard against duplicate startPlayback calls
 let playbackGuardTimer = null
-
-// Custom controls state
-const transcodeStartPosition = ref(0) // Position where current transcode started
-const streamPosition = ref(0) // Current position within the stream
-const bufferedAmount = ref(0)
-const isSeeking = ref(false)
-const currentAudioTrackIndex = ref(null) // Currently selected audio track index
-const currentMediaSourceId = ref(null) // Currently selected MediaFile GUID
 const savedTrackPreferences = ref(null)
-const isPlaying = ref(false)
 const videoElement = ref(null)
 const videoJsPlayer = ref(null)
 const playerState = ref(null)
@@ -204,7 +217,7 @@ const { activeIntroMarker, showSkipIntro, showSkipOutro, showSkipCredits, skipTo
     transcodeStartPosition,
     streamPosition,
     videoDuration,
-    onSkip: (seconds) => handleSeek(seconds),
+    onSkip: (seconds) => videoPlayerStore.seek(seconds),
   })
 const playerWrapperRef = ref(null)
 
@@ -212,12 +225,8 @@ const playerWrapperRef = ref(null)
 const showReportDialog = ref(false)
 
 // Download status
-const playToken = ref('') // Play token for accessing stream
-const sessionId = ref('') // Unified streaming session ID
-const directStreamUrl = ref('')
 const streamInfo = ref(null) // Stream info for admin debug panel
 const offlineObjectMediaGuid = ref('')
-const playbackTargetOptions = ref({})
 
 const uuid = computed(() => {
   return route.params.id || route.params.guid || ''
@@ -263,7 +272,8 @@ function stringRouteQuery(name) {
 }
 
 // Download polling (composable owns interval + ws subscription).
-// onAvailable is wrapped to forward-reference startPlayback (defined below).
+// onAvailable delegates to the store's startPlayback action (handler
+// registered by this page below) instead of a forward-reference closure.
 const {
   downloadProgress,
   downloadStatus,
@@ -277,7 +287,7 @@ const {
   status,
   loading,
   videoDuration,
-  onAvailable: () => startPlayback(),
+  onAvailable: () => videoPlayerStore.startPlayback(),
 })
 
 const {
@@ -342,7 +352,6 @@ const playerControlState = computed(() => ({
   bufferedAmount: bufferedAmount.value,
   isSeeking: isSeeking.value,
   isPlaying: isPlaying.value,
-  currentAudioStreamIndex: currentAudioTrackIndex.value,
 }))
 
 const mediaControlState = computed(() => ({
@@ -618,6 +627,10 @@ const startPlayback = async () => {
   }
 }
 
+// Expose startPlayback as a store action so download-polling / bootstrap can
+// trigger it without threading a forward-reference closure through composables.
+videoPlayerStore.registerStartPlaybackHandler(startPlayback)
+
 // Poll for download status (handled by useDownloadPolling composable above)
 
 const { setupMediaSession } = useMediaSession({
@@ -636,7 +649,7 @@ const { subscribe: subscribeRemoteControl, unsubscribe: unsubscribeRemoteControl
     router,
     remoteControlStore,
     transcodeStartPosition,
-    onSeek: (position) => handleSeek(position),
+    onSeek: (position) => videoPlayerStore.seek(position),
     playNextEpisode: playNextPlaybackItem,
     playPreviousEpisode: playPreviousPlaybackItem,
   })
@@ -648,7 +661,7 @@ const partySync = usePartySync({
   uuid,
   contentType,
   transcodeStartPosition,
-  onSeek: (position) => handleSeek(position),
+  onSeek: (position) => videoPlayerStore.seek(position),
 })
 
 // Viewing-progress (load resume, periodic updates, save on unload)
@@ -767,22 +780,15 @@ const searchReleases = () => {
 // Reset state for new content
 const resetState = () => {
   loading.value = true
-  status.value = ''
-  errorMessage.value = ''
+  // Reset session/positions/status held in the video-player store
+  videoPlayerStore.reset()
   contentInfo.value = null
   lastPosition.value = 0
-  duration.value = 0
-  videoDuration.value = 0
   resetDownloadProgress()
-  playToken.value = ''
-  sessionId.value = ''
-  directStreamUrl.value = ''
-  playbackTargetOptions.value = {}
   if (offlineObjectMediaGuid.value) {
     offlineStore.releaseObjectUrl(offlineObjectMediaGuid.value)
     offlineObjectMediaGuid.value = ''
   }
-  currentMediaSourceId.value = null
   savedTrackPreferences.value = null
   videoSrc.value = ''
   videoJsPlayer.value = null
@@ -873,6 +879,11 @@ const {
   swapStreamSource,
   isPositionBuffered,
 })
+
+// Expose the 3-tier seek as a store action; remote-control, watch-party sync
+// and skip-markers call videoPlayerStore.seek() instead of a forward-reference
+// closure over handleSeek.
+videoPlayerStore.registerSeekHandler(handleSeek)
 
 onUnmounted(() => {
   playbackTimers.clearAll()

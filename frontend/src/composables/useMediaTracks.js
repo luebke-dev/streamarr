@@ -1,7 +1,9 @@
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
 import { useTimeoutRegistry } from 'src/composables/useTimeoutRegistry'
+import { useVideoPlayerStore } from 'stores/videoPlayer'
 
 const TRACKS_RETRY_DELAY_MS = 2000
 const TRACKS_RETRY_FALLBACK_MS = 1000
@@ -25,7 +27,6 @@ const TRACKS_RETRY_FALLBACK_MS = 1000
  * @param {() => (number|string|null)} options.getContentId
  * @param {() => (string|null)} options.getContentType
  * @param {() => any} options.getPlayer - Returns the Video.js player instance.
- * @param {() => (number|null)} [options.getCurrentAudioStreamIndex] - Stream index of the audio track actually playing.
  * @param {(streamIndex: number) => void} options.onChangeAudioTrack
  * @param {(level: Object) => void} options.onSelectQuality
  */
@@ -33,16 +34,24 @@ export function useMediaTracks({
   getContentId,
   getContentType,
   getPlayer,
-  getCurrentAudioStreamIndex,
   onChangeAudioTrack,
   onSelectQuality,
 }) {
-  const audioTracks = ref([])
-  const subtitleTracks = ref([])
-  const qualityLevels = ref([])
-  const currentAudioTrack = ref(null)
+  // Track lists live in the video-player store (single source of truth for the
+  // player state); the selected audio track is derived from the store's
+  // currentAudioStreamIndex rather than kept as a second copy here.
+  const videoPlayerStore = useVideoPlayerStore()
+  const { audioTracks, subtitleTracks, qualityLevels } = storeToRefs(videoPlayerStore)
   const currentSubtitle = ref(null)
   const currentQuality = ref(null)
+  const currentAudioTrack = computed(() => {
+    const tracks = audioTracks.value
+    if (!tracks.length) return null
+    const streamIndex = videoPlayerStore.currentAudioStreamIndex
+    if (streamIndex == null) return 0
+    const idx = tracks.findIndex((track) => track.streamIndex === streamIndex)
+    return idx >= 0 ? idx : 0
+  })
   const remoteSubtitleTracks = new Map()
   const trackTimers = useTimeoutRegistry()
   let savedTrackPreferences = null
@@ -100,7 +109,6 @@ export function useMediaTracks({
     audioTracks.value = []
     subtitleTracks.value = []
     qualityLevels.value = []
-    currentAudioTrack.value = null
     currentSubtitle.value = null
     currentQuality.value = null
     loadedTracksContentId = contentId
@@ -158,8 +166,14 @@ export function useMediaTracks({
           audioTracks.value.length,
           'tracks',
         )
-        const savedIndex = preferredIndex(audioTracks.value, preferences, 'audio')
-        currentAudioTrack.value = savedIndex != null && savedIndex >= 0 ? savedIndex : 0
+        // Seed the store's audio-track selection from saved preferences only
+        // when the backend has not already chosen one (e.g. via the play
+        // response). currentAudioTrack (the list index) derives from this.
+        if (videoPlayerStore.currentAudioStreamIndex == null) {
+          const savedIndex = preferredIndex(audioTracks.value, preferences, 'audio')
+          const chosen = savedIndex != null && savedIndex >= 0 ? savedIndex : 0
+          videoPlayerStore.currentAudioStreamIndex = audioTracks.value[chosen]?.streamIndex ?? null
+        }
       } else {
         logger.warn('[useMediaTracks] No audio streams in API response')
       }
@@ -365,7 +379,8 @@ export function useMediaTracks({
 
     // stream_index is the 0-based position among audio streams (for ffmpeg -map 0:a:N)
     const streamIndex = track.streamIndex !== undefined ? track.streamIndex : index
-    currentAudioTrack.value = index
+    // Update the single source of truth; currentAudioTrack (list index) derives.
+    videoPlayerStore.currentAudioStreamIndex = streamIndex
     persistTrackPreferences({
       selected_audio_track_index: streamIndex,
       selected_audio_language: track.language || null,
@@ -514,19 +529,6 @@ export function useMediaTracks({
       // Listen for quality changes (if using HLS quality selector)
       if (newPlayer.qualityLevels) {
         newPlayer.qualityLevels().on('change', onQualityLevelsChange)
-      }
-    },
-    { immediate: true },
-  )
-
-  // Keep the selected audio track in sync with the track actually playing
-  watch(
-    () => [getCurrentAudioStreamIndex?.(), audioTracks.value],
-    ([streamIndex]) => {
-      if (streamIndex == null) return
-      const index = audioTracks.value.findIndex((track) => track.streamIndex === streamIndex)
-      if (index >= 0 && index !== currentAudioTrack.value) {
-        currentAudioTrack.value = index
       }
     },
     { immediate: true },

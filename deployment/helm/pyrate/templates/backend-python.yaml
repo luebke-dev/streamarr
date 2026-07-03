@@ -63,18 +63,9 @@ spec:
             - |
               until nc -z {{ include "pyrate.redisHost" . }} {{ .Values.redis.service.port }}; do echo "waiting for redis"; sleep 2; done
               until nc -z {{ include "pyrate.elasticsearchHost" . }} {{ .Values.elasticsearch.service.port }}; do echo "waiting for elasticsearch"; sleep 2; done
-        # The image's default CMD chains `alembic upgrade head` before
-        # uvicorn; the chart overrides command, so migrations are split
-        # into a dedicated init container that runs once per pod start.
-        - name: alembic
-          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.backend.python.image) }}
-          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
-          workingDir: /app
-          command: ["uv", "run", "alembic", "upgrade", "head"]
-          env:
-            {{- include "pyrate.commonEnv" . | nindent 12 }}
-            - name: DATABASE_URL
-              value: {{ include "pyrate.databaseUrlAsync" . | quote }}
+        # Migrations are NOT run here — a dedicated pre-install/pre-upgrade
+        # Helm hook Job (templates/migrate-job.yaml) runs `alembic upgrade
+        # head` exactly once per release, before any app pod rolls out.
       containers:
         - name: backend
           image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.backend.python.image) }}

@@ -104,6 +104,49 @@ class MediaService:
         if refresh:
             await self.db.refresh(entity)
 
+    # ==================== SEARCH-INDEX SYNC ====================
+
+    # Media types that have an Elasticsearch index; others are never synced.
+    _INDEXED_MEDIA_TYPES = {"MOVIES", "SHOWS", "BOOKS"}
+
+    @classmethod
+    def _is_indexed(cls, media_type: Any) -> bool:
+        mt = getattr(media_type, "value", str(media_type))
+        return mt in cls._INDEXED_MEDIA_TYPES
+
+    async def _enqueue_reindex(self, media_item_guid: Any, media_type: Any) -> None:
+        """Best-effort enqueue of an incremental ES reindex for one item.
+
+        Wrapped so an unavailable broker (e.g. during tests) can never make a
+        successful DB write fail. Only indexable media types are enqueued.
+        """
+        if not self._is_indexed(media_type):
+            return
+        try:
+            from pyrate.workers.search_index_worker import reindex_media_item
+
+            await reindex_media_item.kiq(str(media_item_guid))
+        except Exception as exc:
+            logger.debug(
+                "ES reindex enqueue skipped for %s: %s", media_item_guid, exc
+            )
+
+    async def _enqueue_remove(self, media_item_guid: Any, media_type: Any) -> None:
+        """Best-effort enqueue of an ES removal for one deleted item."""
+        if not self._is_indexed(media_type):
+            return
+        mt = getattr(media_type, "value", str(media_type))
+        try:
+            from pyrate.workers.search_index_worker import (
+                remove_media_item_from_index,
+            )
+
+            await remove_media_item_from_index.kiq(str(media_item_guid), mt)
+        except Exception as exc:
+            logger.debug(
+                "ES remove enqueue skipped for %s: %s", media_item_guid, exc
+            )
+
     async def _upsert_by_names(self, model_class, names: list[str], extra_values_fn=None):
         """Fetch existing rows by name, create missing ones, return a dict keyed by name.
 
@@ -183,6 +226,10 @@ class MediaService:
         logger.info(
             "Created %s media item: %s (%s)", media_type.value, title, media_item.guid
         )
+        # Sync to search index only once the row is durably committed; a
+        # caller-owned UoW (commit=False) is picked up by the delta safety net.
+        if commit:
+            await self._enqueue_reindex(media_item.guid, media_type)
         return media_item
 
     async def create_media_file(
@@ -290,6 +337,9 @@ class MediaService:
         logger.info(
             "Set %s genres for %s: %s", len(genres), media_item.title, [g.name for g in genres]
         )
+        # Genres are a search facet — re-index so the change is queryable.
+        if commit:
+            await self._enqueue_reindex(media_item.guid, media_item.media_type)
         return media_item
 
     async def set_platforms(
@@ -559,6 +609,10 @@ class MediaService:
             await self.db.flush()
         await self.db.refresh(media_item)
 
+        # Availability/metadata field changes are reflected in the search doc.
+        if commit:
+            await self._enqueue_reindex(media_item.guid, media_item.media_type)
+
         return media_item
 
     async def update_availability_status(
@@ -598,6 +652,10 @@ class MediaService:
         if not media_item:
             return False
 
+        # Capture the type before the row is gone so the removal task knows
+        # which index to purge.
+        media_type = media_item.media_type
+
         await self.db.delete(media_item)
         if commit:
             await self.db.commit()
@@ -605,6 +663,8 @@ class MediaService:
             await self.db.flush()
 
         logger.info("Deleted media item: %s (%s)", media_item.title, guid)
+        if commit:
+            await self._enqueue_remove(guid, media_type)
         return True
 
     async def delete_file(self, file_guid: uuid.UUID, *, commit: bool = True) -> bool:
