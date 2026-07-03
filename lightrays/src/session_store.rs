@@ -52,7 +52,7 @@ pub async fn stop_all_sessions(state: &AppState) {
     let sessions: HashMap<String, Arc<Session>> =
         { std::mem::take(&mut *state.sessions.lock().await) };
     for (session_id, session) in sessions {
-        cleanup_session(&session, state.runtime.as_deref()).await;
+        cleanup_session(&session_id, &session, state.runtime.as_deref()).await;
         log::info!("Session {} stopped", session_id);
     }
 }
@@ -61,12 +61,12 @@ pub async fn stop_all_sessions(state: &AppState) {
 pub async fn stop_session(state: &AppState, session_id: &str) {
     let session = { state.sessions.lock().await.remove(session_id) };
     if let Some(session) = session {
-        cleanup_session(&session, state.runtime.as_deref()).await;
+        cleanup_session(session_id, &session, state.runtime.as_deref()).await;
         log::info!("Session {} stopped", session_id);
     }
 }
 
-async fn cleanup_session(session: &Session, runtime: Option<&dyn Runtime>) {
+async fn cleanup_session(session_id: &str, session: &Session, runtime: Option<&dyn Runtime>) {
     // R-M5: StreamSession::stop blocks (pipeline NULL + thread join, up to
     // ~3 s) — run it on a blocking worker so it never stalls a Tokio worker.
     {
@@ -86,6 +86,12 @@ async fn cleanup_session(session: &Session, runtime: Option<&dyn Runtime>) {
     if let Some(module_id) = session.pulse_module_id {
         pulse::unload_module(module_id).await;
     }
+    // Remove this session's isolated socket directory (the hard links in it
+    // are extra names, so this never touches the live base sockets).
+    crate::docker::cleanup_session_socket_dir(
+        &std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp/lightrays-runtime".into()),
+        session_id,
+    );
     metrics::SESSIONS_ACTIVE.dec();
     metrics::SESSIONS_STOPPED_TOTAL.inc();
 }

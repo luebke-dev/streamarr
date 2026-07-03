@@ -88,9 +88,18 @@ impl DockerRunner {
             app.image
         );
 
-        // Resolve host/container paths
-        let host_xdg = std::env::var("LIGHTRAYS_HOST_XDG_RUNTIME_DIR")
+        // Resolve host/container paths. Each session gets its own
+        // subdirectory under the base runtime dir so the container's own
+        // sockets (sway-ipc, gamescope-*) stay private and can't be reaped by
+        // or collide with other sessions. `provision_session_socket_dir`
+        // hard-links the shared compositor/pulse sockets into it beforehand.
+        let host_xdg_base = std::env::var("LIGHTRAYS_HOST_XDG_RUNTIME_DIR")
             .unwrap_or_else(|_| session.xdg_runtime_dir.clone());
+        let host_xdg = format!(
+            "{}/{SESSION_DIR}/{}",
+            host_xdg_base.trim_end_matches('/'),
+            session.session_id
+        );
         let host_state_dir = std::env::var("LIGHTRAYS_HOST_STATE_DIR").unwrap_or_else(|_| {
             std::env::var("LIGHTRAYS_STATE_DIR").unwrap_or_else(|_| "/etc/lightrays".to_string())
         });
@@ -674,6 +683,60 @@ fn redact_log_line(line: &str) -> String {
 }
 
 /// Build volume bind mount strings.
+/// Subdirectory (under the base runtime dir) that holds each session's
+/// isolated socket directory. Kept in sync between the mount path in
+/// `start_container` and [`provision_session_socket_dir`].
+const SESSION_DIR: &str = "sessions";
+
+/// Provision an isolated socket directory for a session under the base
+/// runtime dir. The container mounts only this directory as its
+/// `XDG_RUNTIME_DIR`, so its own sockets stay private; the compositor's
+/// Wayland socket and the shared PulseAudio socket are hard-linked in — they
+/// live in the base because `waylanddisplaysrc`/PulseAudio write there and
+/// can't be redirected per session, and a hard link lets the isolated
+/// container still reach them (verified: connecting through a hard link to a
+/// unix socket works). `base` is Lightrays' own view of the runtime dir,
+/// which maps to the same host directory the mount uses, so links created
+/// here are visible to the mounted container.
+pub fn provision_session_socket_dir(
+    base: &str,
+    session_id: &str,
+    wayland_display: Option<&str>,
+) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let base = base.trim_end_matches('/');
+    let dir = format!("{base}/{SESSION_DIR}/{session_id}");
+    std::fs::create_dir_all(&dir)?;
+    // Lightrays runs as root but the session container writes its own sockets
+    // here as an unprivileged user, so the dir must be world-writable (it is
+    // per-session and isolated, so this exposes nothing to other sessions).
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777))?;
+    if let Some(wl) = wayland_display {
+        hard_link_socket(&format!("{base}/{wl}"), &format!("{dir}/{wl}"))?;
+    }
+    let pulse_src = format!("{base}/pulse/native");
+    if std::path::Path::new(&pulse_src).exists() {
+        let pulse_dir = format!("{dir}/pulse");
+        std::fs::create_dir_all(&pulse_dir)?;
+        std::fs::set_permissions(&pulse_dir, std::fs::Permissions::from_mode(0o777))?;
+        hard_link_socket(&pulse_src, &format!("{dir}/pulse/native"))?;
+    }
+    Ok(())
+}
+
+fn hard_link_socket(src: &str, dst: &str) -> std::io::Result<()> {
+    let _ = std::fs::remove_file(dst);
+    std::fs::hard_link(src, dst)
+}
+
+/// Remove a session's isolated socket directory (best-effort). The hard
+/// links are just extra names for the base sockets, so unlinking them never
+/// touches the live originals.
+pub fn cleanup_session_socket_dir(base: &str, session_id: &str) {
+    let dir = format!("{}/{SESSION_DIR}/{session_id}", base.trim_end_matches('/'));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn build_volume_binds(
     host_xdg: &str,
     container_xdg: &str,

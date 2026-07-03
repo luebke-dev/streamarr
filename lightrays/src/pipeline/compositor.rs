@@ -28,15 +28,25 @@ pub fn cleanup_stale_sockets(xdg_runtime_dir: &str) {
         // Only reap `wayland-*`: waylanddisplaysrc refuses to bind a socket
         // name that already exists, so a crashed session's leftover must go.
         // Do NOT touch `sway-ipc.<uid>.<pid>.sock`: those names are pid-unique
-        // (a new sway never needs to reclaim them) and /tmp/sockets is a
-        // shared mount, so reaping them here would wipe the LIVE IPC socket of
-        // another running sway session — breaking its resize/control channel.
-        if name.starts_with("wayland-") {
-            if let Err(e) = std::fs::remove_file(entry.path()) {
-                log::debug!("Failed to remove stale socket {}: {}", name, e);
-            } else {
-                log::debug!("Removed stale socket: {}", name);
-            }
+        // (a new sway never needs to reclaim them) and the runtime dir is
+        // shared, so reaping them would wipe the LIVE IPC socket of another
+        // running sway session — breaking its resize/control channel.
+        if !name.starts_with("wayland-") {
+            continue;
+        }
+        // Skip a wayland socket that still has a live listener — another
+        // running session owns it (waylanddisplaysrc just picks the next free
+        // wayland-N), and reaping it or its `.lock` would break that session's
+        // compositor. Only truly dead (crashed) sockets are removed.
+        let socket_name = name.trim_end_matches(".lock");
+        let socket_path = format!("{}/{}", xdg_runtime_dir.trim_end_matches('/'), socket_name);
+        if std::os::unix::net::UnixStream::connect(&socket_path).is_ok() {
+            continue;
+        }
+        if let Err(e) = std::fs::remove_file(entry.path()) {
+            log::debug!("Failed to remove stale socket {}: {}", name, e);
+        } else {
+            log::debug!("Removed stale socket: {}", name);
         }
     }
 }
