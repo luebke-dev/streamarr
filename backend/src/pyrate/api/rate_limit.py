@@ -41,18 +41,20 @@ async def _get_redis() -> aioredis.Redis:
 
 
 def _default_key(request: Request) -> str:
-    """Per-client identifier. Prefers X-Forwarded-For's left-most value so the
-    limiter works behind nginx; falls back to the TCP peer.
+    """Per-client identifier derived from X-Forwarded-For.
 
-    **Deployment invariant**: this is only safe when the reverse proxy is
-    trusted and the backend is never reachable directly (e.g. nginx is the
-    only inbound path). If a client can hit the backend port directly, they
-    can spoof ``X-Forwarded-For`` to bypass the limit. The current
-    docker-compose setup enforces this: backend-python is not port-mapped.
+    Because each trusted proxy *appends* its peer to X-Forwarded-For, the
+    client-controlled portion is on the left. We therefore take the entry
+    ``trusted_proxy_count`` positions from the right — the address the
+    outermost trusted proxy observed — which a client cannot forge by
+    prepending values. Falls back to the TCP peer.
     """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",", 1)[0].strip()
+        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+        idx = len(parts) - settings.trusted_proxy_count
+        if 0 <= idx < len(parts):
+            return parts[idx]
     if request.client:
         return request.client.host
     return "unknown"

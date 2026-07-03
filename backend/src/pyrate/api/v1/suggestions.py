@@ -11,8 +11,8 @@ from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from pyrate.api.dependencies import CurrentUser, DatabaseSession, UserPermissionsDep
-from pyrate.models.favorite import Favorite
 from pyrate.models.genre import Genre
+from pyrate.models.list import List, ListItem, ListType
 from pyrate.models.media import MediaItem, MediaType, media_genre_table
 from pyrate.models.person import MediaCast, Person
 from pyrate.models.viewing_history import ViewingHistory
@@ -128,8 +128,12 @@ async def _summaries(
 async def _user_seed_genre_ids(db: DatabaseSession, user_guid: uuid.UUID) -> list[int]:
     favorite_genres = (
         select(media_genre_table.c.genre_id)
-        .join(Favorite, Favorite.media_item_guid == media_genre_table.c.media_item_guid)
-        .where(Favorite.user_id == user_guid)
+        .join(ListItem, ListItem.item_guid == media_genre_table.c.media_item_guid)
+        .join(List, List.guid == ListItem.list_guid)
+        .where(
+            List.list_type == ListType.FAVORITES,
+            List.owner_guid == user_guid,
+        )
     )
     watched_genres = (
         select(media_genre_table.c.genre_id)
@@ -144,7 +148,14 @@ async def _user_seed_genre_ids(db: DatabaseSession, user_guid: uuid.UUID) -> lis
 
 
 async def _user_seed_item_guids(db: DatabaseSession, user_guid: uuid.UUID) -> set[uuid.UUID]:
-    favorite_items = select(Favorite.media_item_guid).where(Favorite.user_id == user_guid)
+    favorite_items = (
+        select(ListItem.item_guid)
+        .join(List, List.guid == ListItem.list_guid)
+        .where(
+            List.list_type == ListType.FAVORITES,
+            List.owner_guid == user_guid,
+        )
+    )
     watched_items = select(ViewingHistory.media_item_guid).where(
         ViewingHistory.user_guid == user_guid
     )

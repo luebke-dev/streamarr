@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import redis.asyncio as redis
@@ -59,6 +60,30 @@ class TranscodingSessionService:
     def _get_session_key(self, session_id: str) -> str:
         """Get Redis key for a session."""
         return f"{REDIS_KEY_PREFIX}{session_id}"
+
+    def _get_session_lock_key(self, session_id: str) -> str:
+        """Get Redis key for the per-session write mutex."""
+        return f"{REDIS_KEY_PREFIX}lock:{session_id}"
+
+    @asynccontextmanager
+    async def _session_lock(self, session_id: str, ttl: int = 5):
+        """Serialize read-modify-write updates to a single session's JSON blob."""
+        r = await self._get_redis()
+        lock_key = self._get_session_lock_key(session_id)
+        acquired = False
+        for _ in range(100):
+            if await r.set(lock_key, "1", nx=True, ex=ttl):
+                acquired = True
+                break
+            await asyncio.sleep(0.02)
+        try:
+            yield
+        finally:
+            if acquired:
+                try:
+                    await r.delete(lock_key)
+                except Exception as exc:
+                    logger.debug("Session lock release failed for %s: %s", session_id, exc)
 
     def _get_quarantine_key(self, content_id: str) -> str:
         """Get Redis key for a quarantined content id."""
@@ -248,8 +273,6 @@ class TranscodingSessionService:
         throttled: if ``last_accessed_at`` was updated less than
         ``throttle_seconds`` ago the write is skipped.
         """
-        r = await self._get_redis()
-
         session = await self.get_session(session_id)
         if not session:
             return False
@@ -260,13 +283,19 @@ class TranscodingSessionService:
             if elapsed < throttle_seconds:
                 return True  # Skip write, still considered successful
 
-        session.last_accessed_at = now
+        async with self._session_lock(session_id):
+            r = await self._get_redis()
+            session = await self.get_session(session_id)
+            if not session:
+                return False
 
-        session_key = self._get_session_key(session_id)
-        session_data_json = json.dumps(session.to_redis_dict())
+            session.last_accessed_at = datetime.now(UTC)
 
-        # Refresh expiry (2h)
-        await r.set(session_key, session_data_json, ex=7200)
+            session_key = self._get_session_key(session_id)
+            session_data_json = json.dumps(session.to_redis_dict())
+
+            # Refresh expiry (2h)
+            await r.set(session_key, session_data_json, ex=7200)
 
         return True
 
@@ -427,6 +456,7 @@ class TranscodingSessionService:
         self,
         content_id: str,
         *,
+        user_guid: str | None = None,
         exclude_session_id: str | None = None,
     ) -> list[dict]:
         """Terminate active sessions for a media item.
@@ -439,6 +469,8 @@ class TranscodingSessionService:
         results = []
         for session in sessions:
             if session.content_id != content_id:
+                continue
+            if user_guid is not None and session.user_guid != user_guid:
                 continue
             if exclude_session_id and session.session_id == exclude_session_id:
                 continue
@@ -461,19 +493,20 @@ class TranscodingSessionService:
 
     async def increment_retry(self, session_id: str) -> int:
         """Increment retry count and set status to 'restarting'. Returns new count."""
-        r = await self._get_redis()
-        session = await self.get_session(session_id)
-        if not session:
-            return -1
+        async with self._session_lock(session_id):
+            r = await self._get_redis()
+            session = await self.get_session(session_id)
+            if not session:
+                return -1
 
-        session.retry_count += 1
-        session.status = "restarting"
-        session.last_accessed_at = datetime.now(UTC)
-        session.last_retry_at = datetime.now(UTC)
+            session.retry_count += 1
+            session.status = "restarting"
+            session.last_accessed_at = datetime.now(UTC)
+            session.last_retry_at = datetime.now(UTC)
 
-        session_key = self._get_session_key(session_id)
-        await r.set(session_key, json.dumps(session.to_redis_dict()), ex=7200)
-        return session.retry_count
+            session_key = self._get_session_key(session_id)
+            await r.set(session_key, json.dumps(session.to_redis_dict()), ex=7200)
+            return session.retry_count
 
     async def mark_failed(self, session_id: str) -> bool:
         """Mark a session as failed."""
@@ -640,7 +673,9 @@ class TranscodingSessionService:
 
             return "failed"
 
-        retry_count = session.retry_count + 1
+        retry_count = await self.increment_retry(session.session_id)
+        if retry_count < 0:
+            return "failed"
         logger.info(
             "Restarting transcode for session %s (attempt %s/%s)",
             session.session_id, retry_count, max_retries,
@@ -650,10 +685,10 @@ class TranscodingSessionService:
             if restart_fn:
                 await restart_fn(session)
 
-            # start_transcode_container overwrites the Redis session with
-            # retry_count=0.  Re-apply the correct count.
-            for _ in range(retry_count):
-                await self.increment_retry(session.session_id)
+                # start_transcode_container overwrites the Redis session with
+                # retry_count=0.  Re-apply the correct count.
+                for _ in range(retry_count):
+                    await self.increment_retry(session.session_id)
             await self.mark_active(session.session_id)
 
             if session.user_guid and publish_fn:

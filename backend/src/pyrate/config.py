@@ -189,11 +189,19 @@ class ConnectionSettings(BaseSettings):
     )
 
     # Shared secret required on downloader webhook callbacks. When unset the
-    # handlers log a warning and accept the call (dev/backwards-compat);
-    # production deployments should set DOWNLOADER_WEBHOOK_SECRET.
+    # handlers reject the call (fail-closed); production deployments must set
+    # DOWNLOADER_WEBHOOK_SECRET.
     downloader_webhook_secret: str = Field(
         default="",
         validation_alias="DOWNLOADER_WEBHOOK_SECRET",
+    )
+
+    # Number of trusted reverse proxies in front of the app. The rate limiter
+    # derives the client IP from the (count+1)-th X-Forwarded-For entry from the
+    # right so a client cannot spoof it by prepending values.
+    trusted_proxy_count: int = Field(
+        default=1,
+        validation_alias="TRUSTED_PROXY_COUNT",
     )
 
     # Default CORS origins (used before DB settings are loaded)
@@ -287,6 +295,7 @@ class AppSettings:
         self.elasticsearch = _base_settings.elasticsearch
         self.secret_key = _base_settings.secret_key
         self.downloader_webhook_secret = _base_settings.downloader_webhook_secret
+        self.trusted_proxy_count = _base_settings.trusted_proxy_count
         self.cors_allowed_origins = _base_settings.cors_allowed_origins
         self.app_url = _base_settings.app_url
 

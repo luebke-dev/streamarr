@@ -194,6 +194,14 @@ async def update_user(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
+    # Only superusers may change privileged flags; strip them otherwise so a
+    # user cannot escalate their own account via a self-update.
+    if not current_user.is_superuser:
+        privileged = user_update.model_dump(exclude_unset=True)
+        privileged.pop("is_superuser", None)
+        privileged.pop("is_active", None)
+        user_update = UserUpdate(**privileged)
+
     # OIDC users cannot change their email.
     update_data = user_update.model_dump(exclude_unset=True)
     if user.oidc_sub and "email" in update_data:

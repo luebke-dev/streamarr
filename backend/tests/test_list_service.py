@@ -851,8 +851,10 @@ class TestUserSpecificQueries:
             owner_guid=str(test_user2.guid),
         )
 
-        # Get user1's lists (should include both public and private)
-        lists, total = await service.get_user_lists(str(test_user.guid))
+        # Get user1's lists as user1 (should include both public and private)
+        lists, total = await service.get_user_lists(
+            str(test_user.guid), requester_guid=str(test_user.guid)
+        )
 
         assert total == 2
         assert all(str(lst.owner_guid) == str(test_user.guid) for lst in lists)

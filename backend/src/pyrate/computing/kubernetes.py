@@ -428,7 +428,7 @@ class KubernetesComputingProvider(ComputingBase):
         if not self.batch_v1 or not self.core_v1:
             raise RuntimeError("Kubernetes client not initialized")
 
-        job_name = f"pyrate-task-{task_id}"
+        job_name = f"pyrate-task-{task_id[:8]}"
 
         try:
             job = await self.batch_v1.read_namespaced_job(

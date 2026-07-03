@@ -57,20 +57,36 @@ async def _redis() -> redis_async.Redis | None:
         return None
 
 
-async def _acquire(rds: redis_async.Redis | None, key: str, ttl: int) -> bool:
+_RELEASE_LUA = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] "
+    "then return redis.call('del', KEYS[1]) else return 0 end"
+)
+
+
+async def _acquire(rds: redis_async.Redis | None, key: str, ttl: int) -> str | None:
+    """Return a unique lock token on success, ``None`` if the lock is held.
+
+    Degrades open (returns a token) when Redis is unavailable so work runs
+    rather than being silently skipped."""
     if rds is None:
-        return True  # degrade open — better to run than to silently skip
+        return uuid.uuid4().hex
     try:
-        return bool(await rds.set(key, "1", ex=ttl, nx=True))
+        token = uuid.uuid4().hex
+        if await rds.set(key, token, ex=ttl, nx=True):
+            return token
+        return None
     except Exception:
-        return True
+        return uuid.uuid4().hex
 
 
-async def _release(rds: redis_async.Redis | None, key: str) -> None:
+async def _release(
+    rds: redis_async.Redis | None, key: str, token: str | None
+) -> None:
     if rds is None:
         return
     try:
-        await rds.delete(key)
+        if token is not None:
+            await rds.eval(_RELEASE_LUA, 1, key, token)
         await rds.close()
     except Exception:
         pass
@@ -217,7 +233,8 @@ async def backfill_favorite_monitored_impl(
 ) -> dict:
     rds = await _redis()
     lock_key = f"favorites_monitor:backfill:{root_guid}"
-    if not await _acquire(rds, lock_key, _BACKFILL_LOCK_TTL):
+    token = await _acquire(rds, lock_key, _BACKFILL_LOCK_TTL)
+    if token is None:
         if rds is not None:
             await rds.close()
         return {"skipped": "locked", "root": root_guid}
@@ -270,7 +287,7 @@ async def backfill_favorite_monitored_impl(
         )
         raise
     finally:
-        await _release(rds, lock_key)
+        await _release(rds, lock_key, token)
 
 
 async def unmonitor_favorite_impl(root_guid: str) -> dict:
@@ -293,7 +310,8 @@ async def tick_favorites_reconcile_impl() -> int:
     """6h sweep: monitor newly-appeared children of favorited roots and
     re-acquire monitored leaves that lost their file."""
     rds = await _redis()
-    if not await _acquire(rds, _RECONCILE_LOCK_KEY, _RECONCILE_LOCK_TTL):
+    token = await _acquire(rds, _RECONCILE_LOCK_KEY, _RECONCILE_LOCK_TTL)
+    if token is None:
         if rds is not None:
             await rds.close()
         logger.debug("favorites reconcile skipped (lock held)")
@@ -346,6 +364,6 @@ async def tick_favorites_reconcile_impl() -> int:
                 ),
             )
     finally:
-        await _release(rds, _RECONCILE_LOCK_KEY)
+        await _release(rds, _RECONCILE_LOCK_KEY, token)
 
     return enqueued

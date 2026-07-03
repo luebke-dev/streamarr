@@ -24,6 +24,7 @@ from pyrate.models.overlay import (
 from pyrate.overlays import OverlayService
 from pyrate.overlays.renderer import iter_template_entries
 from pyrate.overlays.context import build_render_context
+from pyrate.overlays.service import _resolve_image_url
 from pyrate.schemas.overlay import (
     BulkRerenderResponse,
     OverlayApplyResponse,
@@ -115,7 +116,8 @@ async def update_template(
         )
 
     bump_version = any(
-        key in changes for key in ("condition", "elements", "target", "media_scope")
+        key in changes
+        for key in ("condition", "elements", "target", "media_scope", "z_order")
     )
     for key, value in changes.items():
         setattr(template, key, value)
@@ -298,9 +300,10 @@ async def serve_overlay_artwork(
 
     # Cache miss — queue a render in the background and redirect to the
     # original poster URL so the user sees *something* instantly.
-    source_url = (
+    raw_source = (
         item.poster_path if target == OverlayTarget.POSTER else item.backdrop_path
     )
+    source_url = _resolve_image_url(raw_source, target)
     if not source_url:
         raise HTTPException(404, detail="No source artwork for this item")
 

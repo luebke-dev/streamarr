@@ -538,13 +538,10 @@ class TestOIDCClient:
         }
         mock_response.raise_for_status = MagicMock()
 
-        with patch("pyrate.auth.oidc_client.httpx.AsyncClient") as mock_httpx:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.get.return_value = mock_response
-            mock_httpx.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client_instance
-            )
-            mock_httpx.return_value.__aexit__ = AsyncMock(return_value=False)
+        with patch(
+            "pyrate.auth.oidc_client.safe_get",
+            new=AsyncMock(return_value=mock_response),
+        ):
             result = await client.get_provider_metadata()
 
         assert result["issuer"] == "https://idp.example.com"
@@ -569,7 +566,10 @@ class TestOIDCClient:
         }
         mock_token_response = {"access_token": "at", "id_token": "idt"}
 
-        with patch("pyrate.auth.oidc_client.AsyncOAuth2Client") as MockOAuth:
+        with (
+            patch("pyrate.auth.oidc_client.AsyncOAuth2Client") as MockOAuth,
+            patch("pyrate.auth.oidc_client.assert_safe_url"),
+        ):
             mock_oauth_instance = AsyncMock()
             mock_oauth_instance.fetch_token.return_value = mock_token_response
             MockOAuth.return_value = mock_oauth_instance
@@ -588,13 +588,10 @@ class TestOIDCClient:
         mock_response.json.return_value = {"sub": "user-123", "email": "u@e.com"}
         mock_response.raise_for_status = MagicMock()
 
-        with patch("pyrate.auth.oidc_client.httpx.AsyncClient") as mock_httpx:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.get.return_value = mock_response
-            mock_httpx.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client_instance
-            )
-            mock_httpx.return_value.__aexit__ = AsyncMock(return_value=False)
+        with patch(
+            "pyrate.auth.oidc_client.safe_get",
+            new=AsyncMock(return_value=mock_response),
+        ):
             result = await client.get_userinfo("access-token")
 
         assert result["sub"] == "user-123"
@@ -611,20 +608,14 @@ class TestOIDCClient:
         mock_jwks_response.json.return_value = {"keys": []}
         mock_jwks_response.raise_for_status = MagicMock()
 
-        with patch("pyrate.auth.oidc_client.httpx.AsyncClient") as mock_httpx:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.get.return_value = mock_jwks_response
-            mock_httpx.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client_instance
-            )
-            mock_httpx.return_value.__aexit__ = AsyncMock(return_value=False)
-
+        mock_safe_get = AsyncMock(return_value=mock_jwks_response)
+        with patch("pyrate.auth.oidc_client.safe_get", new=mock_safe_get):
             # CodeIDToken.parse will fail with empty keys, that's expected
             with pytest.raises(Exception):
                 await client.verify_id_token("some-id-token")
 
             # But JWKS endpoint should have been called
-            mock_client_instance.get.assert_called_once()
+            mock_safe_get.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_logout_url_with_hint(self):

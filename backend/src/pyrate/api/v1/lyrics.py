@@ -22,6 +22,7 @@ from pyrate.services.activity_log import ActivityLogService
 from pyrate.services.permission import MEDIA_TYPE_TO_LIBRARY
 from pyrate.services.settings import SettingsService
 from pyrate.utils.age_rating import is_allowed
+from pyrate.utils.net import safe_get
 
 router = APIRouter()
 
@@ -254,8 +255,9 @@ async def _network_remote_lyrics_candidates(
             if api_key := api_keys.get(provider_name):
                 headers = {"Authorization": f"Bearer {api_key}"}
             try:
-                response = await client.get(
+                response = await safe_get(
                     url,
+                    client=client,
                     params=_lyrics_search_params(
                         provider_name,
                         media_item,

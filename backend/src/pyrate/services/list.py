@@ -848,18 +848,32 @@ class ListService:
         db_interaction = UserListInteraction(**interaction_data.model_dump())
         self.db.add(db_interaction)
 
-        # Update list counters
-        list_result = await self.db.execute(
-            select(List).where(List.guid == interaction_data.list_guid)
-        )
-        db_list = list_result.scalar_one()
-
+        # Update list counters atomically
         if interaction_data.interaction_type == UserListInteractionType.LIKE:
-            db_list.like_count = db_list.like_count + 1
+            await self.db.execute(
+                sa_update(List)
+                .where(List.guid == interaction_data.list_guid)
+                .values(like_count=List.like_count + 1)
+            )
         elif interaction_data.interaction_type == UserListInteractionType.FOLLOW:
-            db_list.follow_count = db_list.follow_count + 1
+            await self.db.execute(
+                sa_update(List)
+                .where(List.guid == interaction_data.list_guid)
+                .values(follow_count=List.follow_count + 1)
+            )
 
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except IntegrityError:
+            await self.db.rollback()
+            existing = await self.get_user_interaction(
+                interaction_data.user_guid,
+                interaction_data.list_guid,
+                interaction_data.interaction_type,
+            )
+            if existing is not None:
+                return existing
+            raise
         await self.db.refresh(db_interaction)
 
         return db_interaction
@@ -901,14 +915,20 @@ class ListService:
 
     # User-specific list queries
     async def get_user_lists(
-        self, user_guid: str, skip: int = 0, limit: int = 20
+        self,
+        user_guid: str,
+        skip: int = 0,
+        limit: int = 20,
+        requester_guid: str | None = None,
     ) -> tuple[list[List], int]:
         """Get all lists owned by a user.
 
         Args:
-            user_guid: The user GUID
+            user_guid: The user GUID whose lists to list
             skip: Number of records to skip
             limit: Maximum number of records to return
+            requester_guid: GUID of the requesting user; private lists are only
+                visible when the requester is the owner
 
         Returns:
             Tuple of (list of lists, total count)
@@ -917,7 +937,7 @@ class ListService:
             skip=skip,
             limit=limit,
             owner_guid=user_guid,
-            current_user_guid=user_guid,  # User can see their own private lists
+            current_user_guid=requester_guid,
         )
 
     async def get_or_create_system_list(
@@ -1049,8 +1069,9 @@ class ListService:
                 List.owner_guid == user_uuid,
                 List.list_type == ListType.FAVORITES,
             )
+            .limit(1)
         )
-        favorites_list = result.scalar_one_or_none()
+        favorites_list = result.scalars().first()
 
         if favorites_list is not None:
             return favorites_list
@@ -1065,7 +1086,20 @@ class ListService:
             is_active=True,
         )
         self.db.add(favorites_list)
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except IntegrityError:
+            await self.db.rollback()
+            result = await self.db.execute(
+                select(List)
+                .options(selectinload(List.owner), selectinload(List.items))
+                .where(
+                    List.owner_guid == user_uuid,
+                    List.list_type == ListType.FAVORITES,
+                )
+                .limit(1)
+            )
+            return result.scalars().first()
         await self.db.refresh(favorites_list)
 
         # Re-query with eager loading
@@ -1082,12 +1116,14 @@ class ListService:
         """Check if a media item is in the user's Favorites list."""
         fav_list = await self.get_or_create_favorites_list(user_guid)
         result = await self.db.execute(
-            select(ListItem).where(
+            select(ListItem)
+            .where(
                 ListItem.list_guid == fav_list.guid,
                 ListItem.item_guid == media_item_guid,
             )
+            .limit(1)
         )
-        return result.scalar_one_or_none() is not None
+        return result.scalars().first() is not None
 
     async def toggle_favorite(
         self,
@@ -1104,18 +1140,29 @@ class ListService:
         fav_list = await self.get_or_create_favorites_list(user_guid)
 
         result = await self.db.execute(
-            select(ListItem).where(
+            select(ListItem)
+            .where(
                 ListItem.list_guid == fav_list.guid,
                 ListItem.item_guid == media_item_guid,
             )
+            .limit(1)
         )
-        existing = result.scalar_one_or_none()
+        existing = result.scalars().first()
 
         if existing is not None:
             await self.db.execute(
                 sa_delete(ListItem).where(ListItem.guid == existing.guid)
             )
-            fav_list.item_count = max(0, fav_list.item_count - 1)
+            await self.db.execute(
+                sa_update(List)
+                .where(List.guid == fav_list.guid)
+                .values(
+                    item_count=case(
+                        (List.item_count > 0, List.item_count - 1),
+                        else_=0,
+                    )
+                )
+            )
             await self.db.commit()
             return False
 
@@ -1126,8 +1173,15 @@ class ListService:
             added_by_guid=_convert_to_uuid(user_guid),
         )
         self.db.add(new_item)
-        fav_list.item_count += 1
-        await self.db.commit()
+        await self.db.execute(
+            sa_update(List)
+            .where(List.guid == fav_list.guid)
+            .values(item_count=List.item_count + 1)
+        )
+        try:
+            await self.db.commit()
+        except IntegrityError:
+            await self.db.rollback()
         return True
 
     async def get_user_liked_lists(

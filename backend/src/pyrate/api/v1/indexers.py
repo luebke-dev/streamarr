@@ -17,7 +17,7 @@ from pyrate.schemas.indexer import (
 from pyrate.services.indexer_config import (
     IndexerService as IndexerConfigService,
 )
-from pyrate.api.utils import get_user_locale
+from pyrate.utils.net import UnsafeUrlError, assert_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,7 @@ async def get_indexer_caps(
         base_url = f"{protocol}://{host.rstrip('/')}"
 
     try:
+        assert_safe_url(f"{base_url}/api")
         async with httpx.AsyncClient(verify=verify_ssl, timeout=15.0) as client:
             resp = await client.get(
                 f"{base_url}/api",
@@ -134,6 +135,8 @@ async def get_indexer_caps(
             data = resp.json()
     except httpx.TimeoutException:
         return NewznabCapsResponse(connected=False, error="Connection timed out")
+    except UnsafeUrlError as e:
+        return NewznabCapsResponse(connected=False, error=str(e))
     except httpx.HTTPStatusError as e:
         return NewznabCapsResponse(
             connected=False,

@@ -27,14 +27,26 @@ class _FakeRedis:
         self.can_acquire = can_acquire
         self.set_calls: list[tuple] = []
         self.delete_calls: list[str] = []
+        self.store: dict[str, str] = {}
         self.closed = False
 
     async def set(self, key, value, ex=None, nx=False):
         self.set_calls.append((key, value, ex, nx))
+        if self.can_acquire:
+            self.store[key] = value
         return self.can_acquire
 
     async def delete(self, key):
         self.delete_calls.append(key)
+        self.store.pop(key, None)
+
+    async def eval(self, script, numkeys, key, arg):
+        # Compare-and-delete: only release the lock we still own.
+        if self.store.get(key) == arg:
+            self.delete_calls.append(key)
+            self.store.pop(key, None)
+            return 1
+        return 0
 
     async def close(self):
         self.closed = True

@@ -530,21 +530,11 @@ class TestSubtitleUpload:
             def raise_for_status(self):
                 return None
 
-        class _FakeClient:
-            def __init__(self, *args, **kwargs):
-                pass
+        async def _fake_safe_get(url, **kwargs):
+            assert url == "https://subtitles.test/en.vtt"
+            return _FakeResponse()
 
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return False
-
-            async def get(self, url):
-                assert url == "https://subtitles.test/en.vtt"
-                return _FakeResponse()
-
-        monkeypatch.setattr("pyrate.api.v1.subtitles.httpx.AsyncClient", _FakeClient)
+        monkeypatch.setattr("pyrate.api.v1.subtitles.safe_get", _fake_safe_get)
 
         content = await client.get(
             f"/api/media/{item.guid}/subtitles/remote-en/content",

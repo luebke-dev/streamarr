@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 import redis.asyncio as aioredis
 from sqlalchemy import select, tuple_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -85,6 +86,11 @@ class SearchService:
         else:
             logger.debug("Import lock already exists for %s %s", media_type, external_id)
             return False
+
+    async def _release_import_lock(self, media_type: str, external_id: int | str) -> None:
+        """Release a previously acquired import lock."""
+        redis = await self._get_redis()
+        await redis.delete(f"{IMPORT_LOCK_PREFIX}{media_type}:{external_id}")
 
     # ── Generic client helper ────────────────────────────────────────────
 
@@ -411,10 +417,6 @@ class SearchService:
             provider_results = await self._search_provider(request, allowed_libraries)
 
             if provider_results and provider_results.get("hits"):
-                provider_results = self._filter_results_by_allowed_libraries(
-                    provider_results,
-                    allowed_libraries,
-                )
                 # Queue items for import if requested
                 if queue_import and provider_results.get("hits"):
                     await self._queue_imports(
@@ -465,12 +467,13 @@ class SearchService:
                     search_flags["shows"],
                 )
 
-            hits, total = await self._collect_provider_results(tasks)
+            hits, errors = await self._collect_provider_results(tasks)
             if not hits and not tmdb and not search_flags["music"] and not search_flags["books"]:
                 logger.warning("No provider clients available, skipping provider search")
                 return None
 
-            return self._provider_response(request, hits, total)
+            hits = self._filter_hits_by_allowed_libraries(hits, allowed_libraries)
+            return self._provider_response(request, hits, errors)
 
         except TRANSIENT_SEARCH_ERRORS as e:
             logger.error("TMDB search error: %s", e)
@@ -550,16 +553,17 @@ class SearchService:
     async def _collect_provider_results(
         self,
         tasks: dict[str, Any],
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict], list[str]]:
         hits: list[dict] = []
-        total = 0
+        errors: list[str] = []
         if not tasks:
-            return hits, total
+            return hits, errors
 
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
         for label, result in zip(tasks.keys(), results, strict=True):
             if isinstance(result, TRANSIENT_SEARCH_ERRORS):
                 logger.warning("Provider search %s unavailable: %s", label, result)
+                errors.append(label)
                 continue
             if isinstance(result, Exception):
                 logger.error(
@@ -570,23 +574,27 @@ class SearchService:
                 raise result
             if result is None:
                 continue
-            logger.debug("%s results: %s found", label, result.get("total", 0))
+            if result.get("error"):
+                logger.warning("Provider search %s returned error: %s", label, result["error"])
+                errors.append(label)
+                continue
+            logger.debug("%s results: %s found", label, len(result.get("hits", [])))
             hits.extend(result.get("hits", []))
-            total += result.get("total", 0)
-        return hits, total
+        return hits, errors
 
     @staticmethod
     def _provider_response(
         request: SearchRequest,
         hits: list[dict],
-        total: int,
+        errors: list[str] | None = None,
     ) -> dict[str, Any]:
         if request.search_type == SearchType.ALL:
             hits.sort(key=lambda x: x.get("score", 0), reverse=True)
 
+        total = len(hits)
         start_idx = (request.page - 1) * request.per_page
         end_idx = start_idx + request.per_page
-        return {
+        response: dict[str, Any] = {
             "hits": hits[start_idx:end_idx],
             "total": total,
             "page": request.page,
@@ -598,6 +606,32 @@ class SearchService:
             "source": "provider",
             "provider": "tmdb",
         }
+        if errors:
+            response["partial"] = True
+            response["errors"] = errors
+        return response
+
+    @staticmethod
+    def _filter_hits_by_allowed_libraries(
+        hits: list[dict],
+        allowed_libraries: list[str] | None,
+    ) -> list[dict]:
+        """Return only the hits for libraries the current user can access."""
+        if allowed_libraries is None:
+            return hits
+
+        type_to_library = {
+            SearchType.MOVIES.value: "movies",
+            SearchType.SHOWS.value: "series",
+            SearchType.GAMES.value: "games",
+            SearchType.MUSIC.value: "music",
+            SearchType.BOOKS.value: "books",
+        }
+        allowed = set(allowed_libraries)
+        return [
+            hit for hit in hits
+            if type_to_library.get(str(hit.get("type"))) in allowed
+        ]
 
     @staticmethod
     def _filter_results_by_allowed_libraries(
@@ -608,22 +642,15 @@ class SearchService:
         if allowed_libraries is None or not isinstance(results, dict):
             return results
 
-        type_to_library = {
-            SearchType.MOVIES.value: "movies",
-            SearchType.SHOWS.value: "series",
-            SearchType.GAMES.value: "games",
-            SearchType.MUSIC.value: "music",
-            SearchType.BOOKS.value: "books",
-        }
-        allowed = set(allowed_libraries)
-        hits = [
-            hit for hit in results.get("hits", [])
-            if type_to_library.get(str(hit.get("type"))) in allowed
-        ]
+        original = results.get("hits", [])
+        hits = SearchService._filter_hits_by_allowed_libraries(
+            original, allowed_libraries
+        )
+        removed = len(original) - len(hits)
 
         filtered = dict(results)
         filtered["hits"] = hits
-        filtered["total"] = len(hits)
+        filtered["total"] = max(0, (results.get("total") or len(original)) - removed)
         per_page = filtered.get("per_page") or len(hits) or 1
         filtered["total_pages"] = (filtered["total"] + per_page - 1) // per_page
         return filtered
@@ -660,7 +687,7 @@ class SearchService:
 
         except TRANSIENT_SEARCH_ERRORS as e:
             logger.error("TMDB movie search error: %s", e)
-            return {"hits": [], "total": 0}
+            return {"hits": [], "total": 0, "error": str(e)}
 
     async def _search_tmdb_shows(
         self, tmdb: TMDB, request: SearchRequest
@@ -695,7 +722,7 @@ class SearchService:
 
         except TRANSIENT_SEARCH_ERRORS as e:
             logger.error("TMDB show search error: %s", e)
-            return {"hits": [], "total": 0}
+            return {"hits": [], "total": 0, "error": str(e)}
 
     # ── Search-hit builder ─────────────────────────────────────────────
 
@@ -808,7 +835,7 @@ class SearchService:
 
         except TRANSIENT_SEARCH_ERRORS as e:
             logger.error("IGDB game search error: %s", e)
-            return {"hits": [], "total": 0}
+            return {"hits": [], "total": 0, "error": str(e)}
 
     @staticmethod
     def _igdb_cover_url(cover: dict | None) -> str | None:
@@ -869,7 +896,7 @@ class SearchService:
                 hit = self._build_search_hit(overrides={
                     "openlibrary_id": book.get("id"),
                     "type": SearchType.BOOKS,
-                    "score": max(0, 100 - idx * 5),
+                    "score": max(0.0, 10.0 - idx * 0.5),
                     "title": book.get("title", ""),
                     "description": author_str,
                     "poster_path": book.get("cover_url"),
@@ -884,7 +911,7 @@ class SearchService:
 
         except TRANSIENT_SEARCH_ERRORS as e:
             logger.error("Open Library book search error: %s", e)
-            return {"hits": [], "total": 0}
+            return {"hits": [], "total": 0, "error": str(e)}
 
     async def _search_spotify_albums(
         self, spotify: Spotify, request: SearchRequest
@@ -909,7 +936,7 @@ class SearchService:
 
         except TRANSIENT_SEARCH_ERRORS as e:
             logger.error("Spotify album search error: %s", e)
-            return {"hits": [], "total": 0}
+            return {"hits": [], "total": 0, "error": str(e)}
 
     @staticmethod
     def _spotify_image_url(images: list[dict]) -> str | None:
@@ -961,7 +988,7 @@ class SearchService:
 
         except TRANSIENT_SEARCH_ERRORS as e:
             logger.error("Spotify artist search error: %s", e)
-            return {"hits": [], "total": 0}
+            return {"hits": [], "total": 0, "error": str(e)}
 
     def _transform_spotify_artist(self, artist: dict, index: int) -> dict[str, Any]:
         """Transform Spotify artist result to unified search hit format."""
@@ -1000,7 +1027,7 @@ class SearchService:
 
         except TRANSIENT_SEARCH_ERRORS as e:
             logger.error("Spotify track search error: %s", e)
-            return {"hits": [], "total": 0}
+            return {"hits": [], "total": 0, "error": str(e)}
 
     def _transform_spotify_track(self, track: dict, index: int) -> dict[str, Any]:
         """Transform Spotify track result to unified search hit format."""
@@ -1271,17 +1298,19 @@ class SearchService:
             release_date=release_date,
             poster_path=self._igdb_cover_url(details.get("cover")),
             availability_status=AvailabilityStatus.DOWNLOADABLE,
+            commit=False,
         )
 
         await media_service.add_external_id(
             media_item_guid=media_item.guid,
             provider="igdb",
             external_id=str(external_id),
+            commit=False,
         )
 
         genres = [g.get("name") for g in details.get("genres", []) if g.get("name")]
         if genres:
-            await media_service.set_genres(media_item.guid, genres)
+            await media_service.set_genres(media_item.guid, genres, commit=False)
 
         return media_item
 
@@ -1312,12 +1341,14 @@ class SearchService:
             release_date=release_date,
             poster_path=self._spotify_image_url(details.get("images", [])),
             availability_status=AvailabilityStatus.DOWNLOADABLE,
+            commit=False,
         )
 
         await media_service.add_external_id(
             media_item_guid=media_item.guid,
             provider="spotify",
             external_id=str(external_id),
+            commit=False,
         )
 
         # Spotify rarely populates genres at album level;
@@ -1329,7 +1360,7 @@ class SearchService:
                 artist_details = await spotify.get_artist_details(primary_artist_id)
                 genres = artist_details.get("genres", [])
         if genres:
-            await media_service.set_genres(media_item.guid, genres)
+            await media_service.set_genres(media_item.guid, genres, commit=False)
 
         return media_item
 
@@ -1352,17 +1383,19 @@ class SearchService:
             title=details.get("name", "Unknown"),
             poster_path=self._spotify_image_url(details.get("images", [])),
             availability_status=AvailabilityStatus.DOWNLOADABLE,
+            commit=False,
         )
 
         await media_service.add_external_id(
             media_item_guid=media_item.guid,
             provider="spotify",
             external_id=str(external_id),
+            commit=False,
         )
 
         genres = details.get("genres", [])
         if genres:
-            await media_service.set_genres(media_item.guid, genres)
+            await media_service.set_genres(media_item.guid, genres, commit=False)
 
         # Queue album imports for this artist in the background
         try:
@@ -1441,12 +1474,14 @@ class SearchService:
             backdrop_path=details.get("backdrop_path"),
             extra_data=details.get("original_language"),
             availability_status=AvailabilityStatus.DOWNLOADABLE,
+            commit=False,
         )
 
         await media_service.add_external_id(
             media_item_guid=media_item.guid,
             provider="tmdb",
             external_id=str(tmdb_id),
+            commit=False,
         )
         external_ids = details.get("external_ids", {})
         if external_ids.get("imdb_id"):
@@ -1454,11 +1489,12 @@ class SearchService:
                 media_item_guid=media_item.guid,
                 provider="imdb",
                 external_id=external_ids["imdb_id"],
+                commit=False,
             )
 
         genres = [g.get("name") for g in details.get("genres", []) if g.get("name")]
         if genres:
-            await media_service.set_genres(media_item.guid, genres)
+            await media_service.set_genres(media_item.guid, genres, commit=False)
 
         return media_item
 
@@ -1486,12 +1522,14 @@ class SearchService:
             backdrop_path=details.get("backdrop_path"),
             extra_data=details.get("original_language"),
             availability_status=AvailabilityStatus.DOWNLOADABLE,
+            commit=False,
         )
 
         await media_service.add_external_id(
             media_item_guid=media_item.guid,
             provider="tmdb",
             external_id=str(tmdb_id),
+            commit=False,
         )
         external_ids = details.get("external_ids", {})
         if external_ids.get("tvdb_id"):
@@ -1499,17 +1537,19 @@ class SearchService:
                 media_item_guid=media_item.guid,
                 provider="tvdb",
                 external_id=str(external_ids["tvdb_id"]),
+                commit=False,
             )
         if external_ids.get("imdb_id"):
             await media_service.add_external_id(
                 media_item_guid=media_item.guid,
                 provider="imdb",
                 external_id=external_ids["imdb_id"],
+                commit=False,
             )
 
         genres = [g.get("name") for g in details.get("genres", []) if g.get("name")]
         if genres:
-            await media_service.set_genres(media_item.guid, genres)
+            await media_service.set_genres(media_item.guid, genres, commit=False)
 
         return media_item
 
@@ -1568,14 +1608,37 @@ class SearchService:
             )
             return None
 
+        if not await self._acquire_import_lock(type_upper, external_id):
+            logger.info(
+                "Import already in progress for %s %s, returning existing if present",
+                provider,
+                external_id,
+            )
+            return await self._existing_imported_item(
+                media_type=media_type,
+                provider=provider,
+                external_id=external_id,
+            )
+
         try:
-            result = await self._import_external_item(
+            return await self._import_external_item(
                 type_upper=type_upper,
                 media_type=media_type,
                 provider=provider,
                 external_id=external_id,
             )
-            return result
+        except IntegrityError:
+            logger.info(
+                "Concurrent import created %s %s, returning existing item",
+                provider,
+                external_id,
+            )
+            await self.db.rollback()
+            return await self._existing_imported_item(
+                media_type=media_type,
+                provider=provider,
+                external_id=external_id,
+            )
         except Exception as e:
             logger.error(
                 "Synchronous import failed for %s %s: %s",
@@ -1585,6 +1648,8 @@ class SearchService:
             )
             await self.db.rollback()
             return None
+        finally:
+            await self._release_import_lock(type_upper, external_id)
 
     @staticmethod
     def _resolve_import_target(
@@ -1597,6 +1662,7 @@ class SearchService:
         type_map: dict[str, tuple] = {
             "GAMES":   (MediaType.GAMES,   igdb_id,     "igdb"),
             "MUSIC":   (MediaType.ALBUMS,  spotify_id,  "spotify"),
+            "ALBUMS":  (MediaType.ALBUMS,  spotify_id,  "spotify"),
             "ARTISTS": (MediaType.ARTISTS, spotify_id,  "spotify"),
             "SONGS":   (MediaType.SONGS,   spotify_id,  "spotify"),
             "MOVIES":  (MediaType.MOVIES,  tmdb_id,     "tmdb"),

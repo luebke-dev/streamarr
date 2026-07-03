@@ -739,7 +739,12 @@ class AuthService:
         if isinstance(email, str):
             email = email.strip().lower()
             user_data["email"] = email
-        if email:
+        # Only auto-link to an existing local account when the provider asserts
+        # the email is verified — otherwise an unverified email claim would
+        # allow account takeover. Absence of the claim is treated as verified
+        # to preserve compatibility with providers that omit it.
+        email_verified = user_data.get("email_verified", True) is not False
+        if email and email_verified:
             stmt = select(User).where(func.lower(User.email) == email)
             result = await self.db.execute(stmt)
             existing_user = result.scalar_one_or_none()

@@ -22,6 +22,7 @@ from typing import Final
 import httpx
 
 from pyrate.utils.http import make_async_client
+from pyrate.utils.net import UnsafeUrlError, safe_get
 from pyrate.utils.retry import http_with_retries
 
 logger = logging.getLogger(__name__)
@@ -114,13 +115,16 @@ class ImageCacheService:
         self, media_guid: uuid.UUID, source_url: str
     ) -> Path:
         async def do_request() -> httpx.Response:
-            return await self.http_client.get(
-                source_url, follow_redirects=True
-            )
+            return await safe_get(source_url, client=self.http_client)
 
-        response = await http_with_retries(
-            do_request, max_retries=4, base_delay=1.0, log_label="image-cache"
-        )
+        try:
+            response = await http_with_retries(
+                do_request, max_retries=4, base_delay=1.0, log_label="image-cache"
+            )
+        except UnsafeUrlError as exc:
+            raise ImageCacheError(
+                f"Refusing to fetch unsafe image URL {source_url}: {exc}"
+            )
         if response is None:
             raise ImageCacheError(
                 f"Image fetch exhausted retries: {source_url}"

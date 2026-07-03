@@ -43,8 +43,28 @@ class DockerComputingProvider(ComputingBase):
             raise
 
     async def close(self):
-        """Close Docker client."""
+        """Close Docker client.
+
+        Timeout handlers are bound to the provider lifecycle: on close we
+        cancel every pending timeout task and force-stop the containers they
+        were guarding, otherwise a container outliving the provider would
+        never be reaped once its timer can no longer fire. ``self._containers``
+        is instance-local, so this only reaps tasks started by this provider.
+        """
+        for task in list(self._timeout_tasks.values()):
+            task.cancel()
+        self._timeout_tasks.clear()
+
         if self.client:
+            for task_id in list(self._containers):
+                try:
+                    await self.stop_task(task_id, force=True)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to stop container for task %s during close: %s",
+                        task_id,
+                        exc,
+                    )
             await self.client.close()
             logger.info("Docker computing provider closed")
 

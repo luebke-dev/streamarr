@@ -283,6 +283,7 @@ class TestNotificationSettings:
 
         with patch("pyrate.services.notification.httpx.AsyncClient") as mock_client:
             response = AsyncMock()
+            response.is_redirect = False
             response.raise_for_status = Mock(return_value=None)
             mock_client.return_value.__aenter__.return_value.post.return_value = response
 
@@ -369,6 +370,7 @@ class TestNotificationSettings:
 
         with patch("pyrate.services.notification.httpx.AsyncClient") as mock_client:
             response = AsyncMock()
+            response.is_redirect = False
             response.raise_for_status = Mock(return_value=None)
             mock_client.return_value.__aenter__.return_value.post.return_value = response
 
@@ -426,6 +428,7 @@ class TestNotificationSettings:
 
         with patch("pyrate.services.notification.httpx.AsyncClient") as mock_client:
             response = AsyncMock()
+            response.is_redirect = False
             response.raise_for_status = Mock(return_value=None)
             mock_client.return_value.__aenter__.return_value.post.return_value = response
 

@@ -8,6 +8,7 @@ RssSyncService.run_once() and records a task event. The master switch
 from __future__ import annotations
 
 import logging
+import uuid
 
 import redis.asyncio as redis_async
 
@@ -20,24 +21,29 @@ logger = logging.getLogger(__name__)
 
 _LOCK_KEY = "rss_sync:tick:lock"
 _LOCK_TTL = 50
+_LOCK_RELEASE = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] "
+    "then return redis.call('del', KEYS[1]) else return 0 end"
+)
 
 
-async def _acquire() -> redis_async.Redis | None:
+async def _acquire() -> tuple[redis_async.Redis, str] | tuple[None, None]:
     try:
         rds = redis_async.from_url(
             settings.redis_url, encoding="utf-8", decode_responses=True
         )
-        if not await rds.set(_LOCK_KEY, "1", ex=_LOCK_TTL, nx=True):
+        token = uuid.uuid4().hex
+        if not await rds.set(_LOCK_KEY, token, ex=_LOCK_TTL, nx=True):
             await rds.close()
-            return None
-        return rds
+            return None, None
+        return rds, token
     except Exception as exc:
         logger.warning("rss-sync tick lock unavailable: %s", exc)
-        return None
+        return None, None
 
 
 async def rss_sync_impl() -> dict:
-    rds = await _acquire()
+    rds, token = await _acquire()
     if rds is None:
         logger.debug("rss-sync tick skipped (lock held)")
         return {"skipped": "locked"}
@@ -70,7 +76,7 @@ async def rss_sync_impl() -> dict:
         raise
     finally:
         try:
-            await rds.delete(_LOCK_KEY)
+            await rds.eval(_LOCK_RELEASE, 1, _LOCK_KEY, token)
             await rds.close()
         except Exception:
             pass

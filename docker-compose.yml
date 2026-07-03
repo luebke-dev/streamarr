@@ -316,7 +316,7 @@ services:
     volumes:
       - ${DATA_DIR:-./data}/postgres:/var/lib/postgresql/data:rw,z
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pyrate}"]
       interval: 10s
@@ -353,7 +353,7 @@ services:
     volumes:
       - ${DATA_DIR:-./data}/elastic:/usr/share/elasticsearch/data:rw,z
     ports:
-      - "${ES_PORT:-9200}:9200"
+      - "127.0.0.1:${ES_PORT:-9200}:9200"
     user: "1000:1000"
     init: true
     healthcheck:

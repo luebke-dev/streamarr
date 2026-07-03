@@ -77,6 +77,7 @@ class RenderResult:
     source_hash: str
     rendered_count: int = 0
     skipped_count: int = 0
+    error_count: int = 0
     debug: dict[str, Any] = field(default_factory=dict)
 
 
@@ -110,6 +111,7 @@ class OverlayRenderer:
         composite = base.copy()
         rendered = 0
         skipped = 0
+        errors = 0
         for _guid, _version, elements in template_entries:
             for element in elements:
                 try:
@@ -117,6 +119,7 @@ class OverlayRenderer:
                 except OverlayRenderError as exc:
                     logger.info("overlay element skipped: %s", exc)
                     skipped += 1
+                    errors += 1
                     continue
                 if positioned is None:
                     skipped += 1
@@ -131,9 +134,10 @@ class OverlayRenderer:
         data = out.getvalue()
         return RenderResult(
             data=data,
-            source_hash=self.compute_hash(base_bytes, template_entries),
+            source_hash=self.compute_hash(base_bytes, template_entries, context),
             rendered_count=rendered,
             skipped_count=skipped,
+            error_count=errors,
             debug={
                 "base_size": list(base.size),
                 "templates": len(template_entries),
@@ -144,23 +148,34 @@ class OverlayRenderer:
     def compute_hash(
         base_bytes: bytes,
         template_entries: Sequence[tuple[Any, int, list[dict]]],
+        context: dict[str, Any] | None = None,
     ) -> str:
         """Stable hash for cache invalidation.
 
         Combines the SHA-256 of the original bytes with each template's
         ``(guid, version)`` tuple so a template-content change forces a
-        re-render even though the original is unchanged.
+        re-render even though the original is unchanged. Entries are hashed
+        in their given (z_order-sorted) order so a reorder invalidates too,
+        and resolved text placeholders fold ``context`` in so a metadata
+        change re-renders the same base image.
         """
         h = hashlib.sha256()
-        h.update(b"v1:")
+        h.update(b"v2:")
         h.update(hashlib.sha256(base_bytes).digest())
-        for guid, version, _ in sorted(
-            template_entries, key=lambda entry: str(entry[0])
-        ):
+        for index, (guid, version, elements) in enumerate(template_entries):
             h.update(b"\x1f")
+            h.update(str(index).encode("utf-8"))
+            h.update(b":")
             h.update(str(guid).encode("utf-8"))
             h.update(b":")
             h.update(str(version).encode("utf-8"))
+            if context is None:
+                continue
+            for element in elements or ():
+                raw_text = element.get("text") if isinstance(element, dict) else None
+                if raw_text:
+                    h.update(b"\x1e")
+                    h.update(_format_placeholders(raw_text, context).encode("utf-8"))
         return h.hexdigest()
 
     # ------------------------------------------------------------------

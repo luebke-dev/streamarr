@@ -378,21 +378,22 @@ class TestListMediaItems:
     async def test_filter_by_favorite_and_played_state(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
-        from pyrate.models.favorite import Favorite
         from pyrate.models.viewing_history import ViewingHistory
+        from pyrate.services.list import ListService
 
         favorite = await _create_media_item(db_session, title="Favorite")
         played = await _create_media_item(db_session, title="Played")
         await _create_media_item(db_session, title="Other")
-        db_session.add_all(
-            [
-                Favorite(user_id=test_user.guid, media_item_guid=favorite.guid),
-                ViewingHistory(
-                    user_guid=test_user.guid,
-                    media_item_guid=played.guid,
-                    is_completed=True,
-                ),
-            ]
+        # Favorites are stored as items of the user's FAVORITES list.
+        await ListService(db_session).toggle_favorite(
+            test_user.guid, favorite.guid, "movies"
+        )
+        db_session.add(
+            ViewingHistory(
+                user_guid=test_user.guid,
+                media_item_guid=played.guid,
+                is_completed=True,
+            )
         )
         await db_session.commit()
 

@@ -6,11 +6,11 @@ import time
 from typing import Any
 from urllib.parse import urlencode
 
-import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.oidc.core import CodeIDToken
 
 from ..config import settings
+from ..utils.net import assert_safe_url, safe_get
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +68,9 @@ class OIDCClient:
             }
             return self._validate_metadata(self._metadata)
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-            response = await client.get(self.config.server_metadata_url)
-            response.raise_for_status()
-            self._metadata = self._validate_metadata(response.json())
+        response = await safe_get(self.config.server_metadata_url)
+        response.raise_for_status()
+        self._metadata = self._validate_metadata(response.json())
 
         return self._metadata
 
@@ -100,6 +99,8 @@ class OIDCClient:
         """Exchange the authorization code for tokens."""
         metadata = await self.get_provider_metadata()
 
+        assert_safe_url(metadata["token_endpoint"])
+
         client = AsyncOAuth2Client(
             client_id=self.config.client_id,
             client_secret=self.config.client_secret,
@@ -119,9 +120,8 @@ class OIDCClient:
 
         headers = {"Authorization": f"Bearer {access_token}"}
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(metadata["userinfo_endpoint"], headers=headers)
-            response.raise_for_status()
+        response = await safe_get(metadata["userinfo_endpoint"], headers=headers)
+        response.raise_for_status()
         return response.json()
 
     async def _get_jwks(self, jwks_uri: str) -> dict[str, Any]:
@@ -132,12 +132,11 @@ class OIDCClient:
         if jwks and now - loaded_at < ttl:
             return jwks
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-            jwks_response = await client.get(jwks_uri)
-            jwks_response.raise_for_status()
-            self._jwks = jwks_response.json()
-            self._jwks_loaded_at = now
-            return self._jwks
+        jwks_response = await safe_get(jwks_uri)
+        jwks_response.raise_for_status()
+        self._jwks = jwks_response.json()
+        self._jwks_loaded_at = now
+        return self._jwks
 
     async def verify_id_token(
         self, id_token: str, nonce: str | None = None
@@ -211,6 +210,11 @@ class OIDCClient:
 
         if claims.get("iss") and "oidc_provider" not in user_data:
             user_data["oidc_provider"] = claims["iss"]
+
+        # Pass through the verified-email claim so account linking can require
+        # it (guards against takeover via an unverified email claim).
+        if "email_verified" in claims:
+            user_data["email_verified"] = claims["email_verified"]
 
         return user_data
 

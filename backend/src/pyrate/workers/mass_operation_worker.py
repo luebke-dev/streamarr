@@ -6,8 +6,10 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
+import redis.asyncio as redis_async
 from sqlalchemy import select
 
+from pyrate.config import settings
 from pyrate.database import sessionmanager
 from pyrate.models.mass_operation import (
     MassOperationRule,
@@ -18,32 +20,66 @@ from pyrate.services.task_events import record_worker_task_event
 
 logger = logging.getLogger(__name__)
 
+_LOCK_KEY = "mass_operations:tick:lock"
+_LOCK_TTL = 50
+_LOCK_RELEASE = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] "
+    "then return redis.call('del', KEYS[1]) else return 0 end"
+)
+
+
+async def _acquire() -> tuple[redis_async.Redis, str] | tuple[None, None]:
+    try:
+        rds = redis_async.from_url(
+            settings.redis_url, encoding="utf-8", decode_responses=True
+        )
+        token = uuid.uuid4().hex
+        if not await rds.set(_LOCK_KEY, token, ex=_LOCK_TTL, nx=True):
+            await rds.close()
+            return None, None
+        return rds, token
+    except Exception as exc:
+        logger.warning("mass-operation tick lock unavailable: %s", exc)
+        return None, None
+
 
 async def tick_mass_operations_impl() -> int:
     """Enqueue mass-operation rules whose ``next_run_at`` is due."""
-    now = datetime.now(UTC)
-    async with sessionmanager.session() as db:
-        stmt = (
-            select(MassOperationRule.guid)
-            .where(MassOperationRule.enabled.is_(True))
-            .where(MassOperationRule.schedule_cron.isnot(None))
-            .where(
-                (MassOperationRule.next_run_at.is_(None))
-                | (MassOperationRule.next_run_at <= now)
-            )
-        )
-        rows = (await db.execute(stmt)).all()
-        due_guids = [row[0] for row in rows]
-
-    if not due_guids:
+    rds, token = await _acquire()
+    if rds is None:
+        logger.debug("mass-operation tick skipped (lock held)")
         return 0
 
-    from pyrate.worker import run_mass_operation_rule  # noqa: WPS433
+    try:
+        now = datetime.now(UTC)
+        async with sessionmanager.session() as db:
+            stmt = (
+                select(MassOperationRule.guid)
+                .where(MassOperationRule.enabled.is_(True))
+                .where(MassOperationRule.schedule_cron.isnot(None))
+                .where(
+                    (MassOperationRule.next_run_at.is_(None))
+                    | (MassOperationRule.next_run_at <= now)
+                )
+            )
+            rows = (await db.execute(stmt)).all()
+            due_guids = [row[0] for row in rows]
 
-    for rule_guid in due_guids:
-        await run_mass_operation_rule.kiq(str(rule_guid), False)
-    logger.info("mass-operation tick enqueued %d run(s)", len(due_guids))
-    return len(due_guids)
+        if not due_guids:
+            return 0
+
+        from pyrate.worker import run_mass_operation_rule  # noqa: WPS433
+
+        for rule_guid in due_guids:
+            await run_mass_operation_rule.kiq(str(rule_guid), False)
+        logger.info("mass-operation tick enqueued %d run(s)", len(due_guids))
+        return len(due_guids)
+    finally:
+        try:
+            await rds.eval(_LOCK_RELEASE, 1, _LOCK_KEY, token)
+            await rds.close()
+        except Exception:
+            pass
 
 
 async def run_mass_operation_rule_impl(

@@ -7,7 +7,6 @@ from datetime import UTC, date, datetime
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.favorite import Favorite
 from pyrate.models.genre import Genre
 from pyrate.models.media import (
     AvailabilityStatus,
@@ -18,6 +17,7 @@ from pyrate.models.media import (
 from pyrate.models.person import MediaCast, Person
 from pyrate.models.user import User
 from pyrate.models.viewing_history import ViewingHistory
+from pyrate.services.list import ListService
 
 
 async def _create_item(
@@ -82,7 +82,9 @@ class TestSuggestions:
         await _create_item(db_session, title="Match", genre=action)
         await _create_item(db_session, title="Other", genre=drama)
 
-        db_session.add(Favorite(user_id=test_user.guid, media_item_guid=seed.guid))
+        await ListService(db_session).toggle_favorite(
+            test_user.guid, seed.guid, "movies"
+        )
         await db_session.commit()
 
         resp = await client.get("/api/suggestions", headers=user_headers)
@@ -107,15 +109,15 @@ class TestSuggestions:
         completed = await _create_item(db_session, title="Completed", genre=genre)
         open_item = await _create_item(db_session, title="Open", genre=genre)
 
-        db_session.add_all(
-            [
-                Favorite(user_id=test_user.guid, media_item_guid=seed.guid),
-                ViewingHistory(
-                    user_guid=test_user.guid,
-                    media_item_guid=completed.guid,
-                    is_completed=True,
-                ),
-            ]
+        await ListService(db_session).toggle_favorite(
+            test_user.guid, seed.guid, "movies"
+        )
+        db_session.add(
+            ViewingHistory(
+                user_guid=test_user.guid,
+                media_item_guid=completed.guid,
+                is_completed=True,
+            )
         )
         await db_session.commit()
 

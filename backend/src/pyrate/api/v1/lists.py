@@ -153,9 +153,10 @@ async def update_list(
         raise HTTPException(
             status_code=403, detail="Only administrators can update system lists"
         )
-    elif list_obj.list_type == ListType.USER and str(list_obj.owner_guid) != str(
-        current_user.guid
-    ):
+    elif list_obj.list_type in (
+        ListType.USER,
+        ListType.FAVORITES,
+    ) and str(list_obj.owner_guid) != str(current_user.guid):
         raise HTTPException(
             status_code=403, detail="You can only update your own lists"
         )
@@ -180,14 +181,18 @@ async def delete_list(
         raise HTTPException(
             status_code=403, detail="Only administrators can delete system lists"
         )
-    elif list_obj.list_type == ListType.USER and str(list_obj.owner_guid) != str(
-        current_user.guid
-    ):
+    elif list_obj.list_type in (
+        ListType.USER,
+        ListType.FAVORITES,
+    ) and str(list_obj.owner_guid) != str(current_user.guid):
         raise HTTPException(
             status_code=403, detail="You can only delete your own lists"
         )
 
-    await ListService(db).delete(list_obj)
+    try:
+        await ListService(db).delete(list_obj)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     logger.info("User %s deleted list %s", current_user.guid, list_id)
     await clear_rendered_layout_cache("list_changed")
 
@@ -293,9 +298,10 @@ async def add_item_to_list(
         raise HTTPException(
             status_code=403, detail="Only administrators can modify system lists"
         )
-    elif list_obj.list_type == ListType.USER and str(list_obj.owner_guid) != str(
-        current_user.guid
-    ):
+    elif list_obj.list_type in (
+        ListType.USER,
+        ListType.FAVORITES,
+    ) and str(list_obj.owner_guid) != str(current_user.guid):
         raise HTTPException(
             status_code=403, detail="You can only modify your own lists"
         )
@@ -335,9 +341,10 @@ async def remove_item_from_list(
         raise HTTPException(
             status_code=403, detail="Only administrators can modify system lists"
         )
-    elif list_obj.list_type == ListType.USER and str(list_obj.owner_guid) != str(
-        current_user.guid
-    ):
+    elif list_obj.list_type in (
+        ListType.USER,
+        ListType.FAVORITES,
+    ) and str(list_obj.owner_guid) != str(current_user.guid):
         raise HTTPException(
             status_code=403, detail="You can only modify your own lists"
         )
@@ -410,7 +417,10 @@ async def get_user_lists(
     skip = (page - 1) * per_page
     # If requesting another user's lists, only show public ones
     # If requesting own lists, show all
-    lists, total = await ListService(db).get_user_lists(str(user_id), skip, per_page)
+    requester_guid = str(current_user.guid) if current_user else None
+    lists, total = await ListService(db).get_user_lists(
+        str(user_id), skip, per_page, requester_guid=requester_guid
+    )
 
     total_pages = math.ceil(total / per_page) if total > 0 else 1
 
@@ -506,7 +516,10 @@ async def admin_delete_list(
     if not list_obj:
         raise HTTPException(status_code=404, detail="List not found")
 
-    await ListService(db).delete(list_obj)
+    try:
+        await ListService(db).delete(list_obj)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     logger.info("Admin %s deleted list %s", current_user.guid, list_id)
     await clear_rendered_layout_cache("list_changed")
     return {"message": "List deleted successfully"}
@@ -1380,7 +1393,19 @@ async def reorder_playlist_items(
                 detail="One or more playlist items were not found",
             )
 
-    for order_index, item_id in enumerate(reorder.item_ids):
+    result = await db.execute(
+        select(ListItem.guid)
+        .where(ListItem.list_guid == playlist_id)
+        .order_by(
+            ListItem.order_index.asc().nulls_last(),
+            ListItem.created_at.asc(),
+        )
+    )
+    reordered = set(reorder.item_ids)
+    ordered_ids = list(reorder.item_ids) + [
+        guid for (guid,) in result.all() if guid not in reordered
+    ]
+    for order_index, item_id in enumerate(ordered_ids):
         await db.execute(
             sa_update(ListItem)
             .where(ListItem.list_guid == playlist_id, ListItem.guid == item_id)

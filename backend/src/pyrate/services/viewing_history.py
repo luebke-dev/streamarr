@@ -112,7 +112,7 @@ def _calculate_progress(progress_seconds: float, duration_seconds: float | None)
     if not duration_seconds or duration_seconds <= 0:
         return 0.0, False
     pct = min(100.0, (progress_seconds / duration_seconds) * 100.0)
-    return pct, pct > COMPLETION_THRESHOLD
+    return pct, pct >= COMPLETION_THRESHOLD
 
 
 class ViewingHistoryService:

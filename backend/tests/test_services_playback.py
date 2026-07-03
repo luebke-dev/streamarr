@@ -2106,6 +2106,9 @@ class TestWebSocketWatchParty:
             mgr = WebSocketManager()
             ws = _make_ws()
             conn = await mgr.connect(ws, user_id="u1")
+            # Broadcast now requires party membership; stub the membership check
+            # (real DB rows aren't reachable here: no db_session, string ids).
+            mgr._is_party_member = AsyncMock(return_value=True)
 
             await mgr.handle_message(conn, {
                 "action": "party_sync",
@@ -2159,6 +2162,9 @@ class TestWebSocketWatchParty:
             mgr = WebSocketManager()
             ws = _make_ws()
             conn = await mgr.connect(ws, user_id="u1")
+            # Broadcast now requires party membership; stub the membership check
+            # (real DB rows aren't reachable here: no db_session, string ids).
+            mgr._is_party_member = AsyncMock(return_value=True)
 
             await mgr.handle_message(conn, {
                 "action": "party_member_update",

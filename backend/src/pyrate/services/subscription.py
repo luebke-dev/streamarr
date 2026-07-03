@@ -191,12 +191,13 @@ class SubscriptionService:
         Returns:
             The created user subscription
         """
+        now = datetime.now(UTC)
         subscription = UserSubscription(
             user_id=user_id,
             package_id=package_id,
-            status=SubscriptionStatus.ACTIVE,
-            starts_at=datetime.now(UTC),
-            expires_at=datetime.now(UTC) + timedelta(days=30),  # 1 month
+            status=SubscriptionStatus.PENDING,
+            starts_at=now,
+            expires_at=now,
             stripe_subscription_id=stripe_subscription_id,
             stripe_customer_id=stripe_customer_id,
         )
@@ -247,8 +248,10 @@ class SubscriptionService:
                     UserSubscription.expires_at > now,
                 )
             )
+            .order_by(UserSubscription.created_at.desc())
+            .limit(1)
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def get_user_subscriptions(
         self, user_id: UUID, include_inactive: bool = False
@@ -305,14 +308,19 @@ class SubscriptionService:
         logger.info("Updated subscription id=%s fields=%s", subscription_id, list(updates.keys()))
         return subscription
 
-    async def cancel_subscription(self, subscription_id: UUID) -> bool:
-        """Cancel a user subscription.
+    async def cancel_subscription(
+        self, subscription_id: UUID
+    ) -> UserSubscription | None:
+        """Mark a user subscription for cancellation at period end.
+
+        Access is retained until ``expires_at``; the provider's
+        subscription.deleted webhook revokes the group at period end.
 
         Args:
             subscription_id: The subscription ID
 
         Returns:
-            True if subscription was cancelled, False if not found
+            The subscription if found, None otherwise
         """
         result = await self.db.execute(
             select(UserSubscription).where(UserSubscription.guid == subscription_id)
@@ -320,14 +328,14 @@ class SubscriptionService:
         subscription = result.scalar_one_or_none()
         if not subscription:
             logger.warning("Subscription not found for cancellation: %s", subscription_id)
-            return False
+            return None
 
-        subscription.status = SubscriptionStatus.CANCELLED
         subscription.cancelled_at = datetime.now(UTC)
         subscription.updated_at = datetime.now(UTC)
         await self.db.commit()
-        logger.info("Cancelled subscription id=%s user_id=%s", subscription_id, subscription.user_id)
-        return True
+        await self.db.refresh(subscription)
+        logger.info("Marked subscription for cancellation id=%s user_id=%s", subscription_id, subscription.user_id)
+        return subscription
 
     async def extend_subscription(
         self, subscription_id: UUID, days: int = 30
