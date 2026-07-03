@@ -16,8 +16,9 @@
         color="primary"
         :href="fileUrl"
         target="_blank"
+        rel="noopener noreferrer"
         icon="mdi-download"
-        label="Herunterladen"
+        :label="$t('common.download')"
       />
     </div>
 
@@ -171,6 +172,7 @@ async function initEpub() {
 
     // Keyboard navigation
     rendition.on('keyup', handleKey)
+    document.removeEventListener('keyup', handleKey)
     document.addEventListener('keyup', handleKey)
   } catch (err) {
     logger.error('Failed to initialize EPUB reader:', err)

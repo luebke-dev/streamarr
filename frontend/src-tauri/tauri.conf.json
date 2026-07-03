@@ -25,7 +25,7 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; script-src 'self' blob: https://js.stripe.com; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self' http: https: wss: ws: ipc: http://ipc.localhost; media-src 'self' blob: http: https:; worker-src 'self' blob:; font-src 'self' data:; frame-src 'self' https://js.stripe.com https://hooks.stripe.com;",
       "capabilities": ["main"]
     }
   },

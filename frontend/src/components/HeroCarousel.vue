@@ -29,7 +29,7 @@
               color="warning"
               text-color="white"
               class="trending-chip"
-              label="Trending"
+              :label="trendingLabel"
             />
           </div>
           <div class="carousel-content">
@@ -37,8 +37,11 @@
               <h1 class="carousel-title" :style="getTitleStyle(getItemTitle(item))">
                 {{ getItemTitle(item) }}
               </h1>
+              <div v-if="subtitleFn && subtitleFn(item)" class="carousel-subtitle">
+                {{ subtitleFn(item) }}
+              </div>
               <p v-if="getItemDescription(item) && !isMobile" class="carousel-description">
-                {{ getItemDescription(item) }}
+                {{ truncateDescription(getItemDescription(item), descriptionLength) }}
               </p>
               <div class="carousel-meta">
                 <span v-if="getItemReleaseDate(item)" class="release-year">
@@ -140,7 +143,7 @@
 </template>
 
 <script>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useQuasar } from 'quasar'
 import { getTmdbImageUrl } from 'src/composables/useMediaFormatters'
 import { overlayServeUrl } from 'src/utils/posters'
@@ -195,6 +198,15 @@ export default {
     const $q = useQuasar()
     const slide = ref(1)
     const autoplay = ref(true)
+
+    watch(
+      () => props.items,
+      (items) => {
+        if (slide.value > items.length) {
+          slide.value = 1
+        }
+      },
+    )
 
     // Responsive breakpoints
     const isMobile = computed(() => $q.screen.lt.md)
@@ -586,6 +598,14 @@ export default {
   white-space: normal;
   letter-spacing: 0;
   overflow-wrap: anywhere;
+}
+
+.carousel-subtitle {
+  margin: 0 0 0.85rem;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 1.05rem;
+  font-weight: 600;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
 }
 
 .carousel-description {

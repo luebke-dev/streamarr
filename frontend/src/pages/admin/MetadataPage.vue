@@ -118,6 +118,7 @@
                   <a
                     :href="field.info_link"
                     target="_blank"
+                    rel="noopener noreferrer"
                     class="text-white"
                     style="text-decoration: underline"
                   >

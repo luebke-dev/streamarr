@@ -342,6 +342,7 @@ const playerControlState = computed(() => ({
   bufferedAmount: bufferedAmount.value,
   isSeeking: isSeeking.value,
   isPlaying: isPlaying.value,
+  currentAudioStreamIndex: currentAudioTrackIndex.value,
 }))
 
 const mediaControlState = computed(() => ({
@@ -365,16 +366,9 @@ const streamControlState = computed(() => ({
   streamInfo: streamInfo.value,
 }))
 
-const videoSrc = computed(() => {
-  if (directStreamUrl.value) {
-    return directStreamUrl.value
-  }
-  if (uuid.value && status.value === 'streamable' && playToken.value && sessionId.value) {
-    // Use unified streaming API with session ID and play token
-    return getPlaylistUrl(sessionId.value, playToken.value)
-  }
-  return ''
-})
+// Set once per playback bootstrap; stream swaps load their source directly
+// via player.src() so the reactive binding must not fire a second load.
+const videoSrc = ref('')
 
 // Load auto-skip preferences (intro/outro/credits) once per session.
 const loadPlaybackPreferences = async () => {
@@ -441,13 +435,17 @@ const setupStreamablePlayback = async (playResponse) => {
     ? true
     : await waitForHlsStreamReady(sessionId.value, playToken.value)
   if (!streamReady) {
+    status.value = 'error'
+    errorMessage.value = t('playPage.failedToStartPlayback')
     loading.value = false
     return
   }
 
+  videoSrc.value = directStreamUrl.value || getPlaylistUrl(sessionId.value, playToken.value)
   status.value = 'streamable'
   loading.value = false
   lastPosition.value = 0
+  startProgressUpdates()
 }
 
 const prefersOfflinePlayback = () => {
@@ -637,6 +635,8 @@ const { subscribe: subscribeRemoteControl, unsubscribe: unsubscribeRemoteControl
     videoJsPlayer,
     router,
     remoteControlStore,
+    transcodeStartPosition,
+    onSeek: (position) => handleSeek(position),
     playNextEpisode: playNextPlaybackItem,
     playPreviousEpisode: playPreviousPlaybackItem,
   })
@@ -647,6 +647,8 @@ const partySync = usePartySync({
   videoJsPlayer,
   uuid,
   contentType,
+  transcodeStartPosition,
+  onSeek: (position) => handleSeek(position),
 })
 
 // Viewing-progress (load resume, periodic updates, save on unload)
@@ -655,7 +657,6 @@ const {
   loadViewingHistory,
   updateProgress,
   reportPlaybackStarted,
-  reportPlaybackStopped,
   saveProgressOnUnload,
   startProgressUpdates,
   stopProgressUpdates,
@@ -672,6 +673,7 @@ const {
   duration,
   sessionId,
   playToken,
+  transcodeStartPosition,
 })
 
 const { checkContent } = usePlaybackBootstrap({
@@ -707,6 +709,10 @@ const { isPositionBuffered, setupXhrAuth, swapStreamSource } = useStreamSwap({
   playbackTargetOptions,
   directStreamUrl,
   isSeeking,
+  onSwapError: () => {
+    status.value = 'error'
+    errorMessage.value = t('playPage.failedToStartPlayback')
+  },
 })
 
 // Player event handlers (mounted/ready/timeupdate/ended/pause)
@@ -732,7 +738,12 @@ const { onPlayerMounted, onPlayerReady, onTimeUpdate, onVideoEnded, onVideoPause
     setupXhrAuth,
     updateProgress,
     reportPlaybackStarted,
-    reportPlaybackStopped,
+    onPlayerError: (error) => {
+      if (isSeeking.value) return
+      logger.error('Player error:', error)
+      status.value = 'error'
+      errorMessage.value = error?.message || t('playPage.failedToStartPlayback')
+    },
     setupMediaSession,
     checkEpisodeNavigation,
     shouldAutoAdvanceOnEnded: () => contentType.value === 'episode' || !!playlistId.value,
@@ -773,6 +784,10 @@ const resetState = () => {
   }
   currentMediaSourceId.value = null
   savedTrackPreferences.value = null
+  videoSrc.value = ''
+  videoJsPlayer.value = null
+  playerState.value = null
+  videoElement.value = null
   isStartingPlayback.value = false // Reset playback guard
   resetEpisodeNavigation()
   resetPlaylistNavigation()
@@ -795,7 +810,11 @@ watch(
         )
       }
       if (videoJsPlayer.value && duration.value > 0) {
-        updateProgress(videoJsPlayer.value.currentTime(), duration.value, { eventName: 'stop' })
+        updateProgress(
+          transcodeStartPosition.value + videoJsPlayer.value.currentTime(),
+          videoDuration.value || duration.value,
+          { eventName: 'stop', uuid: oldId },
+        )
       }
       resetState()
       checkContent()
@@ -886,7 +905,11 @@ onUnmounted(() => {
   // videoJsPlayer may be disposed before onUnmounted is called
   if (videoJsPlayer.value && videoJsPlayer.value.el_ && duration.value > 0) {
     try {
-      updateProgress(videoJsPlayer.value.currentTime(), duration.value, { eventName: 'stop' })
+      updateProgress(
+        transcodeStartPosition.value + videoJsPlayer.value.currentTime(),
+        videoDuration.value || duration.value,
+        { eventName: 'stop' },
+      )
     } catch (e) {
       // Player may be disposed, ignore errors
       logger.debug('Could not save final progress:', e.message)

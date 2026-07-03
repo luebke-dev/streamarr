@@ -39,7 +39,7 @@
                 outlined
                 dense
                 :rules="[(val) => !!val || $t('validation.required')]"
-                hint="home = default layout"
+                :hint="$t('pageLayouts.slugHint')"
               />
               <q-select
                 v-model="formData.library_guid"

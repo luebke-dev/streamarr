@@ -262,6 +262,7 @@ import { formatTime } from 'src/composables/useMediaFormatters'
 import { usePictureInPicture } from 'src/composables/usePictureInPicture'
 import { useKeyboardShortcuts } from 'src/composables/useKeyboardShortcuts'
 import { useControlsAutoHide } from 'src/composables/useControlsAutoHide'
+import { useTimeoutRegistry } from 'src/composables/useTimeoutRegistry'
 import { useProgressBar } from 'src/composables/useProgressBar'
 import { useMediaTracks } from 'src/composables/useMediaTracks'
 import StreamInfoDialog from './StreamInfoDialog.vue'
@@ -433,6 +434,7 @@ const streamPosition = computed(() => props.playerState?.streamPosition ?? props
 const bufferedAmount = computed(() => props.playerState?.bufferedAmount ?? props.bufferedAmount)
 const isSeeking = computed(() => props.playerState?.isSeeking ?? props.isSeeking)
 const isPlaying = computed(() => props.playerState?.isPlaying ?? props.isPlaying)
+const currentAudioStreamIndex = computed(() => props.playerState?.currentAudioStreamIndex ?? null)
 const contentId = computed(() => props.mediaState?.contentId ?? props.contentId)
 const contentType = computed(() => props.mediaState?.contentType ?? props.contentType)
 const title = computed(() => props.mediaState?.title ?? props.title)
@@ -488,6 +490,7 @@ const {
   getContentId: () => contentId.value,
   getContentType: () => contentType.value,
   getPlayer: () => player.value,
+  getCurrentAudioStreamIndex: () => currentAudioStreamIndex.value,
   onChangeAudioTrack: (streamIndex) => emit('change-audio-track', streamIndex),
   onSelectQuality: (level) => emit('select-quality', level),
 })
@@ -537,9 +540,13 @@ const handleOverlayClick = (e) => {
   }
 }
 
+const controlTimers = useTimeoutRegistry()
+let centerIconTimer = null
+
 const togglePlayPause = () => {
   showCenterIcon.value = true
-  setTimeout(() => {
+  controlTimers.clear(centerIconTimer)
+  centerIconTimer = controlTimers.schedule(() => {
     showCenterIcon.value = false
   }, CENTER_ICON_FLASH_MS)
   emit('toggle-play')
@@ -617,7 +624,7 @@ useKeyboardShortcuts({
   m: () => toggleMute(),
   f: () => toggleFullscreen(),
   Escape: () => {
-    if (isFullscreen.value) toggleFullscreen()
+    if (document.fullscreenElement) toggleFullscreen()
   },
 })
 

@@ -34,7 +34,8 @@ export function useDownloadPolling({ uuid, status, loading, videoDuration, onAva
   const downloadStatus = ref('')
   const downloadPhase = ref('')
 
-  let downloadUnsubscribe = null
+  let subscribedGuid = null
+  let downloadHandler = null
   let pollerTick = null
   let lastNonZeroProgress = 0
   const poller = useInterval(() => pollerTick?.(), 5000)
@@ -118,16 +119,15 @@ export function useDownloadPolling({ uuid, status, loading, videoDuration, onAva
   }
 
   function start() {
-    poller.stop()
+    stop()
 
-    if (wsStore.isConnected.value) {
-      wsStore.send({
-        action: 'subscribe',
-        resource_type: 'media_item',
-        resource_id: String(uuid.value),
-      })
-      downloadUnsubscribe = wsStore.on('media_available', resumePlayback)
+    subscribedGuid = String(uuid.value)
+    downloadHandler = (event, data) => {
+      if (event === 'media_available' && String(data?.media_item_id) === subscribedGuid) {
+        resumePlayback()
+      }
     }
+    wsStore.subscribe('media_item', subscribedGuid, downloadHandler)
 
     pollerTick = async () => {
       try {
@@ -168,13 +168,6 @@ export function useDownloadPolling({ uuid, status, loading, videoDuration, onAva
 
         if (mediaData.files && mediaData.files.length > 0) {
           stop()
-          if (wsStore.isConnected.value) {
-            wsStore.send({
-              action: 'unsubscribe',
-              resource_type: 'media_item',
-              resource_id: String(uuid.value),
-            })
-          }
           videoDuration.value = mediaData.duration || 0
           status.value = ''
           loading.value = true
@@ -194,8 +187,11 @@ export function useDownloadPolling({ uuid, status, loading, videoDuration, onAva
 
   function stop() {
     poller.stop()
-    downloadUnsubscribe?.()
-    downloadUnsubscribe = null
+    if (downloadHandler) {
+      wsStore.unsubscribe('media_item', subscribedGuid, downloadHandler)
+      downloadHandler = null
+      subscribedGuid = null
+    }
   }
 
   return {

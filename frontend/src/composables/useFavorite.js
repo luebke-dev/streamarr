@@ -17,6 +17,7 @@
  */
 import { ref, unref } from 'vue'
 import { api } from 'boot/axios'
+import { invalidateApiCache } from 'src/composables/useApiResponseCache'
 import { logger } from 'src/utils/logger'
 
 function resolveTarget(source) {
@@ -49,6 +50,8 @@ export function useFavorite(targetSource) {
       const response = await api.post(`/api/favorites/${target.typePrefix}/${target.guid}`)
       isFavorited.value = response.data.is_favorited
       monitored.value = response.data.monitored ?? false
+      invalidateApiCache('/api/favorites')
+      invalidateApiCache(`/api/media/${target.guid}`)
     } catch (err) {
       logger.error('Error toggling favorite:', err)
     } finally {

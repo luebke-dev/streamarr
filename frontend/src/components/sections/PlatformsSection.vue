@@ -14,7 +14,11 @@
           v-for="platform in platforms"
           :key="platform.id"
           class="platform-item"
+          role="button"
+          tabindex="0"
           @click="navigateToPlatform(platform)"
+          @keydown.enter="navigateToPlatform(platform)"
+          @keydown.space.prevent="navigateToPlatform(platform)"
         >
           <q-card flat class="platform-card bg-grey-9 cursor-pointer">
             <q-card-section class="flex flex-center column q-pa-md" style="min-height: 120px">

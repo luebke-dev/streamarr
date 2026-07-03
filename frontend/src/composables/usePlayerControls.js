@@ -50,63 +50,68 @@ export function usePlayerControls({
       return
     }
 
-    // --- Tier 1: Check client buffer ---
-    const streamRelativePosition = position - transcodeStartPosition.value
+    isSeeking.value = true
+    try {
+      // --- Tier 1: Check client buffer ---
+      const streamRelativePosition = position - transcodeStartPosition.value
 
-    if (streamRelativePosition >= 0 && isPositionBuffered(streamRelativePosition)) {
-      logger.debug(
-        `[Seek] Tier 1 — client buffered, seeking to ${streamRelativePosition}s (absolute: ${position}s)`,
-      )
-      if (videoJsPlayer.value) {
-        videoJsPlayer.value.currentTime(streamRelativePosition)
-      }
-      return
-    }
-
-    // --- Tier 2: Check server availability ---
-    if (streamRelativePosition >= 0 && sessionId.value && playToken.value) {
-      try {
-        const check = await checkPositionAvailable(
-          sessionId.value,
-          playToken.value,
-          position,
-          transcodeStartPosition.value,
-        )
-        if (check.available) {
-          logger.debug(
-            `[Seek] Tier 2 — server has segment ${check.segment_index}, seeking to ${check.stream_position}s`,
-          )
-          if (videoJsPlayer.value) {
-            videoJsPlayer.value.currentTime(check.stream_position)
-          }
-          return
-        }
+      if (streamRelativePosition >= 0 && isPositionBuffered(streamRelativePosition)) {
         logger.debug(
-          `[Seek] Tier 2 — server does not have segment (reason: ${check.reason}), falling through to new transcode`,
+          `[Seek] Tier 1 — client buffered, seeking to ${streamRelativePosition}s (absolute: ${position}s)`,
         )
-      } catch (e) {
-        logger.warn('[Seek] Tier 2 check failed, falling through:', e)
+        if (videoJsPlayer.value) {
+          videoJsPlayer.value.currentTime(streamRelativePosition)
+        }
+        return
       }
-    }
 
-    // --- Tier 3: Start new transcode ---
-    logger.debug(`[Seek] Tier 3 — starting new transcode at ${position}s`)
+      // --- Tier 2: Check server availability ---
+      if (streamRelativePosition >= 0 && sessionId.value && playToken.value) {
+        try {
+          const check = await checkPositionAvailable(
+            sessionId.value,
+            playToken.value,
+            position,
+            transcodeStartPosition.value,
+          )
+          if (check.available) {
+            logger.debug(
+              `[Seek] Tier 2 — server has segment ${check.segment_index}, seeking to ${check.stream_position}s`,
+            )
+            if (videoJsPlayer.value) {
+              videoJsPlayer.value.currentTime(check.stream_position)
+            }
+            return
+          }
+          logger.debug(
+            `[Seek] Tier 2 — server does not have segment (reason: ${check.reason}), falling through to new transcode`,
+          )
+        } catch (e) {
+          logger.warn('[Seek] Tier 2 check failed, falling through:', e)
+        }
+      }
 
-    const options = {
-      video_codec: 'h264',
-      audio_codec: 'aac',
-      audio_bitrate: '128k',
-    }
+      // --- Tier 3: Start new transcode ---
+      logger.debug(`[Seek] Tier 3 — starting new transcode at ${position}s`)
 
-    // Preserve current audio track selection during seek
-    if (currentAudioTrackIndex.value !== null) {
-      options.audio_track = currentAudioTrackIndex.value
-    }
-    if (currentMediaSourceId.value) {
-      options.media_source_id = currentMediaSourceId.value
-    }
+      const options = {
+        video_codec: 'h264',
+        audio_codec: 'aac',
+        audio_bitrate: '128k',
+      }
 
-    await swapStreamSource({ position, options, label: 'Seek' })
+      // Preserve current audio track selection during seek
+      if (currentAudioTrackIndex.value !== null) {
+        options.audio_track = currentAudioTrackIndex.value
+      }
+      if (currentMediaSourceId.value) {
+        options.media_source_id = currentMediaSourceId.value
+      }
+
+      await swapStreamSource({ position, options, label: 'Seek' })
+    } finally {
+      isSeeking.value = false
+    }
   }
 
   // Audio track change — retranscode at current position with the new audio track

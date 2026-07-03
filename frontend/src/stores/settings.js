@@ -13,6 +13,7 @@ export const useSettingsStore = defineStore('settings', {
     // System settings
     siteName: 'pyrate.media',
     siteNameLoaded: false,
+    siteNameError: null,
     // Library settings
     libraries: {
       movies: true,
@@ -22,18 +23,23 @@ export const useSettingsStore = defineStore('settings', {
       games: true,
     },
     librariesLoaded: false,
+    librariesError: null,
     // Available library plugins
     availableLibraries: [],
     availableLibrariesLoaded: false,
+    availableLibrariesError: null,
     // Subscription settings
     subscriptionsEnabled: false,
     subscriptionsLoaded: false,
+    subscriptionsError: null,
     // Invite settings
     invitesEnabled: true,
     invitesLoaded: false,
+    invitesError: null,
     // Friends settings
     friendsEnabled: true,
     friendsLoaded: false,
+    friendsError: null,
   }),
 
   getters: {
@@ -82,11 +88,13 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     async fetchSiteName() {
+      this.siteNameError = null
       try {
         const response = await api.get('/api/settings/system')
         this.siteName = response.data.site_name || 'pyrate.media'
         this.siteNameLoaded = true
       } catch (error) {
+        this.siteNameError = error
         logger.error('Failed to fetch site name:', error)
         // Keep default value
       }
@@ -106,6 +114,7 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     async fetchLibrariesSettings() {
+      this.librariesError = null
       try {
         const response = await api.get('/api/settings/libraries')
         this.libraries = {
@@ -117,12 +126,14 @@ export const useSettingsStore = defineStore('settings', {
         }
         this.librariesLoaded = true
       } catch (error) {
+        this.librariesError = error
         logger.error('Failed to fetch libraries settings:', error)
         // Keep default values (all enabled)
       }
     },
 
     async fetchAvailableLibraries() {
+      this.availableLibrariesError = null
       try {
         // Fetch configured libraries (not plugins)
         const response = await api.get('/api/libraries')
@@ -131,6 +142,7 @@ export const useSettingsStore = defineStore('settings', {
         this.availableLibrariesLoaded = true
         logger.debug('[SettingsStore] Configured libraries loaded:', this.availableLibraries)
       } catch (error) {
+        this.availableLibrariesError = error
         logger.error('Failed to fetch configured libraries:', error)
         this.availableLibraries = []
       }
@@ -160,11 +172,13 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     async fetchSubscriptionSettings() {
+      this.subscriptionsError = null
       try {
         const response = await api.get('/api/settings/subscriptions')
         this.subscriptionsEnabled = response.data.subscriptions_enabled
         this.subscriptionsLoaded = true
       } catch (error) {
+        this.subscriptionsError = error
         logger.error('Failed to fetch subscription settings:', error)
         // Keep default value (disabled)
       }
@@ -184,11 +198,13 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     async fetchInviteSettings() {
+      this.invitesError = null
       try {
         const response = await api.get('/api/settings/invites')
         this.invitesEnabled = response.data.invites_enabled
         this.invitesLoaded = true
       } catch (error) {
+        this.invitesError = error
         logger.error('Failed to fetch invite settings:', error)
         // Keep default value (enabled)
       }
@@ -208,11 +224,13 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     async fetchFriendsSettings() {
+      this.friendsError = null
       try {
         const response = await api.get('/api/settings/friends')
         this.friendsEnabled = response.data.friends_enabled
         this.friendsLoaded = true
       } catch (error) {
+        this.friendsError = error
         logger.error('Failed to fetch friends settings:', error)
       }
     },

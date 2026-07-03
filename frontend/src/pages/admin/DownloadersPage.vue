@@ -117,7 +117,7 @@
               dense
               v-model="downloaderForm.label"
               :label="$t('adminDownloaders.fields.label')"
-              hint="A descriptive name for this downloader"
+              :hint="$t('adminDownloaders.fields.labelHint')"
               lazy-rules
               :rules="[(val) => (val && val.length > 0) || 'Please enter a label']"
             >

@@ -28,6 +28,8 @@ export const useAudioPlayerStore = defineStore('audioPlayer', {
     lyricsError: null,
     // Audio element reference (managed outside Vue reactivity)
     _audio: null,
+    _loadId: 0,
+    _lastProgressReport: null,
   }),
 
   getters: {
@@ -124,13 +126,15 @@ export const useAudioPlayerStore = defineStore('audioPlayer', {
      * Internal: load a track's audio source and start playback
      */
     async _loadAndPlay(track) {
+      const loadId = ++this._loadId
       this.isLoading = true
       this.isVisible = true
 
       try {
         // Get the audio source URL — may poll while downloading
         // Keep old track playing until URL is ready
-        const audioUrl = await this._getAudioUrl(track.guid)
+        const audioUrl = await this._getAudioUrl(track.guid, loadId)
+        if (loadId !== this._loadId) return
         if (!audioUrl) {
           this.error = 'No audio file available'
           this.isLoading = false
@@ -146,6 +150,7 @@ export const useAudioPlayerStore = defineStore('audioPlayer', {
         await this._audio.play()
         this.loadLyrics(track.guid)
       } catch (err) {
+        if (loadId !== this._loadId) return
         logger.error('Failed to play track:', err)
         this.error = 'Failed to play audio'
         this.isLoading = false
@@ -155,38 +160,50 @@ export const useAudioPlayerStore = defineStore('audioPlayer', {
     /**
      * Get audio URL for a track — polls until file is ready if still downloading
      */
-    async _getAudioUrl(mediaGuid) {
+    async _getAudioUrl(mediaGuid, loadId) {
       const maxAttempts = 120 // ~10 min at 5s intervals
       const pollInterval = 5000
 
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-          const response = await api.post(`/api/play/${mediaGuid}`, null, {
-            params: { supported_audio_codecs: 'aac,mp3,opus,flac,vorbis' },
-          })
-          const { status, token, audio_only, session_id, message } = response.data
+      const requestPlayback = async () => {
+        const response = await api.post(`/api/play/${mediaGuid}`, null, {
+          params: { supported_audio_codecs: 'aac,mp3,opus,flac,vorbis' },
+        })
+        return response.data
+      }
 
-          if (status && status !== 'ready') {
-            // File not ready yet — show status and poll again
-            this.error = message || `Status: ${status}`
-            await new Promise((resolve) => setTimeout(resolve, pollInterval))
-            continue
+      try {
+        let playback = await requestPlayback()
+
+        for (let attempt = 0; playback.status && playback.status !== 'ready'; attempt++) {
+          if (attempt >= maxAttempts || loadId !== this._loadId) return null
+
+          // File not ready yet — show status and poll the read-only
+          // availability endpoint until the file is on disk
+          this.error = playback.message || `Status: ${playback.status}`
+          await new Promise((resolve) => setTimeout(resolve, pollInterval))
+          if (loadId !== this._loadId) return null
+
+          const availabilityResp = await api.get(`/api/media/${mediaGuid}/availability`)
+          if ((availabilityResp.data || {}).status === 'available') {
+            playback = await requestPlayback()
           }
-
-          this.error = null
-          const baseUrl = api.defaults.baseURL || window.location.origin
-
-          if (audio_only && token) {
-            return `${baseUrl}/api/stream/audio/file?token=${token}`
-          }
-
-          if (session_id && token) {
-            return `${baseUrl}/api/stream/${session_id}/playlist.m3u8?token=${token}`
-          }
-        } catch (err) {
-          logger.warn('Could not get audio stream:', err.message)
-          return null
         }
+
+        if (loadId !== this._loadId) return null
+
+        this.error = null
+        const baseUrl = api.defaults.baseURL || window.location.origin
+        const { token, audio_only, session_id } = playback
+
+        if (audio_only && token) {
+          return `${baseUrl}/api/stream/audio/file?token=${token}`
+        }
+
+        if (session_id && token) {
+          return `${baseUrl}/api/stream/${session_id}/playlist.m3u8?token=${token}`
+        }
+      } catch (err) {
+        logger.warn('Could not get audio stream:', err.message)
       }
       return null
     },
@@ -284,6 +301,7 @@ export const useAudioPlayerStore = defineStore('audioPlayer', {
     },
 
     close() {
+      this._loadId++
       if (this._audio) {
         this._audio.pause()
         this._audio.src = ''
@@ -337,7 +355,7 @@ export const useAudioPlayerStore = defineStore('audioPlayer', {
      */
     _maybeReportProgress() {
       const now = Date.now()
-      if (!this._lastProgressReport || now - this._lastProgressReport > 5000) {
+      if (!this._lastProgressReport || now - this._lastProgressReport > 30_000) {
         this._lastProgressReport = now
         this._reportProgress(false)
       }
@@ -358,8 +376,8 @@ export const useAudioPlayerStore = defineStore('audioPlayer', {
           progress_seconds: Math.floor(completed ? dur : this.currentTime),
           duration_seconds: Math.floor(dur),
         })
-      } catch {
-        // Silently fail
+      } catch (err) {
+        logger.debug('Failed to report playback progress:', err)
       }
     },
 

@@ -13,7 +13,6 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'cobertura'],
       include: ['src/**'],
-      exclude: ['src/boot/**', 'src/router/**'],
     },
   },
   plugins: [
@@ -26,6 +25,9 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
+      // Quasar CLI resolves '#q-app/*' via package.json subpath imports at build
+      // time; map it manually so src/router and src/boot files load under vitest.
+      '#q-app/wrappers': '@quasar/app-vite/wrappers',
       src: fileURLToPath(new URL('./src', import.meta.url)),
       boot: fileURLToPath(new URL('./src/boot', import.meta.url)),
       stores: fileURLToPath(new URL('./src/stores', import.meta.url)),

@@ -17,7 +17,6 @@ export default {
   shows: 'Serien',
   music: 'Musik',
   books: 'Bücher',
-  book: 'Buch',
   users: 'Benutzer',
   downloads: 'Downloads',
   administration: 'Administration',
@@ -50,6 +49,10 @@ export default {
 
   album: {
     tracks: 'Titel',
+  },
+
+  book: {
+    label: 'Buch',
   },
 
   // User Menu
@@ -403,6 +406,7 @@ export default {
     smartCollections: 'Smart Collections',
     overlays: 'Poster-Overlays',
     massOperations: 'Massen-Operationen',
+    pageLayouts: 'Seiten-Layouts',
   },
 
   adminPackages: {
@@ -674,6 +678,13 @@ export default {
       siteName: 'Seitenname',
       siteNameHint: 'Der Name, der in der Toolbar angezeigt wird',
     },
+    oidc: {
+      enable: 'OIDC aktivieren',
+      allowLocalLogin: 'Lokale Anmeldung erlauben',
+      autoRegisterUsers: 'Benutzer automatisch anlegen',
+      scopesHint: 'Leerzeichengetrennt, z.B. openid profile email',
+      save: 'OIDC speichern',
+    },
     subscriptions: {
       title: 'Abonnements & Zahlungen',
       description: 'Aktiviere oder deaktiviere das Abonnement- und Zahlungssystem für Benutzer.',
@@ -907,6 +918,7 @@ export default {
     skipBackward: 'Zurückspulen',
     volume: 'Lautstärke',
     mute: 'Stummschalten',
+    unknown: 'Unbekannt',
   },
 
   // Settings
@@ -928,6 +940,9 @@ export default {
     languageSettingsError: 'Fehler beim Aktualisieren der Spracheinstellungen',
     playback: 'Wiedergabe',
     playbackDescription: 'Automatisches Überspringen von Intros, Outros und Abspann konfigurieren',
+    parentalControl: 'Kindersicherung',
+    parentalControlDescription:
+      'Filme und Serien ausblenden und blockieren, deren Altersfreigabe über diesem Schwellwert liegt. Medien ohne Altersfreigabe sind immer sichtbar.',
     skipIntro: 'Intro überspringen',
     skipOutro: 'Outro überspringen',
     skipCredits: 'Abspann überspringen',
@@ -1010,6 +1025,7 @@ export default {
     deleteAccountMessage:
       'Sind Sie sicher, dass Sie Ihr Konto unwiderruflich löschen möchten? Alle Ihre Daten gehen dabei verloren.',
     deleteAccountConfirm: 'Konto löschen',
+    deleteAccountError: 'Das Konto konnte nicht gelöscht werden. Bitte versuchen Sie es erneut.',
 
     // Devices
     devices: 'Meine Geräte',
@@ -1599,6 +1615,7 @@ export default {
     end: 'Ende',
     startTime: 'Startzeit',
     endTime: 'Endzeit',
+    timeFormatHint: 'MM:SS oder Sekunden',
     label: 'Bezeichnung',
     types: {
       intro: 'Intro',
@@ -2048,6 +2065,34 @@ export default {
     withdraw: 'Zurückziehen',
     remove: 'Entfernen',
     actionFailed: 'Aktion fehlgeschlagen',
+    // Generic labels
+    like: 'Gefällt mir',
+    unlike: 'Gefällt mir nicht mehr',
+    markPlayed: 'Als abgespielt markieren',
+    markUnplayed: 'Als nicht abgespielt markieren',
+    status: 'Status',
+    progress: 'Fortschritt',
+    pause: 'Pausieren',
+    resume: 'Fortsetzen',
+    type: 'Typ',
+    year: 'Jahr',
+    name: 'Name',
+    slug: 'Slug',
+    host: 'Host',
+    source: 'Quelle',
+    active: 'Aktiv',
+    inactive: 'Inaktiv',
+    system: 'System',
+    loading: 'Wird geladen...',
+    blacklisted: 'Auf der Blacklist',
+    startDownload: 'Download starten',
+    releaseHasNoLinks: 'Release hat keine Links',
+    trendingNow: 'Aktuell im Trend',
+    noTrending: 'Keine Trend-Einträge',
+    noFavorites: 'Noch keine Favoriten',
+    noIdProvided: 'Keine ID angegeben',
+    failedToLoadDetails: 'Details konnten nicht geladen werden',
+    noLayoutConfigured: 'Kein Seiten-Layout konfiguriert',
   },
 
   // Media status translations
@@ -2072,14 +2117,6 @@ export default {
     readyToPlay: 'Inhalt ist bereit zum Abspielen',
     errorPolling: 'Fehler beim Prüfen des Download-Status',
     noMediaId: 'Keine Medien-ID angegeben',
-  },
-
-  // Availability status
-  availability: {
-    unknown: 'Unbekannt',
-    available: 'Verfügbar',
-    downloadable: 'Herunterladbar',
-    unavailable: 'Nicht verfügbar',
   },
 
   // Transcoding Page
@@ -2151,6 +2188,7 @@ export default {
     lastName: 'Nachname *',
     email: 'E-Mail *',
     password: 'Passwort',
+    passwordHint: 'Leer lassen für Benutzer, die sich nur per OIDC anmelden',
     activeUser: 'Aktiver Benutzer',
     administrator: 'Administrator',
     cancel: 'Abbrechen',
@@ -2328,6 +2366,7 @@ export default {
       status: 'Status',
       downloader: 'Downloader',
       progress: 'Fortschritt',
+      speed: 'Geschwindigkeit',
       created: 'Erstellt',
       startedBy: 'Gestartet von',
     },
@@ -2420,7 +2459,10 @@ export default {
     // Form fields
     fields: {
       label: 'Bezeichnung',
+      labelHint: 'Ein beschreibender Name für diesen Indexer',
       type: 'Typ',
+      indexerType: 'Indexer-Typ *',
+      indexerTypeHint: 'Wählen Sie den Indexer-Typ',
       enabled: 'Aktiviert',
       createdAt: 'Erstellt am',
     },
@@ -2757,6 +2799,7 @@ export default {
     uniqueUsers: 'Eindeutige Benutzer',
     anonymous: 'Anonym',
     unknown: 'Unbekannt',
+    deviceContractError: 'Gerätesitzungs-Details konnten nicht geladen werden',
     original: 'Original',
     crfMode: 'CRF-Modus',
     started: 'Gestartet',
@@ -2828,6 +2871,7 @@ export default {
   // List Page
   listPage: {
     backToLists: 'Zurück zu Listen',
+    loadMore: 'Mehr laden',
     editList: 'Liste bearbeiten',
     addItems: 'Elemente hinzufügen',
     deleteList: 'Liste löschen',
@@ -3288,9 +3332,28 @@ export default {
     apiKeyRequired: 'Bitte einen API-Key eingeben',
     apiKeyKeepHint: 'Leer lassen, um den bestehenden API-Key beizubehalten',
   },
+  // Person / filmography page
+  person: {
+    movies: 'Filme',
+    shows: 'Serien',
+    noCredits: 'Noch keine Filmografie verfügbar.',
+    loadingCredits: 'Filmografie wird geladen...',
+    refreshFilmography: 'Aktualisieren',
+    importingFilmography: 'Filmografie wird importiert...',
+  },
+
+  // Form validation
+  validation: {
+    required: 'Pflichtfeld',
+  },
+
   pageLayouts: {
     create: 'Layout erstellen',
     edit: 'Layout bearbeiten',
+    description: 'Konfiguriere, welche Sektionen auf Browse-Seiten erscheinen',
+    confirmDelete: 'Layout "{name}" löschen?',
+    emptyLayoutPrompt: 'Dieses Layout hat noch keine Sektionen',
+    slugHint: 'home = Standard-Layout',
     details: 'Layout-Details',
     sections: 'Sektionen',
     addSection: 'Sektion hinzufügen',
@@ -3312,7 +3375,12 @@ export default {
     noLatestItems: 'Keine neuen Elemente',
     filters: 'Filter',
     mediaType: 'Medientyp',
-    availability: 'Verfügbarkeit',
+    availabilityLabel: 'Verfügbarkeit',
+    availability: {
+      local: 'Lokal (hat Dateien)',
+      releases: 'Hat Releases',
+      none: 'Keine Dateien oder Releases',
+    },
     hasPoster: 'Hat Poster',
     hasDescription: 'Hat Beschreibung',
     yearFrom: 'Jahr von',
@@ -3356,6 +3424,7 @@ export default {
     deleteConfirm: 'Möchtest du die Regel „{name}" wirklich löschen?',
     builderNeedsApiKey: 'Diese Quelle benötigt einen API-Key (in den Einstellungen hinterlegt).',
     builderKeyless: 'Diese Quelle benötigt keinen API-Key.',
+    pickBuilderFirst: 'Wähle zuerst einen Builder aus.',
     invalidJson: 'Ungültiges JSON.',
     jsonHint: 'JSON-Konfiguration für den Builder. Siehe Dokumentation.',
     filtersHint: 'JSON-Filter: min_rating, year_min/max, genre_in, …',
@@ -3507,6 +3576,7 @@ export default {
     fields: {
       name: 'Name',
       description: 'Beschreibung',
+      actionType: 'Aktionstyp',
       targetFilter: 'Filter (JSON)',
       action: 'Aktion (JSON)',
       cron: 'Cron (optional)',

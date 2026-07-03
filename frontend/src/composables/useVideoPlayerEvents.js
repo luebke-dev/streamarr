@@ -30,7 +30,7 @@ async function loadSpriteThumbnailsPlugin() {
  *   - setupXhrAuth(label)        re-attach VHS auth header (post-mount/ready)
  *   - updateProgress(t, dur)     persist viewing progress
  *   - reportPlaybackStarted(t, dur) report native playstate start
- *   - reportPlaybackStopped(t, dur) report native playstate stop
+ *   - onPlayerError(error)       notify consumer of a fatal player error
  *   - setupMediaSession()        wire MediaSession metadata + handlers
  *   - checkEpisodeNavigation()   refresh prev/next episode state
  *   - shouldAutoAdvanceOnEnded() whether ended should advance playback
@@ -60,7 +60,7 @@ export function useVideoPlayerEvents({
   setupXhrAuth,
   updateProgress,
   reportPlaybackStarted,
-  reportPlaybackStopped,
+  onPlayerError,
   setupMediaSession,
   checkEpisodeNavigation,
   shouldAutoAdvanceOnEnded,
@@ -125,6 +125,11 @@ export function useVideoPlayerEvents({
 
     vjsPlayer.on('seeked', () => {
       partySync.pushPlayerState(vjsPlayer, !vjsPlayer.paused())
+    })
+
+    vjsPlayer.on('error', () => {
+      if (videoJsPlayer.value !== vjsPlayer) return
+      onPlayerError?.(vjsPlayer.error())
     })
 
     // Track buffered amount for progress bar
@@ -217,7 +222,6 @@ export function useVideoPlayerEvents({
     const dur = playerState.value?.duration || duration.value || videoDuration.value
     if (dur > 0) {
       updateProgress(dur, dur, { eventName: 'stop' })
-      reportPlaybackStopped?.(dur, dur)
     }
 
     // Clear playback status on video end

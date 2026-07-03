@@ -480,6 +480,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { Dialog } from 'quasar'
+import { api } from 'boot/axios'
 import { useI18n } from 'vue-i18n'
 import { loadLocale } from 'src/i18n'
 import { useAuthStore } from 'src/stores/auth'
@@ -710,7 +711,18 @@ function confirmDeleteAccount() {
       color: 'negative',
     },
     persistent: true,
-  }).onOk(() => {})
+  }).onOk(async () => {
+    try {
+      await api.delete(`/api/users/${authStore.user.guid}`)
+      await authStore.logout()
+    } catch (error) {
+      logger.error('Failed to delete account:', error)
+      Dialog.create({
+        title: t('settings.deleteAccountTitle'),
+        message: t('settings.deleteAccountError'),
+      })
+    }
+  })
 }
 
 // Lifecycle

@@ -176,7 +176,7 @@ function connect() {
 /**
  * Disconnect from the WebSocket server.
  */
-function disconnect() {
+function disconnect({ clearHandlers = true } = {}) {
   if (reconnectTimeout) {
     clearTimeout(reconnectTimeout)
     reconnectTimeout = null
@@ -190,14 +190,16 @@ function disconnect() {
     globalSocket = null
   }
 
-  // Clear all event handlers to prevent memory leaks
-  eventHandlers.clear()
-  globalEventHandlers.clear()
-  reconnectListeners.clear()
+  if (clearHandlers) {
+    // Clear all event handlers to prevent memory leaks
+    eventHandlers.clear()
+    globalEventHandlers.clear()
+    reconnectListeners.clear()
+    hasEverConnected = false
+  }
 
   globalState.value = ConnectionState.DISCONNECTED
   reconnectAttempts = 0
-  hasEverConnected = false
 }
 
 /**

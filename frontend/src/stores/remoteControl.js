@@ -379,37 +379,10 @@ export const useRemoteControlStore = defineStore('remoteControl', () => {
     return sendRemoteCommand('skip_backward', { seconds })
   }
 
-  // Handle incoming remote control command (when this device is being controlled)
-  function handleRemoteCommand(data) {
-    const { command, payload, from_device_id, from_user_id } = data
-
-    // Only accept commands from same user
-    if (from_user_id !== authStore.user?.guid) {
-      logger.warn('[RemoteControl] Ignoring command from different user')
-      return
-    }
-
-    logger.debug('[RemoteControl] Received command:', command, 'from:', from_device_id)
-
-    isRemoteControlled.value = true
-    remoteController.value = from_device_id
-
-    // Emit event for PlayPage or other components to handle
-    const event = new CustomEvent('remote-control-command', {
-      detail: { command, payload, from_device_id },
-    })
-    window.dispatchEvent(event)
-  }
-
   // Clear remote controlled state
   function clearRemoteControlled() {
     isRemoteControlled.value = false
     remoteController.value = null
-  }
-
-  // Initialize WebSocket event handler for remote commands
-  function initRemoteControlHandler() {
-    ws.on('remote_control', handleRemoteCommand)
   }
 
   return {
@@ -461,8 +434,6 @@ export const useRemoteControlStore = defineStore('remoteControl', () => {
     sendPreviousCommand,
     sendSkipForwardCommand,
     sendSkipBackwardCommand,
-    handleRemoteCommand,
     clearRemoteControlled,
-    initRemoteControlHandler,
   }
 })

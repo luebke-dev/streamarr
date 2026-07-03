@@ -175,6 +175,7 @@ import axios from 'axios'
 import { useBackgroundRotation } from 'src/composables/useBackgroundRotation'
 import { getServerUrl, setServerUrl } from 'src/utils/authStorage'
 import { logger } from 'src/utils/logger'
+import { sanitizeRedirect } from 'src/utils/redirect'
 import FormBanner from 'src/components/FormBanner.vue'
 
 export default defineComponent({
@@ -230,7 +231,7 @@ export default defineComponent({
 
         await authStore.localLogin(email.value, password.value)
 
-        const redirect = route.query.redirect || '/'
+        const redirect = sanitizeRedirect(route.query.redirect)
         router.push(redirect)
       } catch (err) {
         logger.error('Local login error:', err)
@@ -277,7 +278,7 @@ export default defineComponent({
 
       // Check if user is already authenticated
       if (authStore.isAuthenticated) {
-        const redirect = route.query.redirect || '/'
+        const redirect = sanitizeRedirect(route.query.redirect)
         router.push(redirect)
         return
       }
