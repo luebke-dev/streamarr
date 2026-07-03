@@ -8,15 +8,21 @@ use crate::runtime::Runtime;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bollard::container::{
-    Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions, StatsOptions,
-    StopContainerOptions,
+    Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions,
+    StatsOptions, StopContainerOptions,
 };
 use bollard::image::CreateImageOptions;
 use bollard::models::{DeviceMapping, HostConfig};
 use bollard::Docker;
 use futures::StreamExt;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::FileTypeExt;
+
+/// Reserved name prefix for every container Lightrays spawns
+/// (`lightrays-<session_id>`). The reconciliation sweep only ever touches
+/// containers whose name starts with this prefix, so co-located foreign
+/// containers are never affected.
+pub const CONTAINER_PREFIX: &str = "lightrays-";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Docker runner
@@ -70,7 +76,7 @@ impl DockerRunner {
         app: &ContainerConfig,
         session: &ContainerSession,
     ) -> Result<String> {
-        let container_name = format!("lightrays-{}", session.session_id);
+        let container_name = format!("{}{}", CONTAINER_PREFIX, session.session_id);
 
         log::info!(
             "Starting container: {} (image: {})",
@@ -404,6 +410,83 @@ impl DockerRunner {
             anyhow::bail!("No stats received for container {}", container_name)
         }
     }
+
+    /// Stop and remove orphaned Lightrays containers.
+    ///
+    /// Lists every container (running or stopped) whose name matches the
+    /// reserved [`CONTAINER_PREFIX`] and removes the ones that are *not* in
+    /// `active`. `active` is the set of container names owned by live
+    /// in-memory sessions. On a fresh start this set is empty, so every
+    /// `lightrays-*` container left behind by a crashed previous process is
+    /// reaped.
+    ///
+    /// `min_age_secs` protects against racing a concurrent launch: when
+    /// greater than zero, containers created more recently than that are
+    /// left alone (a container is created a fraction of a second before it
+    /// is registered in the session map). Pass `0` at startup, where no
+    /// launches can be in flight yet.
+    ///
+    /// Best-effort: a failure to list or remove is logged and swallowed so
+    /// the caller (startup path or reaper) never aborts. Returns the number
+    /// of orphaned containers removed.
+    pub async fn sweep_orphan_containers(&self, active: &HashSet<String>, min_age_secs: i64) -> usize {
+        let options = ListContainersOptions::<String> {
+            all: true,
+            ..Default::default()
+        };
+        let containers = match self.docker.list_containers(Some(options)).await {
+            Ok(c) => c,
+            Err(e) => {
+                log::warn!("Orphan sweep: failed to list containers: {e:#}");
+                return 0;
+            }
+        };
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let mut removed = 0;
+        for c in containers {
+            // Docker returns names with a leading '/'. Only consider names
+            // in the reserved lightrays namespace.
+            let name = match c.names.as_ref().and_then(|names| {
+                names.iter().find_map(|n| {
+                    let n = n.strip_prefix('/').unwrap_or(n);
+                    if n.starts_with(CONTAINER_PREFIX) {
+                        Some(n.to_string())
+                    } else {
+                        None
+                    }
+                })
+            }) {
+                Some(n) => n,
+                None => continue,
+            };
+
+            if active.contains(&name) {
+                continue;
+            }
+
+            if min_age_secs > 0 {
+                if let Some(created) = c.created {
+                    let age = now.saturating_sub(created);
+                    if age < min_age_secs {
+                        log::debug!(
+                            "Orphan sweep: skipping recently-created container {name} (age {age}s)"
+                        );
+                        continue;
+                    }
+                }
+            }
+
+            log::warn!("Orphan sweep: removing orphaned lightrays container {name}");
+            let _ = self.stop_container(&name).await;
+            removed += 1;
+        }
+        removed
+    }
 }
 
 /// Snapshot of container resource usage.
@@ -442,6 +525,10 @@ impl Runtime for DockerRunner {
 
     async fn stats(&self, name: &str) -> Result<ContainerStats> {
         self.get_container_stats(name).await
+    }
+
+    async fn reconcile_orphans(&self, active: &HashSet<String>, min_age_secs: i64) -> usize {
+        self.sweep_orphan_containers(active, min_age_secs).await
     }
 }
 

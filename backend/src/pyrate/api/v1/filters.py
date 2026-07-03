@@ -52,13 +52,16 @@ def _visible_media_types(current_user, permissions) -> list[MediaType]:
     ]
 
 
-def _extract_studio_names(extra_data: str | None) -> set[str]:
+def _extract_studio_names(extra_data: str | dict | None) -> set[str]:
     if not extra_data:
         return set()
-    try:
-        data = json.loads(extra_data)
-    except (TypeError, ValueError):
-        return set()
+    if isinstance(extra_data, dict):
+        data = extra_data
+    else:
+        try:
+            data = json.loads(extra_data)
+        except (TypeError, ValueError):
+            return set()
     if not isinstance(data, dict):
         return set()
 

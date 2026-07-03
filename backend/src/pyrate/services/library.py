@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import extract, func, or_, select
+from sqlalchemy import String, cast, extract, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -571,7 +571,29 @@ class LibraryService:
                 func.lower(MediaItem.content_rating).notin_(exclude_rating_values)
             )
         if studio_name:
-            query = query.where(MediaItem.extra_data.ilike(f"%{studio_name.strip()}%"))
+            # Structured lookup scoped to the studio-related keys of the JSONB
+            # payload (``extra_data -> key`` on Postgres, JSON path on SQLite)
+            # instead of a substring ILIKE over the *whole* serialized blob,
+            # which matched unrelated fields (false positives) and forced a
+            # full scan. Casting each sub-document to text keeps it tolerant of
+            # both scalar values (``studio``) and nested company lists
+            # (``production_companies: [{"name": ...}]``). Mirrors the key set
+            # used by ``_extract_studio_names`` in the filters endpoint.
+            needle = f"%{studio_name.strip().lower()}%"
+            studio_keys = (
+                "studio",
+                "studios",
+                "production_company",
+                "production_companies",
+            )
+            query = query.where(
+                or_(
+                    *(
+                        func.lower(cast(MediaItem.extra_data[key], String)).like(needle)
+                        for key in studio_keys
+                    )
+                )
+            )
         if container:
             query = query.where(
                 MediaItem.guid.in_(
@@ -867,7 +889,29 @@ class LibraryService:
                 func.lower(MediaItem.content_rating).notin_(exclude_rating_values)
             )
         if studio_name:
-            query = query.where(MediaItem.extra_data.ilike(f"%{studio_name.strip()}%"))
+            # Structured lookup scoped to the studio-related keys of the JSONB
+            # payload (``extra_data -> key`` on Postgres, JSON path on SQLite)
+            # instead of a substring ILIKE over the *whole* serialized blob,
+            # which matched unrelated fields (false positives) and forced a
+            # full scan. Casting each sub-document to text keeps it tolerant of
+            # both scalar values (``studio``) and nested company lists
+            # (``production_companies: [{"name": ...}]``). Mirrors the key set
+            # used by ``_extract_studio_names`` in the filters endpoint.
+            needle = f"%{studio_name.strip().lower()}%"
+            studio_keys = (
+                "studio",
+                "studios",
+                "production_company",
+                "production_companies",
+            )
+            query = query.where(
+                or_(
+                    *(
+                        func.lower(cast(MediaItem.extra_data[key], String)).like(needle)
+                        for key in studio_keys
+                    )
+                )
+            )
         if container:
             query = query.where(
                 MediaItem.guid.in_(

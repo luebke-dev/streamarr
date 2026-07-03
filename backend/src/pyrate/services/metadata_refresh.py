@@ -302,16 +302,17 @@ class MetadataService:
 
     @staticmethod
     def _merge_extra_data(media_item: MediaItem, extra: dict) -> None:
-        existing = {}
-        if media_item.extra_data:
-            existing = json.loads(media_item.extra_data)
+        existing: dict = {}
+        ed = media_item.extra_data
+        if ed:
+            existing = dict(ed) if isinstance(ed, dict) else json.loads(ed)
         skip = {"title", "original_title", "description", "tagline",
                 "release_date", "poster_path", "backdrop_path",
                 "name", "original_name", "overview", "first_air_date"}
         for key, value in extra.items():
             if key not in skip:
                 existing[key] = value
-        media_item.extra_data = json.dumps(existing)
+        media_item.extra_data = existing
 
     async def _import_external_ids(self, media_item, media_service, extra: dict) -> None:
         """Import additional external IDs (IMDB, TVDB) from provider response."""
@@ -427,7 +428,7 @@ class MetadataService:
             existing.title = title
             existing.description = details.get("overview")
             existing.poster_path = details.get("poster_path")
-            existing.extra_data = json.dumps(details)
+            existing.extra_data = details
             existing.updated_at = datetime.now(UTC)
             await self._ensure_external_id(existing.guid, "tmdb", details.get("id"))
             return existing
@@ -440,7 +441,7 @@ class MetadataService:
             description=details.get("overview"),
             poster_path=details.get("poster_path"),
             release_date=self._parse_date(details.get("air_date")),
-            extra_data=json.dumps(details),
+            extra_data=details,
             availability_status=AvailabilityStatus.DOWNLOADABLE,
         )
         await self._ensure_external_id(item.guid, "tmdb", details.get("id"))
@@ -461,7 +462,7 @@ class MetadataService:
             existing.description = data.get("overview")
             existing.poster_path = data.get("still_path")
             existing.release_date = air_date
-            existing.extra_data = json.dumps(data)
+            existing.extra_data = data
             existing.updated_at = datetime.now(UTC)
             await self._ensure_external_id(existing.guid, "tmdb", data.get("id"))
             return existing
@@ -474,7 +475,7 @@ class MetadataService:
             description=data.get("overview"),
             poster_path=data.get("still_path"),
             release_date=air_date,
-            extra_data=json.dumps(data),
+            extra_data=data,
             availability_status=AvailabilityStatus.DOWNLOADABLE,
         )
         await self._ensure_external_id(item.guid, "tmdb", data.get("id"))

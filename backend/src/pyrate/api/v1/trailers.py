@@ -1,15 +1,19 @@
 """Trailer browsing endpoints."""
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
-from sqlalchemy import desc, or_, select
+from sqlalchemy import String, cast, desc, or_, select
 from sqlalchemy.orm import selectinload
 
 from pyrate.api.dependencies import CurrentUser, DatabaseSession, UserPermissionsDep
 from pyrate.api.v1.media import MediaTrailer, _trailer_candidates
 from pyrate.models.media import MediaItem, MediaType
 from pyrate.schemas.media import MediaItemSummary
-from pyrate.services.permission import MEDIA_TYPE_TO_LIBRARY
+from pyrate.services.media_access import (
+    allowed_media_types_for_permissions,
+    max_age_for_user,
+    require_library_access_for_media_type,
+)
 from pyrate.utils.age_rating import is_allowed
 
 router = APIRouter()
@@ -38,26 +42,11 @@ def _allowed_media_types(
     requested_type: MediaType | None,
 ) -> list[MediaType]:
     if requested_type:
-        library_name = MEDIA_TYPE_TO_LIBRARY.get(requested_type.value)
-        if (
-            not current_user.is_superuser
-            and library_name
-            and library_name not in permissions.allowed_libraries
-        ):
-            raise HTTPException(
-                status_code=403,
-                detail=f"Access denied to {library_name} library",
-            )
+        require_library_access_for_media_type(current_user, permissions, requested_type)
         return [requested_type]
 
-    if current_user.is_superuser:
-        return list(MediaType)
-
-    return [
-        media_type
-        for media_type in MediaType
-        if MEDIA_TYPE_TO_LIBRARY.get(media_type.value) in permissions.allowed_libraries
-    ]
+    allowed = allowed_media_types_for_permissions(current_user, permissions)
+    return list(MediaType) if allowed is None else allowed
 
 
 @router.get("", response_model=TrailerBrowseResponse)
@@ -80,20 +69,19 @@ async def browse_trailers(
         MediaItem.parent_guid.is_(None),
         MediaItem.extra_data.isnot(None),
         or_(
-            MediaItem.extra_data.ilike("%trailers%"),
-            MediaItem.extra_data.ilike("%remote_trailers%"),
-            MediaItem.extra_data.ilike("%video_provider_results%"),
-            MediaItem.extra_data.ilike("%videos%"),
+            cast(MediaItem.extra_data, String).ilike("%trailers%"),
+            cast(MediaItem.extra_data, String).ilike("%remote_trailers%"),
+            cast(MediaItem.extra_data, String).ilike("%video_provider_results%"),
+            cast(MediaItem.extra_data, String).ilike("%videos%"),
         ),
     ]
-    if not current_user.is_superuser:
+    max_age = max_age_for_user(current_user)
+    if max_age is not None:
         conditions.append(
             or_(
                 MediaItem.min_age.is_(None),
-                MediaItem.min_age <= current_user.parental_max_age,
+                MediaItem.min_age <= max_age,
             )
-            if current_user.parental_max_age is not None
-            else MediaItem.guid.isnot(None)
         )
     if search_term:
         pattern = f"%{search_term.strip()}%"
@@ -116,10 +104,7 @@ async def browse_trailers(
     items: list[TrailerBrowseItem] = []
     total = 0
     for media_item in candidates:
-        if not current_user.is_superuser and not is_allowed(
-            media_item.min_age,
-            current_user.parental_max_age,
-        ):
+        if not is_allowed(media_item.min_age, max_age_for_user(current_user)):
             continue
         trailers = [MediaTrailer(**candidate) for candidate in _trailer_candidates(media_item)]
         if not trailers:

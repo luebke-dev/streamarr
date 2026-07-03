@@ -27,7 +27,7 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -67,6 +67,28 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
             }
         },
     };
+
+    // ── Startup reconciliation ────────────────────────────────────────
+    // Session state lives only in-memory, so after a hard crash / restart
+    // the map starts empty and every `lightrays-*` container, PulseAudio
+    // sink, and per-session resource left on the host is orphaned — the
+    // idle reaper would never see them. Sweep them before we start
+    // accepting launches. This runs while nothing can be in flight yet, so
+    // an empty active set with a zero min-age is safe. All errors are
+    // logged and swallowed so a sweep failure never blocks startup.
+    let empty_active: HashSet<String> = HashSet::new();
+    if let Some(runtime) = runtime.as_ref() {
+        let removed = runtime.reconcile_orphans(&empty_active, 0).await;
+        if removed > 0 {
+            log::warn!(
+                "Startup reconciliation removed {removed} orphaned lightrays container(s)"
+            );
+        }
+    }
+    let orphan_sinks = pulse::reconcile_orphans(&empty_active).await;
+    if orphan_sinks > 0 {
+        log::warn!("Startup reconciliation unloaded {orphan_sinks} orphaned PulseAudio sink(s)");
+    }
 
     // Build CORS layer from config
     let cors = build_cors_layer(&config.cors_origins);
@@ -268,7 +290,17 @@ async fn handle_ready(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }
 }
 
-/// Background task that reaps sessions idle longer than the configured timeout.
+/// Minimum age a `lightrays-*` container must have before the periodic
+/// reaper sweep will treat it as an orphan. Comfortably longer than a
+/// launch takes to register the container in the session map, so a
+/// just-created container is never mistaken for an orphan mid-launch.
+const ORPHAN_SWEEP_MIN_AGE_SECS: i64 = 120;
+
+/// Background task that reaps sessions idle longer than the configured
+/// timeout, and — as a standing safety net — reconciles the actually
+/// running `lightrays-*` containers against the in-memory session map so a
+/// workload the map has lost track of (e.g. after a partial failure) can't
+/// leak indefinitely.
 async fn session_timeout_reaper(state: Arc<AppState>, timeout_secs: u64) {
     let timeout = Duration::from_secs(timeout_secs);
     loop {
@@ -298,6 +330,27 @@ async fn session_timeout_reaper(state: Arc<AppState>, timeout_secs: u64) {
             );
             metrics::SESSIONS_IDLE_TIMEOUT_TOTAL.inc();
             session_store::stop_session(&state, &sid).await;
+        }
+
+        // Safety-net sweep: kill orphaned containers no live session owns.
+        // The active set is rebuilt from the map *after* expiry handling so
+        // just-stopped sessions aren't counted as active. `min_age` skips
+        // containers younger than a launch window to avoid racing an
+        // in-flight launch that hasn't registered its container yet.
+        if let Some(runtime) = state.runtime.as_ref() {
+            let active: HashSet<String> = state
+                .sessions
+                .lock()
+                .await
+                .values()
+                .filter_map(|s| s.container_name.clone())
+                .collect();
+            let removed = runtime
+                .reconcile_orphans(&active, ORPHAN_SWEEP_MIN_AGE_SECS)
+                .await;
+            if removed > 0 {
+                log::warn!("Reaper reconciliation removed {removed} orphaned lightrays container(s)");
+            }
         }
     }
 }
@@ -435,7 +488,7 @@ async fn handle_launch(
 
     // Create PulseAudio sink if needed
     if launch.start_audio {
-        let sink_name = format!("lightrays_sink_{}", session_id);
+        let sink_name = format!("{}{}", pulse::SINK_PREFIX, session_id);
         let timer = metrics::LAUNCH_STAGE_DURATION_SECONDS
             .with_label_values(&["pulse"])
             .start_timer();

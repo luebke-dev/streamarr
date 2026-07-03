@@ -190,8 +190,8 @@ class MediaItemBase(BaseSchema):
     backdrop_path: str | None = None
     content_rating: str | None = None
     min_age: int | None = None
-    extra_data: str | None = Field(
-        None, description="JSON string containing type-specific metadata"
+    extra_data: dict | None = Field(
+        None, description="Type-specific metadata payload (JSONB)"
     )
 
 
@@ -216,7 +216,7 @@ class MediaItemUpdate(BaseSchema):
     backdrop_path: str | None = None
     availability_status: AvailabilityStatus | None = None
     sequence_number: int | None = None
-    extra_data: str | None = None
+    extra_data: dict | None = None
 
 
 class MediaItemSummary(BaseSchema):

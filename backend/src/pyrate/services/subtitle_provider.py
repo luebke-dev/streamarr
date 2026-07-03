@@ -18,10 +18,13 @@ class SubtitleProviderError(ValueError):
 
 def load_media_extra_data(media_item: MediaItem) -> dict[str, Any]:
     """Return parsed media ``extra_data`` as a dictionary."""
-    if not media_item.extra_data:
+    ed = media_item.extra_data
+    if not ed:
         return {}
+    if isinstance(ed, dict):
+        return ed
     try:
-        data = json.loads(media_item.extra_data)
+        data = json.loads(ed)
     except (TypeError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}

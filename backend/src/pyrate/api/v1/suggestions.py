@@ -17,7 +17,12 @@ from pyrate.models.media import MediaItem, MediaType, media_genre_table
 from pyrate.models.person import MediaCast, Person
 from pyrate.models.viewing_history import ViewingHistory
 from pyrate.schemas.media import MediaItemSummary
-from pyrate.services.permission import MEDIA_TYPE_TO_LIBRARY
+from pyrate.services.media_access import (
+    allowed_media_types_for_permissions,
+    max_age_for_user,
+    require_library_access_for_media_type,
+    require_media_read_access,
+)
 
 router = APIRouter()
 
@@ -79,35 +84,21 @@ def _allowed_media_types(
     requested_type: MediaType | None = None,
 ) -> list[MediaType]:
     if requested_type:
-        library_name = MEDIA_TYPE_TO_LIBRARY.get(requested_type.value)
-        if (
-            not current_user.is_superuser
-            and library_name
-            and library_name not in permissions.allowed_libraries
-        ):
-            raise HTTPException(
-                status_code=403,
-                detail=f"Access denied to {library_name} library",
-            )
+        require_library_access_for_media_type(current_user, permissions, requested_type)
         return [requested_type]
 
-    if current_user.is_superuser:
-        return list(MediaType)
-
-    return [
-        media_type
-        for media_type in MediaType
-        if MEDIA_TYPE_TO_LIBRARY.get(media_type.value) in permissions.allowed_libraries
-    ]
+    allowed = allowed_media_types_for_permissions(current_user, permissions)
+    return list(MediaType) if allowed is None else allowed
 
 
 def _visibility_conditions(current_user, permissions, media_type: MediaType | None):
     conditions = [MediaItem.media_type.in_(_allowed_media_types(current_user, permissions, media_type))]
-    if not current_user.is_superuser and current_user.parental_max_age is not None:
+    max_age = max_age_for_user(current_user)
+    if max_age is not None:
         conditions.append(
             or_(
                 MediaItem.min_age.is_(None),
-                MediaItem.min_age <= current_user.parental_max_age,
+                MediaItem.min_age <= max_age,
             )
         )
     return conditions
@@ -168,12 +159,16 @@ def _release_year(value: date | None) -> str | None:
 
 
 def _media_studios(media_item: MediaItem) -> list[str]:
-    if not media_item.extra_data:
+    ed = media_item.extra_data
+    if not ed:
         return []
-    try:
-        extra_data = json.loads(media_item.extra_data)
-    except (TypeError, ValueError):
-        return []
+    if isinstance(ed, dict):
+        extra_data = ed
+    else:
+        try:
+            extra_data = json.loads(ed)
+        except (TypeError, ValueError):
+            return []
     raw_values = (
         extra_data.get("studios")
         or extra_data.get("production_companies")
@@ -442,23 +437,7 @@ async def get_instant_mix(
     if not seed:
         raise HTTPException(status_code=404, detail="Media item not found")
 
-    seed_library = MEDIA_TYPE_TO_LIBRARY.get(seed.media_type.value)
-    if (
-        not current_user.is_superuser
-        and seed_library
-        and seed_library not in permissions.allowed_libraries
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail=f"Access denied to {seed_library} library",
-        )
-    if (
-        not current_user.is_superuser
-        and current_user.parental_max_age is not None
-        and seed.min_age is not None
-        and seed.min_age > current_user.parental_max_age
-    ):
-        raise HTTPException(status_code=403, detail="Blocked by parental control")
+    require_media_read_access(current_user, permissions, seed)
 
     seed_genre_ids = [genre.id for genre in seed.genres]
     related_conditions = [

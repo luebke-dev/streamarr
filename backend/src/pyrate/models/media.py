@@ -197,9 +197,13 @@ class MediaItem(Base):
     # Order/numbering (season number, episode number, track number, etc.)
     sequence_number: Mapped[int | None] = mapped_column(index=True)
 
-    # Type-specific data stored as JSON (for extensibility)
-    # E.g., for games: platforms, for music: artist info, for shows: series type
-    extra_data: Mapped[str | None] = mapped_column()  # JSON string
+    # Type-specific data stored as structured JSON (for extensibility).
+    # E.g., for games: platforms, for music: artist info, for shows: series type,
+    # for movies/shows: {"original_language": "en", "studio": ...}.
+    # JSONB on PostgreSQL (queryable + GIN-indexable), JSON on SQLite (tests).
+    extra_data: Mapped[dict | None] = mapped_column(
+        types.JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
 
     # Relationships
     parent = relationship("MediaItem", remote_side=[guid], foreign_keys=[parent_guid])
@@ -211,9 +215,6 @@ class MediaItem(Base):
     )
     external_ids = relationship(
         "MediaExternalId", back_populates="media_item", cascade="all, delete-orphan"
-    )
-    favorites = relationship(
-        "Favorite", back_populates="media_item", cascade="all, delete-orphan"
     )
     viewing_history = relationship(
         "ViewingHistory", back_populates="media_item", cascade="all, delete-orphan"
