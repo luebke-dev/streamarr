@@ -1,0 +1,15 @@
+[Unit]
+Description=Pyrate Media Frontend (Quasar SPA)
+
+[Container]
+Image=registry.gitlab.com/pyrate.media/frontend:latest
+ContainerName=pyrate-frontend
+
+PublishPort=3000:3000
+
+[Service]
+Restart=unless-stopped
+TimeoutStartSec=30
+
+[Install]
+WantedBy=default.target

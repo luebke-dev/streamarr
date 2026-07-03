@@ -1,0 +1,103 @@
+diff --git a/wayland-display-core/src/comp/mod.rs b/wayland-display-core/src/comp/mod.rs
+index e52ac6f..b898945 100644
+--- a/wayland-display-core/src/comp/mod.rs
++++ b/wayland-display-core/src/comp/mod.rs
+@@ -299,14 +299,12 @@ pub(crate) fn init(
+         .insert_source(command_src, move |event, _, state| {
+             match event {
+                 Event::Msg(Command::VideoInfo(video_info)) => {
+-                    // Only change the output if it's not running already
+-                    // TODO: properly support automatic resolution switching with DMA buffers
+-                    if state.output.is_some() {
+-                        tracing::info!(
+-                            "Output already running, ignoring newly negotiated video info"
+-                        );
+-                        return;
+-                    }
++                    // Switching resolution on the fly: the existing Output
++                    // stays, but we push a new preferred mode to it so every
++                    // wl_output listener (games, XFCE, etc.) gets the new
++                    // size via the standard mode event. The damage tracker,
++                    // allocator, and every toplevel's size hint get rebuilt
++                    // below, same as on the initial creation.
+                     let base_info: VideoInfo = video_info.clone().into();
+                     debug!(
+                         "Requested video format: {} .to_fourcc() = {}",
+@@ -320,7 +318,7 @@ pub(crate) fn init(
+                         framerate.numer() as f64 / framerate.denom() as f64,
+                     );
+ 
+-                    // init wayland objects
++                    let is_first_init = state.output.is_none();
+                     let output = state.output.get_or_insert_with(|| {
+                         let output = Output::new(
+                             "HEADLESS-1".into(),
+@@ -338,15 +336,20 @@ pub(crate) fn init(
+                         size: size.into(),
+                         refresh: (duration.as_secs_f64() * 1000.0).round() as i32,
+                     };
++                    // Update the current + preferred mode. Clients receive a
++                    // wl_output mode event with the new size; the old mode
++                    // stays advertised but inactive which is fine.
+                     output.change_current_state(Some(mode), None, None, None);
+                     output.set_preferred(mode);
+-                    let dtr = OutputDamageTracker::from_output(&output);
+ 
+-                    state.space.map_output(&output, (0, 0));
+-                    state.dtr = Some(dtr);
+-                    let position = (size.w as f64 / 2.0, size.h as f64 / 2.0).into();
+-                    state.pointer_location = position;
+-                    state.pointer_absolute_location = position;
++                    state.dtr = Some(OutputDamageTracker::from_output(&output));
++
++                    if is_first_init {
++                        state.space.map_output(&output, (0, 0));
++                        let position = (size.w as f64 / 2.0, size.h as f64 / 2.0).into();
++                        state.pointer_location = position;
++                        state.pointer_absolute_location = position;
++                    }
+                     state.video_info = Some(video_info.clone().into());
+                     match render_target {
+                         RenderTarget::Hardware(_) => match video_info {
+@@ -393,26 +396,21 @@ pub(crate) fn init(
+                         .to_i32_round();
+                     for window in state.space.elements() {
+                         let toplevel = window.toplevel().unwrap();
+-                        let max_size = Rectangle::from_size(
+-                            with_states(toplevel.wl_surface(), |states| {
+-                                states
+-                                    .data_map
+-                                    .get::<XdgToplevelSurfaceData>()
+-                                    .map(|_attrs| {
+-                                        states
+-                                            .cached_state
+-                                            .get::<SurfaceCachedState>()
+-                                            .current()
+-                                            .max_size
+-                                    })
+-                            })
+-                            .unwrap_or(new_size),
+-                        );
+-
+-                        let new_size = max_size
+-                            .intersection(Rectangle::from_size(new_size))
+-                            .map(|rect| rect.size);
+-                        toplevel.with_pending_state(|state| state.size = new_size);
++                        // For an embedded wayland compositor (gamescope under
++                        // Steam Big Picture, sway, etc.) we want it to fill
++                        // the full output. Skip the max_size intersection —
++                        // just push the output size and mark the toplevel
++                        // fullscreen+activated so the inner layer re-paints
++                        // at the new canvas size.
++                        toplevel.with_pending_state(|tstate| {
++                            tstate.size = Some(new_size);
++                            tstate.states.set(
++                                smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Fullscreen,
++                            );
++                            tstate.states.set(
++                                smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Activated,
++                            );
++                        });
+                         toplevel.send_configure();
+                     }
+                 }

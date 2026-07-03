@@ -1,0 +1,3 @@
+# Ignore build artifacts but keep vendor (needed for patched librespot-core)
+target/
+downloads/

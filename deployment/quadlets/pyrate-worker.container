@@ -1,0 +1,36 @@
+[Unit]
+Description=Pyrate Media Background Worker (TaskIQ)
+After=pyrate-postgres.service pyrate-redis.service
+
+[Container]
+Image=registry.gitlab.com/pyrate.media/backend:latest
+ContainerName=pyrate-worker
+
+Exec=uv run taskiq worker pyrate.worker:broker
+
+SecurityLabelDisable=true
+PodmanArgs=--privileged
+
+Environment=DATABASE_URL=postgresql+asyncpg://pyrate:${POSTGRES_PASSWORD}@pyrate-postgres:5432/pyrate
+Environment=REDIS_URL=redis://pyrate-redis:6379/0
+Environment=ELASTICSEARCH_HOST=pyrate-elasticsearch
+Environment=ELASTICSEARCH_PORT=9200
+Environment=SECRET_KEY=${SECRET_KEY}
+Environment=DOWNLOADER_WEBHOOK_SECRET=${DOWNLOADER_WEBHOOK_SECRET}
+Environment=PROJECT_ROOT=${PROJECT_ROOT}
+
+Volume=${DATA_DIR}/library/movies:/library/movies:rw,z
+Volume=${DATA_DIR}/library/shows:/library/shows:rw,z
+Volume=${DATA_DIR}/library/music:/library/music:rw,z
+Volume=${DATA_DIR}/sabnzbd/downloads:/downloads:rw,z
+Volume=${DATA_DIR}/sabnzbd/incomplete:/incomplete:rw,z
+Volume=${DATA_DIR}/cache:/cache:rw,z
+Volume=${DATA_DIR}/temp:/temp:rw,z
+Volume=/var/run/docker.sock:/var/run/docker.sock:rw,z
+
+[Service]
+Restart=unless-stopped
+TimeoutStartSec=60
+
+[Install]
+WantedBy=default.target

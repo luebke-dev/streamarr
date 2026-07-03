@@ -1,0 +1,10 @@
+.git
+.gitignore
+target
+docker/target
+*.log
+*.tmp
+.env
+.env.*
+!.env.example
+LIGHTRAYS_SOURCE_REVIEW_FINDINGS.md

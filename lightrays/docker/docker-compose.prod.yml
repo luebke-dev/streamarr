@@ -1,0 +1,55 @@
+# Lightrays — production-shaped local override.
+#
+# Production deployments target Kubernetes (Helm chart in
+# pyrate.media/deployment/helm). This file exists only for the
+# occasional "smoke-test the prod-ish behaviour on a single host"
+# scenario; the real hardening (cap_drop ALL, seccomp RuntimeDefault,
+# readOnlyRootFilesystem, etc.) is in the Helm pod securityContext.
+#
+# What this override does relative to the baseline:
+#   * Required env (JWT secret, CORS origins) is enforced via ``:?``.
+#   * Direct Docker socket mount — Lightrays must manage app containers
+#     via the host's Docker daemon, same as it does in dev.
+#   * Pinned RUST_LOG, container-log dumps off, short ws-ticket TTL,
+#     metrics-on-localhost.
+#
+# Usage:
+#   LIGHTRAYS_JWT_SECRET=... \
+#   LIGHTRAYS_CORS_ORIGINS=https://pyrate.example.com \
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  lightrays:
+    environment:
+      # Fail-fast: production must provide both values from the deployment
+      # environment. The base file leaves them blank so the dev override
+      # can opt out of auth; here we lock them down.
+      LIGHTRAYS_JWT_SECRET: "${LIGHTRAYS_JWT_SECRET:?LIGHTRAYS_JWT_SECRET is required for production}"
+      LIGHTRAYS_CORS_ORIGINS: "${LIGHTRAYS_CORS_ORIGINS:?LIGHTRAYS_CORS_ORIGINS is required for production}"
+      RUST_LOG: "info"
+      # Container log dumps include user-supplied env, so leave them off
+      # in production unless actively debugging an exit.
+      LIGHTRAYS_DUMP_CONTAINER_LOGS: "false"
+      # Keep the WebSocket ticket window short. The launch flow mints a
+      # new ticket each time, so a long TTL would only widen the replay
+      # window on leak.
+      LIGHTRAYS_WS_TICKET_TTL_SECS: "60"
+      # Bind metrics to localhost only; expose via a scraping sidecar or
+      # network policy rather than the public listener.
+      LIGHTRAYS_METRICS_BIND_ADDR: "127.0.0.1"
+      LIGHTRAYS_DOCKER_SOCKET: /var/run/docker.sock
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/lightrays-runtime:/tmp/lightrays-runtime
+      - /etc/lightrays:/etc/lightrays
+      - /dev/dri:/dev/dri
+      - /dev/input:/dev/input
+      - /run/user/1000/pulse:/run/user/1000/pulse
+
+    devices:
+      - /dev/dri:/dev/dri
+
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN

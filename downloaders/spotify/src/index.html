@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>spotify-downloader</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0f0f0f; color: #e0e0e0; padding: 1.5rem; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin-bottom: 1.5rem; color: #1db954; }
+  .form-row { display: flex; gap: .5rem; margin-bottom: 1.5rem; }
+  input[type="text"], select { background: #1a1a1a; border: 1px solid #333; color: #e0e0e0; padding: .5rem .75rem; border-radius: 6px; font-size: .875rem; }
+  input[type="text"] { flex: 1; }
+  select { width: 5rem; }
+  button { background: #1db954; color: #000; border: none; padding: .5rem 1rem; border-radius: 6px; font-size: .875rem; font-weight: 600; cursor: pointer; }
+  button:hover { background: #1ed760; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-sm { padding: .25rem .5rem; font-size: .75rem; border-radius: 4px; }
+  .btn-danger { background: #e33; color: #fff; }
+  .btn-danger:hover { background: #f44; }
+  table { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+  th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid #222; }
+  th { color: #888; font-weight: 500; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; }
+  .badge { display: inline-block; padding: .125rem .5rem; border-radius: 9999px; font-size: .7rem; font-weight: 600; text-transform: uppercase; }
+  .badge-queued { background: #333; color: #aaa; }
+  .badge-downloading { background: #1a3a2a; color: #1db954; }
+  .badge-completed { background: #1a2a3a; color: #4a9eff; }
+  .badge-cancelled { background: #2a2a1a; color: #aa8833; }
+  .badge-failed { background: #3a1a1a; color: #e33; }
+  .mono { font-family: ui-monospace, monospace; font-size: .75rem; color: #888; }
+  .empty { text-align: center; padding: 2rem; color: #555; }
+  .error-text { color: #e33; font-size: .75rem; }
+</style>
+</head>
+<body>
+
+<h1>spotify-downloader</h1>
+
+<form class="form-row" id="dlForm">
+  <input type="text" id="trackInput" placeholder="Track ID, Spotify URI, or open.spotify.com URL" required>
+  <select id="bitrateSelect">
+    <option value="">default</option>
+    <option value="96">96</option>
+    <option value="160">160</option>
+    <option value="320">320</option>
+  </select>
+  <button type="submit" id="submitBtn">Download</button>
+</form>
+
+<table>
+  <thead>
+    <tr>
+      <th>Track</th>
+      <th>Status</th>
+      <th>Size</th>
+      <th>Queued</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody id="jobsBody">
+    <tr><td colspan="5" class="empty">Loading…</td></tr>
+  </tbody>
+</table>
+
+<script>
+const jobsBody = document.getElementById('jobsBody');
+const dlForm = document.getElementById('dlForm');
+const trackInput = document.getElementById('trackInput');
+const bitrateSelect = document.getElementById('bitrateSelect');
+const submitBtn = document.getElementById('submitBtn');
+
+function badge(status) {
+  return `<span class="badge badge-${status}">${status}</span>`;
+}
+
+function timeAgo(iso) {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function fmtSize(bytes) {
+  if (!bytes) return '—';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+function renderJobs(jobs) {
+  if (!jobs.length) {
+    jobsBody.innerHTML = '<tr><td colspan="5" class="empty">No jobs yet</td></tr>';
+    return;
+  }
+  jobsBody.innerHTML = jobs.map(j => `
+    <tr>
+      <td class="mono">${esc(j.track_id)}${j.error ? '<br><span class="error-text">' + esc(j.error) + '</span>' : ''}</td>
+      <td>${badge(j.status)}</td>
+      <td class="mono">${fmtSize(j.file_size)}</td>
+      <td class="mono">${timeAgo(j.queued_at)}</td>
+      <td>
+        ${j.status === 'completed' ? '<a class="btn-sm" href="/api/files/' + esc(j.track_id) + '" download>⬇</a> ' : ''}
+        <button class="btn-sm btn-danger" onclick="deleteJob('${j.id}')">✕</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function loadJobs() {
+  try {
+    const r = await fetch('/api/jobs');
+    renderJobs(await r.json());
+  } catch {}
+}
+
+async function deleteJob(id) {
+  await fetch('/api/jobs/' + id, { method: 'DELETE' });
+  loadJobs();
+}
+
+dlForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  submitBtn.disabled = true;
+  const body = { track_id: trackInput.value.trim() };
+  const br = bitrateSelect.value;
+  if (br) body.bitrate = parseInt(br);
+  try {
+    await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    trackInput.value = '';
+    loadJobs();
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+loadJobs();
+setInterval(loadJobs, 3000);
+</script>
+</body>
+</html>

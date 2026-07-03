@@ -1,0 +1,48 @@
+# --- Secrets / lokale Konfiguration (NIEMALS committen) ---
+.env
+.env.local
+*.env
+!.env.example
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+
+# --- Laufzeit-/Mediendaten ---
+/data/
+/observability/**/data/
+
+# --- Fremde Referenz-Repos (bewusst nicht Teil des Monorepos) ---
+/references/
+
+# --- Node / Frontend ---
+node_modules/
+dist/
+.quasar/
+.output/
+*.log
+
+# --- Rust (downloaders, lightrays) ---
+target/
+
+# --- Python (backend) ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Build-/Tooling-Artefakte ---
+*.tmp
+.DS_Store
+frontend/src-tauri/target/
+frontend/src-tauri/gen/apple/
+frontend/src-capacitor/android/
+frontend/src-capacitor/ios/
+
+# --- Editor ---
+.idea/
+.vscode/

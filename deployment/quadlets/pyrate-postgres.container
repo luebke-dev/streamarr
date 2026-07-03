@@ -1,0 +1,28 @@
+[Unit]
+Description=Pyrate Media PostgreSQL Database
+
+[Container]
+Image=postgres:16
+ContainerName=pyrate-postgres
+
+Exec=postgres -c max_connections=200
+
+Environment=POSTGRES_USER=pyrate
+Environment=POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+Environment=POSTGRES_DB=pyrate
+
+Volume=${DATA_DIR}/postgres:/var/lib/postgresql/data:rw,z
+
+PublishPort=5432:5432
+
+HealthCmd=pg_isready -U pyrate
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=5
+
+[Service]
+Restart=unless-stopped
+TimeoutStartSec=60
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,367 @@
+# pyrate.media – Local Dev Docker Compose (all images built locally)
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Backend Proxy (nginx) — routes requests between Python and Rust backends
+  # based on whitelist in backend/proxy/nginx.conf.
+  # ---------------------------------------------------------------------------
+  backend:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./backend/proxy/nginx.conf:/etc/nginx/nginx.conf:ro,z
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      - backend-python
+
+  # ---------------------------------------------------------------------------
+  # Backend API — Python (FastAPI)
+  # ---------------------------------------------------------------------------
+  backend-python:
+    build:
+      context: ./backend
+      dockerfile: Containerfile
+    command:
+      [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "pyrate.server",
+        "--reload",
+      ]
+    restart: unless-stopped
+    privileged: true
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - REDIS_URL=redis://redis:6379/0
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - SECRET_KEY=${SECRET_KEY}
+      - LIGHTRAYS_URL=http://lightrays:8080
+      - LIGHTRAYS_PUBLIC_URL=${LIGHTRAYS_PUBLIC_URL:-}
+      - LIGHTRAYS_JWT_SECRET=${LIGHTRAYS_JWT_SECRET}
+      - LIGHTRAYS_DEFAULT_RUNTIME_PROFILE=${LIGHTRAYS_DEFAULT_RUNTIME_PROFILE:-gow-steam}
+      - LIGHTRAYS_SESSION_TIMEOUT_SECS=${LIGHTRAYS_SESSION_TIMEOUT_SECS:-3600}
+      - LIGHTRAYS_GAMING_STORAGE_CONTAINER=/user-data
+      - LIGHTRAYS_GAMING_STORAGE_HOST=${PROJECT_ROOT:-/root/pyrate.media}/data/users
+      - PROJECT_ROOT=${PROJECT_ROOT:-/data/}
+      - PYRATE_ARTWORK_CACHE_ENABLED=${PYRATE_ARTWORK_CACHE_ENABLED:-true}
+      - PYRATE_ARTWORK_CACHE_DIR=/cache/artwork
+    volumes:
+      - ./backend/src:/app/src:rw,z
+      - ./backend/alembic:/app/alembic:rw,z
+      - ${DATA_DIR:-./data}/library/movies:/library/movies:rw,z
+      - ${DATA_DIR:-./data}/library/shows:/library/shows:rw,z
+      - ${DATA_DIR:-./data}/library/music:/library/music:rw,z
+      - ${DATA_DIR:-./data}/library/books:/library/books:rw,z
+      - ${DATA_DIR:-./data}/usenet-remote/downloads:/downloads:rw,z
+      - ${DATA_DIR:-./data}/spotdl/downloads:/spotdl-downloads:rw,z
+      - ${DATA_DIR:-./data}/torrent/downloads:/torrent-downloads:rw,z
+      - ${DATA_DIR:-./data}/usenet/downloads:/usenet-downloads:rw,z
+      - ${DATA_DIR:-./data}/cache:/cache:rw,z
+      - ${DATA_DIR:-./data}/temp:/temp:rw,z
+      - ${DATA_DIR:-./data}/users:/user-data:rw,z
+      - /var/run/docker.sock:/var/run/docker.sock:rw,z
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Background Worker (TaskIQ)
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Containerfile
+    command: ["uv", "run", "taskiq", "worker", "pyrate.worker:broker", "--reload"]
+    restart: unless-stopped
+    privileged: true
+    user: "0:0"
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - REDIS_URL=redis://redis:6379/0
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - SECRET_KEY=${SECRET_KEY}
+      - PROJECT_ROOT=${PROJECT_ROOT:-/root/pyrate.media/}
+    volumes:
+      - ./backend/src:/app/src:rw,z
+      - ${DATA_DIR:-./data}/library/movies:/library/movies:rw,z
+      - ${DATA_DIR:-./data}/library/shows:/library/shows:rw,z
+      - ${DATA_DIR:-./data}/library/music:/library/music:rw,z
+      - ${DATA_DIR:-./data}/library/books:/library/books:rw,z
+      - ${DATA_DIR:-./data}/usenet-remote/downloads:/downloads:rw,z
+      - ${DATA_DIR:-./data}/spotdl/downloads:/spotdl-downloads:rw,z
+      - ${DATA_DIR:-./data}/torrent/downloads:/torrent-downloads:rw,z
+      - ${DATA_DIR:-./data}/usenet/downloads:/usenet-downloads:rw,z
+      - ${DATA_DIR:-./data}/cache:/cache:rw,z
+      - ${DATA_DIR:-./data}/temp:/temp:rw,z
+      - ${DATA_DIR:-./data}/users:/user-data:rw,z
+      - /var/run/docker.sock:/var/run/docker.sock:rw,z
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    deploy:
+      replicas: ${WORKER_REPLICAS:-2}
+
+  # ---------------------------------------------------------------------------
+  # Task Scheduler (TaskIQ)
+  # ---------------------------------------------------------------------------
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Containerfile
+    command: ["uv", "run", "taskiq", "scheduler", "pyrate.worker:scheduler"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - REDIS_URL=redis://redis:6379/0
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - SECRET_KEY=${SECRET_KEY}
+      - PROJECT_ROOT=${PROJECT_ROOT:-/root/pyrate.media/}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # ---------------------------------------------------------------------------
+  # Frontend (Quasar SPA)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Containerfile
+      args:
+        VITE_ARTWORK_CACHE_ENABLED: ${PYRATE_ARTWORK_CACHE_ENABLED:-true}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3001}:3000"
+
+  # ---------------------------------------------------------------------------
+  # Prometheus — scrapes FastAPI /metrics from the internal compose network
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      - backend-python
+
+  # ---------------------------------------------------------------------------
+  # Grafana — provisioned Prometheus datasource + pyrate.media dashboard
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-pyrate}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro,z
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro,z
+    ports:
+      - "${GRAFANA_PORT:-3005}:3000"
+    depends_on:
+      - prometheus
+
+  # ---------------------------------------------------------------------------
+  # Lightrays (WebRTC / streaming relay)
+  # ---------------------------------------------------------------------------
+  lightrays:
+    build:
+      context: ./lightrays
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    privileged: true
+    env_file: .env
+    environment:
+      - LIGHTRAYS_HOSTNAME=${LIGHTRAYS_HOSTNAME:-lightrays}
+      - LIGHTRAYS_API_PORT=8080
+      - LIGHTRAYS_STREAMING_PORT=8081
+      - LIGHTRAYS_JWT_SECRET=${LIGHTRAYS_JWT_SECRET}
+      - LIGHTRAYS_STUN_SERVER=${LIGHTRAYS_STUN_SERVER:-stun://stun.l.google.com:19302}
+      - LIGHTRAYS_CORS_ORIGINS=${LIGHTRAYS_CORS_ORIGINS:-*}
+      - LIGHTRAYS_TURN_SERVER=${LIGHTRAYS_TURN_SERVER:-}
+      - LIGHTRAYS_TURN_USERNAME=${LIGHTRAYS_TURN_USERNAME:-}
+      - LIGHTRAYS_TURN_PASSWORD=${LIGHTRAYS_TURN_PASSWORD:-}
+      - LIGHTRAYS_GOW_IMAGE=${LIGHTRAYS_GOW_IMAGE:-ghcr.io/games-on-whales/steam:edge}
+      - LIGHTRAYS_RECONNECT_GRACE_SECS=${LIGHTRAYS_RECONNECT_GRACE_SECS:-30}
+      - LIGHTRAYS_WS_TICKET_TTL_SECS=${LIGHTRAYS_WS_TICKET_TTL_SECS:-120}
+      - LIGHTRAYS_SESSION_TIMEOUT_SECS=${LIGHTRAYS_SESSION_TIMEOUT_SECS:-3600}
+      - LIGHTRAYS_HOST_XDG_RUNTIME_DIR=${LIGHTRAYS_HOST_XDG_RUNTIME_DIR}
+      - LIGHTRAYS_HOST_STATE_DIR=${LIGHTRAYS_HOST_STATE_DIR}
+      - LIGHTRAYS_DOCKER_SOCKET=/var/run/docker.sock
+      - XDG_RUNTIME_DIR=/tmp/lightrays-runtime
+      - LIGHTRAYS_STATE_DIR=/state/lightrays
+      - RUST_LOG=info
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw,z
+      - ${LIGHTRAYS_HOST_XDG_RUNTIME_DIR}:/tmp/lightrays-runtime:rw,z
+      - ${LIGHTRAYS_HOST_STATE_DIR}:/state/lightrays:rw,z
+      - /dev/dri:/dev/dri
+    ports:
+      - "${LIGHTRAYS_PORT:-8009}:8080"
+      - "8099:8081"
+
+  # ---------------------------------------------------------------------------
+  # Spotify downloader
+  # ---------------------------------------------------------------------------
+  spotdl:
+    build:
+      context: ./downloaders/spotify
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      WEBHOOK_URL: http://backend:8000/api/webhooks/spotdl
+      WEBHOOK_SECRET: ${DOWNLOADER_WEBHOOK_SECRET}
+    volumes:
+      - ${DATA_DIR:-./data}/spotdl:/data:rw,z
+    ports:
+      - "${SPOTDL_PORT:-3004}:3000"
+
+  # ---------------------------------------------------------------------------
+  # Torrent downloader
+  # ---------------------------------------------------------------------------
+  torrent-downloader:
+    build:
+      context: ./downloaders/torrent
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      WEBHOOK_URL: http://backend:8000/api/webhooks/torrent
+      WEBHOOK_SECRET: ${DOWNLOADER_WEBHOOK_SECRET}
+      MAX_CONCURRENT_DOWNLOADS: "5"
+      SEED_RATIO: "0"
+    volumes:
+      - ${DATA_DIR:-./data}/torrent/downloads:/downloads:rw,z
+    ports:
+      - "${TORRENT_DL_PORT:-3002}:3000"
+      - "${TORRENT_DHT_PORT:-6881}:6881/udp"
+
+  # ---------------------------------------------------------------------------
+  # Usenet downloader
+  # Downloads are shared with backend/worker as /downloads.
+  # ---------------------------------------------------------------------------
+  usenet-downloader:
+    build:
+      context: ./downloaders/usenet
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      WEBHOOK_URL: http://backend:8000/api/webhooks/usenet
+      WEBHOOK_SECRET: ${DOWNLOADER_WEBHOOK_SECRET}
+      RUST_LOG: usenet_downloader=info,tower_http=info
+    volumes:
+      - ${DATA_DIR:-./data}/usenet-remote/data:/data:rw,z
+      - ${DATA_DIR:-./data}/usenet-remote/downloads:/downloads:rw,z
+    ports:
+      - "${USENET_DL_PORT:-3003}:3000"
+    depends_on:
+      - backend
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-pyrate}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-pyrate}
+    # pg_stat_statements tracks per-query call count + timing; slow-query log
+    # flags anything over 500ms so we have data to indexize against.
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - pg_stat_statements.max=5000
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - log_line_prefix=%m [%p] %u@%d
+    volumes:
+      - ${DATA_DIR:-./data}/postgres:/var/lib/postgresql/data:rw,z
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pyrate}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Redis
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - ${DATA_DIR:-./data}/redis:/data:rw,z
+
+  # ---------------------------------------------------------------------------
+  # Elasticsearch
+  # ---------------------------------------------------------------------------
+  elasticsearch:
+    # Match the k8s deployment (manifests/apps/pyrate.yaml). The Python
+    # client is pinned to 9.2.0 in pyproject.toml and refuses to talk to
+    # an 8.x server (HEAD / returns 400 over the version handshake).
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.2.0
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.monitoring.collection.enabled=false
+      - ES_JAVA_OPTS=-Xms${ES_HEAP_SIZE:-512}m -Xmx${ES_HEAP_SIZE:-512}m
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - ${DATA_DIR:-./data}/elastic:/usr/share/elasticsearch/data:rw,z
+    ports:
+      - "${ES_PORT:-9200}:9200"
+    user: "1000:1000"
+    init: true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  prometheus-data:
+  grafana-data:

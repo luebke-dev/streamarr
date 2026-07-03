@@ -1,0 +1,410 @@
+# Default values for pyrate.
+# Override per-environment via `helm install -f values-prod.yaml`.
+
+## ---------------------------------------------------------------------------
+## Global
+## ---------------------------------------------------------------------------
+global:
+  # Image registry + repository prefix. Local images built via docker-compose
+  # default to `pyratemedia-<service>`; override `imageRegistry` to point at a
+  # private registry that hosts the same names.
+  imageRegistry: ""
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  storageClass: ""
+
+## ---------------------------------------------------------------------------
+## Secrets
+## All values default to empty so the chart fails fast if you don't set them.
+## Set `existingSecret` to mount a pre-existing Secret instead of letting the
+## chart create one.
+## ---------------------------------------------------------------------------
+secrets:
+  existingSecret: ""
+  postgresPassword: ""
+  secretKey: ""
+  lightraysJwtSecret: ""
+  downloaderWebhookSecret: ""
+
+## ---------------------------------------------------------------------------
+## Postgres
+## ---------------------------------------------------------------------------
+## When `enabled: true` (default) the chart runs an in-tree StatefulSet using
+## the values below. Set `enabled: false` and fill in `external` to point at a
+## managed/operator-provided cluster (CloudNativePG, RDS, Crunchy, ...). See
+## the README for a CloudNativePG snippet.
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16"
+  user: pyrate
+  database: pyrate
+  service:
+    port: 5432
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+  resources: {}
+
+  external:
+    # Hostname (Service or DNS) of the external cluster — required when
+    # `postgres.enabled=false`. CloudNativePG: `<cluster-name>-rw`.
+    host: ""
+    port: 5432
+    user: pyrate
+    database: pyrate
+    # Reference to an existing Secret holding the password. CloudNativePG
+    # creates `<cluster-name>-app` with a `password` key by default — point
+    # `name` at that Secret and leave `passwordKey` as-is.
+    existingSecret:
+      name: ""
+      passwordKey: password
+
+## ---------------------------------------------------------------------------
+## Redis
+## ---------------------------------------------------------------------------
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+  service:
+    port: 6379
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: ""
+  resources: {}
+
+## ---------------------------------------------------------------------------
+## Elasticsearch
+## ---------------------------------------------------------------------------
+elasticsearch:
+  enabled: true
+  image:
+    repository: docker.elastic.co/elasticsearch/elasticsearch
+    tag: "8.13.4"
+  service:
+    port: 9200
+  heapSizeMb: 512
+  # Run a privileged init container to set vm.max_map_count=262144. Disable
+  # if your node already has the sysctl pre-applied (or you use the elastic
+  # operator's tuning hook).
+  tuneVmMaxMapCount: true
+  persistence:
+    enabled: true
+    size: 30Gi
+    storageClass: ""
+  resources:
+    limits:
+      memory: 1.5Gi
+    requests:
+      memory: 768Mi
+
+## ---------------------------------------------------------------------------
+## Shared persistent volumes
+##
+## `mode: pvc` (default) creates standard ReadWriteMany PVCs. This works for
+## the pyrate pods themselves — but **it does not work for FFmpeg or
+## lightrays-gaming containers**, because those are spawned as siblings via
+## the host docker socket and the docker daemon can only bind-mount paths
+## visible on the node's own filesystem.
+##
+## `mode: hostPath` switches every shared volume to a hostPath mount rooted
+## at `hostPath.base`. The directory layout on every worker-/lightrays-
+## eligible node MUST then look like:
+##
+##     <hostPath.base>/
+##     ├── data/library/{movies,shows,music,books}
+##     ├── data/downloads
+##     ├── data/cache
+##     ├── data/temp
+##     └── data/users
+##
+## Use `worker.nodeSelector` / `lightrays.nodeSelector` to pin the workloads
+## to the nodes that have this layout pre-provisioned (NFS mount, ZFS
+## dataset, …). PROJECT_ROOT is auto-derived from `hostPath.base`, which is
+## also what spawned FFmpeg / gaming containers will see.
+## ---------------------------------------------------------------------------
+persistence:
+  mode: pvc
+  hostPath:
+    base: /var/lib/pyrate
+  library:
+    size: 1Ti
+    storageClass: ""
+    accessMode: ReadWriteMany
+  downloads:
+    size: 200Gi
+    storageClass: ""
+    accessMode: ReadWriteMany
+  cache:
+    size: 50Gi
+    storageClass: ""
+    accessMode: ReadWriteMany
+  temp:
+    size: 50Gi
+    storageClass: ""
+    accessMode: ReadWriteMany
+  users:
+    size: 100Gi
+    storageClass: ""
+    accessMode: ReadWriteMany
+
+## ---------------------------------------------------------------------------
+## Backend (nginx proxy in front of backend-python)
+## ---------------------------------------------------------------------------
+backend:
+  proxy:
+    image:
+      repository: nginx
+      tag: "alpine"
+    service:
+      port: 8000
+    nginxConfig: ""  # Override the proxy config inline; otherwise a default is rendered.
+    resources: {}
+
+  python:
+    enabled: true
+    image:
+      repository: pyratemedia-backend-python
+      tag: "latest"
+    replicas: 1
+    # The Kubernetes computing provider auto-activates when a ServiceAccount
+    # token is mounted, so transcodes run as separate Jobs and the backend
+    # pod itself doesn't need privileged or the host docker socket.
+    extraEnv: []
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    resources: {}
+
+## ---------------------------------------------------------------------------
+## Background services
+## ---------------------------------------------------------------------------
+worker:
+  enabled: true
+  image:
+    repository: pyratemedia-worker
+    tag: "latest"
+  replicas: 2
+  # Same as backend-python: the Kubernetes computing provider creates a Job
+  # per FFmpeg/chromaprint task, so the worker pod itself runs unprivileged.
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  resources: {}
+
+scheduler:
+  enabled: true
+  image:
+    repository: pyratemedia-scheduler
+    tag: "latest"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  resources: {}
+
+## ---------------------------------------------------------------------------
+## RBAC for the Kubernetes computing provider
+## Backend + worker need to create/get/list/watch/delete Jobs + Pods (+ pod
+## logs) in the release namespace so the auto-detected Kubernetes provider
+## can spawn FFmpeg / chromaprint Jobs. Disable only if you wire your own SA.
+## ---------------------------------------------------------------------------
+rbac:
+  create: true
+  serviceAccount:
+    name: ""  # defaults to <release>-compute when empty
+
+## ---------------------------------------------------------------------------
+## Transcoding Jobs (spawned by the computing provider)
+## These knobs do NOT control where the worker/backend pods themselves run —
+## they control where the per-task FFmpeg / chromaprint Job pods land. The
+## backend reads them at startup and forwards them into every start_task()
+## call. Per-call kwargs win, so a specific task type can override.
+## ---------------------------------------------------------------------------
+transcoding:
+  namespace: ""           # defaults to release namespace
+  jobTtlSeconds: 3600
+  nodeSelector: {}        # e.g. { pyrate.media/role: "transcode" }
+  tolerations: []
+  # Number of GPUs to request per transcode Job. Requires a node with the
+  # nvidia device plugin installed (or equivalent for QSV/VAAPI).
+  gpuLimit: 0
+
+## ---------------------------------------------------------------------------
+## Frontend (Quasar SPA on nginx)
+## ---------------------------------------------------------------------------
+frontend:
+  enabled: true
+  image:
+    repository: pyratemedia-frontend
+    tag: "latest"
+  replicas: 2
+  service:
+    port: 3000
+  resources: {}
+
+## ---------------------------------------------------------------------------
+## Lightrays (WebRTC streaming + gaming DinD)
+## Disabled by default because it requires privileged + /dev/dri + a host
+## docker socket — set `enabled: true` on a node configured for this.
+## ---------------------------------------------------------------------------
+lightrays:
+  enabled: false
+  image:
+    repository: pyratemedia-lightrays
+    tag: "latest"
+  replicas: 1
+  service:
+    apiPort: 8080
+    streamingPort: 8081
+  # Pod security: the chart drops all caps, blocks privilege escalation,
+  # and pins seccomp to RuntimeDefault. Add caps back through
+  # ``securityContext.additionalCapabilities`` when you discover a real
+  # need (audit per cap; don't paste SYS_ADMIN back as a habit).
+  securityContext:
+    additionalCapabilities: []
+    # Tighten further on container runtimes that allow it. Forces
+    # /tmp and /var/log onto emptyDir, which is what Lightrays expects
+    # (compositor wayland sockets live under XDG_RUNTIME_DIR=/tmp/...
+    # via the hostPath mount, not the rootfs tmpfs).
+    readOnlyRootFilesystem: false
+    # Leave unset to let the image's USER directive apply. Override only
+    # if the operator pins to a non-root UID (e.g. with userns-remap).
+    runAsUser: null
+  # Session-spawning backend.
+  #
+  #   * ``kubernetes`` (recommended for prod) — Lightrays spawns each
+  #     session as a Pod via a ServiceAccount + Role + RoleBinding in
+  #     ``k8s.sessionNamespace``. No host Docker socket. See the
+  #     ``lightrays-rbac.yaml`` template.
+  #   * ``docker`` — Lightrays mounts the host's Docker socket and
+  #     spawns containers via the local Docker daemon. Reasonable on
+  #     single-node setups; not recommended on shared clusters because
+  #     the SA/RBAC isolation is bypassed.
+  runtime: kubernetes
+  k8s:
+    sessionNamespace: lightrays-sessions
+    # When true the chart also creates the Namespace itself. Set to
+    # false if your platform manages namespaces centrally; the
+    # ServiceAccount and RoleBinding still get applied.
+    createSessionNamespace: true
+    # Node selector applied to spawned session pods. Accepts either
+    # ``key=value,key=value`` pairs or a JSON object — Lightrays parses
+    # both. Leave empty to let the scheduler pick any node (rarely what
+    # you want; the wayland hostPath requires co-location with the
+    # lightrays pod).
+    sessionNodeSelector: ""
+  # Only used when ``runtime: docker``. Mounts /var/run/docker.sock from
+  # the host into the lightrays pod so the bollard client can talk to
+  # the local Docker daemon.
+  hostDockerSocket: true
+  # Pin the pod to a node that has the GPU device + state dir.
+  nodeSelector: {}
+  tolerations: []
+  hostStateDir: /var/lib/pyrate/lightrays/state
+  hostXdgRuntimeDir: /var/lib/pyrate/lightrays/runtime
+  # Browser-facing URL for the Lightrays WebSocket. Leave empty to let
+  # the chart auto-derive it from the ingress settings:
+  #   {scheme}://{ingress.host}{ingress.paths.lightrays}
+  # Scheme is https when ingress.tls.secretName is set, http otherwise.
+  # Set this explicitly only when the public URL differs from the chart
+  # ingress (e.g. you route Lightrays via a separate hostname).
+  publicUrl: ""
+  defaultRuntimeProfile: gow-steam
+  gowImage: ghcr.io/games-on-whales/steam:edge
+  reconnectGraceSeconds: 30
+  wsTicketTtlSeconds: 120
+  # Idle-based session timeout (seconds). Pyrate aligns its Redis TTL
+  # with this value so both sides garbage-collect stale sessions together.
+  sessionTimeoutSeconds: 3600
+  stunServer: stun://stun.l.google.com:19302
+  turnServer: ""
+  turnUsername: ""
+  turnPassword: ""
+  corsOrigins: "*"
+  gpu:
+    enabled: false
+    # Mounts /dev/dri as a hostPath; for vendor device plugins set the
+    # appropriate `resources.limits` instead.
+    hostPath: /dev/dri
+  resources: {}
+
+## ---------------------------------------------------------------------------
+## Downloaders
+## ---------------------------------------------------------------------------
+downloaders:
+  spotdl:
+    enabled: true
+    image:
+      repository: pyratemedia-spotdl
+      tag: "latest"
+    service:
+      port: 3000
+    persistence:
+      enabled: true
+      size: 50Gi
+      storageClass: ""
+    resources: {}
+
+  torrent:
+    enabled: true
+    image:
+      repository: pyratemedia-torrent-downloader
+      tag: "latest"
+    service:
+      port: 3000
+      dhtPort: 6881
+      dhtNodePort: 6881  # NodePort to expose UDP DHT publicly. 0 disables.
+    maxConcurrentDownloads: 5
+    seedRatio: 0
+    resources: {}
+
+  # In-cluster Usenet downloader. Disabled by default because it needs
+  # operator-supplied NNTP credentials; create a Secret with at minimum
+  # USENET_HOST, USENET_USERNAME, USENET_PASSWORD and reference it via
+  # `existingSecret`.
+  usenet:
+    enabled: false
+    image:
+      repository: registry.gitlab.com/pyrate.media/downloaders/usenet
+      tag: latest
+    service:
+      port: 3000
+    existingSecret: ""  # required when enabled=true
+    maxConcurrentJobs: 3
+    # Job-state DB lives at /data — needs persistence so a pod restart
+    # doesn't drop in-flight job IDs and break Pyrate's polling loop.
+    dataPersistence:
+      size: 1Gi
+      storageClass: ""
+    resources: {}
+
+  # Off-cluster usenet runner — kept for environments where the downloader
+  # lives outside the cluster and is only referenced via URL in the
+  # downloader DB row. Set to false when running the in-cluster variant.
+  usenetRemote:
+    enabled: false
+    url: ""
+
+## ---------------------------------------------------------------------------
+## Ingress (frontend + backend API + lightrays signalling)
+## ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: pyrate.example.com
+  # If empty no TLS block is rendered. Provide a secretName when you have a
+  # cert in place (cert-manager or similar).
+  tls:
+    secretName: ""
+  # The chart mounts each path on the same hostname. Override paths if your
+  # ingress controller can't strip `/api` etc. itself.
+  paths:
+    frontend: "/"
+    backend: "/api"
+    lightrays: "/lightrays"

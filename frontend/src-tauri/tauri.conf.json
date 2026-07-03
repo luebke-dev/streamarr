@@ -1,0 +1,48 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Pyrate",
+  "mainBinaryName": "Pyrate",
+  "version": "2026.2.1",
+  "identifier": "media.pyrate.desktop",
+  "build": {
+    "beforeDevCommand": "yarn dev",
+    "beforeBuildCommand": "yarn build",
+    "devUrl": "http://localhost:9000",
+    "frontendDist": "../dist/spa"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Pyrate",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "backgroundColor": "#0f0f0f"
+      }
+    ],
+    "security": {
+      "csp": null,
+      "capabilities": ["main"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["appimage", "deb", "dmg", "nsis"],
+    "category": "Video",
+    "publisher": "Sebastian Lübke",
+    "homepage": "https://pyrate.media",
+    "shortDescription": "A streaming media center.",
+    "longDescription": "A streaming media center.",
+    "icon": [
+      "../public/icons/favicon-32x32.png",
+      "../public/icons/favicon-128x128.png",
+      "../public/icons/favicon-96x96.png",
+      "../public/favicon.ico"
+    ],
+    "linux": {}
+  }
+}

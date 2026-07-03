@@ -1,0 +1,303 @@
+# pyrate.media – Docker Compose deployment
+# Copy .env.example to .env and adjust before starting.
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Backend API
+  # ---------------------------------------------------------------------------
+  backend:
+    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/backend:${IMAGE_TAG:-latest}
+    command:
+      [
+        "uv",
+        "run",
+        "uvicorn",
+        "pyrate.web:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--workers",
+        "${BACKEND_WORKERS:-2}",
+      ]
+    restart: unless-stopped
+    privileged: true
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - REDIS_URL=redis://redis:6379/0
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - SECRET_KEY=${SECRET_KEY}
+      - LIGHTRAYS_URL=http://127.0.0.1:${LIGHTRAYS_PORT:-8009}
+      - LIGHTRAYS_PUBLIC_URL=${LIGHTRAYS_PUBLIC_URL:-}
+      - LIGHTRAYS_JWT_SECRET=${LIGHTRAYS_JWT_SECRET}
+      - LIGHTRAYS_DEFAULT_RUNTIME_PROFILE=${LIGHTRAYS_DEFAULT_RUNTIME_PROFILE:-gow-steam}
+      - LIGHTRAYS_SESSION_TIMEOUT_SECS=${LIGHTRAYS_SESSION_TIMEOUT_SECS:-3600}
+      - DOWNLOADER_WEBHOOK_SECRET=${DOWNLOADER_WEBHOOK_SECRET}
+      - PROJECT_ROOT=${PROJECT_ROOT:?PROJECT_ROOT must be set to an absolute host path (see .env.example)}
+    volumes:
+      - ${DATA_DIR:-./data}/library/movies:/library/movies:rw,z
+      - ${DATA_DIR:-./data}/library/shows:/library/shows:rw,z
+      - ${DATA_DIR:-./data}/library/music:/library/music:rw,z
+      - ${DATA_DIR:-./data}/sabnzbd/downloads:/downloads:rw,z
+      - ${DATA_DIR:-./data}/sabnzbd/incomplete:/incomplete:rw,z
+      - ${DATA_DIR:-./data}/spotdl/downloads:/spotdl-downloads:rw,z
+      - ${DATA_DIR:-./data}/torrent/downloads:/torrent-downloads:rw,z
+      - ${DATA_DIR:-./data}/usenet/downloads:/usenet-downloads:rw,z
+      - ${DATA_DIR:-./data}/cache:/cache:rw,z
+      - ${DATA_DIR:-./data}/temp:/temp:rw,z
+      - /var/run/docker.sock:/var/run/docker.sock:rw,z
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Background Worker (TaskIQ)
+  # ---------------------------------------------------------------------------
+  worker:
+    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/backend:${IMAGE_TAG:-latest}
+    command: ["uv", "run", "taskiq", "worker", "pyrate.worker:broker"]
+    restart: unless-stopped
+    privileged: true
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - REDIS_URL=redis://redis:6379/0
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - SECRET_KEY=${SECRET_KEY}
+      - DOWNLOADER_WEBHOOK_SECRET=${DOWNLOADER_WEBHOOK_SECRET}
+      - PROJECT_ROOT=${PROJECT_ROOT:?PROJECT_ROOT must be set to an absolute host path (see .env.example)}
+    volumes:
+      - ${DATA_DIR:-./data}/library/movies:/library/movies:rw,z
+      - ${DATA_DIR:-./data}/library/shows:/library/shows:rw,z
+      - ${DATA_DIR:-./data}/library/music:/library/music:rw,z
+      - ${DATA_DIR:-./data}/sabnzbd/downloads:/downloads:rw,z
+      - ${DATA_DIR:-./data}/sabnzbd/incomplete:/incomplete:rw,z
+      - ${DATA_DIR:-./data}/spotdl/downloads:/spotdl-downloads:rw,z
+      - ${DATA_DIR:-./data}/torrent/downloads:/torrent-downloads:rw,z
+      - ${DATA_DIR:-./data}/usenet/downloads:/usenet-downloads:rw,z
+      - ${DATA_DIR:-./data}/cache:/cache:rw,z
+      - ${DATA_DIR:-./data}/temp:/temp:rw,z
+      - /var/run/docker.sock:/var/run/docker.sock:rw,z
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: ${WORKER_REPLICAS:-2}
+
+  # ---------------------------------------------------------------------------
+  # Task Scheduler (TaskIQ)
+  # ---------------------------------------------------------------------------
+  scheduler:
+    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/backend:${IMAGE_TAG:-latest}
+    command: ["uv", "run", "taskiq", "scheduler", "pyrate.worker:scheduler"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - REDIS_URL=redis://redis:6379/0
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - SECRET_KEY=${SECRET_KEY}
+      - PROJECT_ROOT=${PROJECT_ROOT:?PROJECT_ROOT must be set to an absolute host path (see .env.example)}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Frontend (Quasar SPA served by nginx/Caddy)
+  # ---------------------------------------------------------------------------
+  frontend:
+    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
+  # ---------------------------------------------------------------------------
+  # Lightrays (WebRTC / streaming relay, Rust)
+  # ---------------------------------------------------------------------------
+  lightrays:
+    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/lightrays:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    privileged: true
+    # Host networking required for WebRTC UDP media streams
+    network_mode: host
+    environment:
+      - LIGHTRAYS_HOSTNAME=${LIGHTRAYS_HOSTNAME:-lightrays}
+      - LIGHTRAYS_API_PORT=${LIGHTRAYS_PORT:-8009}
+      - LIGHTRAYS_JWT_SECRET=${LIGHTRAYS_JWT_SECRET}
+      - LIGHTRAYS_STUN_SERVER=${LIGHTRAYS_STUN_SERVER:-stun://stun.l.google.com:19302}
+      - LIGHTRAYS_CORS_ORIGINS=${LIGHTRAYS_CORS_ORIGINS:-*}
+      - LIGHTRAYS_TURN_SERVER=${LIGHTRAYS_TURN_SERVER:-}
+      - LIGHTRAYS_TURN_USERNAME=${LIGHTRAYS_TURN_USERNAME:-}
+      - LIGHTRAYS_TURN_PASSWORD=${LIGHTRAYS_TURN_PASSWORD:-}
+      - LIGHTRAYS_GOW_IMAGE=${LIGHTRAYS_GOW_IMAGE:-ghcr.io/games-on-whales/steam:edge}
+      - LIGHTRAYS_RECONNECT_GRACE_SECS=${LIGHTRAYS_RECONNECT_GRACE_SECS:-30}
+      - LIGHTRAYS_WS_TICKET_TTL_SECS=${LIGHTRAYS_WS_TICKET_TTL_SECS:-120}
+      - LIGHTRAYS_SESSION_TIMEOUT_SECS=${LIGHTRAYS_SESSION_TIMEOUT_SECS:-3600}
+      # Host paths for game container bind mounts (Docker-in-Docker).
+      # These MUST be absolute paths because they are passed to the Docker API
+      # from inside the lightrays container.
+      - LIGHTRAYS_HOST_XDG_RUNTIME_DIR=${LIGHTRAYS_HOST_XDG_RUNTIME_DIR}
+      - LIGHTRAYS_HOST_STATE_DIR=${LIGHTRAYS_HOST_STATE_DIR}
+      - XDG_RUNTIME_DIR=/run/lightrays
+      - LIGHTRAYS_STATE_DIR=/state/lightrays
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw,z
+      - ${LIGHTRAYS_HOST_XDG_RUNTIME_DIR}:/run/lightrays:rw,z
+      - ${LIGHTRAYS_HOST_STATE_DIR}:/state/lightrays:rw,z
+    # ports not needed with network_mode: host — lightrays binds directly
+    # API listens on LIGHTRAYS_PORT (default 8009)
+
+  # ---------------------------------------------------------------------------
+  # SABnzbd (Usenet downloader)
+  # ---------------------------------------------------------------------------
+  sabnzbd:
+    image: linuxserver/sabnzbd:${SABNZBD_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+    volumes:
+      - ${DATA_DIR:-./data}/sabnzbd/config:/config:rw,z
+      - ${DATA_DIR:-./data}/sabnzbd/downloads:/downloads:rw,z
+      - ${DATA_DIR:-./data}/sabnzbd/incomplete:/incomplete:rw,z
+    ports:
+      - "${SABNZBD_PORT:-8080}:8080"
+
+  # ---------------------------------------------------------------------------
+  # spotdl (Spotify track downloader via librespot)
+  # ---------------------------------------------------------------------------
+  spotdl:
+    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/downloaders/spotify:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      WEBHOOK_URL: http://backend:8000/api/webhooks/spotdl
+      WEBHOOK_SECRET: ${DOWNLOADER_WEBHOOK_SECRET}
+    volumes:
+      - ${DATA_DIR:-./data}/spotdl/downloads:/data/downloads:rw,z
+      - ${DATA_DIR:-./data}/spotdl/cache:/data/cache:rw,z
+    ports:
+      - "${SPOTDL_PORT:-3001}:3000"
+      - "${SPOTDL_OAUTH_PORT:-8898}:8898"
+
+  torrent-downloader:
+    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/downloaders/torrent:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      WEBHOOK_URL: http://backend:8000/api/webhooks/torrent
+      WEBHOOK_SECRET: ${DOWNLOADER_WEBHOOK_SECRET}
+      MAX_CONCURRENT_DOWNLOADS: "5"
+      SEED_RATIO: "0"
+    volumes:
+      - ${DATA_DIR:-./data}/torrent/downloads:/downloads:rw,z
+    ports:
+      - "${TORRENT_DL_PORT:-3002}:3000"
+      - "${TORRENT_DHT_PORT:-6881}:6881/udp"
+
+  usenet-downloader:
+    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/downloaders/usenet:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      WEBHOOK_URL: http://backend:8000/api/webhooks/usenet
+      WEBHOOK_SECRET: ${DOWNLOADER_WEBHOOK_SECRET}
+      USENET_HOST: ${USENET_HOST:-}
+      USENET_PORT: ${USENET_PORT:-563}
+      USENET_USERNAME: ${USENET_USERNAME:-}
+      USENET_PASSWORD: ${USENET_PASSWORD:-}
+      USENET_TLS: ${USENET_TLS:-true}
+      USENET_CONNECTIONS: ${USENET_CONNECTIONS:-100}
+      # pipeline=1 fans segments across all connections (sequential mode);
+      # pipeline>1 bottlenecks at pipeline-depth × file_semaphore (~10 conns).
+      NNTP_PIPELINE_REQUESTS: ${NNTP_PIPELINE_REQUESTS:-1}
+      # Direct Unpack off by default: unrar racing the download aborts on
+      # missing/corrupt volumes before PAR2 can repair. Off extracts after
+      # download+PAR2 completes (matches SABnzbd default).
+      DIRECT_UNPACK: ${DIRECT_UNPACK:-false}
+      DOWNLOAD_MAX_CONCURRENT_JOBS: ${DOWNLOAD_MAX_CONCURRENT_JOBS:-1}
+    volumes:
+      - ${DATA_DIR:-./data}/usenet/downloads:/downloads:rw,z
+    ports:
+      - "${USENET_DL_PORT:-3003}:3000"
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-pyrate}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-pyrate}
+    command: postgres -c max_connections=200
+    volumes:
+      - ${DATA_DIR:-./data}/postgres:/var/lib/postgresql/data:rw,z
+    ports:
+      # Bind to loopback by default — set POSTGRES_BIND=0.0.0.0 to expose
+      # (e.g. for an external admin client). Internal services reach the DB
+      # via the docker network and don't need this published.
+      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pyrate}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Redis
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - ${DATA_DIR:-./data}/redis:/data:rw,z
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    # Uncomment to expose Redis externally (loopback only by default):
+    # ports:
+    #   - "${REDIS_BIND:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
+
+  # ---------------------------------------------------------------------------
+  # Elasticsearch
+  # ---------------------------------------------------------------------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.monitoring.collection.enabled=false
+      - ES_JAVA_OPTS=-Xms${ES_HEAP_SIZE:-512}m -Xmx${ES_HEAP_SIZE:-512}m
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - ${DATA_DIR:-./data}/elastic:/usr/share/elasticsearch/data:rw,z
+    ports:
+      # Loopback by default; set ES_BIND=0.0.0.0 only if you need direct ES access.
+      - "${ES_BIND:-127.0.0.1}:${ES_PORT:-9200}:9200"
+    user: "1000:1000"
+    init: true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5

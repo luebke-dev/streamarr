@@ -1,0 +1,46 @@
+[Unit]
+Description=Lightrays cloud-gaming WebRTC streaming server
+After=pyrate-backend.service
+
+[Container]
+Image=registry.gitlab.com/pyrate.media/lightrays:latest
+ContainerName=pyrate-lightrays
+
+# Lightrays requires privileged mode for Wayland compositor + GPU access
+SecurityLabelDisable=true
+PodmanArgs=--privileged
+
+# Docker socket so Lightrays can manage game containers (GOW)
+Volume=/var/run/docker.sock:/var/run/docker.sock:rw,z
+
+# Shared runtime & state dirs visible to both Lightrays and game containers
+Volume=/srv/pyrate/lightrays/runtime:/run/lightrays:rw,z
+Volume=/srv/pyrate/lightrays/state:/state/lightrays:rw,z
+
+# GPU device passthrough for hardware-accelerated video encoding
+AddDevice=/dev/dri
+
+# Port: external 8009 → internal 8080 (Lightrays HTTP + WebSocket)
+PublishPort=8009:8080
+
+Environment=LIGHTRAYS_HOSTNAME=lightrays
+Environment=LIGHTRAYS_API_PORT=8080
+Environment=LIGHTRAYS_JWT_SECRET=${LIGHTRAYS_JWT_SECRET}
+Environment=LIGHTRAYS_STUN_SERVER=stun://stun.l.google.com:19302
+Environment=LIGHTRAYS_CORS_ORIGINS=*
+Environment=XDG_RUNTIME_DIR=/run/lightrays
+Environment=LIGHTRAYS_STATE_DIR=/state/lightrays
+Environment=LIGHTRAYS_HOST_XDG_RUNTIME_DIR=/srv/pyrate/lightrays/runtime
+Environment=LIGHTRAYS_HOST_STATE_DIR=/srv/pyrate/lightrays/state
+
+# Optional TURN server for NAT traversal (uncomment and configure if needed)
+# Environment=LIGHTRAYS_TURN_SERVER=
+# Environment=LIGHTRAYS_TURN_USERNAME=
+# Environment=LIGHTRAYS_TURN_PASSWORD=
+
+[Service]
+Restart=unless-stopped
+TimeoutStartSec=60
+
+[Install]
+WantedBy=default.target

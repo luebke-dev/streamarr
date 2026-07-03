@@ -1,0 +1,87 @@
+[project]
+name = "pyrate"
+version = "2026.2.1"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Sebastian Lübke", email = "luebke@b1-systems.de" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.16.5",
+    "asyncpg>=0.30.0",
+    "fastapi>=0.118.0",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.11.0",
+    "redis>=6.4.0",
+    "sqlmodel>=0.0.25",
+    "taskiq[reload]>=0.11.18",
+    "taskiq-redis>=1.1.0",
+    "uvicorn>=0.37.0",
+    "pyyaml>=6.0.3",
+    "email-validator>=2.3.0",
+    "python-jose[cryptography]>=3.5.0",
+    "passlib[bcrypt]>=1.7.4",
+    "python-multipart>=0.0.20",
+    "authlib>=1.6.5",
+    "jinja2>=3.1.6",
+    "aiodocker>=0.24.0",
+    "stripe>=13.0.1",
+    "emails>=0.6",
+    "elasticsearch>=9.2.0",
+    "elasticsearch-dsl>=0.0.9",
+    "websockets>=15.0.1",
+    "kubernetes-asyncio>=31.1.0",
+    "shazamio>=0.7.0",
+    "audioop-lts>=0.2.2",
+    "prometheus-fastapi-instrumentator>=7.0.0",
+    "pillow>=11.0.0",
+    "croniter>=2.0.0",
+]
+
+[project.scripts]
+pyrate = "pyrate:main"
+
+[build-system]
+requires = ["uv_build>=0.8.15,<0.9.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "aiosqlite>=0.20.0",
+    "coverage>=7.11.0",
+    "fakeredis>=2.34.0",
+    "mypy>=1.18.2",
+    "pre-commit>=4.3.0",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=0.25.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.13.3",
+]
+
+[tool.coverage.run]
+concurrency = ["greenlet"]
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ARG001", # unused arguments in functions
+    "T201",   # print statements are not allowed
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "W191",  # indentation contains tabs
+    "B904",  # Allow raising exceptions without from e, for HTTPException
+]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI dependency injection: current_user / db / session are injected for auth
+# enforcement even when not used directly in the function body
+"src/pyrate/api/**/*.py" = ["ARG001"]

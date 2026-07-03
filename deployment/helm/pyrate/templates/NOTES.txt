@@ -1,0 +1,41 @@
+{{ include "pyrate.fullname" . }} {{ .Chart.AppVersion }} installed in namespace "{{ .Release.Namespace }}".
+
+Services:
+{{- if .Values.frontend.enabled }}
+  • frontend           svc/{{ include "pyrate.fullname" . }}-frontend:{{ .Values.frontend.service.port }}
+{{- end }}
+{{- if .Values.backend.python.enabled }}
+  • backend (proxy)    svc/{{ include "pyrate.fullname" . }}-backend:{{ .Values.backend.proxy.service.port }}
+{{- end }}
+{{- if .Values.lightrays.enabled }}
+  • lightrays          svc/{{ include "pyrate.fullname" . }}-lightrays:{{ .Values.lightrays.service.apiPort }}
+{{- end }}
+{{- if .Values.downloaders.torrent.enabled }}
+  • torrent-downloader svc/{{ include "pyrate.fullname" . }}-torrent-downloader:{{ .Values.downloaders.torrent.service.port }}
+{{- end }}
+{{- if .Values.downloaders.spotdl.enabled }}
+  • spotdl             svc/{{ include "pyrate.fullname" . }}-spotdl:{{ .Values.downloaders.spotdl.service.port }}
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+
+Ingress: https://{{ .Values.ingress.host }}{{ .Values.ingress.paths.frontend }}
+{{- else }}
+
+No ingress is configured. To reach the frontend locally:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "pyrate.fullname" . }}-frontend {{ .Values.frontend.service.port }}:{{ .Values.frontend.service.port }}
+  open http://localhost:{{ .Values.frontend.service.port }}
+{{- end }}
+
+Things to double-check on first install:
+  1. {{ if not .Values.secrets.existingSecret }}A Secret was generated from the values you passed; rotate it before exposing the API publicly.{{ else }}You're using existingSecret={{ .Values.secrets.existingSecret }} — make sure all four keys are present (postgres-password, secret-key, lightrays-jwt-secret, downloader-webhook-secret).{{ end }}
+  2. Library and downloads PVCs are RWX. Confirm your storage class actually supports it (NFS, CephFS, Longhorn-RWX, ...).
+{{- if .Values.worker.enabled }}
+  3. The worker pod mounts the host docker socket so it can run FFmpeg via Docker-in-Docker. Schedule it on nodes where this is acceptable.
+{{- end }}
+{{- if .Values.lightrays.enabled }}
+  4. Lightrays needs hostPath /dev/dri (if GPU is enabled) and the host state dirs at {{ .Values.lightrays.hostStateDir }} and {{ .Values.lightrays.hostXdgRuntimeDir }}. Pin it via lightrays.nodeSelector.
+{{- end }}
+{{- if .Values.elasticsearch.enabled }}
+  5. Elasticsearch starts a privileged init container to set vm.max_map_count. Disable elasticsearch.tuneVmMaxMapCount and apply the sysctl on your nodes if your PSP/PSA forbids privileged init containers.
+{{- end }}

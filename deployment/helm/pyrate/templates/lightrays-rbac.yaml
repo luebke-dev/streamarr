@@ -1,0 +1,73 @@
+{{- if and .Values.lightrays.enabled (eq .Values.lightrays.runtime "kubernetes") -}}
+{{- $name := printf "%s-lightrays" (include "pyrate.fullname" .) -}}
+{{/*
+RBAC for the Kubernetes session runtime.
+
+Lightrays uses a dedicated ServiceAccount and a Role scoped to the
+session namespace. The Role grants exactly the pod-lifecycle verbs the
+KubernetesRunner needs (see ``src/k8s_runtime.rs``). Nothing in this set
+allows operations on other workloads — a compromised Lightrays cannot
+stop the database, exec into another pod, modify Services, or pull
+images. That's the whole point of moving off the host Docker socket.
+
+When ``lightrays.runtime`` is anything other than ``kubernetes`` this
+file renders empty; the legacy Docker socket mount in
+``lightrays.yaml`` still applies in that case.
+*/}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+{{- if .Values.lightrays.k8s.createSessionNamespace }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.lightrays.k8s.sessionNamespace | quote }}
+  labels:
+    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}-session-runner
+  namespace: {{ .Values.lightrays.k8s.sessionNamespace | quote }}
+  labels:
+    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+rules:
+  # Pod lifecycle — create on launch, watch/get for state polling,
+  # delete on stop. List is needed for the readiness check
+  # (``KubernetesRunner::ping`` does a list with limit=1).
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  # Pod logs — used by ``runtime.dump_logs`` when a session pod exits
+  # unexpectedly and ``LIGHTRAYS_DUMP_CONTAINER_LOGS=true``.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # Pod status — KubernetesRunner polls phase to detect Running/Failed.
+  - apiGroups: [""]
+    resources: ["pods/status"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-session-runner
+  namespace: {{ .Values.lightrays.k8s.sessionNamespace | quote }}
+  labels:
+    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}-session-runner
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+{{- end -}}

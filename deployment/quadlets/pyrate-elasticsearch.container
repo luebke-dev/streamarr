@@ -1,0 +1,32 @@
+[Unit]
+Description=Pyrate Media Elasticsearch
+
+[Container]
+Image=docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+ContainerName=pyrate-elasticsearch
+
+Environment=discovery.type=single-node
+Environment=xpack.security.enabled=false
+Environment=xpack.monitoring.collection.enabled=false
+Environment=ES_JAVA_OPTS=-Xms512m -Xmx512m
+
+# Disable memory locking limits
+PodmanArgs=--ulimit memlock=-1:-1
+
+User=1000:1000
+
+Volume=${DATA_DIR}/elastic:/usr/share/elasticsearch/data:rw,z
+
+PublishPort=9200:9200
+
+HealthCmd=curl -sf http://localhost:9200/_cluster/health || exit 1
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=5
+
+[Service]
+Restart=unless-stopped
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,38 @@
+stages:
+  - build
+
+variables:
+  IMAGE: $CI_REGISTRY_IMAGE
+
+.build_base:
+  stage: build
+  image: quay.io/buildah/stable
+  variables:
+    STORAGE_DRIVER: vfs
+  before_script:
+    - buildah login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+build:dev:
+  extends: .build_base
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - buildah bud -f Containerfile -t $IMAGE:dev .
+    - buildah push $IMAGE:dev
+
+build:mr:
+  extends: .build_base
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - buildah bud -f Containerfile -t $IMAGE:mr-$CI_MERGE_REQUEST_IID .
+    - buildah push $IMAGE:mr-$CI_MERGE_REQUEST_IID
+
+build:release:
+  extends: .build_base
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^\d{4}\.\d+\.\d+$/
+  script:
+    - buildah bud -f Containerfile -t $IMAGE:$CI_COMMIT_TAG -t $IMAGE:latest .
+    - buildah push $IMAGE:$CI_COMMIT_TAG
+    - buildah push $IMAGE:latest

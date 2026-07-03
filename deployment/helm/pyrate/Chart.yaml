@@ -1,0 +1,17 @@
+apiVersion: v2
+name: pyrate
+description: Self-hosted media platform — backend, worker, scheduler, frontend, lightrays, downloaders, plus postgres/redis/elasticsearch.
+type: application
+version: 0.1.10
+appVersion: "1.0.0"
+home: https://pyrate.media
+sources:
+  - https://github.com/pyrate-media/pyrate
+keywords:
+  - media
+  - streaming
+  - self-hosted
+  - usenet
+  - torrent
+maintainers:
+  - name: pyrate.media

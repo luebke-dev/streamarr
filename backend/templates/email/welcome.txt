@@ -1,0 +1,14 @@
+{{ i18n.heading }}
+{{ "=" * i18n.heading|length }}
+
+{{ i18n.body }}
+
+{{ i18n.features }}
+
+{{ i18n.button }}: {{ app_url }}
+
+{{ i18n.help }}
+
+--
+{{ app_name }}
+{{ app_url }}

@@ -1,0 +1,35 @@
+// Shared layout styles for auth/login pages.
+// Apply by adding `@import 'src/css/auth-layout';` to a scoped <style> block.
+
+.login-page {
+  background-color: #0f0f0f;
+  min-height: 100vh;
+  transition: background-image 0.6s ease;
+  position: relative;
+}
+
+.bg-title-overlay {
+  position: absolute;
+  bottom: 20px;
+  right: 24px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1.6rem;
+  font-style: italic;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+  z-index: 1;
+}
+
+@media (max-width: 599px) {
+  .bg-title-overlay {
+    font-size: 1rem;
+    bottom: 12px;
+    right: 12px;
+  }
+}
+
+.login-card {
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}

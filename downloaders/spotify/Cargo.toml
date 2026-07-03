@@ -1,0 +1,24 @@
+[package]
+name = "spotify-downloader"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+librespot-core = { path = "vendor/librespot-core" }
+librespot-oauth = "0.8"
+librespot-playback = { version = "0.8", default-features = false, features = ["passthrough-decoder"] }
+axum = { version = "0.7", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.22.0", features = ["v4", "serde"] }
+rusqlite = { version = "0.38.0", features = ["bundled"] }
+chrono = { version = "0.4.44", features = ["serde"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tower-http = { version = "0.5", features = ["trace"] }
+thiserror = "2"
+
+[patch.crates-io]
+librespot-core = { path = "vendor/librespot-core" }

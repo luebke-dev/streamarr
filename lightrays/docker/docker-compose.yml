@@ -1,0 +1,58 @@
+# Lightrays Docker Compose — minimal baseline.
+#
+# This file defines what Lightrays *is* (image build, ports, default env)
+# but does NOT bind the host bits required to actually run desktop
+# streaming. Those (Docker socket, GPU device, input devices, host
+# networking, broad caps) are deployment-mode-specific and live in the
+# matching override file.
+#
+# The baseline alone is not runnable. Pick one:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml  up   # local dev
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up   # hardened prod
+#
+# The reason for the split is that "what Lightrays needs to function" and
+# "how to run it without ambient privileges" are different concerns. The
+# dev override grants direct host access for fast iteration; the prod
+# override routes the Docker socket through tecnativa/docker-socket-proxy,
+# turns on a read-only rootfs, and narrows the capability set.
+
+services:
+  lightrays:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: lightrays
+    restart: unless-stopped
+
+    # Host networking is required for WebRTC ICE in both modes (direct
+    # UDP between browser and the host). Sticking with this in the
+    # baseline because anyone running Lightrays at all needs it.
+    network_mode: host
+
+    environment:
+      LIGHTRAYS_HOSTNAME: Lightrays
+      LIGHTRAYS_API_PORT: "8080"
+      LIGHTRAYS_STREAMING_PORT: "8081"
+      LIGHTRAYS_METRICS_PORT: "9090"
+      # Metrics stay on localhost by default; production scraping should
+      # ride on a sidecar or a network policy, not a public listener.
+      LIGHTRAYS_METRICS_BIND_ADDR: "127.0.0.1"
+      LIGHTRAYS_STUN_SERVER: "stun://stun.l.google.com:19302"
+      LIGHTRAYS_GOW_IMAGE: "ghcr.io/games-on-whales/steam:edge"
+      LIGHTRAYS_RECONNECT_GRACE_SECS: "30"
+      LIGHTRAYS_WS_TICKET_TTL_SECS: "120"
+      LIGHTRAYS_SESSION_TIMEOUT_SECS: "3600"
+      LIGHTRAYS_STATE_DIR: /etc/lightrays
+      XDG_RUNTIME_DIR: /tmp/lightrays-runtime
+      RUST_LOG: info
+      # The overrides set both of these. Default empty so the base file
+      # alone doesn't fail interpolation; production override enforces
+      # them via :? and dev override flips auth off.
+      LIGHTRAYS_JWT_SECRET: "${LIGHTRAYS_JWT_SECRET:-}"
+      LIGHTRAYS_CORS_ORIGINS: "${LIGHTRAYS_CORS_ORIGINS:-}"
+
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536

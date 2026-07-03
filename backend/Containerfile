@@ -1,0 +1,36 @@
+FROM python:3.13-slim
+
+# Create a non-root user
+RUN groupadd -r --gid 1001 appgroup && \
+    useradd -r --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
+
+# Install uv.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Create app directory and cache directories with proper ownership
+RUN mkdir -p /app /home/appuser/.cache/uv /home/appuser/.local && \
+    chown -R appuser:appgroup /app /home/appuser/.cache /home/appuser/.local
+
+# Switch to non-root user
+USER appuser
+
+# Set working directory
+WORKDIR /app
+
+# Copy the application into the container with proper ownership
+COPY --chown=appuser:appgroup . /app
+
+# Set environment variables for uv to use writable directories
+ENV UV_CACHE_DIR=/home/appuser/.cache/uv
+ENV UV_DATA_DIR=/home/appuser/.local/share/uv
+ENV XDG_CACHE_HOME=/home/appuser/.cache
+ENV XDG_DATA_HOME=/home/appuser/.local/share
+
+# Install the application dependencies with explicit cache dir
+RUN UV_CACHE_DIR=/home/appuser/.cache/uv uv sync --frozen --no-cache
+RUN chown -R appuser:appgroup /app
+# Expose port 8000 (non-privileged port)
+EXPOSE 8000
+
+# Run database migrations and then start the application with DB-backed network settings
+CMD ["sh", "-c", "uv run alembic upgrade head && uv run python -m pyrate.server"]

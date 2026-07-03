@@ -1,0 +1,50 @@
+{{- if .Values.ingress.enabled -}}
+{{- $fullname := include "pyrate.fullname" . -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "pyrate.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.secretName }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.paths.backend | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-backend
+                port:
+                  number: {{ .Values.backend.proxy.service.port }}
+          {{- if .Values.lightrays.enabled }}
+          - path: {{ .Values.ingress.paths.lightrays | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-lightrays
+                port:
+                  number: {{ .Values.lightrays.service.apiPort }}
+          {{- end }}
+          - path: {{ .Values.ingress.paths.frontend | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-frontend
+                port:
+                  number: {{ .Values.frontend.service.port }}
+{{- end -}}

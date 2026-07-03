@@ -1,0 +1,79 @@
+# Multi-stage Android APK build for pyrate.media
+# Usage: docker build -f Dockerfile.android -t pyrate-android .
+# Extract APK: docker run --rm -v $(pwd)/dist:/out pyrate-android
+
+# Stage 1: Build Quasar SPA for Capacitor
+FROM node:22 AS quasar-build
+
+WORKDIR /app
+
+# Install Quasar CLI
+RUN npm install -g @quasar/cli
+
+# Copy frontend source
+COPY package.json yarn.lock ./
+COPY . .
+
+# Install dependencies
+RUN yarn install --frozen-lockfile
+
+# Build for Capacitor (produces dist/capacitor)
+RUN quasar build -m capacitor -T android --skip-pkg
+
+# Stage 2: Android SDK + Gradle build
+FROM eclipse-temurin:21-jdk AS android-build
+
+ENV ANDROID_HOME=/opt/android-sdk
+ENV ANDROID_SDK_ROOT=${ANDROID_HOME}
+ENV PATH="${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools"
+
+# Install Android SDK command-line tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        unzip wget && \
+    mkdir -p ${ANDROID_HOME}/cmdline-tools && \
+    cd /tmp && \
+    wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdtools.zip && \
+    unzip -q cmdtools.zip && \
+    mv cmdline-tools ${ANDROID_HOME}/cmdline-tools/latest && \
+    rm cmdtools.zip && \
+    rm -rf /var/lib/apt/lists/*
+
+# Accept licenses and install required SDK packages
+RUN yes | sdkmanager --licenses > /dev/null 2>&1 && \
+    sdkmanager \
+        "platform-tools" \
+        "platforms;android-35" \
+        "build-tools;35.0.0"
+
+WORKDIR /app
+
+# Copy capacitor project with built web assets
+COPY --from=quasar-build /app/src-capacitor /app
+
+# Install Node.js 22 for Capacitor CLI
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install capacitor deps and sync android platform
+RUN npm install && \
+    npx cap sync android
+
+# Inject network security config to allow all HTTPS connections
+COPY android-resources/network_security_config.xml /app/android/app/src/main/res/xml/network_security_config.xml
+RUN sed -i 's|<application|<application android:networkSecurityConfig="@xml/network_security_config" android:usesCleartextTraffic="true"|' \
+    /app/android/app/src/main/AndroidManifest.xml && \
+    cat /app/android/app/src/main/AndroidManifest.xml | head -20
+
+# Build the APK
+WORKDIR /app/android
+RUN chmod +x gradlew && \
+    ./gradlew assembleDebug --no-daemon
+
+# Stage 3: Extract APK
+FROM alpine:3.22
+
+COPY --from=android-build /app/android/app/build/outputs/apk/debug/*.apk /apk/
+
+# Default: copy APK to /out volume
+CMD ["sh", "-c", "cp /apk/*.apk /out/ && echo 'APK copied to /out/' && ls -lh /out/*.apk"]
