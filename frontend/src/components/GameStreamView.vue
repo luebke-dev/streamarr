@@ -106,7 +106,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useLightraysStreaming } from 'src/composables/useLightraysStreaming'
-import { api } from 'boot/axios'
+import { stopGameSession } from 'src/services/lightraysService'
 import { logger } from 'src/utils/logger'
 
 const showDebug = ref(false)
@@ -195,7 +195,7 @@ function onMatchResolution() {
 async function stopRemoteSession() {
   if (!props.sessionId) return
   try {
-    await api.post('/api/lightrays/stop', { session_id: props.sessionId })
+    await stopGameSession(props.sessionId)
   } catch (e) {
     logger.debug('Failed to stop Lightrays session', e)
   }
