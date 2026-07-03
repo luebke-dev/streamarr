@@ -1133,17 +1133,21 @@ fn handle_ws_message(text: &str, session: &Session, state: &Arc<AppState>) {
                     {
                         tokio::spawn(async move {
                             let res = format!("{width}x{height}");
+                            // sway listens at $XDG_RUNTIME_DIR/sway-ipc.<uid>.<pid>.sock
+                            // (it ignores a pre-set SWAYSOCK), and /tmp/sockets is a
+                            // shared mount so stale sockets from past sessions linger —
+                            // probe each candidate and use the one that answers.
+                            let script = format!(
+                                "for s in /tmp/sockets/sway-ipc.*.sock; do \
+                                   SWAYSOCK=\"$s\" swaymsg -t get_version >/dev/null 2>&1 && \
+                                   exec env SWAYSOCK=\"$s\" swaymsg output '*' resolution {res}; \
+                                 done; exit 1"
+                            );
                             if let Err(e) = runtime
                                 .exec(
                                     &container,
-                                    vec![
-                                        "swaymsg".into(),
-                                        "output".into(),
-                                        "*".into(),
-                                        "resolution".into(),
-                                        res,
-                                    ],
-                                    vec!["SWAYSOCK=/tmp/sockets/sway.socket".into()],
+                                    vec!["sh".into(), "-c".into(), script],
+                                    Vec::new(),
                                 )
                                 .await
                             {
