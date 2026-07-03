@@ -57,6 +57,10 @@ pub struct ServerConfig {
     pub ws_ticket_ttl_secs: u64,
     /// Server-side image used by the built-in Games on Whales Steam profile.
     pub gow_image: String,
+    /// In-container compositor for the GOW profile: `gamescope` (default,
+    /// pins the resolution at launch) or `sway` (a real WM whose output can
+    /// be resized live via `swaymsg`, so the Steam UI re-lays-out).
+    pub gow_compositor: String,
     /// Registry hosts a client-supplied `docker_image` override may pull
     /// from. Empty disables the check. Defaults to the registry host of
     /// `gow_image`. (S-C1)
@@ -171,6 +175,9 @@ impl ServerConfig {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(120),
             gow_image,
+            gow_compositor: std::env::var("LIGHTRAYS_GOW_COMPOSITOR")
+                .unwrap_or_else(|_| "gamescope".into())
+                .to_ascii_lowercase(),
             allowed_registries,
             jwt_audience: std::env::var("LIGHTRAYS_JWT_AUDIENCE")
                 .unwrap_or_else(|_| "lightrays".into()),

@@ -987,7 +987,7 @@ async fn handle_websocket(socket: WebSocket, session_id: String, state: Arc<AppS
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         *session.last_activity_at.lock().await = Instant::now();
-                        handle_ws_message(&text, &session);
+                        handle_ws_message(&text, &session, &state);
                     }
                     Some(Ok(Message::Ping(_) | Message::Pong(_))) => {
                         // axum auto-replies to Ping with Pong; nothing to do for Pong replies to our pings.
@@ -1087,7 +1087,7 @@ async fn handle_websocket(socket: WebSocket, session_id: String, state: Arc<AppS
     }
 }
 
-fn handle_ws_message(text: &str, session: &Session) {
+fn handle_ws_message(text: &str, session: &Session, state: &Arc<AppState>) {
     let data: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(_) => {
@@ -1122,6 +1122,36 @@ fn handle_ws_message(text: &str, session: &Session) {
             let width = data.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
             let height = data.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
             if width > 0 && height > 0 {
+                // In sway mode, live-resize the in-container compositor's
+                // output so the Steam UI re-lays-out at the new size —
+                // gamescope pins -W/-H at launch and can't. Fire-and-forget:
+                // if it fails the UI just keeps its previous layout while the
+                // stream rebuild below still applies.
+                if state.config.gow_compositor == "sway" {
+                    if let (Some(runtime), Some(container)) =
+                        (state.runtime.clone(), session.container_name.clone())
+                    {
+                        tokio::spawn(async move {
+                            let res = format!("{width}x{height}");
+                            if let Err(e) = runtime
+                                .exec(
+                                    &container,
+                                    vec![
+                                        "swaymsg".into(),
+                                        "output".into(),
+                                        "*".into(),
+                                        "resolution".into(),
+                                        res,
+                                    ],
+                                    vec!["SWAYSOCK=/tmp/sockets/sway.socket".into()],
+                                )
+                                .await
+                            {
+                                log::warn!("sway output resize failed: {e}");
+                            }
+                        });
+                    }
+                }
                 // Run on a blocking worker so the signalling loop stays
                 // responsive (pings, ICE forwarding, container-died, the
                 // next WS message) while GStreamer rebuilds the pipeline.
