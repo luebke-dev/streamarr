@@ -297,7 +297,22 @@ pub fn build_container_config(
             env: vec![
                 "GOW_REQUIRED_DEVICES=/dev/dri/* /dev/nvidia*".to_string(),
                 format!("XKB_DEFAULT_LAYOUT={}", launch.keyboard_layout),
-                "RUN_GAMESCOPE=1".to_string(),
+                // In-container compositor. gamescope (default) pins the
+                // resolution at launch, so the whole session is fixed-size;
+                // sway is a real WM, so the Steam UI re-lays-out live when
+                // its output resolution changes (games can still run in a
+                // per-game gamescope via Steam launch options). Both reuse
+                // GAMESCOPE_WIDTH/HEIGHT for the initial size. Selected via
+                // LIGHTRAYS_GOW_COMPOSITOR=gamescope|sway (default gamescope).
+                match std::env::var("LIGHTRAYS_GOW_COMPOSITOR")
+                    .unwrap_or_default()
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
+                    "sway" => "RUN_SWAY=1",
+                    _ => "RUN_GAMESCOPE=1",
+                }
+                .to_string(),
             ],
             devices: Vec::new(),
             mounts: Vec::new(),
