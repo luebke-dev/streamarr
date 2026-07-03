@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 import time
+import uuid
 from collections import defaultdict
 from pathlib import Path
 
@@ -48,6 +49,50 @@ def _sampler_interval() -> float:
         return max(5.0, float(raw))
     except ValueError:
         return 30.0
+
+
+# Leader election — the sampler loop runs in every web replica's lifespan, but
+# the database-backed gauges are identical across replicas, so only one replica
+# should actually compute them each cycle. Mirrors the SET NX EX + token-checked
+# Lua release lock used by the tick workers (see workers/*_worker.py).
+_LEADER_LOCK_KEY = "metrics_sampler:leader:lock"
+_LEADER_LOCK_RELEASE = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] "
+    "then return redis.call('del', KEYS[1]) else return 0 end"
+)
+
+
+def _leader_lock_ttl(interval: float) -> int:
+    # Hold the lock long enough to cover one sample run plus a margin so a
+    # crashed leader's key expires and another replica takes over within roughly
+    # one cycle.
+    return max(10, int(interval) + 10)
+
+
+async def _acquire_leader(
+    ttl: int,
+) -> tuple[redis_async.Redis, str] | tuple[None, None]:
+    """Try to become the sole sampling leader for this cycle."""
+    try:
+        rds = redis_async.from_url(
+            settings.redis_url, encoding="utf-8", decode_responses=True
+        )
+        token = uuid.uuid4().hex
+        if not await rds.set(_LEADER_LOCK_KEY, token, ex=ttl, nx=True):
+            await rds.aclose()
+            return None, None
+        return rds, token
+    except Exception as exc:
+        logger.warning("Metrics sampler leader lock unavailable: %s", exc)
+        return None, None
+
+
+async def _release_leader(rds: redis_async.Redis, token: str) -> None:
+    try:
+        await rds.eval(_LEADER_LOCK_RELEASE, 1, _LEADER_LOCK_KEY, token)
+        await rds.aclose()
+    except Exception:
+        pass
 
 
 def _string(value: object | None) -> str:
@@ -377,18 +422,30 @@ async def sample_inventory_metrics() -> None:
 
 
 async def metrics_sampler_loop(stop_event: asyncio.Event) -> None:
-    """Run inventory sampling until the app shuts down."""
+    """Run inventory sampling on a single leader replica until shutdown.
+
+    Every web replica starts this loop, but only the instance that wins the
+    Redis leader lock samples on a given cycle; the others idle. This keeps the
+    database-backed gauges from being recomputed redundantly on each replica.
+    """
     interval = _sampler_interval()
+    ttl = _leader_lock_ttl(interval)
     logger.info("Starting metrics sampler", extra={"interval_seconds": interval})
     while not stop_event.is_set():
-        started = time.perf_counter()
-        try:
-            await sample_inventory_metrics()
-        except Exception:
-            record_metrics_sampler("error", time.perf_counter() - started)
-            logger.warning("Metrics sampler run failed", exc_info=True)
+        rds, token = await _acquire_leader(ttl)
+        if rds is None:
+            logger.debug("Metrics sample skipped (leader lock held elsewhere)")
         else:
-            record_metrics_sampler("success", time.perf_counter() - started)
+            started = time.perf_counter()
+            try:
+                await sample_inventory_metrics()
+            except Exception:
+                record_metrics_sampler("error", time.perf_counter() - started)
+                logger.warning("Metrics sampler run failed", exc_info=True)
+            else:
+                record_metrics_sampler("success", time.perf_counter() - started)
+            finally:
+                await _release_leader(rds, token)
 
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval)

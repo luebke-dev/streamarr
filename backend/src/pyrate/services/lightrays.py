@@ -9,7 +9,18 @@ from urllib.parse import urljoin, urlparse, urlunparse
 import httpx
 from jose import jwt
 
+from pyrate.utils.http import (
+    CONNECT_ONLY_EXCEPTIONS,
+    host_key,
+    request_with_resilience,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _breaker_key() -> str:
+    """Per-host circuit-breaker key for the Lightrays service."""
+    return f"lightrays:{host_key(LIGHTRAYS_URL)}"
 
 # Sessions older than this are considered abandoned (e.g. backend crashed
 # before it could record the stop). Used to garbage-collect stale entries
@@ -88,6 +99,7 @@ async def launch_session(
     docker_image: str | None = None,
     keyboard_layout: str | None = None,
     mouse_speed: float | None = None,
+    media_id: str | None = None,
 ) -> dict:
     """Launch a streaming session via Lightrays API.
 
@@ -99,6 +111,20 @@ async def launch_session(
     mount, and container-name choices are resolved by Lightrays from a
     server-side ``runtime_profile``. ``docker_image`` is the only optional image
     override and is intended for values already validated by Pyrate.
+
+    The launch request goes through the shared resilience wrapper (retry +
+    backoff on transient connect failures / 5xx, plus a per-host circuit
+    breaker). Because ``/api/launch`` is **not** idempotent, retries are
+    restricted to connection-level failures where the server cannot have
+    processed the request, so a retry never spawns a duplicate session.
+
+    When ``media_id`` is provided, launch and Redis bookkeeping are performed
+    atomically: the freshly-launched session is recorded, and if recording
+    fails the launch is rolled back (the orphaned Lightrays session is stopped
+    and any partial Redis record released) before the error propagates — no
+    verwaiste Session is left behind. When ``media_id`` is ``None`` the caller
+    is responsible for bookkeeping (see :func:`record_session`) and behaviour
+    is unchanged.
     """
     if not user_id:
         user_id = "pyrate-backend"
@@ -141,25 +167,83 @@ async def launch_session(
         height,
     )
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{LIGHTRAYS_URL}/api/launch", json=payload, headers=_auth_headers(user_id)
+        resp = await request_with_resilience(
+            lambda: client.post(
+                f"{LIGHTRAYS_URL}/api/launch",
+                json=payload,
+                headers=_auth_headers(user_id),
+            ),
+            breaker_key=_breaker_key(),
+            # Non-idempotent POST: only retry when the request provably never
+            # reached the server, so we never launch a duplicate session.
+            retry_exceptions=CONNECT_ONLY_EXCEPTIONS,
         )
         resp.raise_for_status()
         data = resp.json()
         ws_url = data.get("ws_url") or f"/api/lightrays-ws/{data.get('session_id', '')}"
         data["websocket_url"] = _browser_websocket_url(ws_url)
         logger.info("Lightrays session launched session_id=%s", data.get("session_id"))
-        return data
+
+    # Optional atomic bookkeeping: record the session and roll back the launch
+    # if recording fails, so a Lightrays-side session is never left orphaned.
+    if media_id is not None:
+        session_id = data.get("session_id")
+        try:
+            await record_session(
+                user_id=user_id, session_id=session_id, media_id=media_id
+            )
+        except Exception as exc:
+            logger.error(
+                "Lightrays bookkeeping failed for session_id=%s; rolling back: %s",
+                session_id,
+                exc,
+            )
+            await _rollback_launch(session_id, user_id=user_id)
+            raise
+
+    return data
+
+
+async def _rollback_launch(session_id: str | None, *, user_id: str) -> None:
+    """Best-effort cleanup of a launched-but-unrecorded Lightrays session.
+
+    Releases any partial Redis bookkeeping and asks Lightrays to tear down the
+    container so a failed bookkeeping step doesn't leave a verwaiste Session.
+    Both steps are best-effort — rollback must never mask the original error.
+    """
+    if not session_id:
+        return
+    try:
+        await release_session(session_id)
+    except Exception:
+        logger.warning(
+            "rollback: failed to release redis record for session_id=%s",
+            session_id,
+            exc_info=True,
+        )
+    try:
+        await stop_session(session_id, user_id=user_id)
+    except Exception:
+        logger.warning(
+            "rollback: failed to stop orphaned lightrays session_id=%s",
+            session_id,
+            exc_info=True,
+        )
 
 
 async def stop_session(session_id: str, *, user_id: str, admin: bool = False) -> dict:
     """Stop an active Lightrays streaming session."""
     logger.info("Stopping Lightrays session session_id=%s", session_id)
     async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            f"{LIGHTRAYS_URL}/api/stop",
-            json={"session_id": session_id},
-            headers=_auth_headers(user_id, scope="lightrays:admin" if admin else None),
+        resp = await request_with_resilience(
+            lambda: client.post(
+                f"{LIGHTRAYS_URL}/api/stop",
+                json={"session_id": session_id},
+                headers=_auth_headers(
+                    user_id, scope="lightrays:admin" if admin else None
+                ),
+            ),
+            breaker_key=_breaker_key(),
         )
         resp.raise_for_status()
         logger.info("Lightrays session stopped session_id=%s", session_id)
@@ -170,9 +254,14 @@ async def get_stats(session_id: str, *, user_id: str, admin: bool = False) -> di
     """Get container stats for an active Lightrays session."""
     logger.debug("Fetching Lightrays stats for session_id=%s", session_id)
     async with httpx.AsyncClient(timeout=5.0) as client:
-        resp = await client.get(
-            f"{LIGHTRAYS_URL}/api/stats/{session_id}",
-            headers=_auth_headers(user_id, scope="lightrays:admin" if admin else None),
+        resp = await request_with_resilience(
+            lambda: client.get(
+                f"{LIGHTRAYS_URL}/api/stats/{session_id}",
+                headers=_auth_headers(
+                    user_id, scope="lightrays:admin" if admin else None
+                ),
+            ),
+            breaker_key=_breaker_key(),
         )
         resp.raise_for_status()
         return resp.json()

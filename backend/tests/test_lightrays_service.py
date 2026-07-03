@@ -57,6 +57,7 @@ class TestLaunchSession:
     @pytest.mark.asyncio
     async def test_launch_session_success(self):
         mock_response = MagicMock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {"session_id": "sess_1", "ws_url": "ws://..."}
         mock_response.raise_for_status = MagicMock()
 
@@ -74,6 +75,7 @@ class TestLaunchSession:
     @pytest.mark.asyncio
     async def test_launch_session_custom_params(self):
         mock_response = MagicMock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {"session_id": "sess_2"}
         mock_response.raise_for_status = MagicMock()
 
@@ -107,6 +109,71 @@ class TestLaunchSession:
         assert "container_name" not in payload
 
 
+class TestLaunchBookkeepingRollback:
+    """When atomic bookkeeping is requested (``media_id`` passed) and the
+    Redis record fails, the just-launched Lightrays session must be rolled
+    back so no verwaiste Session is left behind."""
+
+    @pytest.mark.asyncio
+    async def test_rolls_back_on_bookkeeping_failure(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"session_id": "sess_rb", "ws_url": "ws://x"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        with patch(
+            "pyrate.services.lightrays.httpx.AsyncClient", return_value=mock_client
+        ), patch(
+            "pyrate.services.lightrays.record_session",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("redis down"),
+        ), patch(
+            "pyrate.services.lightrays.release_session", new_callable=AsyncMock
+        ) as release_mock, patch(
+            "pyrate.services.lightrays.stop_session", new_callable=AsyncMock
+        ) as stop_mock:
+            with pytest.raises(RuntimeError, match="redis down"):
+                await launch_session(
+                    title="Test", user_id="user-1", media_id="media-1"
+                )
+
+        # The orphaned session was cleaned up on both fronts.
+        release_mock.assert_awaited_once_with("sess_rb")
+        stop_mock.assert_awaited_once()
+        assert stop_mock.await_args.args[0] == "sess_rb"
+
+    @pytest.mark.asyncio
+    async def test_no_rollback_without_media_id(self):
+        """Default call (no media_id) does no bookkeeping and no rollback."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"session_id": "sess_x", "ws_url": "ws://x"}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        with patch(
+            "pyrate.services.lightrays.httpx.AsyncClient", return_value=mock_client
+        ), patch(
+            "pyrate.services.lightrays.record_session", new_callable=AsyncMock
+        ) as record_mock, patch(
+            "pyrate.services.lightrays.release_session", new_callable=AsyncMock
+        ) as release_mock:
+            result = await launch_session(title="Test", user_id="user-1")
+
+        assert result["session_id"] == "sess_x"
+        record_mock.assert_not_awaited()
+        release_mock.assert_not_awaited()
+
+
 class TestBrowserWebSocketUrl:
     @patch("pyrate.services.lightrays.LIGHTRAYS_PUBLIC_URL", "")
     def test_keeps_relative_url_without_public_url(self):
@@ -125,6 +192,7 @@ class TestStopSession:
     @pytest.mark.asyncio
     async def test_stop_session_success(self):
         mock_response = MagicMock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {"status": "stopped"}
         mock_response.raise_for_status = MagicMock()
 
@@ -143,6 +211,7 @@ class TestGetStats:
     @pytest.mark.asyncio
     async def test_get_stats_success(self):
         mock_response = MagicMock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {"cpu": 45.0, "memory_mb": 512}
         mock_response.raise_for_status = MagicMock()
 

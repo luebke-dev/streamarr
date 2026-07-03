@@ -1,7 +1,9 @@
 """Tests for the DownloaderService."""
 
 import uuid
+from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +13,7 @@ from pyrate.downloaders.sabnzbd import Sabnzbd
 from pyrate.downloaders.spotdl import Spotdl
 from pyrate.schemas.downloader import DownloaderCreate, DownloaderUpdate
 from pyrate.services.downloader import DownloaderService
+from pyrate.utils.http import reset_circuit_breakers
 
 
 class TestDownloaderCRUD:
@@ -243,3 +246,66 @@ class TestDownloaderClientFactory:
         client = DownloaderService.get_client(downloader)
 
         assert isinstance(client, Sabnzbd)
+
+
+class TestDownloaderResilience:
+    """Health/client requests go through the retry + circuit-breaker wrapper."""
+
+    def setup_method(self):
+        reset_circuit_breakers()
+
+    def teardown_method(self):
+        reset_circuit_breakers()
+
+    @pytest.mark.asyncio
+    async def test_health_check_retries_transient_then_ok(
+        self, db_session: AsyncSession, monkeypatch
+    ):
+        service = DownloaderService(db_session)
+        downloader = Downloader(
+            label="SAB", host="http://sab:8080", api_key="k", type="sabnzbd"
+        )
+
+        calls = {"n": 0}
+
+        async def flaky_get_downloads():
+            calls["n"] += 1
+            if calls["n"] < 2:
+                raise httpx.ConnectError("temporarily down")
+            return []
+
+        client = AsyncMock()
+        client.get_downloads = flaky_get_downloads
+        client.close = AsyncMock()
+        monkeypatch.setattr(service, "get_client", lambda d: client)
+
+        # Backoff would sleep; neutralise it for the test.
+        monkeypatch.setattr(
+            "pyrate.utils.http._backoff_delay", lambda *a, **k: 0.0
+        )
+
+        healthy = await service.health_check(downloader)
+        assert healthy is True
+        assert calls["n"] == 2
+        client.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_health_check_reports_unhealthy_when_down(
+        self, db_session: AsyncSession, monkeypatch
+    ):
+        service = DownloaderService(db_session)
+        downloader = Downloader(
+            label="SAB", host="http://dead:8080", api_key="k", type="sabnzbd"
+        )
+
+        client = AsyncMock()
+        client.get_downloads = AsyncMock(side_effect=httpx.ConnectError("down"))
+        client.close = AsyncMock()
+        monkeypatch.setattr(service, "get_client", lambda d: client)
+        monkeypatch.setattr(
+            "pyrate.utils.http._backoff_delay", lambda *a, **k: 0.0
+        )
+
+        healthy = await service.health_check(downloader)
+        assert healthy is False
+        client.close.assert_awaited_once()

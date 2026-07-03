@@ -724,7 +724,7 @@ class TestGetActiveTranscodeContainer:
         mock_computing.__aenter__ = AsyncMock(return_value=mock_computing)
         mock_computing.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.play.ComputingService", return_value=mock_computing):
+        with patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
             result = await get_active_transcode_container(content_id)
 
         assert result == "container-xyz"
@@ -739,7 +739,7 @@ class TestGetActiveTranscodeContainer:
         mock_computing.__aenter__ = AsyncMock(return_value=mock_computing)
         mock_computing.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.play.ComputingService", return_value=mock_computing):
+        with patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
             result = await get_active_transcode_container("nonexistent-id")
 
         assert result is None
@@ -747,7 +747,7 @@ class TestGetActiveTranscodeContainer:
     @pytest.mark.asyncio
     async def test_returns_none_on_exception(self):
         with patch(
-            "pyrate.services.play.ComputingService",
+            "pyrate.services.transcode_lifecycle.ComputingService",
             side_effect=Exception("provider not available"),
         ):
             result = await get_active_transcode_container("any-id")
@@ -770,7 +770,7 @@ class TestGetActiveTranscodeContainer:
         mock_computing.__aenter__ = AsyncMock(return_value=mock_computing)
         mock_computing.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.play.ComputingService", return_value=mock_computing):
+        with patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
             result = await get_active_transcode_container("abc-123")
 
         assert result is None
@@ -801,9 +801,9 @@ class TestProbeVideoFull:
         mock_settings = AsyncMock()
         mock_settings.get.return_value = "/data"
 
-        with patch("pyrate.services.play.ComputingService", return_value=mock_computing), \
+        with patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing), \
              patch("pyrate.services.settings.SettingsService", return_value=mock_settings), \
-             patch("pyrate.services.play._structure_probe_data", return_value={"video_streams": []}) as mock_struct:
+             patch("pyrate.services.transcode_lifecycle._structure_probe_data", return_value={"video_streams": []}) as mock_struct:
             result = await probe_video_full("/library/movies/test.mkv", db=AsyncMock())
 
         assert result is not None
@@ -823,7 +823,7 @@ class TestProbeVideoFull:
         mock_settings = AsyncMock()
         mock_settings.get.return_value = "/data"
 
-        with patch("pyrate.services.play.ComputingService", return_value=mock_computing), \
+        with patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing), \
              patch("pyrate.services.settings.SettingsService", return_value=mock_settings):
             result = await probe_video_full("/library/movies/test.mkv", db=AsyncMock())
 
@@ -843,7 +843,7 @@ class TestProbeVideoFull:
         mock_settings = AsyncMock()
         mock_settings.get.return_value = "/data"
 
-        with patch("pyrate.services.play.ComputingService", return_value=mock_computing), \
+        with patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing), \
              patch("pyrate.services.settings.SettingsService", return_value=mock_settings):
             result = await probe_video_full("/library/movies/test.mkv", db=AsyncMock())
 
@@ -851,7 +851,7 @@ class TestProbeVideoFull:
 
     @pytest.mark.asyncio
     async def test_probe_exception_returns_none(self):
-        with patch("pyrate.services.play.ComputingService", side_effect=Exception("fail")), \
+        with patch("pyrate.services.transcode_lifecycle.ComputingService", side_effect=Exception("fail")), \
              patch("pyrate.services.settings.SettingsService", return_value=AsyncMock(get=AsyncMock(return_value="/data"))):
             result = await _probe_video_with_computing_service("/test.mkv", db=AsyncMock())
 
@@ -870,7 +870,7 @@ class TestProbeVideoMetadata:
             "video_streams": [{"codec_name": "h264", "width": 1920, "height": 1080}],
         }
 
-        with patch("pyrate.services.play.probe_video_full", new_callable=AsyncMock, return_value=probe_data):
+        with patch("pyrate.services.transcode_lifecycle.probe_video_full", new_callable=AsyncMock, return_value=probe_data):
             result = await probe_video_metadata("/test.mkv", db=AsyncMock())
 
         assert result["duration"] == 120.5
@@ -881,7 +881,7 @@ class TestProbeVideoMetadata:
 
     @pytest.mark.asyncio
     async def test_returns_defaults_when_probe_fails(self):
-        with patch("pyrate.services.play.probe_video_full", new_callable=AsyncMock, return_value=None):
+        with patch("pyrate.services.transcode_lifecycle.probe_video_full", new_callable=AsyncMock, return_value=None):
             result = await probe_video_metadata("/test.mkv", db=AsyncMock())
 
         assert result["duration"] is None
@@ -889,7 +889,7 @@ class TestProbeVideoMetadata:
 
     @pytest.mark.asyncio
     async def test_returns_defaults_on_exception(self):
-        with patch("pyrate.services.play.probe_video_full", new_callable=AsyncMock, side_effect=Exception("fail")):
+        with patch("pyrate.services.transcode_lifecycle.probe_video_full", new_callable=AsyncMock, side_effect=Exception("fail")):
             result = await probe_video_metadata("/test.mkv", db=AsyncMock())
 
         assert result["duration"] is None

@@ -816,23 +816,30 @@ class LibraryImportService:
                     logger.warning("Could not fetch details for season %s", season_number)
                     continue
 
-                season_item = await self._get_or_create_season(
-                    media_service=media_service,
-                    show_item=show_item,
-                    library_guid=library_guid,
-                    season_number=season_number,
-                    season_details=season_details,
-                )
+                # Per-season savepoint: the season row, its external id and all
+                # of its episodes commit or roll back as one unit. A failure
+                # part-way through a season leaves no half-imported season
+                # behind while still letting the loop skip on and import the
+                # remaining seasons. Counters are only advanced once the
+                # savepoint has released cleanly.
+                async with self.db.begin_nested():
+                    season_item = await self._get_or_create_season(
+                        media_service=media_service,
+                        show_item=show_item,
+                        library_guid=library_guid,
+                        season_number=season_number,
+                        season_details=season_details,
+                    )
+                    imported = await self._import_episodes(
+                        media_service=media_service,
+                        season_item=season_item["item"],
+                        season_number=season_number,
+                        library_guid=library_guid,
+                        episodes=season_details.get("episodes", []),
+                    )
+
                 if season_item["created"]:
                     seasons_imported += 1
-
-                imported = await self._import_episodes(
-                    media_service=media_service,
-                    season_item=season_item["item"],
-                    season_number=season_number,
-                    library_guid=library_guid,
-                    episodes=season_details.get("episodes", []),
-                )
                 episodes_imported += imported
             except Exception as exc:
                 logger.warning("Failed to import season %s: %s", season_number, exc)

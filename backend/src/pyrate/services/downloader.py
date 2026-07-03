@@ -6,19 +6,24 @@ This service handles all downloader-related operations (SABnzbd, Deluge, etc.)
 
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.downloader import Downloader
 from pyrate.downloaders.deluge import Deluge
 from pyrate.downloaders.sabnzbd import Sabnzbd
 from pyrate.downloaders.spotdl import Spotdl
 from pyrate.downloaders.torrent_downloader import TorrentDownloader
 from pyrate.downloaders.usenet_downloader import UsenetDownloader
+from pyrate.models.downloader import Downloader
 from pyrate.schemas.downloader import DownloaderCreate, DownloaderRead, DownloaderUpdate
+from pyrate.utils.http import call_with_resilience, host_key
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 class DownloaderService:
@@ -137,6 +142,58 @@ class DownloaderService:
                 base_url=downloader.host,
                 api_key=downloader.api_key,
             )
+
+    @staticmethod
+    def _breaker_key(downloader: Downloader) -> str:
+        """Per-host circuit-breaker key for a downloader's client host."""
+        return f"downloader:{host_key(downloader.host)}"
+
+    async def client_request(
+        self,
+        downloader: Downloader,
+        operation: Callable[[], Awaitable[T]],
+    ) -> T:
+        """Run a downloader-client call through the shared resilience wrapper.
+
+        ``operation`` is a zero-arg callable returning an awaitable, e.g.
+        ``lambda: client.get_downloads()``. Transient transport failures are
+        retried with exponential backoff, and a repeatedly-unreachable
+        downloader trips a per-host circuit breaker so we fail fast (with
+        :class:`~pyrate.utils.http.CircuitOpenError`) instead of hammering a
+        host that is down. Successful calls behave exactly as before.
+        """
+        return await call_with_resilience(
+            operation, breaker_key=self._breaker_key(downloader)
+        )
+
+    async def health_check(self, downloader: Downloader) -> bool:
+        """Best-effort reachability probe for a downloader.
+
+        Issues a lightweight status request through :meth:`client_request`, so
+        a downloader that is briefly unreachable is retried before being
+        reported unhealthy. Returns ``True`` if the downloader answered,
+        ``False`` otherwise.
+        """
+        client = self.get_client(downloader)
+        try:
+            await self.client_request(downloader, client.get_downloads)
+            return True
+        except Exception:
+            logger.info(
+                "Downloader health check failed guid=%s host=%s",
+                downloader.guid,
+                downloader.host,
+                exc_info=True,
+            )
+            return False
+        finally:
+            try:
+                await client.close()
+            except Exception:
+                logger.debug(
+                    "Failed to close downloader client guid=%s", downloader.guid,
+                    exc_info=True,
+                )
 
     async def delete(self, downloader: Downloader) -> None:
         """Delete a downloader"""

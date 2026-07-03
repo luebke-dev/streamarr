@@ -8,3 +8,16 @@ scrape_configs:
     static_configs:
       - targets:
           - backend-python:8000
+
+  # Taskiq worker metrics (task throughput/failures via WORKER_TASK_EVENTS,
+  # exposed by workers/runtime.py on WORKER_METRICS_PORT, default 9100).
+  # NOTE: the `worker` service runs with replicas>1 and shares one Compose DNS
+  # name, so this target round-robins across replicas each scrape. That is fine
+  # for counters (rate() over the sum), but for per-replica accuracy use a
+  # discovery mechanism that scrapes each replica individually (e.g. Kubernetes
+  # pod discovery) in production.
+  - job_name: pyrate-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - worker:9100

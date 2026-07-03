@@ -3,8 +3,8 @@
 import glob
 import logging
 import uuid
-from pathlib import Path
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -12,6 +12,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from pyrate.libraries import get_plugin_instance
 from pyrate.models.media import (
     AvailabilityStatus,
     MediaExternalId,
@@ -20,7 +21,6 @@ from pyrate.models.media import (
     MediaRelease,
     MediaType,
 )
-from pyrate.libraries import get_plugin_instance
 
 logger = logging.getLogger(__name__)
 
@@ -435,8 +435,14 @@ class MediaService:
         provider: str,
         external_id: str,
         media_type: MediaType | None = None,
+        load_options: Any = None,
     ) -> MediaItem | None:
-        """Get media item by external ID (e.g., TMDB ID)."""
+        """Get media item by external ID (e.g., TMDB ID).
+
+        ``load_options`` optionally supplies a sequence of SQLAlchemy loader
+        options (e.g. ``MEDIA_ITEM_LOAD_OPTIONS``) so a caller that needs eager
+        loading can share this single implementation instead of duplicating it.
+        """
         query = (
             select(MediaItem)
             .join(MediaExternalId)
@@ -445,6 +451,9 @@ class MediaService:
                 MediaExternalId.external_id == external_id,
             )
         )
+
+        if load_options:
+            query = query.options(*load_options)
 
         if media_type:
             query = query.where(MediaItem.media_type == media_type)
@@ -529,6 +538,7 @@ class MediaService:
         self,
         parent_guid: uuid.UUID,
         order_by_sequence: bool = True,
+        load_options: Any = None,
     ) -> list[MediaItem]:
         """
         Get child media items (e.g., seasons of a show, episodes of a season, tracks of an album).
@@ -536,8 +546,14 @@ class MediaService:
         Args:
             parent_guid: Parent media item GUID
             order_by_sequence: Order by sequence_number if True
+            load_options: Optional sequence of SQLAlchemy loader options for
+                eager loading. Lets callers that need genres/files/releases
+                (e.g. LibraryService) reuse this implementation.
         """
         query = select(MediaItem).where(MediaItem.parent_guid == parent_guid)
+
+        if load_options:
+            query = query.options(*load_options)
 
         if order_by_sequence:
             query = query.order_by(MediaItem.sequence_number)
