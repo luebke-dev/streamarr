@@ -187,3 +187,49 @@ class TestResolveLaunchConfig:
             "runtime_profile": None,
             "app_env": {"K": "v"},
         }
+
+
+class TestAppRefTemplate:
+    """The profile holds the launch command once via `{app_ref}`; each game
+    supplies only its own id (or none → template dropped)."""
+
+    @staticmethod
+    async def _steam_with_template(db_session: AsyncSession) -> ContainerProfile:
+        return await cp.create(
+            db_session,
+            name="steam",
+            kind="steam",
+            docker_image=STEAM_IMAGE,
+            runtime_profile="gow-app",
+            env={"STEAM_STARTUP_FLAGS": "-bigpicture steam://rungameid/{app_ref}"},
+            is_builtin=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_app_ref_substituted(self, db_session: AsyncSession):
+        await self._steam_with_template(db_session)
+        cfg = await cp.resolve_launch_config(db_session, _media({"app_ref": "440"}))
+        assert cfg["app_env"] == {
+            "STEAM_STARTUP_FLAGS": "-bigpicture steam://rungameid/440"
+        }
+
+    @pytest.mark.asyncio
+    async def test_missing_app_ref_drops_template(self, db_session: AsyncSession):
+        # No app_ref: the placeholder can't be filled, so the entry is dropped
+        # (falls back to the container's default, e.g. Steam Big Picture) —
+        # existing games without an app id must not regress.
+        await self._steam_with_template(db_session)
+        cfg = await cp.resolve_launch_config(db_session, _media({}))
+        assert "STEAM_STARTUP_FLAGS" not in cfg["app_env"]
+        assert cfg["app_env"] == {}
+
+    @pytest.mark.asyncio
+    async def test_per_game_env_still_merges_with_app_ref(self, db_session: AsyncSession):
+        await self._steam_with_template(db_session)
+        cfg = await cp.resolve_launch_config(
+            db_session, _media({"app_ref": "70", "env": {"EXTRA": "1"}})
+        )
+        assert cfg["app_env"] == {
+            "STEAM_STARTUP_FLAGS": "-bigpicture steam://rungameid/70",
+            "EXTRA": "1",
+        }
