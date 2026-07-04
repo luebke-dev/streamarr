@@ -1,43 +1,50 @@
-"""Services package - exports all service classes for convenient imports."""
+"""Services package — lazy re-exports of the commonly-used service classes.
 
-from pyrate.services.auth import AuthService
+Names are resolved on first access (PEP 562 ``__getattr__``) instead of being
+eagerly imported at package-import time. The previous eager imports pulled the
+*entire* service layer in whenever any ``pyrate.services`` submodule was
+imported — that fan-out is the root cause of the circular-import web the
+codebase worked around with hundreds of function-body imports (importing a leaf
+like ``pyrate.services.game_platforms`` would drag in ``download``, ``media``,
+… and cycle). Lazy resolution keeps ``from pyrate.services import XService``
+working without forcing that fan-out, so submodules can be imported in
+isolation and inline-import workarounds can be unwound incrementally.
+"""
 
-from pyrate.services.download import DownloadService
-from pyrate.services.downloader import DownloaderService
-from pyrate.services.indexer import IndexerService
-from pyrate.services.list import ListService
-from pyrate.services.media import MediaService
-from pyrate.services.media_file import MediaFileService
-from pyrate.services.notification import NotificationService
-from pyrate.services.person import PersonService
-from pyrate.services.settings import (
-    SettingsService,
-    get_igdb_credentials,
-    get_locale,
-    get_setting,
-    get_tmdb_api_key,
-)
-from pyrate.services.spotify_import import SpotifyMusicImportService
-from pyrate.services.storage_cleanup import StorageCleanupService
-from pyrate.services.trending import TrendingService
+import importlib
+from typing import Any
 
-__all__ = [
-    "AuthService",
-    "DownloadService",
-    "DownloaderService",
-    "IndexerService",
-    "ListService",
-    "NotificationService",
-    "PersonService",
-    "SettingsService",
-    "SpotifyMusicImportService",
-    "StorageCleanupService",
-    "TrendingService",
-    "MediaFileService",
-    "MediaService",
-    # Standalone helper functions
-    "get_igdb_credentials",
-    "get_locale",
-    "get_setting",
-    "get_tmdb_api_key",
-]
+# Exported name -> module that defines it.
+_EXPORTS: dict[str, str] = {
+    "AuthService": "pyrate.services.auth",
+    "DownloadService": "pyrate.services.download",
+    "DownloaderService": "pyrate.services.downloader",
+    "IndexerService": "pyrate.services.indexer",
+    "ListService": "pyrate.services.list",
+    "MediaService": "pyrate.services.media",
+    "MediaFileService": "pyrate.services.media_file",
+    "NotificationService": "pyrate.services.notification",
+    "PersonService": "pyrate.services.person",
+    "SettingsService": "pyrate.services.settings",
+    "SpotifyMusicImportService": "pyrate.services.spotify_import",
+    "StorageCleanupService": "pyrate.services.storage_cleanup",
+    "TrendingService": "pyrate.services.trending",
+    # Standalone helper functions (all from settings).
+    "get_igdb_credentials": "pyrate.services.settings",
+    "get_locale": "pyrate.services.settings",
+    "get_setting": "pyrate.services.settings",
+    "get_tmdb_api_key": "pyrate.services.settings",
+}
+
+__all__ = list(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    module = _EXPORTS.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(importlib.import_module(module), name)
+
+
+def __dir__() -> list[str]:
+    return sorted([*globals(), *__all__])
