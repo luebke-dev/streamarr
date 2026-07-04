@@ -46,6 +46,18 @@ _TRANSIENT_ERROR_FRAGMENTS: tuple[str, ...] = (
     "no space left on device",
     "disk full",
     "enospc",
+    # Local filesystem / mount failures. A remote-backed download dir (e.g. an
+    # rclone/FUSE mount) surfaces a FULL disk as a generic EIO ("I/O error
+    # (os error 5)") rather than ENOSPC, so ENOSPC alone missed it and every
+    # grab blacklisted its release. These are infra faults, never a bad release.
+    "i/o error",
+    "input/output error",
+    "os error 5",
+    "cannot create dest dir",
+    "cannot create temp dir",
+    "write error",
+    "read-only file system",
+    "os error 28",  # ENOSPC surfaced as a raw errno by some backends
     "connection refused",
     "connection reset",
     "connection timed out",
@@ -731,7 +743,12 @@ class DownloadService:
         await self.db.commit()
         record_download_transition(old_status, download.status, "failure")
 
-    async def blacklist_download(self, download: Download, reason: str | None = None) -> bool:
+    async def blacklist_download(
+        self,
+        download: Download,
+        reason: str | None = None,
+        retriable: bool | None = None,
+    ) -> bool:
         """Blacklist the release associated with a failed download.
 
         Sets `blacklisted_reason` on the MediaRelease so that it is
@@ -740,6 +757,11 @@ class DownloadService:
         Args:
             download: The failed download
             reason: Human-readable failure reason
+            retriable: Authoritative infra-vs-release classification from the
+                downloader. When ``True`` the failure was the downloader's/
+                infrastructure's fault (disk IO, network) and the release is
+                NOT blacklisted. When ``None`` (older downloaders that don't
+                report it) we fall back to matching the reason text.
 
         Returns:
             True if the release was successfully blacklisted.
@@ -766,7 +788,12 @@ class DownloadService:
                 logger.info("Release '%s' is already blacklisted", release.title)
                 return True
 
-            if _is_transient_error(reason):
+            # Prefer the downloader's structured classification; fall back to
+            # matching the free-text reason only when it isn't reported.
+            is_transient = (
+                retriable if retriable is not None else _is_transient_error(reason)
+            )
+            if is_transient:
                 # Infra problem (disk full, network down, ...). Don't poison the
                 # release pool — the next auto-download attempt should be free
                 # to retry this release once the infra is healthy again.
@@ -789,13 +816,17 @@ class DownloadService:
             return False
 
     async def try_alternative_link(
-        self, download: Download, error_msg: str
+        self, download: Download, error_msg: str, retriable: bool | None = None
     ) -> MediaReleaseLink | None:
         """Try an alternative download link for the same release.
 
         When a download fails (e.g. missing Usenet articles), another indexer
         may have the same release.  This method marks the failed link, finds
         an untried link for the same release, and queues a new download.
+
+        ``retriable`` is the downloader's structured infra-vs-release verdict
+        (see :meth:`blacklist_download`); when ``None`` we fall back to matching
+        the ``error_msg`` text.
 
         Returns the alternative link if one was found and queued, else None.
         """
@@ -813,7 +844,10 @@ class DownloadService:
             # Mark the failed link so we don't retry it — unless this was an
             # infra hiccup (full disk, network), in which case keep the link
             # selectable so the release can be retried after recovery.
-            if _is_transient_error(error_msg):
+            is_transient = (
+                retriable if retriable is not None else _is_transient_error(error_msg)
+            )
+            if is_transient:
                 logger.info(
                     "Not blacklisting link %s of release '%s' — transient error: %s",
                     failed_link.guid, release.title, error_msg,
