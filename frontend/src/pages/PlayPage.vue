@@ -25,6 +25,32 @@
       :media-guid="uuid"
     />
 
+    <!-- Game platform/version picker (N64 vs PC …) -->
+    <div
+      v-else-if="status === 'game-platform-select'"
+      class="game-platform-select column flex-center q-pa-lg"
+    >
+      <div class="text-h5 q-mb-lg">{{ t('playPage.choosePlatform') }}</div>
+      <div class="row q-gutter-md justify-center">
+        <q-card
+          v-for="p in gamePlatforms"
+          :key="p.platform"
+          class="platform-card cursor-pointer"
+          bordered
+          style="min-width: 160px"
+          @click="onSelectPlatform(p.platform)"
+        >
+          <q-card-section class="text-center">
+            <q-icon name="mdi-gamepad-variant" size="2.5em" class="q-mb-sm" />
+            <div class="text-h6">{{ p.label }}</div>
+            <div class="text-caption text-grey-6">
+              {{ p.downloaded ? t('playPage.play') : t('playPage.downloadAndPlay') }}
+            </div>
+          </q-card-section>
+        </q-card>
+      </div>
+    </div>
+
     <!-- Game Streaming via Lightrays -->
     <GameStreamView
       v-else-if="status === 'game-streaming'"
@@ -238,7 +264,16 @@ const playlistIndex = computed(() => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
 })
 
-const { gameSessionId, wsTicket, websocketUrl, gameIceServers, launchGameStream } = useGameLaunch({
+const {
+  gameSessionId,
+  wsTicket,
+  websocketUrl,
+  gameIceServers,
+  gamePlatforms,
+  selectedPlatform,
+  launchGameStream,
+  fetchGamePlatforms,
+} = useGameLaunch({
   uuid,
   status,
   loading,
@@ -287,7 +322,12 @@ const {
   status,
   loading,
   videoDuration,
-  onAvailable: () => videoPlayerStore.startPlayback(),
+  // Games relaunch into the emulator once the ROM lands; everything else
+  // resumes video playback. Same download-waiting screen for both.
+  onAvailable: () =>
+    contentType.value === 'game'
+      ? launchGameStream(selectedPlatform.value)
+      : videoPlayerStore.startPlayback(),
 })
 
 const {
@@ -699,6 +739,7 @@ const { checkContent } = usePlaybackBootstrap({
   loading,
   errorMessage,
   launchGameStream,
+  fetchGamePlatforms,
   checkEpisodeNavigation,
   checkPlaylistNavigation,
   loadFavoriteStatus,
@@ -767,6 +808,14 @@ const { onPlayerMounted, onPlayerReady, onTimeUpdate, onVideoEnded, onVideoPause
 // Navigation
 const goBack = () => {
   router.back()
+}
+
+// Player picked a platform/version: launch it. If its ROM isn't downloaded
+// yet the backend starts acquisition (409 → status 'downloading'); reuse the
+// same download-waiting screen + polling as movies/episodes.
+const onSelectPlatform = async (platform) => {
+  await launchGameStream(platform)
+  if (status.value === 'downloading') startDownloadPolling()
 }
 
 const searchReleases = () => {

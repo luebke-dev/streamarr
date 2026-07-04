@@ -11,6 +11,7 @@ export function usePlaybackBootstrap({
   loading,
   errorMessage,
   launchGameStream,
+  fetchGamePlatforms,
   checkEpisodeNavigation,
   checkPlaylistNavigation,
   loadFavoriteStatus,
@@ -44,7 +45,33 @@ export function usePlaybackBootstrap({
       }
 
       if (contentType.value === 'game') {
-        await launchGameStream()
+        // Load the game's metadata so the shared download-waiting screen can
+        // show its poster/title (same PlayStatusScreen movies/episodes use).
+        try {
+          contentInfo.value = await getMediaItem(uuid.value, {
+            load_files: false,
+            load_releases: false,
+            load_external_ids: false,
+          })
+        } catch (e) {
+          logger.debug('Failed to load game metadata for play screen', e)
+        }
+
+        // Let the player pick a platform/version when the game offers more than
+        // one (e.g. N64 ROM vs PC port); otherwise launch straight away.
+        const platforms = fetchGamePlatforms ? await fetchGamePlatforms() : []
+        if (Array.isArray(platforms) && platforms.length > 1) {
+          status.value = 'game-platform-select'
+          loading.value = false
+          return
+        }
+        await launchGameStream(platforms?.[0]?.platform ?? null)
+        // No ROM yet → launchGameStream set status='downloading' and the backend
+        // kicked off acquisition. Start the SAME polling as movies; it relaunches
+        // the game (onAvailable) once the ROM lands.
+        if (status.value === 'downloading' && startDownloadPolling) {
+          startDownloadPolling()
+        }
         return
       }
 

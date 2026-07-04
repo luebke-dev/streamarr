@@ -39,6 +39,7 @@ class AutoDownloadService:
         upgrade: bool = False,
         replace_media_file_guid: str | None = None,
         backfill: bool = False,
+        platform: str | None = None,
     ) -> dict[str, Any] | None:
         """Automatically download the best available release for a media item.
 
@@ -75,6 +76,18 @@ class AutoDownloadService:
                 media_item.guid,
             )
             return None
+
+        # Platform-scoped acquisition: when the player asked for a specific
+        # platform (e.g. N64), only download a release for THAT platform so a
+        # multi-platform title (N64 ROM vs 3DS remake vs PC port) doesn't grab
+        # the wrong one — which our retro container couldn't even run.
+        if platform:
+            releases = self._filter_by_platform(releases, platform)
+            if not releases:
+                logger.warning(
+                    "No %s release for media item %s", platform, media_item.guid
+                )
+                return None
 
         # Resolve user preferences and codec settings
         scoring_params = await self._resolve_scoring_params(media_item, user_guid)
@@ -214,6 +227,29 @@ class AutoDownloadService:
                 return False
 
         return True
+
+    def _filter_by_platform(
+        self, releases: list[MediaRelease], platform: str
+    ) -> list[MediaRelease]:
+        """Keep only releases for ``platform``.
+
+        Prefer releases explicitly tagged with the platform (e.g. "…-N64-ROM");
+        if none are tagged, fall back to untagged releases. A release tagged for
+        a DIFFERENT known platform (3DS remake, GameCube, PC port) is always
+        excluded so we never acquire something the chosen runtime can't run.
+        """
+        from pyrate.services.game_platforms import platform_from_release_title
+
+        tagged = [
+            r for r in releases
+            if platform_from_release_title(getattr(r, "title", "")) == platform
+        ]
+        if tagged:
+            return tagged
+        return [
+            r for r in releases
+            if platform_from_release_title(getattr(r, "title", "")) in (None, platform)
+        ]
 
     def _filter_blacklisted(self, releases: list[MediaRelease]) -> list[MediaRelease]:
         """Filter out blacklisted releases."""

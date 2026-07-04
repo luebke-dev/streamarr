@@ -10,14 +10,24 @@ import { api } from 'boot/axios'
  */
 export async function launchGameSession(
   mediaGuid,
-  { width, height, fps = 60, bitrateKbps = 10000 } = {},
+  { width, height, fps = 60, bitrateKbps = 10000, platform = null } = {},
 ) {
   const response = await api.post(`/api/lightrays/launch/${mediaGuid}`, {
     width,
     height,
     fps,
     bitrate_kbps: bitrateKbps,
+    platform,
   })
+  return response.data
+}
+
+/**
+ * List the platforms a game can be played on (N64, PC, …) with per-platform
+ * download/availability status, for the player's version picker.
+ */
+export async function getGamePlatforms(mediaGuid) {
+  const response = await api.get(`/api/lightrays/platforms/${mediaGuid}`)
   return response.data
 }
 

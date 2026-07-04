@@ -148,3 +148,75 @@ def retro_core_for(slug: str | None) -> str | None:
 def is_retro_platform(slug: str | None) -> bool:
     """Whether the platform is emulatable in the pyrate-retro container."""
     return retro_core_for(slug) is not None
+
+
+# Human display labels for the platform picker.
+_PLATFORM_LABELS: dict[str, str] = {
+    "nes": "NES", "snes": "Super Nintendo", "n64": "Nintendo 64",
+    "gb": "Game Boy", "gbc": "Game Boy Color", "gba": "Game Boy Advance",
+    "genesis": "Sega Genesis", "mastersystem": "Master System",
+    "pcengine": "PC Engine", "psx": "PlayStation", "arcade": "Arcade",
+    "pc": "PC", "ps2": "PlayStation 2", "ps3": "PlayStation 3",
+    "ps4": "PlayStation 4", "ps5": "PlayStation 5", "xbox": "Xbox",
+    "switch": "Nintendo Switch", "wii": "Wii", "wiiu": "Wii U",
+    "3ds": "Nintendo 3DS", "ds": "Nintendo DS", "gamecube": "GameCube",
+    "dreamcast": "Dreamcast", "saturn": "Sega Saturn",
+}
+
+
+def platform_label(slug: str | None) -> str:
+    """Human label for a platform slug (falls back to the slug)."""
+    return _PLATFORM_LABELS.get(slug or "", (slug or "").upper())
+
+
+# File extension → platform slug. THE single source of truth for which
+# extensions are game files and what platform they belong to. ``ROM_EXTENSIONS``
+# (the console-ROM subset the library scanner ingests) is derived from this, so
+# the two can never drift — a launchable extension always resolves a platform.
+_EXT_TO_PLATFORM: dict[str, str] = {
+    ".nes": "nes", ".fds": "nes", ".unf": "nes",
+    ".sfc": "snes", ".smc": "snes", ".swc": "snes", ".fig": "snes", ".bs": "snes",
+    ".n64": "n64", ".z64": "n64", ".v64": "n64", ".ndd": "n64",
+    ".gb": "gb", ".dmg": "gb", ".gbc": "gbc",
+    ".gba": "gba",
+    ".md": "genesis", ".gen": "genesis", ".smd": "genesis", ".sgd": "genesis",
+    ".68k": "genesis", ".bin": "genesis",
+    ".sms": "mastersystem", ".gg": "mastersystem", ".sg": "mastersystem",
+    ".pce": "pcengine", ".sgx": "pcengine",
+    ".cue": "psx", ".chd": "psx", ".pbp": "psx", ".m3u": "psx",
+    ".nds": "ds", ".3ds": "3ds",
+    ".zip": "arcade", ".7z": "arcade",
+    ".exe": "pc", ".msi": "pc",
+}
+
+# Console-ROM extensions the games library scanner/importer ingests. Derived
+# from _EXT_TO_PLATFORM minus PC installers, so a scannable ROM always has a
+# resolvable platform (previously ROM_EXTENSIONS lived in libraries/games.py
+# and had silently drifted — .nds/.3ds/.zip resolved to no platform).
+ROM_EXTENSIONS: frozenset[str] = frozenset(
+    ext for ext, plat in _EXT_TO_PLATFORM.items() if plat != "pc"
+)
+
+
+def platform_from_extension(path: str | None) -> str | None:
+    """Platform slug implied by a file's extension, or ``None``."""
+    if not path:
+        return None
+    import os
+
+    return _EXT_TO_PLATFORM.get(os.path.splitext(path)[1].lower())
+
+
+def profile_for_platform(slug: str | None) -> str | None:
+    """Container profile that runs a given platform, or ``None`` if unrunnable.
+
+    Console platforms map to the ``retro`` (libretro) profile; ``pc`` maps to
+    the Wine profile. Modern consoles we can't emulate here return ``None``.
+    """
+    if slug is None:
+        return None
+    if is_retro_platform(slug):
+        return "retro"
+    if slug == "pc":
+        return "wine"
+    return None

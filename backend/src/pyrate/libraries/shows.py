@@ -247,23 +247,10 @@ class ShowLibraryPlugin(LibraryBase):
         Returns:
             dict | None: Matched episode metadata or None if no match found
         """
-        show_name = file_info.get("show_name")
-        season = file_info.get("season")
-        episode = file_info.get("episode")
-
-        if not all([show_name, season, episode]):
-            logger.warning("Missing show/season/episode info, cannot match")
-            return None
-
-        # TODO: Implement actual TMDB/TVDB API call here
-        logger.info("Would search for: %s S%02dE%02d", show_name, season, episode)
-
-        return {
-            "show_name": show_name,
-            "season": season,
-            "episode": episode,
-            "matched": False,  # Indicates this is not a real match yet
-        }
+        # Metadata matching is not wired to a provider from this hook; a None
+        # result means "no automatic match" and callers handle it. (This path
+        # is currently unused — enrichment goes through the metadata services.)
+        return None
 
     # ==================== Release Metadata Extraction ====================
 

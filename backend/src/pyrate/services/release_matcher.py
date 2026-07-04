@@ -15,6 +15,14 @@ from pyrate.parsers.release_parser import ReleaseParser
 
 logger = logging.getLogger(__name__)
 
+# Title-match confidence scores / thresholds (0..1). Named so matching
+# behaviour is tunable and auditable instead of scattered magic literals.
+SCORE_EXACT_TITLE = 0.95  # normalized titles are equal
+SCORE_TITLE_AND_YEAR = 0.85  # title matches and the year agrees
+SCORE_LENIENT_MATCH = 0.7  # fuzzy / season-pack acceptance
+MATCH_THRESHOLD = 0.6  # generic is_match cutoff
+FUZZY_MATCH_THRESHOLD = 0.55  # lenient fuzzy cutoff (games/books)
+
 # Stopwords dropped when comparing game/ROM titles by token containment, so
 # article reordering ("Legend of Zelda, The") and joiners don't matter.
 _TITLE_STOPWORDS = frozenset(
@@ -260,13 +268,13 @@ class ReleaseMatcher:
 
         # Author boost: cleaned title contains the author name → strong signal
         if author and author.lower() in clean.lower():
-            match.score = max(match.score, 0.7)
-            match.is_match = match.is_match or match.score >= 0.6
+            match.score = max(match.score, SCORE_LENIENT_MATCH)
+            match.is_match = match.is_match or match.score >= MATCH_THRESHOLD
             details["author_match"] = True
 
         # Lenient threshold for books — title noise from author/series/year
         # tags often pushes a real match below the default cutoff.
-        if not match.is_match and match.score >= 0.55:
+        if not match.is_match and match.score >= FUZZY_MATCH_THRESHOLD:
             match = MatchResult(
                 is_match=True,
                 score=match.score,
@@ -339,7 +347,7 @@ class ReleaseMatcher:
             return match
 
         # Lenient fuzzy threshold
-        if match.score >= 0.55:
+        if match.score >= FUZZY_MATCH_THRESHOLD:
             return MatchResult(
                 is_match=True, score=match.score, match_type="fuzzy",
                 details={**details, "note": "lenient game match"},
@@ -435,7 +443,7 @@ class ReleaseMatcher:
                 # Season pack matches - this could be used for the whole season
                 return MatchResult(
                     is_match=True,
-                    score=0.7,  # Lower score than specific episode releases
+                    score=SCORE_LENIENT_MATCH,  # Lower score than specific episode releases
                     match_type="season_pack",
                     details={**details, "matched_by": "season_pack"},
                 )
@@ -556,11 +564,11 @@ class ReleaseMatcher:
             if norm_parsed_title and norm_target:
                 # Exact match
                 if norm_parsed_title == norm_target:
-                    score = 0.95
+                    score = SCORE_EXACT_TITLE
                     match_type = "exact"
                 # Partial match
                 elif norm_target in norm_parsed_title or norm_parsed_title in norm_target:
-                    score = 0.85
+                    score = SCORE_TITLE_AND_YEAR
                     match_type = "partial"
                 else:
                     # Fuzzy match
@@ -640,7 +648,7 @@ class ReleaseMatcher:
 
         # 2. Exact match (case-insensitive, normalized)
         if norm_release == norm_media:
-            score = 0.95
+            score = SCORE_EXACT_TITLE
             # Year match bonus
             if release_year and media_year and release_year == media_year:
                 score = min(1.0, score + cls.YEAR_MATCH_BONUS)
@@ -656,7 +664,7 @@ class ReleaseMatcher:
 
         # 3. Check if one contains the other (for subtitle variations)
         if norm_release in norm_media or norm_media in norm_release:
-            score = 0.85
+            score = SCORE_TITLE_AND_YEAR
             if release_year and media_year and release_year == media_year:
                 score = min(1.0, score + cls.YEAR_MATCH_BONUS)
             return MatchResult(
