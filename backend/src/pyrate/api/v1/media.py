@@ -24,10 +24,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from pyrate import worker as worker_tasks
 from pyrate.api.dependencies import (
@@ -39,13 +37,9 @@ from pyrate.api.dependencies import (
 from pyrate.api.v1.media_filters import MediaListQuery, media_type_for_library
 from pyrate.auth.dependencies import get_current_superuser, get_current_user_optional
 from pyrate.libraries import get_library_type_for_media_item_type
-from pyrate.models.downloads import Download
-from pyrate.models.library import Library
 from pyrate.models.media import (
     AvailabilityStatus,
     MediaItem,
-    MediaRelease,
-    MediaReleaseLink,
     MediaType,
 )
 from pyrate.models.media_watch import MediaWatch
@@ -106,7 +100,6 @@ from pyrate.api.v1._media_normalizers import (
     _find_remote_image,
     _image_language_matches,
     _normalize_remote_image,
-    _normalize_trailer,
     _parse_datetime,
     _remote_image_candidates,
     _trailer_candidates,
@@ -294,12 +287,7 @@ async def _allowed_download_roots(db: AsyncSession, media_item: MediaItem) -> li
     if not library_type:
         return roots
 
-    rows = await db.execute(
-        select(Library.path)
-        .where(Library.type == library_type, Library.path.isnot(None))
-        .order_by(Library.enabled.desc(), Library.created_at.asc())
-    )
-    for path in rows.scalars().all():
+    for path in await MediaService(db).get_library_paths_for_type(library_type):
         roots.insert(0, Path(path))
     return roots
 
@@ -1399,10 +1387,7 @@ async def get_media_item_similar(
     Item-anchored; computed on demand (not list-backed). Uses TMDB
     similar + recommendations merged with an internal genre-overlap fallback.
     """
-    item_res = await db.execute(
-        select(MediaItem).where(MediaItem.guid == item_guid)
-    )
-    item = item_res.scalar_one_or_none()
+    item = await MediaService(db).get_media_item(item_guid)
     if item is None:
         raise HTTPException(status_code=404, detail="Media item not found")
 
@@ -1461,14 +1446,7 @@ async def get_media_item_children(
     )
 
     child_guids = [child.guid for child in children]
-    grandchild_counts: dict[uuid.UUID, int] = {}
-    if child_guids:
-        count_result = await db.execute(
-            select(MediaItem.parent_guid, func.count(MediaItem.guid))
-            .where(MediaItem.parent_guid.in_(child_guids))
-            .group_by(MediaItem.parent_guid)
-        )
-        grandchild_counts = {row[0]: row[1] for row in count_result.all()}
+    grandchild_counts = await MediaService(db).get_child_counts(child_guids)
 
     result = []
     for child in children:
@@ -1669,13 +1647,7 @@ async def create_media_release(
     )
 
     # Re-fetch with links to avoid lazy-loading in async context
-
-    result = await db.execute(
-        select(MediaRelease)
-        .where(MediaRelease.guid == new_release.guid)
-        .options(selectinload(MediaRelease.links))
-    )
-    new_release = result.scalars().first()
+    new_release = await MediaService(db).get_release_with_links(new_release.guid)
 
     return MediaReleaseRead.model_validate(new_release)
 
@@ -1720,14 +1692,9 @@ async def download_media_release(
         raise HTTPException(status_code=404, detail="Media item not found")
 
     # Get the release with its links
-    result = await db.execute(
-        select(MediaRelease)
-        .where(
-            MediaRelease.guid == release_guid, MediaRelease.media_item_guid == item_guid
-        )
-        .options(selectinload(MediaRelease.links))
+    release = await MediaService(db).get_item_release_with_links(
+        item_guid, release_guid
     )
-    release = result.scalar_one_or_none()
     if not release:
         raise HTTPException(status_code=404, detail="Release not found")
 
@@ -1781,21 +1748,7 @@ async def get_media_item_downloads(
     if not media_item:
         raise HTTPException(status_code=404, detail="Media item not found")
 
-    # Join: Download → MediaReleaseLink → MediaRelease (filtered by media_item_guid)
-    result = await db.execute(
-        select(Download)
-        .join(
-            MediaReleaseLink, Download.media_release_link_guid == MediaReleaseLink.guid
-        )
-        .join(MediaRelease, MediaReleaseLink.media_release_guid == MediaRelease.guid)
-        .where(MediaRelease.media_item_guid == item_guid)
-        .options(
-            selectinload(Download.media_release_link),
-            selectinload(Download.started_by),
-        )
-        .order_by(Download.created_at.desc())
-    )
-    downloads = result.scalars().all()
+    downloads = await MediaService(db).get_downloads_for_item(item_guid)
 
     return [
         {
@@ -2037,8 +1990,7 @@ async def get_media_availability(
     item_guid: uuid.UUID,
 ):
     """Get availability status for a media item. Triggers auto-search if needed."""
-    result = await db.execute(select(MediaItem).where(MediaItem.guid == item_guid))
-    media_item = result.scalars().first()
+    media_item = await MediaService(db).get_media_item(item_guid)
     if not media_item:
         raise HTTPException(status_code=404, detail="Media item not found")
     require_media_read_access(
@@ -2075,8 +2027,7 @@ async def toggle_media_watch(
 ):
     """Toggle watch status for a media item (notify when available)."""
     # Check media item exists
-    result = await db.execute(select(MediaItem).where(MediaItem.guid == item_guid))
-    media_item = result.scalars().first()
+    media_item = await MediaService(db).get_media_item(item_guid)
     if not media_item:
         raise HTTPException(status_code=404, detail="Media item not found")
     require_media_read_access(
@@ -2087,13 +2038,7 @@ async def toggle_media_watch(
     )
 
     # Check if already watching
-    existing = await db.execute(
-        select(MediaWatch).where(
-            MediaWatch.user_guid == current_user.guid,
-            MediaWatch.media_item_guid == item_guid,
-        )
-    )
-    watch = existing.scalars().first()
+    watch = await MediaService(db).get_watch(current_user.guid, item_guid)
 
     if watch:
         await db.delete(watch)
@@ -2154,8 +2099,7 @@ async def get_show_resume_episode(
 
 async def _get_episode_or_raise(db: AsyncSession, episode_guid: uuid.UUID) -> MediaItem:
     """Validate that the given GUID is a child item (episode/track)."""
-    result = await db.execute(select(MediaItem).where(MediaItem.guid == episode_guid))
-    item = result.scalars().first()
+    item = await MediaService(db).get_media_item(episode_guid)
     if not item:
         raise HTTPException(status_code=404, detail="Episode not found")
     if not item.parent_guid:

@@ -430,6 +430,97 @@ class MediaService:
         result = await self.db.execute(query)
         return result.scalars().first()
 
+    async def get_media_item(self, guid: uuid.UUID) -> MediaItem | None:
+        """Plain fetch of a media item by GUID (no eager loading)."""
+        result = await self.db.execute(
+            select(MediaItem).where(MediaItem.guid == guid)
+        )
+        return result.scalars().first()
+
+    async def get_library_paths_for_type(self, library_type: str) -> list[str]:
+        """Configured library paths for a library type, best-enabled first."""
+        from pyrate.models.library import Library
+
+        rows = await self.db.execute(
+            select(Library.path)
+            .where(Library.type == library_type, Library.path.isnot(None))
+            .order_by(Library.enabled.desc(), Library.created_at.asc())
+        )
+        return list(rows.scalars().all())
+
+    async def get_child_counts(
+        self, parent_guids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, int]:
+        """Map each parent GUID to its number of direct children."""
+        if not parent_guids:
+            return {}
+        result = await self.db.execute(
+            select(MediaItem.parent_guid, func.count(MediaItem.guid))
+            .where(MediaItem.parent_guid.in_(parent_guids))
+            .group_by(MediaItem.parent_guid)
+        )
+        return {row[0]: row[1] for row in result.all()}
+
+    async def get_release_with_links(
+        self, release_guid: uuid.UUID
+    ) -> "MediaRelease | None":
+        """Fetch a release by GUID with its download links eager-loaded."""
+        result = await self.db.execute(
+            select(MediaRelease)
+            .where(MediaRelease.guid == release_guid)
+            .options(selectinload(MediaRelease.links))
+        )
+        return result.scalars().first()
+
+    async def get_item_release_with_links(
+        self, item_guid: uuid.UUID, release_guid: uuid.UUID
+    ) -> "MediaRelease | None":
+        """Fetch a release scoped to an item, with its links eager-loaded."""
+        result = await self.db.execute(
+            select(MediaRelease)
+            .where(
+                MediaRelease.guid == release_guid,
+                MediaRelease.media_item_guid == item_guid,
+            )
+            .options(selectinload(MediaRelease.links))
+        )
+        return result.scalar_one_or_none()
+
+    async def get_downloads_for_item(self, item_guid: uuid.UUID) -> list:
+        """All downloads for an item (via its release links), newest-first."""
+        from pyrate.models.downloads import Download
+        from pyrate.models.media import MediaReleaseLink
+
+        result = await self.db.execute(
+            select(Download)
+            .join(
+                MediaReleaseLink,
+                Download.media_release_link_guid == MediaReleaseLink.guid,
+            )
+            .join(
+                MediaRelease, MediaReleaseLink.media_release_guid == MediaRelease.guid
+            )
+            .where(MediaRelease.media_item_guid == item_guid)
+            .options(
+                selectinload(Download.media_release_link),
+                selectinload(Download.started_by),
+            )
+            .order_by(Download.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def get_watch(self, user_guid: uuid.UUID, item_guid: uuid.UUID):
+        """The MediaWatch row for (user, item), or None."""
+        from pyrate.models.media_watch import MediaWatch
+
+        result = await self.db.execute(
+            select(MediaWatch).where(
+                MediaWatch.user_guid == user_guid,
+                MediaWatch.media_item_guid == item_guid,
+            )
+        )
+        return result.scalars().first()
+
     async def get_by_external_id(
         self,
         provider: str,
