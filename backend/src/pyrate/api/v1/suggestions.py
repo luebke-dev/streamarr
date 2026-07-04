@@ -7,14 +7,11 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import and_, desc, func, or_, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import or_, select
 
 from pyrate.api.dependencies import CurrentUser, DatabaseSession, UserPermissionsDep
 from pyrate.models.genre import Genre
-from pyrate.models.list import List, ListItem, ListType
-from pyrate.models.media import MediaItem, MediaType, media_genre_table
-from pyrate.models.person import MediaCast, Person
+from pyrate.models.media import MediaItem, MediaType
 from pyrate.models.viewing_history import ViewingHistory
 from pyrate.schemas.media import MediaItemSummary
 from pyrate.services.media_access import (
@@ -23,6 +20,7 @@ from pyrate.services.media_access import (
     require_library_access_for_media_type,
     require_media_read_access,
 )
+from pyrate.services.suggestion import SuggestionService
 
 router = APIRouter()
 
@@ -116,44 +114,6 @@ async def _summaries(
     return summaries
 
 
-async def _user_seed_genre_ids(db: DatabaseSession, user_guid: uuid.UUID) -> list[int]:
-    favorite_genres = (
-        select(media_genre_table.c.genre_id)
-        .join(ListItem, ListItem.item_guid == media_genre_table.c.media_item_guid)
-        .join(List, List.guid == ListItem.list_guid)
-        .where(
-            List.list_type == ListType.FAVORITES,
-            List.owner_guid == user_guid,
-        )
-    )
-    watched_genres = (
-        select(media_genre_table.c.genre_id)
-        .join(
-            ViewingHistory,
-            ViewingHistory.media_item_guid == media_genre_table.c.media_item_guid,
-        )
-        .where(ViewingHistory.user_guid == user_guid)
-    )
-    result = await db.execute(favorite_genres.union(watched_genres))
-    return [genre_id for (genre_id,) in result.all()]
-
-
-async def _user_seed_item_guids(db: DatabaseSession, user_guid: uuid.UUID) -> set[uuid.UUID]:
-    favorite_items = (
-        select(ListItem.item_guid)
-        .join(List, List.guid == ListItem.list_guid)
-        .where(
-            List.list_type == ListType.FAVORITES,
-            List.owner_guid == user_guid,
-        )
-    )
-    watched_items = select(ViewingHistory.media_item_guid).where(
-        ViewingHistory.user_guid == user_guid
-    )
-    result = await db.execute(favorite_items.union(watched_items))
-    return {item_guid for (item_guid,) in result.all()}
-
-
 def _release_year(value: date | None) -> str | None:
     return str(value.year) if value else None
 
@@ -205,22 +165,9 @@ async def autocomplete_suggestions(
         return AutocompleteResponse(query=q, items=[], total=0)
 
     pattern = f"%{term}%"
-    query = (
-        select(MediaItem)
-        .options(selectinload(MediaItem.genres), selectinload(MediaItem.platforms))
-        .where(
-            *_visibility_conditions(current_user, permissions, media_type),
-            or_(
-                MediaItem.title.ilike(pattern),
-                MediaItem.original_title.ilike(pattern),
-                MediaItem.description.ilike(pattern),
-            ),
-        )
-        .order_by(MediaItem.title.asc())
-        .limit(limit)
+    items = await SuggestionService(db).search_media(
+        _visibility_conditions(current_user, permissions, media_type), pattern, limit
     )
-    result = await db.execute(query)
-    items = list(result.scalars().unique().all())
     return AutocompleteResponse(
         query=term,
         items=await _summaries(db, items, current_user.ui_language),
@@ -245,22 +192,9 @@ async def typed_autocomplete_suggestions(
     pattern = f"%{term}%"
     visibility = _visibility_conditions(current_user, permissions, media_type)
     per_type_limit = max(3, min(limit, 10))
+    service = SuggestionService(db)
 
-    media_result = await db.execute(
-        select(MediaItem)
-        .options(selectinload(MediaItem.genres), selectinload(MediaItem.platforms))
-        .where(
-            *visibility,
-            or_(
-                MediaItem.title.ilike(pattern),
-                MediaItem.original_title.ilike(pattern),
-                MediaItem.description.ilike(pattern),
-            ),
-        )
-        .order_by(MediaItem.title.asc())
-        .limit(per_type_limit)
-    )
-    media_items = list(media_result.scalars().unique().all())
+    media_items = await service.search_media(visibility, pattern, per_type_limit)
     summaries = await _summaries(db, media_items, current_user.ui_language)
 
     suggestions: list[TypedAutocompleteItem] = [
@@ -274,15 +208,6 @@ async def typed_autocomplete_suggestions(
         for summary in summaries
     ]
 
-    genre_result = await db.execute(
-        select(Genre.name, func.count(MediaItem.guid))
-        .join(media_genre_table, media_genre_table.c.genre_id == Genre.id)
-        .join(MediaItem, MediaItem.guid == media_genre_table.c.media_item_guid)
-        .where(*visibility, Genre.name.ilike(pattern))
-        .group_by(Genre.name)
-        .order_by(Genre.name.asc())
-        .limit(per_type_limit)
-    )
     suggestions.extend(
         TypedAutocompleteItem(
             type="genre",
@@ -290,18 +215,11 @@ async def typed_autocomplete_suggestions(
             value=name,
             count=count,
         )
-        for name, count in genre_result.all()
+        for name, count in await service.search_genres(
+            visibility, pattern, per_type_limit
+        )
     )
 
-    person_result = await db.execute(
-        select(Person.name, Person.guid, func.count(MediaItem.guid))
-        .join(MediaCast, MediaCast.person_guid == Person.guid)
-        .join(MediaItem, MediaItem.guid == MediaCast.media_item_guid)
-        .where(*visibility, Person.name.ilike(pattern))
-        .group_by(Person.guid, Person.name)
-        .order_by(Person.name.asc())
-        .limit(per_type_limit)
-    )
     suggestions.extend(
         TypedAutocompleteItem(
             type="person",
@@ -309,16 +227,12 @@ async def typed_autocomplete_suggestions(
             value=str(person_guid),
             count=count,
         )
-        for name, person_guid, count in person_result.all()
+        for name, person_guid, count in await service.search_people(
+            visibility, pattern, per_type_limit
+        )
     )
 
-    domain_result = await db.execute(
-        select(MediaItem)
-        .where(*visibility)
-        .order_by(MediaItem.title.asc())
-        .limit(500)
-    )
-    for item in domain_result.scalars().all():
+    for item in await service.scan_media_for_facets(visibility):
         for studio in _media_studios(item):
             if term.lower() in studio.lower() and all(
                 suggestion.type != "studio" or suggestion.value.lower() != studio.lower()
@@ -356,8 +270,9 @@ async def get_suggestions(
     If there are no seeds, it falls back to recent visible library items.
     """
     conditions = _visibility_conditions(current_user, permissions, media_type)
-    seed_genre_ids = await _user_seed_genre_ids(db, current_user.guid)
-    seed_item_guids = await _user_seed_item_guids(db, current_user.guid)
+    service = SuggestionService(db)
+    seed_genre_ids = await service.seed_genre_ids(current_user.guid)
+    seed_item_guids = await service.seed_item_guids(current_user.guid)
 
     if seed_item_guids:
         conditions.append(MediaItem.guid.notin_(seed_item_guids))
@@ -368,20 +283,8 @@ async def get_suggestions(
         )
         conditions.append(MediaItem.guid.notin_(completed))
 
-    query = (
-        select(MediaItem)
-        .options(selectinload(MediaItem.genres), selectinload(MediaItem.platforms))
-        .where(*conditions)
-        .order_by(desc(MediaItem.release_date).nulls_last(), desc(MediaItem.created_at))
-        .limit(limit)
-    )
-    reason = "recent"
-    if seed_genre_ids:
-        query = query.where(MediaItem.genres.any(Genre.id.in_(seed_genre_ids)))
-        reason = "because_of_your_activity"
-
-    result = await db.execute(query)
-    items = list(result.scalars().unique().all())
+    reason = "because_of_your_activity" if seed_genre_ids else "recent"
+    items = await service.recommended(conditions, seed_genre_ids, limit)
     return SuggestionsResponse(
         items=await _summaries(db, items, current_user.ui_language),
         total=len(items),
@@ -405,14 +308,7 @@ async def get_latest_items(
     else:
         conditions.append(MediaItem.parent_guid.is_(None))
 
-    result = await db.execute(
-        select(MediaItem)
-        .options(selectinload(MediaItem.genres), selectinload(MediaItem.platforms))
-        .where(*conditions)
-        .order_by(desc(MediaItem.created_at), desc(MediaItem.release_date).nulls_last())
-        .limit(limit)
-    )
-    items = list(result.scalars().unique().all())
+    items = await SuggestionService(db).latest(conditions, limit)
     return LatestItemsResponse(
         items=await _summaries(db, items, current_user.ui_language),
         total=len(items),
@@ -428,12 +324,8 @@ async def get_instant_mix(
     limit: int = Query(25, ge=1, le=100),
 ):
     """Build an anchor-based instant mix queue."""
-    result = await db.execute(
-        select(MediaItem)
-        .options(selectinload(MediaItem.genres), selectinload(MediaItem.platforms))
-        .where(MediaItem.guid == item_guid)
-    )
-    seed = result.scalars().unique().one_or_none()
+    service = SuggestionService(db)
+    seed = await service.get_item(item_guid)
     if not seed:
         raise HTTPException(status_code=404, detail="Media item not found")
 
@@ -452,15 +344,7 @@ async def get_instant_mix(
     if related_match:
         related_conditions.append(or_(*related_match))
 
-    related_query = (
-        select(MediaItem)
-        .options(selectinload(MediaItem.genres), selectinload(MediaItem.platforms))
-        .where(and_(*related_conditions))
-        .order_by(MediaItem.sequence_number.asc().nulls_last(), desc(MediaItem.release_date).nulls_last())
-        .limit(max(0, limit - 1))
-    )
-    related_result = await db.execute(related_query)
-    related = list(related_result.scalars().unique().all())
+    related = await service.related(related_conditions, max(0, limit - 1))
     items = [seed, *related][:limit]
 
     return InstantMixResponse(
