@@ -9,6 +9,18 @@ from pyrate.utils.retry import http_with_retries
 
 logger = logging.getLogger(__name__)
 
+# Fallback language when a caller doesn't pass one. Callers that have the
+# configured system locale (SettingsService.get_locale) should pass it; this is
+# only the last-resort default. (metadata stays free of a services import.)
+_DEFAULT_LANGUAGE = "de-DE"
+
+
+def _country_of(language: str | None) -> str:
+    """Country code implied by a locale (``de-DE`` → ``DE``)."""
+    if language and "-" in language:
+        return language.rsplit("-", 1)[-1].upper()
+    return _DEFAULT_LANGUAGE.rsplit("-", 1)[-1]
+
 
 class TMDB(MetadataBase):
     # TMDB allows ~40 requests per 10 seconds
@@ -18,7 +30,7 @@ class TMDB(MetadataBase):
     def __init__(
         self,
         api_key: str,
-        language: str = "de-DE",
+        language: str = _DEFAULT_LANGUAGE,
         client: httpx.AsyncClient | None = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay: float = DEFAULT_RETRY_DELAY,
@@ -207,14 +219,17 @@ class TMDB(MetadataBase):
         return result
 
     @staticmethod
-    def extract_certification(details: dict, media_type: str) -> str | None:
+    def extract_certification(
+        details: dict, media_type: str, preferred_country: str = "DE"
+    ) -> str | None:
         """Pull the best-matching age-rating string from a TMDB details blob.
 
-        Prefers DE, falls back to US, then takes the first non-empty cert seen.
-        Works for movies (``release_dates.results[*].release_dates[*].certification``)
-        and shows (``content_ratings.results[*].rating``).
+        Prefers ``preferred_country`` (from the configured locale), falls back to
+        US, then takes the first non-empty cert seen. Works for movies
+        (``release_dates.results[*].release_dates[*].certification``) and shows
+        (``content_ratings.results[*].rating``).
         """
-        preferred = ("DE", "US")
+        preferred = (preferred_country, "US")
 
         def _first_non_empty(entries: list[str]) -> str | None:
             for cert in entries:
@@ -255,7 +270,7 @@ class TMDB(MetadataBase):
 
         if media_type in ("movie", "movies"):
             raw = await self.get_movie_details(media_id)
-            cert = self.extract_certification(raw, "movie")
+            cert = self.extract_certification(raw, "movie", _country_of(self.language))
             return NormalizedMetadata(
                 title=raw.get("title"),
                 original_title=raw.get("original_title"),
@@ -271,7 +286,7 @@ class TMDB(MetadataBase):
             )
         elif media_type in ("tv", "show", "shows"):
             raw = await self.get_show_details(media_id)
-            cert = self.extract_certification(raw, "tv")
+            cert = self.extract_certification(raw, "tv", _country_of(self.language))
             return NormalizedMetadata(
                 title=raw.get("name"),
                 original_title=raw.get("original_name"),

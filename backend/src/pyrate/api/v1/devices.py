@@ -1,3 +1,4 @@
+from pyrate.utils.extra_data import load_extra_data
 """Device API Endpoints for managing user devices"""
 
 import json
@@ -246,16 +247,7 @@ def _get_offline_items(device) -> list[dict]:
 
 
 def _media_extra_data(media_item: MediaItem) -> dict:
-    ed = media_item.extra_data
-    if not ed:
-        return {}
-    if isinstance(ed, dict):
-        return ed
-    try:
-        data = json.loads(ed)
-    except (TypeError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return load_extra_data(media_item)
 
 
 def _offline_manifest_subtitles(

@@ -16,6 +16,7 @@ from pyrate.api.dependencies import (
     DatabaseSession,
     UserPermissionsDep,
 )
+from pyrate.utils.extra_data import load_extra_data
 from pyrate.models.media import MediaItem
 from pyrate.schemas.activity_log import ActivityLogCreate
 from pyrate.services.activity_log import ActivityLogService
@@ -60,16 +61,7 @@ class RemoteLyricsDownloadRequest(BaseModel):
 
 
 def _load_extra_data(media_item: MediaItem) -> dict:
-    ed = media_item.extra_data
-    if not ed:
-        return {}
-    if isinstance(ed, dict):
-        return ed
-    try:
-        data = json.loads(ed)
-    except (TypeError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return load_extra_data(media_item)
 
 
 def _parse_lyrics(extra_data: dict) -> LyricsResponse | None:

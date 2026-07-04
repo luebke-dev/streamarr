@@ -160,8 +160,17 @@ app.add_middleware(
 )
 
 allowed_hosts = [
-    h.strip() for h in os.environ.get("ALLOWED_HOSTS", "*").split(",") if h.strip()
-] or ["*"]
+    h.strip() for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()
+]
+if not allowed_hosts:
+    # No configured hosts: fall back to accepting any Host header, but do NOT
+    # do it silently — an open TrustedHost default enables Host-header/absolute-
+    # URL confusion. Warn loudly so the operator sets ALLOWED_HOSTS in prod.
+    logger.warning(
+        "ALLOWED_HOSTS is not set — TrustedHostMiddleware accepts ALL Host "
+        "headers ('*'). Set ALLOWED_HOSTS to your public hostname(s) in production."
+    )
+    allowed_hosts = ["*"]
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
 metrics_token = os.environ.get("METRICS_TOKEN", "")
@@ -169,8 +178,14 @@ metrics_token = os.environ.get("METRICS_TOKEN", "")
 
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
-    """Gate /metrics with an optional token and add baseline security headers."""
-    if request.url.path == "/metrics" and metrics_token:
+    """Gate /metrics behind a required token and add baseline security headers."""
+    if request.url.path == "/metrics":
+        # Fail closed: /metrics is only served when METRICS_TOKEN is configured.
+        # Without it the endpoint must NOT be open (it leaks route cardinality,
+        # user/session counts, latency histograms). 404 so its existence isn't
+        # revealed; when a token IS set, require the matching bearer.
+        if not metrics_token:
+            return Response(status_code=404)
         expected = f"Bearer {metrics_token}"
         if not secrets.compare_digest(request.headers.get("authorization", ""), expected):
             return Response(status_code=403)

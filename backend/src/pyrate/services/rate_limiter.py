@@ -16,7 +16,7 @@ _redis_client: redis.Redis | None = None
 _redis_loop: asyncio.AbstractEventLoop | None = None
 
 
-async def _get_redis() -> redis.Redis:
+async def get_redis() -> redis.Redis:
     global _redis_client, _redis_loop
     current_loop = asyncio.get_running_loop()
     if _redis_client is not None and _redis_loop is not current_loop:
@@ -37,6 +37,13 @@ async def _get_redis() -> redis.Redis:
         )
         _redis_loop = current_loop
     return _redis_client
+
+
+# Public name for the shared loop-aware Redis client. Several modules had been
+# importing the historically-private ``_get_redis``; keep it as an alias so the
+# cross-module contract is now an intentional public API, not a reached-into
+# underscore. Prefer ``get_redis`` in new code.
+_get_redis = get_redis
 
 
 async def check_rate_limit(

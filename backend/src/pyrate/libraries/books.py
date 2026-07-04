@@ -265,20 +265,27 @@ class BookLibraryPlugin(LibraryBase):
 
         if ext in AUDIOBOOK_EXTENSIONS:
             result["is_audiobook"] = True
-            # Use ffprobe via Docker for audio metadata
+            # ffprobe for audio metadata — run as an async subprocess so the
+            # (up to 30s) probe never blocks the event loop during a scan.
             try:
-                import subprocess
-                probe = subprocess.run(
-                    [
-                        "ffprobe", "-v", "quiet",
-                        "-print_format", "json",
-                        "-show_format", "-show_streams",
-                        file_path,
-                    ],
-                    capture_output=True, text=True, timeout=30,
+                import asyncio
+
+                proc = await asyncio.create_subprocess_exec(
+                    "ffprobe", "-v", "quiet",
+                    "-print_format", "json",
+                    "-show_format", "-show_streams",
+                    file_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
                 )
-                if probe.returncode == 0:
-                    data = json.loads(probe.stdout)
+                try:
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+                except (TimeoutError, asyncio.TimeoutError):
+                    proc.kill()
+                    await proc.communicate()
+                    raise
+                if proc.returncode == 0:
+                    data = json.loads(stdout.decode("utf-8", errors="replace"))
                     fmt = data.get("format", {})
                     result["duration"] = float(fmt.get("duration", 0))
                     result["bitrate"] = int(fmt.get("bit_rate", 0))

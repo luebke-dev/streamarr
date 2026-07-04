@@ -1545,7 +1545,7 @@ async def get_movie_library_config(
     )
 
     return MovieLibraryConfig(
-        library_path=library_path or "/data/library/movies",
+        library_path=library_path or "/library/movies",
         enable_library=enable_library if enable_library is not None else False,
         enable_on_demand_downloads=enable_on_demand
         if enable_on_demand is not None
@@ -1657,7 +1657,7 @@ async def get_show_library_config(
     )
 
     return ShowLibraryConfig(
-        library_path=library_path or "/data/library/shows",
+        library_path=library_path or "/library/shows",
         enable_library=enable_library if enable_library is not None else False,
         enable_on_demand_downloads=enable_on_demand
         if enable_on_demand is not None
@@ -1814,7 +1814,7 @@ async def get_generic_library_config(
         f"{prefix}.enable_on_demand_downloads"
     )
 
-    default_path = f"/data/library/{library_type_lower}"
+    default_path = f"/library/{library_type_lower}"
     if hasattr(plugin_instance, "get_default_path"):
         maybe_default_path = plugin_instance.get_default_path()
         default_path = (

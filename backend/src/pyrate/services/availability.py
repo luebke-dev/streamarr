@@ -1,5 +1,7 @@
 """Unified availability check for all media types."""
 
+import asyncio
+import json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -7,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -54,9 +57,23 @@ async def check_availability(
     logger.info("Checking availability for %s (%s, type=%s, parent=%s)",
                 media_item.title, media_item.guid, media_type, media_item.parent_guid)
 
-    # Games are always available via Lightrays
+    # Games: a streaming game (Steam, admin-configured Wine runtime — any
+    # explicit non-retro profile) launches via Lightrays with no local file and
+    # is always available. A retro/ROM game is file-based like a movie:
+    # available only once its ROM is downloaded, downloading/downloadable while
+    # it isn't — so it flows through the SAME acquisition path as other media.
     if media_type == "GAMES":
-        return AvailabilityResult(status="available", target_guid=media_item.guid)
+        raw = media_item.extra_data
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                raw = None
+        lr = raw.get("lightrays") if isinstance(raw, dict) else None
+        explicit_profile = lr.get("profile") if isinstance(lr, dict) else None
+        if explicit_profile and explicit_profile != "retro":
+            return AvailabilityResult(status="available", target_guid=media_item.guid)
+        return await _check_leaf_availability(db, media_item, user_guid)
 
     # Shows (top-level, no parent) — find next unplayed episode
     if media_type == "SHOWS" and media_item.parent_guid is None:
@@ -93,7 +110,9 @@ async def _check_leaf_availability(
         select(MediaFile).where(MediaFile.media_item_guid == item_guid)
     )
     file = file_result.scalars().first()
-    if file and Path(file.file_path).exists():
+    # Path.exists() is a blocking stat() — run it off the event loop so slow /
+    # remote storage doesn't stall every other coroutine.
+    if file and await asyncio.to_thread(Path(file.file_path).exists):
         return AvailabilityResult(status="available", target_guid=item_guid)
 
     # 2. Check if download in progress
@@ -170,12 +189,18 @@ async def _check_show_availability(
             is_watched=await _is_watched(db, show.guid, user_guid),
         )
 
-    # Collect all episodes across all seasons
-    all_episodes: list[tuple[int, int, MediaItem]] = []
-    for season in seasons:
-        episodes = await service.get_children(season.guid, order_by_sequence=True)
-        for ep in episodes:
-            all_episodes.append((season.sequence_number or 0, ep.sequence_number or 0, ep))
+    # Load every episode across all seasons in ONE query (was N+1: one
+    # get_children per season), then group by season for ordering.
+    season_seq = {s.guid: (s.sequence_number or 0) for s in seasons}
+    episode_rows = await db.execute(
+        select(MediaItem)
+        .where(MediaItem.parent_guid.in_(season_seq.keys()))
+        .order_by(MediaItem.sequence_number)
+    )
+    all_episodes: list[tuple[int, int, MediaItem]] = [
+        (season_seq.get(ep.parent_guid, 0), ep.sequence_number or 0, ep)
+        for ep in episode_rows.scalars().all()
+    ]
 
     if not all_episodes:
         return AvailabilityResult(
@@ -238,29 +263,42 @@ async def _check_collection_availability(
     if not children:
         return AvailabilityResult(status="unavailable")
 
-    has_releases = False
-
-    # For artists, check albums; for albums, check tracks
-    for child in children:
-        child_children = await _get_children(db, child.guid)
-        targets = child_children if child_children else [child]
-        for track in targets:
-            file_result = await db.execute(
-                select(MediaFile).where(MediaFile.media_item_guid == track.guid).limit(1)
+    # Resolve the leaf items (tracks) in ONE query instead of a get_children per
+    # child: for an artist the leaves are the albums' tracks, for an album the
+    # leaves are the album's own tracks. A child with no children IS a leaf.
+    child_guids = [c.guid for c in children]
+    grandchildren = list(
+        (
+            await db.execute(
+                select(MediaItem).where(MediaItem.parent_guid.in_(child_guids))
             )
-            if file_result.scalars().first():
-                return AvailabilityResult(status="available", target_guid=item.guid)
+        ).scalars().all()
+    )
+    parents_with_children = {gc.parent_guid for gc in grandchildren}
+    leaf_guids = [gc.guid for gc in grandchildren]
+    leaf_guids += [c.guid for c in children if c.guid not in parents_with_children]
+    if not leaf_guids:
+        return AvailabilityResult(status="unavailable")
 
-            if not has_releases:
-                release_result = await db.execute(
-                    select(MediaRelease)
-                    .where(MediaRelease.media_item_guid == track.guid)
-                    .where(MediaRelease.blacklisted_reason.is_(None))
-                    .limit(1)
-                )
-                if release_result.scalars().first():
-                    has_releases = True
+    # Two batched existence checks over all leaves (was O(albums×tracks) N+1).
+    has_file = (
+        await db.execute(
+            select(MediaFile.media_item_guid)
+            .where(MediaFile.media_item_guid.in_(leaf_guids))
+            .limit(1)
+        )
+    ).scalars().first()
+    if has_file:
+        return AvailabilityResult(status="available", target_guid=item.guid)
 
+    has_releases = (
+        await db.execute(
+            select(MediaRelease.media_item_guid)
+            .where(MediaRelease.media_item_guid.in_(leaf_guids))
+            .where(MediaRelease.blacklisted_reason.is_(None))
+            .limit(1)
+        )
+    ).scalars().first()
     if has_releases:
         return AvailabilityResult(status="downloadable", target_guid=item.guid)
 
@@ -376,7 +414,9 @@ async def _is_watched(
             .limit(1)
         )
         return result.scalars().first() is not None
-    except Exception:
-        # Table may not exist yet (migration not run) — rollback to recover session
+    except ProgrammingError:
+        # The media_watch table may not exist yet (migration not run) — recover
+        # the session and treat as not-watched. Any OTHER error propagates
+        # rather than being silently reported as "not watched".
         await db.rollback()
         return False
