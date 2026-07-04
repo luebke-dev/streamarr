@@ -471,8 +471,11 @@ class DownloadService:
                 download = Download(
                     downloader_id=downloader.guid,
                     external_id=external_id,
+                    # Derive the type from the media item (authoritative) rather
+                    # than the caller's hint — the generic `add_download` task
+                    # hardcodes "movie", which mistyped game/other downloads.
                     title=media_item.title,
-                    type=media_type,
+                    type=getattr(media_item.media_type, "value", media_type),
                     status=DownloadStatus.QUEUED,
                     media_release_link_guid=release_link_guid,
                     user_guid=user_guid,
@@ -637,7 +640,22 @@ class DownloadService:
             return self.is_valid_audio_file(file_path)
         if library_type == "BOOKS":
             return self.is_valid_book_file(file_path)
+        if library_type == "GAMES":
+            return self.is_valid_game_file(file_path)
         return self.is_valid_video_file(file_path)
+
+    @staticmethod
+    def is_valid_game_file(file_path: Path) -> bool:
+        """A ROM/game file (console ROM, disc image, PC installer/archive).
+
+        Console ROMs aren't videos, so the default video check wrongly rejected
+        them (\"No valid media files found\"). RetroArch also loads zipped ROMs,
+        so archives count too.
+        """
+        from pyrate.services.game_platforms import ROM_EXTENSIONS
+
+        game_exts = ROM_EXTENSIONS | {".iso", ".exe", ".msi", ".rar", ".7z", ".zip"}
+        return file_path.suffix.lower() in game_exts
 
     @staticmethod
     def _title_tokens(text: str) -> set[str]:

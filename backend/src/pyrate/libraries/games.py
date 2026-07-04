@@ -14,13 +14,14 @@ logger = logging.getLogger(__name__)
 # Retro console ROM extensions the pyrate-retro (libretro) container can boot.
 # Deliberately distinct from the PC-installer extensions (.exe/.msi/.iso) — a
 # retro ROM is a first-class launchable game, a PC installer is not.
-ROM_EXTENSIONS: set[str] = {
-    ".nes", ".fds", ".unf", ".sfc", ".smc", ".swc", ".fig", ".bs",
-    ".n64", ".z64", ".v64", ".ndd", ".gb", ".gbc", ".dmg", ".gba",
-    ".md", ".gen", ".smd", ".sgd", ".68k", ".sms", ".gg", ".sg",
-    ".pce", ".sgx", ".cue", ".chd", ".pbp", ".m3u", ".bin",
-    ".nds", ".3ds", ".zip", ".7z",
-}
+# ROM extensions live in game_platforms (the single source, derived from the
+# extension→platform map). Imported lazily inside methods below — a top-level
+# import would pull the eager `pyrate.services` package init and cycle back
+# into this module during library registration.
+def _rom_extensions() -> frozenset[str]:
+    from pyrate.services.game_platforms import ROM_EXTENSIONS
+
+    return ROM_EXTENSIONS
 
 # no-intro / TOSEC region + dump tags to strip for a clean display title,
 # e.g. "Super Mario World (USA) [!].sfc" -> "Super Mario World".
@@ -229,7 +230,7 @@ class GameLibraryPlugin(LibraryBase):
 
     async def get_supported_extensions(self) -> list[str]:
         """Retro ROM extensions this library ingests."""
-        return sorted(ROM_EXTENSIONS)
+        return sorted(_rom_extensions())
 
     async def extract_metadata_from_filename(self, filename: str) -> dict[str, Any]:
         """Parse a clean title (+ platform hint) from a ROM filename."""
@@ -258,7 +259,7 @@ class GameLibraryPlugin(LibraryBase):
             for file_path in path_obj.rglob("*"):
                 if not file_path.is_file():
                     continue
-                if file_path.suffix.lower() not in ROM_EXTENSIONS:
+                if file_path.suffix.lower() not in _rom_extensions():
                     continue
                 file_info: dict[str, Any] = {
                     "path": str(file_path),
@@ -325,7 +326,7 @@ class GameLibraryPlugin(LibraryBase):
         files_imported = 0
         for raw_file in files:
             file = Path(raw_file)
-            if file.suffix.lower() not in ROM_EXTENSIONS:
+            if file.suffix.lower() not in _rom_extensions():
                 continue
             if not file.exists():
                 logger.warning("Game %s: download file missing: %s", media_item.title, file)

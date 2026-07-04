@@ -266,8 +266,172 @@ def _translate_library_path_to_host(file_path: str) -> str | None:
     )
 
 
+async def available_platforms(db: AsyncSession, media_item: Any) -> list[dict[str, Any]]:
+    """The runnable platforms a game can be played on, for the player picker.
+
+    Combines three signals — the game's IGDB platforms, the platforms parsed
+    from its (non-blacklisted) releases, and the platforms of any already-
+    downloaded files — and keeps only those the stack can actually run (a retro
+    console or PC). Untagged ROM releases (no platform in the title) are
+    attributed to the game's emulatable console platforms.
+
+    Each entry: ``{platform, label, runtime, downloaded, release_available}``.
+    """
+    from pyrate.models.media import MediaItem, MediaRelease
+    from pyrate.models.platform import Platform
+    from pyrate.services.game_platforms import (
+        is_retro_platform,
+        normalize_platforms,
+        platform_from_extension,
+        platform_from_release_title,
+        platform_label,
+        profile_for_platform,
+    )
+
+    guid = getattr(media_item, "guid", None)
+    if guid is None:
+        return []
+
+    # Games with an explicit profile (Steam imports, admin-configured runtimes,
+    # library-scanned ROMs) launch via that profile — no version picker. The
+    # picker is only for games whose runtime is derived (IGDB-added titles).
+    if _clean_str(_load_lightrays_extra(media_item).get("profile")):
+        return []
+
+    async def _scalars(stmt):
+        try:
+            return list((await db.execute(stmt)).scalars().all())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("available_platforms query failed for %s: %s", guid, exc)
+            return []
+
+    igdb = normalize_platforms(
+        await _scalars(
+            select(Platform.name)
+            .select_from(MediaItem)
+            .join(MediaItem.platforms)
+            .where(MediaItem.guid == guid)
+        )
+    )
+    titles = await _scalars(
+        select(MediaRelease.title).where(
+            MediaRelease.media_item_guid == guid,
+            MediaRelease.blacklisted_reason.is_(None),
+        )
+    )
+    release_slugs = {platform_from_release_title(t) for t in titles} - {None}
+    has_untagged_release = any(platform_from_release_title(t) is None for t in titles)
+
+    file_paths = await _scalars(
+        select(MediaFile.file_path).where(MediaFile.media_item_guid == guid)
+    )
+    file_slugs = {platform_from_extension(p) for p in file_paths} - {None}
+
+    candidates = {
+        s for s in (igdb | release_slugs | file_slugs) if profile_for_platform(s)
+    }
+
+    out: list[dict[str, Any]] = []
+    for slug in candidates:
+        downloaded = slug in file_slugs
+        release_available = (
+            slug in release_slugs
+            or downloaded
+            or (is_retro_platform(slug) and has_untagged_release)
+        )
+        out.append(
+            {
+                "platform": slug,
+                "label": platform_label(slug),
+                "runtime": profile_for_platform(slug),
+                "downloaded": downloaded,
+                "release_available": release_available,
+            }
+        )
+    # Downloaded first, then retro consoles before PC, then by label.
+    out.sort(key=lambda e: (not e["downloaded"], e["runtime"] != "retro", e["label"]))
+    return out
+
+
+async def _default_profile_name(db: AsyncSession, media_item: Any) -> str:
+    """Pick the default container profile for a game with no explicit profile.
+
+    Derived from what the game actually IS, most-authoritative first:
+
+    1. **The downloaded file.** A ROM file (``.z64``/``.sfc``/…) means the game
+       runs in the ``retro`` container — regardless of what other platforms the
+       title also exists on. This is authoritative: it's the artifact we run.
+    2. **The available releases.** With no file yet, if a non-blacklisted
+       release targets an emulatable console (a real ROM), default to ``retro``
+       so a play → download → launch lands in the right runtime.
+    3. **IGDB platforms** as a last hint.
+
+    Everything else falls back to :data:`DEFAULT_PROFILE_NAME` (steam).
+    Steam-imported games carry an explicit ``profile`` and never reach here.
+    """
+    import os as _os
+
+    from pyrate.services.game_platforms import ROM_EXTENSIONS
+    from pyrate.models.media import MediaItem, MediaRelease
+    from pyrate.models.platform import Platform
+    from pyrate.services.game_platforms import (
+        is_retro_platform,
+        normalize_platforms,
+        platform_from_release_title,
+    )
+
+    guid = getattr(media_item, "guid", None)
+    if guid is None:
+        return DEFAULT_PROFILE_NAME
+
+    # 1) The downloaded file is authoritative.
+    try:
+        mf = (
+            await db.execute(
+                select(MediaFile).where(MediaFile.media_item_guid == guid).limit(1)
+            )
+        ).scalars().first()
+        file_path = _clean_str(getattr(mf, "file_path", None)) if mf else None
+        if file_path and _os.path.splitext(file_path)[1].lower() in ROM_EXTENSIONS:
+            return "retro"
+    except Exception as exc:  # noqa: BLE001 — never break launch on this
+        logger.warning("Could not read file for game %s: %s", guid, exc)
+
+    # 2) The available releases: a real console ROM release ⇒ retro.
+    try:
+        titles = (
+            await db.execute(
+                select(MediaRelease.title).where(
+                    MediaRelease.media_item_guid == guid,
+                    MediaRelease.blacklisted_reason.is_(None),
+                )
+            )
+        ).scalars().all()
+        if any(is_retro_platform(platform_from_release_title(t)) for t in titles):
+            return "retro"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not read releases for game %s: %s", guid, exc)
+
+    # 3) IGDB platforms as a final hint.
+    try:
+        names = (
+            await db.execute(
+                select(Platform.name)
+                .select_from(MediaItem)
+                .join(MediaItem.platforms)
+                .where(MediaItem.guid == guid)
+            )
+        ).scalars().all()
+        if any(is_retro_platform(s) for s in normalize_platforms(list(names))):
+            return "retro"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not resolve platforms for game %s: %s", guid, exc)
+
+    return DEFAULT_PROFILE_NAME
+
+
 async def _derive_rom_launch(
-    db: AsyncSession, media_item: Any
+    db: AsyncSession, media_item: Any, selected_platform: str | None = None
 ) -> tuple[dict[str, Any] | None, str | None]:
     """Derive ``(rom_mount, app_ref)`` from a game's primary ROM MediaFile.
 
@@ -279,10 +443,20 @@ async def _derive_rom_launch(
     if guid is None:
         return None, None
     result = await db.execute(
-        select(MediaFile).where(MediaFile.media_item_guid == guid).limit(1)
+        select(MediaFile.file_path).where(MediaFile.media_item_guid == guid)
     )
-    media_file = result.scalars().first()
-    file_path = _clean_str(getattr(media_file, "file_path", None)) if media_file else None
+    paths = [p for p in (_clean_str(p) for p in result.scalars().all()) if p]
+    # With a chosen platform, mount the file that matches it (a game may hold
+    # several per-platform files); otherwise take the first.
+    file_path = None
+    if selected_platform:
+        from pyrate.services.game_platforms import platform_from_extension
+
+        file_path = next(
+            (p for p in paths if platform_from_extension(p) == selected_platform), None
+        )
+    if not file_path:
+        file_path = paths[0] if paths else None
     if not file_path:
         return None, None
     host_path = _translate_library_path_to_host(file_path)
@@ -298,9 +472,14 @@ async def _derive_rom_launch(
 
 
 async def resolve_launch_config(
-    db: AsyncSession, media_item: Any
+    db: AsyncSession, media_item: Any, selected_platform: str | None = None
 ) -> dict[str, Any]:
     """Resolve the effective launch config for a game.
+
+    ``selected_platform`` is the player's chosen platform (see
+    :func:`available_platforms`); when given it decides the container profile
+    (``retro`` for a console, ``wine`` for PC) and which per-platform file is
+    mounted, overriding the per-game/default profile.
 
     Returns
     ``{"docker_image", "runtime_profile", "app_env", "app_mounts",
@@ -349,12 +528,25 @@ async def resolve_launch_config(
 
     profile: ContainerProfile | None = None
     ref = _clean_str(lr.get("profile"))
-    if ref:
+    selected_platform = _clean_str(selected_platform)
+    if selected_platform:
+        # The player picked a platform (N64 / PC / …): it decides the runtime.
+        from pyrate.services.game_platforms import profile_for_platform
+
+        prof_name = profile_for_platform(selected_platform)
+        if prof_name:
+            profile = await get_by_name(db, prof_name)
+    elif ref:
         profile = await get_by_name(db, ref)
         if profile is None:
             profile = await get_by_guid(db, ref)
     else:
-        profile = await get_by_name(db, DEFAULT_PROFILE_NAME)
+        # No explicit per-game profile: pick a sensible default from the game's
+        # platform. A console game (N64/SNES/…) defaults to the retro container,
+        # not Steam. Steam-imported games carry an explicit profile so they
+        # never reach this branch.
+        default_name = await _default_profile_name(db, media_item)
+        profile = await get_by_name(db, default_name)
 
     if profile is None:
         # No profile resolved: preserve legacy behaviour — image is whatever
@@ -381,7 +573,9 @@ async def resolve_launch_config(
     # already supplies an explicit app_ref (manual override).
     derived_mounts: list[dict[str, Any]] = []
     if _clean_str(getattr(profile, "kind", None)) == "libretro" and not app_ref:
-        rom_mount, rom_app_ref = await _derive_rom_launch(db, media_item)
+        rom_mount, rom_app_ref = await _derive_rom_launch(
+            db, media_item, selected_platform
+        )
         if rom_app_ref:
             app_ref = rom_app_ref
             derived_mounts = [rom_mount]

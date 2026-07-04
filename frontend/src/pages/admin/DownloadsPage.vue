@@ -337,13 +337,22 @@ const debouncedSearch = debounce(() => {
 
 const getTypeIcon = (type) => {
   const t = (type || '').toLowerCase()
+  // The backend sends media-type values (MOVIES/SHOWS/GAMES/SONGS/BOOKS) as
+  // well as legacy singular forms — map both.
   const icons = {
     movie: 'mdi-movie',
+    movies: 'mdi-movie',
     episode: 'mdi-television',
+    episodes: 'mdi-television',
     show: 'mdi-television',
+    shows: 'mdi-television',
     music: 'mdi-music',
+    song: 'mdi-music',
+    songs: 'mdi-music',
     game: 'mdi-gamepad-variant',
+    games: 'mdi-gamepad-variant',
     book: 'mdi-book',
+    books: 'mdi-book',
   }
   return icons[t] || 'mdi-download'
 }
@@ -352,11 +361,18 @@ const getTypeColor = (type) => {
   const t = (type || '').toLowerCase()
   const colors = {
     movie: 'amber',
+    movies: 'amber',
     episode: 'light-blue',
+    episodes: 'light-blue',
     show: 'light-blue',
+    shows: 'light-blue',
     music: 'pink',
+    song: 'pink',
+    songs: 'pink',
     game: 'purple',
+    games: 'purple',
     book: 'brown',
+    books: 'brown',
   }
   return colors[t] || 'grey'
 }

@@ -11,7 +11,11 @@ from pydantic import BaseModel, Field
 
 from pyrate.api.dependencies import CurrentUser, DatabaseSession, UserPermissionsDep
 from pyrate.models.media import MediaType
-from pyrate.services.container_profiles import compute_app_id, resolve_launch_config
+from pyrate.services.container_profiles import (
+    available_platforms,
+    compute_app_id,
+    resolve_launch_config,
+)
 from pyrate.services.lightrays import (
     get_session_record,
     get_stats,
@@ -65,6 +69,17 @@ class LaunchRequest(BaseModel):
     height: int = Field(default=1080, ge=64, le=4320)
     fps: int = Field(default=60, ge=15, le=120)
     bitrate_kbps: int = Field(default=10000, ge=500, le=50000)
+    # Player-chosen platform slug (n64/snes/pc/…). Decides the runtime + which
+    # per-platform file is launched. None = auto-derive from the game.
+    platform: str | None = Field(default=None, max_length=32)
+
+
+class GamePlatform(BaseModel):
+    platform: str
+    label: str
+    runtime: str
+    downloaded: bool
+    release_available: bool
 
 
 class LaunchResponse(BaseModel):
@@ -204,10 +219,42 @@ async def lightrays_launch(
     # game references no profile this falls back to the builtin "steam" profile,
     # preserving today's image/runtime_profile behaviour. The resulting Docker
     # image still goes through the same admin-gated validation as before.
-    launch_config = await resolve_launch_config(db, media_item)
+    launch_config = await resolve_launch_config(db, media_item, body.platform)
     docker_image = _validate_lightrays_docker_image(launch_config.get("docker_image"))
     runtime_profile = launch_config.get("runtime_profile")
     app_env = launch_config.get("app_env") or None
+
+    # A retro game with no ROM for the chosen platform can't launch — the ROM
+    # isn't downloaded yet. Kick off the acquisition and tell the player to
+    # retry, instead of booting an empty emulator.
+    if launch_config.get("profile_name") == "retro" and not (app_env or {}).get(
+        "RETRO_ROM"
+    ):
+        # Acquire a release for the chosen platform specifically (so a
+        # multi-platform title grabs the N64 ROM, not the 3DS remake / PC port).
+        dl_platform = body.platform
+        if not dl_platform:
+            retro = [
+                p["platform"]
+                for p in await available_platforms(db, media_item)
+                if p["runtime"] == "retro"
+            ]
+            dl_platform = retro[0] if retro else None
+        try:
+            from pyrate.worker import auto_download_media_item
+
+            await auto_download_media_item.kiq(
+                str(media_item.guid),
+                None,
+                str(current_user.guid),
+                platform=dl_platform,
+            )
+        except Exception as exc:
+            logger.warning("Failed to enqueue game download for %s: %s", media_id, exc)
+        raise HTTPException(
+            status_code=409,
+            detail="Game is being downloaded — try Play again shortly.",
+        )
     # Per-user controller settings (retro container reads RETRO_* to build a
     # RetroArch input override). Harmless to non-retro images, which ignore them.
     controller_env = _controller_env(gaming_prefs)
@@ -380,6 +427,23 @@ async def lightrays_stats(session_id: str, current_user: CurrentUser):
         raise HTTPException(
             status_code=502, detail="Failed to get session stats"
         ) from exc
+
+
+@router.get("/platforms/{media_id}", response_model=list[GamePlatform])
+async def lightrays_platforms(
+    media_id: UUID, db: DatabaseSession, current_user: CurrentUser
+):
+    """List the platforms a game can be played on (for the player's picker).
+
+    Each entry says whether that platform is already downloaded and whether a
+    release is available to acquire, so the UI can offer "Play" vs "Download".
+    """
+    media_service = MediaService(db)
+    media_item = await media_service.get_by_id(media_id)
+    if not media_item or media_item.media_type != MediaType.GAMES:
+        raise HTTPException(status_code=404, detail="Game not found")
+    plats = await available_platforms(db, media_item)
+    return [GamePlatform(**p) for p in plats]
 
 
 # ── Steam library link / import ──────────────────────────────────────────────

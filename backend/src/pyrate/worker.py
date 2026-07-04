@@ -879,6 +879,7 @@ async def auto_download_media_item(
     backfill: bool = False,
     upgrade: bool = False,
     replace_media_file_guid: str | None = None,
+    platform: str | None = None,
 ) -> None:
     """
     Automatically download the best available release for a media item.
@@ -906,6 +907,7 @@ async def auto_download_media_item(
                 upgrade=upgrade,
                 replace_media_file_guid=replace_media_file_guid,
                 backfill=backfill,
+                platform=platform,
             )
     except Exception as e:
         logger.error("Failed to auto-download media item %s: %s", media_item_guid, e)

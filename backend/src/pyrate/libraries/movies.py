@@ -230,23 +230,10 @@ class MovieLibraryPlugin(LibraryBase):
         Returns:
             dict | None: Matched movie metadata or None if no match found
         """
-        # Extract title and year from file info
-        title = file_info.get("title")
-        year = file_info.get("year")
-
-        if not title:
-            logger.warning("No title found in file_info, cannot match")
-            return None
-
-        # TODO: Implement actual TMDB API call here
-        # For now, return the extracted info as a placeholder
-        logger.info("Would search TMDB for: %s (%s)", title, year)
-
-        return {
-            "title": title,
-            "year": year,
-            "matched": False,  # Indicates this is not a real match yet
-        }
+        # Metadata matching is not wired to a provider from this hook; a None
+        # result means "no automatic match" and callers handle it. (This path
+        # is currently unused — enrichment goes through the metadata services.)
+        return None
 
     # ==================== Release Metadata Extraction ====================
 
