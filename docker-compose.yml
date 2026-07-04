@@ -72,6 +72,9 @@ services:
       # Lets the Steam library import read a user's persistent Steam state
       # (apps_state/<user>-steam) written by the Lightrays session container.
       - LIGHTRAYS_STATE_DIR=/state/lightrays
+      # Host path of the games library (container /library/games), so the retro
+      # launch can bind-mount a game's ROM into the sibling game container.
+      - LIGHTRAYS_GAMES_LIBRARY_HOST=${PROJECT_ROOT:-/root/pyrate.media}/data/library/games
       - LIGHTRAYS_GAMING_STORAGE_CONTAINER=/user-data
       - LIGHTRAYS_GAMING_STORAGE_HOST=${PROJECT_ROOT:-/root/pyrate.media}/data/users
       - PROJECT_ROOT=${PROJECT_ROOT:-/data/}
@@ -84,6 +87,7 @@ services:
       - ${DATA_DIR:-./data}/library/shows:/library/shows:rw,z
       - ${DATA_DIR:-./data}/library/music:/library/music:rw,z
       - ${DATA_DIR:-./data}/library/books:/library/books:rw,z
+      - ${DATA_DIR:-./data}/library/games:/library/games:rw,z
       - ${DATA_DIR:-./data}/usenet-remote/downloads:/downloads:rw,z
       - ${DATA_DIR:-./data}/spotdl/downloads:/spotdl-downloads:rw,z
       - ${DATA_DIR:-./data}/torrent/downloads:/torrent-downloads:rw,z
@@ -130,6 +134,7 @@ services:
       - ${DATA_DIR:-./data}/library/shows:/library/shows:rw,z
       - ${DATA_DIR:-./data}/library/music:/library/music:rw,z
       - ${DATA_DIR:-./data}/library/books:/library/books:rw,z
+      - ${DATA_DIR:-./data}/library/games:/library/games:rw,z
       - ${DATA_DIR:-./data}/usenet-remote/downloads:/downloads:rw,z
       - ${DATA_DIR:-./data}/spotdl/downloads:/spotdl-downloads:rw,z
       - ${DATA_DIR:-./data}/torrent/downloads:/torrent-downloads:rw,z
@@ -260,7 +265,7 @@ services:
       # Host-path prefixes an admin-gated app_mounts bind may expose inside a
       # game container (e.g. a downloaded Wine game dir). Empty = feature off
       # (fail-closed). Comma-separated absolute host paths.
-      - LIGHTRAYS_ALLOWED_MOUNT_PREFIXES=${LIGHTRAYS_ALLOWED_MOUNT_PREFIXES:-/root/pyrate.media/data/deluge/downloads,/root/pyrate.media/data/games}
+      - LIGHTRAYS_ALLOWED_MOUNT_PREFIXES=${LIGHTRAYS_ALLOWED_MOUNT_PREFIXES:-/root/pyrate.media/data/deluge/downloads,/root/pyrate.media/data/games,/root/pyrate.media/data/library/games}
       - LIGHTRAYS_RECONNECT_GRACE_SECS=${LIGHTRAYS_RECONNECT_GRACE_SECS:-30}
       - LIGHTRAYS_WS_TICKET_TTL_SECS=${LIGHTRAYS_WS_TICKET_TTL_SECS:-120}
       - LIGHTRAYS_SESSION_TIMEOUT_SECS=${LIGHTRAYS_SESSION_TIMEOUT_SECS:-3600}

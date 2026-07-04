@@ -110,6 +110,32 @@ def _validate_lightrays_docker_image(value: Any) -> str | None:
     return image
 
 
+# D-pad mode → RetroArch input_playerN_analog_dpad_mode value.
+_DPAD_MODE_TO_RETROARCH = {"dpad": "0", "left_analog": "1", "right_analog": "2"}
+
+
+def _controller_env(gaming_prefs: dict[str, Any]) -> dict[str, str]:
+    """Translate a user's controller prefs into RETRO_* container env.
+
+    Only well-formed values are emitted; the retro container turns these into a
+    RetroArch input override (deadzone + D-pad mode). Non-retro images ignore
+    them. Returns an empty dict when nothing is configured.
+    """
+    env: dict[str, str] = {}
+    deadzone = gaming_prefs.get("analog_deadzone")
+    if deadzone is not None:
+        try:
+            dz = float(deadzone)
+        except (TypeError, ValueError):
+            dz = None
+        if dz is not None and 0.0 <= dz <= 0.5:
+            env["RETRO_ANALOG_DEADZONE"] = f"{dz:.2f}"
+    dpad = gaming_prefs.get("dpad_mode")
+    if dpad in _DPAD_MODE_TO_RETROARCH:
+        env["RETRO_DPAD_MODE"] = _DPAD_MODE_TO_RETROARCH[dpad]
+    return env
+
+
 async def _safe_release_slot(user_id: str, token: str) -> None:
     """Best-effort release of a reservation slot; never raise into the caller."""
     try:
@@ -182,6 +208,11 @@ async def lightrays_launch(
     docker_image = _validate_lightrays_docker_image(launch_config.get("docker_image"))
     runtime_profile = launch_config.get("runtime_profile")
     app_env = launch_config.get("app_env") or None
+    # Per-user controller settings (retro container reads RETRO_* to build a
+    # RetroArch input override). Harmless to non-retro images, which ignore them.
+    controller_env = _controller_env(gaming_prefs)
+    if controller_env:
+        app_env = {**(app_env or {}), **controller_env}
     # Sanctioned host→container bind mounts merged from the container profile +
     # per-game config. Already normalised/validated to {host,container,ro} by
     # resolve_launch_config; Lightrays enforces the host-path allowlist.
