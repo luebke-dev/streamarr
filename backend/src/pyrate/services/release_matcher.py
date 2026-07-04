@@ -15,6 +15,21 @@ from pyrate.parsers.release_parser import ReleaseParser
 
 logger = logging.getLogger(__name__)
 
+# Stopwords dropped when comparing game/ROM titles by token containment, so
+# article reordering ("Legend of Zelda, The") and joiners don't matter.
+_TITLE_STOPWORDS = frozenset(
+    {"the", "a", "an", "of", "and", "or", "to", "in", "on", "vs", "de", "la", "le"}
+)
+
+
+def _significant_tokens(title: str) -> set[str]:
+    """Lowercase alnum tokens of a title, minus stopwords and 1-char noise."""
+    cleaned = re.sub(r"[^a-z0-9 ]+", " ", str(title).lower())
+    return {
+        tok for tok in cleaned.split()
+        if len(tok) > 1 and tok not in _TITLE_STOPWORDS
+    }
+
 
 @dataclass
 class MatchResult:
@@ -269,53 +284,76 @@ class ReleaseMatcher:
         release_title: str,
         game_title: str,
         game_year: int | None = None,
+        game_platforms: set[str] | None = None,
     ) -> MatchResult:
         """Match a release title against a game.
 
-        Games use a more lenient matching than movies because:
-        - No season/episode semantics
-        - Titles often include version numbers, DLC names, platform tags
-        - Release groups use different naming conventions (RELOADED, CODEX, GOG, etc.)
+        Games differ from movies/shows in two ways that this handles:
+
+        1. **Platform.** A game exists on many platforms (N64 ROM, SNES ROM, PC
+           port, …). When ``game_platforms`` (canonical slugs) is given and the
+           release's title names a platform NOT in that set, the release is
+           rejected — e.g. a "PC-Port" release never matches an N64-only game.
+           A release with no platform tag (common for no-intro ROM names) is
+           NOT rejected; it falls through to title matching.
+        2. **no-intro / TOSEC naming.** ROM releases reorder the article
+           ("Legend of Zelda, The - …") and append edition/region text, so a
+           plain fuzzy score often falls short. A token-containment check (all
+           significant game-title tokens present in the release) recovers them.
         """
-        # Strip common game release artifacts for matching
-        import re
-        clean = release_title
-        # Remove version numbers: v1.2.3, Update.v1.0, etc.
-        clean = re.sub(r'[._-]v?\d+\.\d+[\.\d]*', ' ', clean)
-        # Remove common game group/format tags
-        clean = re.sub(r'\b(REPACK|RELOADED|CODEX|GOG|PLAZA|SKIDROW|FitGirl|DODI|RUNE|KaOs|Steam|Rip|Repack|UPDATE|DLC|Bonus|Content|MULTi\d+)\b', ' ', clean, flags=re.IGNORECASE)
-        # Remove anything in parentheses (often "From X GB" repack info)
-        clean = re.sub(r'\([^)]*\)', ' ', clean)
-        # Remove brackets
-        clean = re.sub(r'\[[^\]]*\]', ' ', clean)
-        # Normalize separators
-        clean = re.sub(r'[._-]+', ' ', clean).strip()
+        from pyrate.services.game_platforms import platform_from_release_title
 
         details = {
             "release_title": release_title,
-            "cleaned_title": clean,
             "game_title": game_title,
             "game_year": game_year,
         }
 
-        # Use the standard title matcher with the cleaned release title
-        match = cls._match_title(
-            clean,
-            game_title,
-            None,  # Don't use year from release (often absent for games)
-            game_year,
-        )
+        # 1) Platform gate — reject a release whose named platform isn't one of
+        # the game's. Only rejects when the release actually names a platform.
+        if game_platforms:
+            rel_platform = platform_from_release_title(release_title)
+            if rel_platform is not None and rel_platform not in game_platforms:
+                return MatchResult(
+                    is_match=False,
+                    score=0.0,
+                    match_type="no_match",
+                    details={**details, "note": f"platform {rel_platform} not in {sorted(game_platforms)}"},
+                )
+            details["release_platform"] = rel_platform
 
-        # Games get a more lenient fuzzy threshold
-        if not match.is_match and match.score >= 0.55:
-            match = MatchResult(
-                is_match=True,
-                score=match.score,
-                match_type="fuzzy",
+        # Strip common game release artifacts for matching
+        clean = release_title
+        clean = re.sub(r'[._-]v?\d+\.\d+[\.\d]*', ' ', clean)
+        clean = re.sub(r'\b(REPACK|RELOADED|CODEX|GOG|PLAZA|SKIDROW|FitGirl|DODI|RUNE|KaOs|Steam|Rip|Repack|UPDATE|DLC|Bonus|Content|MULTi\d+|PC[-_. ]?Port)\b', ' ', clean, flags=re.IGNORECASE)
+        clean = re.sub(r'\([^)]*\)', ' ', clean)   # (Europe), (En,Fr,De), (From X GB) ...
+        clean = re.sub(r'\[[^\]]*\]', ' ', clean)  # [!], [b1] ...
+        clean = re.sub(r'[._-]+', ' ', clean).strip()
+        details["cleaned_title"] = clean
+
+        # Use the standard title matcher with the cleaned release title
+        match = cls._match_title(clean, game_title, None, game_year)
+
+        if match.is_match:
+            match.details = details
+            return match
+
+        # Lenient fuzzy threshold
+        if match.score >= 0.55:
+            return MatchResult(
+                is_match=True, score=match.score, match_type="fuzzy",
                 details={**details, "note": "lenient game match"},
             )
-        elif match.is_match:
-            match.details = details
+
+        # no-intro recovery: all significant game tokens present in the release
+        # (handles ", The" reorder + edition suffixes like "& Master Quest").
+        game_tokens = _significant_tokens(game_title)
+        rel_tokens = _significant_tokens(clean)
+        if len(game_tokens) >= 2 and game_tokens <= rel_tokens:
+            return MatchResult(
+                is_match=True, score=max(match.score, 0.8), match_type="token_subset",
+                details={**details, "note": "no-intro token-containment match"},
+            )
 
         return match
 
@@ -738,6 +776,7 @@ class ReleaseMatcher:
         is_game: bool = False,
         is_book: bool = False,
         author: str | None = None,
+        game_platforms: set[str] | None = None,
     ) -> list[tuple[dict[str, Any], MatchResult]]:
         """
         Filter a list of releases to only include matching ones.
@@ -787,11 +826,12 @@ class ReleaseMatcher:
                     author=author,
                 )
             elif is_game:
-                # Game matching — title-based, lenient
+                # Game matching — platform-aware + title-based, lenient
                 match = cls.match_game_release(
                     release_title=release_title,
                     game_title=media_title,
                     game_year=media_year,
+                    game_platforms=game_platforms,
                 )
             elif artist is not None:
                 # Music matching
