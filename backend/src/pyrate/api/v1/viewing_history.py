@@ -12,11 +12,10 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
 
 from pyrate.api.dependencies import CurrentUser, DatabaseSession, UserPermissionsDep
 from pyrate.models.device import Device
-from pyrate.models.media import MediaItem, MediaType
+from pyrate.models.media import MediaItem
 from pyrate.models.viewing_history import ViewingHistory
 from pyrate.schemas.media import MediaItemRead
 from pyrate.schemas.viewing_history import (
@@ -197,13 +196,9 @@ async def _resolve_item_playstate_device_guid(
     if not data.device_id:
         return None
 
-    result = await db.execute(
-        select(Device).where(
-            Device.user_id == current_user.guid,
-            Device.device_id == data.device_id,
-        )
+    device = await ViewingHistoryService(db).get_user_device(
+        current_user.guid, data.device_id
     )
-    device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     return device.guid
@@ -510,20 +505,14 @@ async def _get_show_next_up_item(
     current_user: CurrentUser,
     show: MediaItem,
 ) -> NextUpItem | None:
-    seasons_result = await db.execute(
-        select(MediaItem)
-        .where(MediaItem.parent_guid == show.guid)
-        .order_by(MediaItem.sequence_number.asc(), MediaItem.created_at.asc())
-    )
-    seasons = list(seasons_result.scalars().all())
+    service = ViewingHistoryService(db)
+    seasons = await service.list_child_items(show.guid)
     if not seasons:
         return None
 
-    episodes_result = await db.execute(
-        select(MediaItem)
-        .where(MediaItem.parent_guid.in_([season.guid for season in seasons]))
+    episodes = await service.list_child_items_of(
+        [season.guid for season in seasons]
     )
-    episodes = list(episodes_result.scalars().all())
     if not episodes:
         return None
 
@@ -539,15 +528,9 @@ async def _get_show_next_up_item(
         ),
     )
     episode_guids = [episode.guid for episode in ordered_episodes]
-    history_result = await db.execute(
-        select(ViewingHistory)
-        .where(
-            ViewingHistory.user_guid == current_user.guid,
-            ViewingHistory.media_item_guid.in_(episode_guids),
-        )
-        .order_by(ViewingHistory.last_watched_at.desc())
+    history_items = await service.get_user_history_for_items(
+        current_user.guid, episode_guids
     )
-    history_items = list(history_result.scalars().all())
     episode_index_by_guid = {
         episode.guid: index for index, episode in enumerate(ordered_episodes)
     }
@@ -686,13 +669,9 @@ async def _record_playstate(
         media_item = await db.get(MediaItem, data.content_guid)
 
     now = datetime.now(UTC)
-    existing_result = await db.execute(
-        select(ViewingHistory).where(
-            ViewingHistory.user_guid == current_user.guid,
-            ViewingHistory.media_item_guid == data.content_guid,
-        )
+    existing_history = await ViewingHistoryService(db).get_history_entry(
+        current_user.guid, data.content_guid
     )
-    existing_history = existing_result.scalar_one_or_none()
     extra_data = _merge_playstate_extra_data(existing_history, data, now)
     progress_percentage = data.progress_percentage
     is_playing = data.is_playing
@@ -815,14 +794,11 @@ async def list_playstate_sessions(
     limit: int = Query(50, ge=1, le=200),
 ):
     """Return latest reported playback sessions for the current user."""
-    result = await db.execute(
-        select(ViewingHistory)
-        .where(ViewingHistory.user_guid == current_user.guid)
-        .order_by(ViewingHistory.updated_at.desc())
-        .limit(limit * 2)
+    rows = await ViewingHistoryService(db).list_recent_sessions(
+        current_user.guid, limit * 2
     )
     sessions: dict[str, PlaystateSessionRead] = {}
-    for history in result.scalars().all():
+    for history in rows:
         session = await _history_to_playstate_session(db, history)
         if session is None:
             continue
@@ -881,16 +857,7 @@ async def get_next_up(
     include_unwatched: bool = Query(True),
 ):
     """Return one next actionable episode per show."""
-    query = select(MediaItem).where(
-        MediaItem.media_type == MediaType.SHOWS,
-        MediaItem.parent_guid.is_(None),
-    )
-    if show_guid:
-        query = query.where(MediaItem.guid == show_guid)
-    query = query.order_by(MediaItem.title.asc()).limit(limit)
-
-    result = await db.execute(query)
-    shows = list(result.scalars().all())
+    shows = await ViewingHistoryService(db).list_top_level_shows(show_guid, limit)
     next_up_items: list[NextUpItem] = []
     for show in shows:
         item = await _get_show_next_up_item(db, current_user, show)

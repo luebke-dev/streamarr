@@ -27,15 +27,15 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, select
+from sqlalchemy import and_
 from sqlalchemy import types as sqltypes
 
 from pyrate.api.dependencies import CurrentSuperuser, DatabaseSession
 from pyrate.database import Base
-from pyrate.models.media import MediaFile, MediaItem
 from pyrate.models.setting import Setting
 from pyrate.schemas.activity_log import ActivityLogCreate
 from pyrate.services.activity_log import ActivityLogService
+from pyrate.services.backup import BackupService
 from pyrate.services.settings import SettingsService
 
 router = APIRouter()
@@ -256,11 +256,7 @@ async def export_settings_backup(
     service = SettingsService(db)
     settings = await service.get_all() if include_defaults else {}
     if not include_defaults:
-        from sqlalchemy import select
-        from pyrate.models.setting import Setting
-
-        result = await db.execute(select(Setting))
-        settings = {row.key: row.value for row in result.scalars().all()}
+        settings = await BackupService(db).get_settings()
 
     return SettingsBackup(
         exported_at=datetime.now(UTC),
@@ -290,10 +286,10 @@ async def export_database_backup(
     table_counts: dict[str, int] = {}
     truncated_tables: list[str] = []
 
+    backup_service = BackupService(db)
     for table_name in sorted(tables):
         table = tables[table_name]
-        result = await db.execute(select(table).limit(limit_per_table + 1))
-        rows = result.mappings().all()
+        rows = await backup_service.dump_table(table, limit_per_table + 1)
         if len(rows) > limit_per_table:
             truncated_tables.append(table_name)
             rows = rows[:limit_per_table]
@@ -368,6 +364,8 @@ async def restore_database_backup(
     deleted_table_counts: dict[str, int] = {}
     errors: list[str] = []
 
+    backup_service = BackupService(db)
+
     unknown_tables = sorted(set(backup.tables) - set(known_tables))
     for table_name in unknown_tables:
         skipped_rows += len(backup.tables.get(table_name, []))
@@ -394,9 +392,9 @@ async def restore_database_backup(
                 except Exception as exc:
                     errors.append(f"{table.name}: failed to parse restore key: {exc}")
 
-            existing_result = await db.execute(select(table))
+            existing_rows = await backup_service.fetch_table_rows(table)
             deleted_for_table = 0
-            for existing_row in existing_result.mappings().all():
+            for existing_row in existing_rows:
                 existing_values = dict(existing_row)
                 identity = tuple(existing_values[pk.name] for pk in primary_keys)
                 if identity in restore_identities:
@@ -406,7 +404,7 @@ async def restore_database_backup(
                         *[pk == existing_values[pk.name] for pk in primary_keys]
                     )
                     if not backup.dry_run:
-                        await db.execute(table.delete().where(pk_clause))
+                        await backup_service.delete_where(table, pk_clause)
                     deleted_rows += 1
                     deleted_for_table += 1
                 except Exception as exc:
@@ -431,11 +429,10 @@ async def restore_database_backup(
                     pk_clause = and_(
                         *[pk == values[pk.name] for pk in primary_keys]
                     )
-                    existing = await db.execute(select(table).where(pk_clause).limit(1))
-                    if existing.first():
-                        await db.execute(table.update().where(pk_clause).values(**values))
+                    if await backup_service.row_exists(table, pk_clause):
+                        await backup_service.update_where(table, pk_clause, values)
                     else:
-                        await db.execute(table.insert().values(**values))
+                        await backup_service.insert_row(table, values)
 
                 restored_rows += 1
                 table_restored += 1
@@ -493,16 +490,12 @@ async def export_media_manifest_backup(
     check_exists: bool = Query(False),
 ):
     """Export a manifest of known media files for external file backup tools."""
-    result = await db.execute(
-        select(MediaFile, MediaItem)
-        .join(MediaItem, MediaItem.guid == MediaFile.media_item_guid)
-        .order_by(MediaItem.title, MediaFile.file_path)
-    )
+    manifest_rows = await BackupService(db).get_media_manifest()
 
     entries: list[MediaManifestEntry] = []
     total_bytes = 0
     missing_files = 0
-    for media_file, media_item in result.all():
+    for media_file, media_item in manifest_rows:
         exists = None
         if check_exists:
             exists = Path(media_file.file_path).is_file()
