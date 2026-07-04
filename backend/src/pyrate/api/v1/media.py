@@ -8,18 +8,15 @@ Uses MediaType parameter to filter and handle different content types.
 import asyncio
 import base64
 import binascii
-import hashlib
 import json
 import logging
 import math
-import os
-import tempfile
 import uuid
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
@@ -96,6 +93,16 @@ from pyrate.utils.net import UnsafeUrlError, safe_get
 # Pure remote-image / trailer normalizers extracted from this router (kept as a
 # re-import so existing `from pyrate.api.v1.media import _trailer_candidates`
 # call sites keep working).
+from pyrate.api.v1._media_artwork import (
+    _append_image_transform_query,
+    _artwork_cache_enabled,
+    _artwork_cache_key,
+    _artwork_cache_path,
+    _artwork_cache_root,
+    _artwork_headers,
+    _artwork_storage_root,
+    _validate_artwork_proxy_url,
+)
 from pyrate.api.v1._media_normalizers import (
     _find_remote_image,
     _image_language_matches,
@@ -294,24 +301,6 @@ async def _allowed_download_roots(db: AsyncSession, media_item: MediaItem) -> li
 
 
 
-def _append_image_transform_query(source_url: str, params: dict[str, int | str]) -> str:
-    if not params:
-        return source_url
-
-    parts = urlsplit(source_url)
-    query = dict(parse_qsl(parts.query, keep_blank_values=True))
-    query.update({key: str(value) for key, value in params.items()})
-    return urlunsplit(
-        (
-            parts.scheme,
-            parts.netloc,
-            parts.path,
-            urlencode(query),
-            parts.fragment,
-        )
-    )
-
-
 _IMAGE_UPLOAD_TYPES = {
     "image/jpeg": ("jpg", lambda data: data.startswith(b"\xff\xd8\xff")),
     "image/png": ("png", lambda data: data.startswith(b"\x89PNG\r\n\x1a\n")),
@@ -323,79 +312,6 @@ _IMAGE_UPLOAD_TYPES = {
 }
 _MAX_UPLOADED_IMAGE_BYTES = 10 * 1024 * 1024
 _MAX_REMOTE_IMAGE_BYTES = 15 * 1024 * 1024
-_ARTWORK_PROXY_HOSTS = {
-    "image.tmdb.org",
-    "images.igdb.com",
-    "covers.openlibrary.org",
-    "i.scdn.co",
-}
-_ARTWORK_CACHE_CONTROL = "public, max-age=31536000, immutable"
-
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _artwork_cache_enabled() -> bool:
-    return _env_flag("PYRATE_ARTWORK_CACHE_ENABLED", False)
-
-
-def _artwork_cache_root() -> Path:
-    root = Path(os.getenv("PYRATE_ARTWORK_CACHE_DIR", "/cache/artwork"))
-    root.mkdir(parents=True, exist_ok=True)
-    return root.resolve()
-
-
-def _validate_artwork_proxy_url(source_url: str) -> None:
-    parts = urlsplit(source_url)
-    if parts.scheme not in {"http", "https"}:
-        raise HTTPException(status_code=422, detail="Only HTTP(S) artwork can be proxied")
-    if parts.hostname is None or parts.hostname.lower() not in _ARTWORK_PROXY_HOSTS:
-        raise HTTPException(status_code=422, detail="Artwork host is not allowed")
-
-
-def _artwork_cache_key(source_url: str, transform_params: dict[str, object]) -> str:
-    payload = json.dumps(
-        {"url": source_url, "transform": transform_params},
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _artwork_extension(media_type: str) -> str:
-    return {
-        "image/jpeg": "jpg",
-        "image/png": "png",
-        "image/webp": "webp",
-        "image/avif": "avif",
-        "image/gif": "gif",
-    }.get(media_type, "img")
-
-
-def _artwork_cache_path(cache_key: str, media_type: str) -> Path:
-    extension = _artwork_extension(media_type)
-    return (_artwork_cache_root() / f"{cache_key}.{extension}").resolve()
-
-
-def _artwork_headers(cache_key: str, cache_status: str) -> dict[str, str]:
-    return {
-        "Cache-Control": _ARTWORK_CACHE_CONTROL,
-        "ETag": f'"{cache_key}"',
-        "X-Pyrate-Artwork-Cache": cache_status,
-    }
-
-
-def _artwork_storage_root() -> Path:
-    configured = os.getenv("PYRATE_ARTWORK_DIR")
-    root = Path(configured) if configured else Path(tempfile.gettempdir()) / "pyrate-artwork"
-    root.mkdir(parents=True, exist_ok=True)
-    return root.resolve()
-
-
 def _decode_image_upload(payload: MediaImageUpload) -> tuple[bytes, str, str]:
     content_type = payload.content_type.split(";", 1)[0].strip().lower()
     type_config = _IMAGE_UPLOAD_TYPES.get(content_type)
