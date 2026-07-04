@@ -12,6 +12,7 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from pyrate.models.device import Device
 from pyrate.models.friendship import Friendship, FriendshipStatus
 from pyrate.models.media import MediaItem, MediaType
 from pyrate.models.viewing_history import ViewingHistory
@@ -412,3 +413,87 @@ class ViewingHistoryService:
             if season and season.parent:
                 return season.parent.guid
         return item.media_item_guid
+
+    # ── Read helpers (moved out of the router; endpoints keep response building) ──
+
+    async def get_user_device(
+        self, user_guid: uuid.UUID, device_id: str
+    ) -> Device | None:
+        """Device owned by ``user_guid`` with the given client ``device_id``."""
+        result = await self.db.execute(
+            select(Device).where(
+                Device.user_id == user_guid,
+                Device.device_id == device_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_top_level_shows(
+        self, show_guid: uuid.UUID | None = None, limit: int = 20
+    ) -> list[MediaItem]:
+        """Top-level show items (optionally one show), title-ordered."""
+        query = select(MediaItem).where(
+            MediaItem.media_type == MediaType.SHOWS,
+            MediaItem.parent_guid.is_(None),
+        )
+        if show_guid:
+            query = query.where(MediaItem.guid == show_guid)
+        query = query.order_by(MediaItem.title.asc()).limit(limit)
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def list_child_items(self, parent_guid: uuid.UUID) -> list[MediaItem]:
+        """Direct children of a media item, sequence/creation ordered."""
+        result = await self.db.execute(
+            select(MediaItem)
+            .where(MediaItem.parent_guid == parent_guid)
+            .order_by(MediaItem.sequence_number.asc(), MediaItem.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_child_items_of(
+        self, parent_guids: list[uuid.UUID]
+    ) -> list[MediaItem]:
+        """All children whose parent is in ``parent_guids`` (unordered)."""
+        result = await self.db.execute(
+            select(MediaItem).where(MediaItem.parent_guid.in_(parent_guids))
+        )
+        return list(result.scalars().all())
+
+    async def get_user_history_for_items(
+        self, user_guid: uuid.UUID, item_guids: list[uuid.UUID]
+    ) -> list[ViewingHistory]:
+        """User's history rows for ``item_guids``, newest-watched first."""
+        result = await self.db.execute(
+            select(ViewingHistory)
+            .where(
+                ViewingHistory.user_guid == user_guid,
+                ViewingHistory.media_item_guid.in_(item_guids),
+            )
+            .order_by(ViewingHistory.last_watched_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def get_history_entry(
+        self, user_guid: uuid.UUID, media_item_guid: uuid.UUID
+    ) -> ViewingHistory | None:
+        """The user's history row for a single item, or ``None``."""
+        result = await self.db.execute(
+            select(ViewingHistory).where(
+                ViewingHistory.user_guid == user_guid,
+                ViewingHistory.media_item_guid == media_item_guid,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_recent_sessions(
+        self, user_guid: uuid.UUID, limit: int
+    ) -> list[ViewingHistory]:
+        """Most-recently-updated history rows for the user (session source)."""
+        result = await self.db.execute(
+            select(ViewingHistory)
+            .where(ViewingHistory.user_guid == user_guid)
+            .order_by(ViewingHistory.updated_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
