@@ -502,81 +502,11 @@ class ShowLibraryPlugin(LibraryBase):
         if release_group and release_group in trusted_groups:
             score += trusted_bonus
 
-        # Language scoring
-        # user_languages: ordered list of ISO 639-1 codes (e.g. ['de', 'en'])
-        # allowed_languages: list of ISO 639-1 codes permitted by the library admin
-        user_languages: list[str] = (
-            preferences.get("user_languages") or [] if preferences else []
+        # Language, client codec-compatibility, release-age and clamp are
+        # identical across library types — shared in LibraryBase.
+        return self._finalize_release_score(
+            score, metadata, preferences, video_codec, audio_codecs
         )
-        # Backward compat: accept legacy single "user_language" key
-        if not user_languages and preferences:
-            legacy = preferences.get("user_language")
-            if legacy:
-                user_languages = [legacy]
-        allowed_languages: list[str] = (
-            preferences.get("allowed_languages", []) if preferences else []
-        )
-        release_languages: list[str] = metadata.get("languages", [])
-
-        if release_languages:
-            lang_match_bonus = (
-                preferences.get("language_match_bonus", 10) if preferences else 10
-            )
-            matched_priority = False
-            if user_languages:
-                for priority, lang in enumerate(user_languages):
-                    if lang in release_languages or "multi" in release_languages:
-                        # Higher bonus for first preference, slightly less for later ones
-                        bonus = max(1, lang_match_bonus - priority * 2)
-                        score += bonus
-                        matched_priority = True
-                        break
-            if (
-                not matched_priority
-                and allowed_languages
-                and not any(lang in release_languages for lang in allowed_languages)
-                and "multi" not in release_languages
-            ):
-                # Hard reject: release language not in allowed list
-                return 0.0
-
-        # Codec compatibility scoring
-        # supported_video_codecs: list of video codecs the client can play natively
-        # supported_audio_codecs: list of audio codecs the client can play natively
-        # If the release uses a supported codec -> bonus; unsupported -> penalty
-        if preferences:
-            supported_video = {
-                self._canon_codec(c) for c in preferences.get("supported_video_codecs", [])
-            }
-            supported_audio = {
-                self._canon_codec(c) for c in preferences.get("supported_audio_codecs", [])
-            }
-            codec_match_bonus = preferences.get("codec_match_bonus", 0)
-            codec_mismatch_penalty = preferences.get("codec_mismatch_penalty", 0)
-
-            if supported_video and video_codec:
-                if self._canon_codec(video_codec) in supported_video:
-                    score += codec_match_bonus
-                else:
-                    score -= codec_mismatch_penalty
-
-            if supported_audio and audio_codecs:
-                release_audio_canon = {self._canon_codec(a) for a in audio_codecs}
-                if release_audio_canon & supported_audio:
-                    score += codec_match_bonus
-                else:
-                    score -= codec_mismatch_penalty
-
-        # Release age scoring — prefer newer releases, penalize old ones
-        age_score = self.score_release_age(metadata, preferences)
-        if age_score <= -1000:
-            return 0.0  # Hard retention reject
-        score += age_score
-
-        # Clamp to >= 0. No upper bound: sorting needs to distinguish releases
-        # that would otherwise tie at 100 (e.g. language_match_bonus=50 plus a
-        # strong 1080p h265 release pushes both above 100, hiding real differences).
-        return max(0.0, score)
 
     def get_naming_schema(self) -> dict[str, Any]:
         """Get the naming schema for TV show libraries."""
