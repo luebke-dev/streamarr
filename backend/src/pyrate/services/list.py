@@ -260,6 +260,70 @@ class ListService:
         )
         return list(result.scalars().all()), total
 
+    async def get_ordered_list_items(self, list_guid: uuid.UUID) -> list[ListItem]:
+        """All items of a list in queue order (nulls last, then created asc)."""
+        result = await self.db.execute(
+            select(ListItem)
+            .where(ListItem.list_guid == list_guid)
+            .order_by(
+                ListItem.order_index.is_(None),
+                ListItem.order_index.asc(),
+                ListItem.created_at.asc(),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def get_media_items_by_guids(
+        self, guids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, MediaItem]:
+        """Map of guid → MediaItem for the given guids (empty if none)."""
+        if not guids:
+            return {}
+        result = await self.db.execute(
+            select(MediaItem).where(MediaItem.guid.in_(guids))
+        )
+        return {item.guid: item for item in result.scalars().all()}
+
+    async def find_missing_item_ids(
+        self, list_guid: uuid.UUID, item_ids: list[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """Return the item ids that don't belong to the list (for validation)."""
+        if not item_ids:
+            return set()
+        result = await self.db.execute(
+            select(ListItem.guid).where(
+                ListItem.list_guid == list_guid,
+                ListItem.guid.in_(item_ids),
+            )
+        )
+        found = {row[0] for row in result.all()}
+        return set(item_ids) - found
+
+    async def reorder_items(
+        self, list_guid: uuid.UUID, ordered_first_ids: list[uuid.UUID]
+    ) -> None:
+        """Persist a new item order: *ordered_first_ids* lead, the remaining
+        items keep their existing relative order after them. Commits."""
+        result = await self.db.execute(
+            select(ListItem.guid)
+            .where(ListItem.list_guid == list_guid)
+            .order_by(
+                ListItem.order_index.asc().nulls_last(),
+                ListItem.created_at.asc(),
+            )
+        )
+        leading = set(ordered_first_ids)
+        ordered_ids = list(ordered_first_ids) + [
+            guid for (guid,) in result.all() if guid not in leading
+        ]
+        for order_index, item_id in enumerate(ordered_ids):
+            await self.db.execute(
+                sa_update(ListItem)
+                .where(ListItem.list_guid == list_guid, ListItem.guid == item_id)
+                .values(order_index=order_index)
+            )
+        await self.db.commit()
+
     async def get_all_admin(
         self,
         skip: int = 0,

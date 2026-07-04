@@ -4,20 +4,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
-from sqlalchemy import update as sa_update
 
 from pyrate.api.dependencies import CurrentSuperuser, DatabaseSession
 from pyrate.auth.dependencies import get_current_user, get_current_user_optional
 from pyrate.config import get_app_url
 from pyrate.models.list import (
     List,
-    ListItem,
     ListType,
     ListVisibility,
     UserListInteractionType,
 )
-from pyrate.models.media import MediaItem
 from pyrate.schemas.device import (
     DeviceCommandResponse,
     DeviceSessionPlayQueueCreate,
@@ -948,23 +944,10 @@ async def _build_playlist_queue(
     start_item_guid: UUID | None = None,
     start_index: int = 0,
 ) -> PlaylistQueueResponse:
-    result = await db.execute(
-        select(ListItem)
-        .where(ListItem.list_guid == playlist.guid)
-        .order_by(
-            ListItem.order_index.is_(None),
-            ListItem.order_index.asc(),
-            ListItem.created_at.asc(),
-        )
-    )
-    list_items = list(result.scalars().all())
+    service = ListService(db)
+    list_items = await service.get_ordered_list_items(playlist.guid)
     media_guids = [item.item_guid for item in list_items]
-    media_map: dict[UUID, MediaItem] = {}
-    if media_guids:
-        media_result = await db.execute(
-            select(MediaItem).where(MediaItem.guid.in_(media_guids))
-        )
-        media_map = {item.guid: item for item in media_result.scalars().all()}
+    media_map = await service.get_media_items_by_guids(media_guids)
 
     queue_items: list[PlaylistQueueItem] = []
     for index, list_item in enumerate(list_items):
@@ -1295,43 +1278,18 @@ async def reorder_playlist_items(
     if len(set(reorder.item_ids)) != len(reorder.item_ids):
         raise HTTPException(status_code=400, detail="Duplicate playlist item ids")
 
+    service = ListService(db)
     if reorder.item_ids:
-        result = await db.execute(
-            select(ListItem.guid).where(
-                ListItem.list_guid == playlist_id,
-                ListItem.guid.in_(reorder.item_ids),
-            )
-        )
-        found_ids = {row[0] for row in result.all()}
-        missing_ids = set(reorder.item_ids) - found_ids
+        missing_ids = await service.find_missing_item_ids(playlist_id, reorder.item_ids)
         if missing_ids:
             raise HTTPException(
                 status_code=404,
                 detail="One or more playlist items were not found",
             )
 
-    result = await db.execute(
-        select(ListItem.guid)
-        .where(ListItem.list_guid == playlist_id)
-        .order_by(
-            ListItem.order_index.asc().nulls_last(),
-            ListItem.created_at.asc(),
-        )
-    )
-    reordered = set(reorder.item_ids)
-    ordered_ids = list(reorder.item_ids) + [
-        guid for (guid,) in result.all() if guid not in reordered
-    ]
-    for order_index, item_id in enumerate(ordered_ids):
-        await db.execute(
-            sa_update(ListItem)
-            .where(ListItem.list_guid == playlist_id, ListItem.guid == item_id)
-            .values(order_index=order_index)
-        )
+    await service.reorder_items(playlist_id, reorder.item_ids)
 
-    await db.commit()
-
-    items, total = await ListService(db).get_items_with_data(str(playlist_id), 0, 100)
+    items, total = await service.get_items_with_data(str(playlist_id), 0, 100)
     logger.info("User %s reordered playlist %s", current_user.guid, playlist_id)
     return PaginatedListItemsWithDataResponse(
         items=items,
