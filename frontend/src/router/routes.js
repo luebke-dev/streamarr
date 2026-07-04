@@ -307,6 +307,10 @@ const routes = [
         path: 'mass-operations',
         component: () => import('src/pages/admin/MassOperationsPage.vue'),
       },
+      {
+        path: 'game-runtimes',
+        component: () => import('src/pages/admin/GameRuntimesPage.vue'),
+      },
     ],
   },
 

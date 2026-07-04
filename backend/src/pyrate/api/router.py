@@ -18,6 +18,7 @@ from pyrate.api.v1.environment import router as environment_router
 from pyrate.api.v1.favorites import router as favorites_router
 from pyrate.api.v1.filters import router as filters_router
 from pyrate.api.v1.friends import router as friends_router
+from pyrate.api.v1.game_runtimes import router as game_runtimes_router
 from pyrate.api.v1.genres import router as genres_router
 from pyrate.api.v1.groups import router as groups_router
 from pyrate.api.v1.indexers import router as indexers_router
@@ -84,6 +85,9 @@ router.include_router(downloaders_router, prefix="/downloaders", tags=["download
 router.include_router(devices_router, prefix="/devices", tags=["devices"])
 router.include_router(environment_router, prefix="/environment", tags=["environment"])
 router.include_router(favorites_router, prefix="/favorites", tags=["favorites"])
+router.include_router(
+    game_runtimes_router, prefix="/game-runtimes", tags=["game-runtimes"]
+)
 router.include_router(filters_router, prefix="/filters", tags=["filters"])
 router.include_router(libraries_router, prefix="/libraries", tags=["libraries"])
 router.include_router(lightrays_router, prefix="/lightrays", tags=["lightrays"])
