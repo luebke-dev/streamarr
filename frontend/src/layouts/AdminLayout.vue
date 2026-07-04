@@ -114,6 +114,11 @@
           :title="$t('adminMenu.metadata')"
           to="/admin/metadata"
         />
+        <DrawerItem
+          icon="mdi-gamepad-square"
+          :title="$t('adminMenu.gameRuntimes')"
+          to="/admin/game-runtimes"
+        />
         <DrawerItem icon="mdi-cogs" :title="$t('adminMenu.tasks')" to="/admin/tasks" />
         <DrawerItem icon="mdi-monitor-cellphone" :title="$t('adminMenu.logs')" to="/admin/logs" />
         <DrawerItem icon="mdi-account-group" :title="$t('adminMenu.parties')" to="/admin/parties" />
