@@ -470,6 +470,30 @@ class ReleaseSearchService:
             query=search_query,
         )
 
+    async def _game_platform_slugs(self, media_item: MediaItem) -> set[str]:
+        """Canonical platform slugs of a game (from its IGDB platforms).
+
+        Empty set means "unknown" — the matcher then falls back to title-only
+        matching rather than rejecting everything.
+        """
+        from pyrate.models.platform import Platform
+        from pyrate.services.game_platforms import normalize_platforms
+
+        try:
+            result = await self.db.execute(
+                select(Platform.name)
+                .select_from(MediaItem)
+                .join(MediaItem.platforms)
+                .where(MediaItem.guid == media_item.guid)
+            )
+            names = list(result.scalars().all())
+        except Exception as exc:  # noqa: BLE001 — never break search on this
+            logger.warning(
+                "Could not load platforms for game %s: %s", media_item.guid, exc
+            )
+            return set()
+        return normalize_platforms(names)
+
     async def _match_releases(
         self,
         media_item: MediaItem,
@@ -518,6 +542,7 @@ class ReleaseSearchService:
                 min_score=0.0,
                 media_release_date=media_release_date_str,
                 is_game=True,
+                game_platforms=await self._game_platform_slugs(media_item),
             )
         elif media_item.media_type == MediaType.BOOKS:
             return ReleaseMatcher.filter_matching_releases(
