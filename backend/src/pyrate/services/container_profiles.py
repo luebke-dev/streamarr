@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyrate.models.container_profile import ContainerProfile
+from pyrate.models.media import MediaFile
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +216,87 @@ def _apply_app_ref(env: dict[str, str], app_ref: str | None) -> dict[str, str]:
     return result
 
 
+# ── ROM launch derivation (libretro / retro profile) ─────────────────────────
+#
+# A retro game's ROM is a plain MediaFile in the games library — there is no
+# importer stamping mounts/app_ref. At launch we derive both from the file:
+# the ROM is a backend-container path under the games library (e.g.
+# ``/library/games/snes/Chrono.sfc``); we rebase it to the real HOST path so
+# the Docker daemon can bind-mount it into the sibling game container, mount the
+# ROM's *directory* (so ``.cue``/``.bin`` and multi-disc siblings come along)
+# read-only at ``/rom``, and set ``app_ref`` to the ROM's in-container path.
+
+# Where the ROM directory is bind-mounted inside the retro container.
+RETRO_ROM_CONTAINER_DIR = "/rom"
+
+# The games-library path as the BACKEND sees it (the plugin default).
+GAMES_LIBRARY_CONTAINER = os.environ.get(
+    "LIGHTRAYS_GAMES_LIBRARY_CONTAINER", "/library/games"
+).rstrip("/")
+
+
+def _games_library_host_root() -> str:
+    """Host-side path of the games library (what the Docker daemon resolves).
+
+    Prefers an explicit ``LIGHTRAYS_GAMES_LIBRARY_HOST``; otherwise derives it
+    from ``PROJECT_ROOT`` exactly like :func:`computing._data_root` — the games
+    library lives at ``{PROJECT_ROOT}/data/library/games`` alongside the other
+    media libraries.
+    """
+    explicit = os.environ.get("LIGHTRAYS_GAMES_LIBRARY_HOST", "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    project_root = os.environ.get("PROJECT_ROOT", "/root/pyrate.media").rstrip("/")
+    return f"{project_root}/data/library/games"
+
+
+def _translate_library_path_to_host(file_path: str) -> str | None:
+    """Rebase a backend games-library path onto the real host path.
+
+    ``/library/games/snes/Chrono.sfc`` → ``{host_root}/snes/Chrono.sfc``.
+    Returns ``None`` if ``file_path`` is not under the games-library root, so a
+    stray absolute path is never blindly exposed as a bind mount.
+    """
+    root = GAMES_LIBRARY_CONTAINER
+    p = os.path.normpath(file_path)
+    if p != root and not p.startswith(root + "/"):
+        return None
+    return os.path.normpath(
+        os.path.join(_games_library_host_root(), os.path.relpath(p, root))
+    )
+
+
+async def _derive_rom_launch(
+    db: AsyncSession, media_item: Any
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Derive ``(rom_mount, app_ref)`` from a game's primary ROM MediaFile.
+
+    Returns ``(None, None)`` when the item has no readable ROM file under the
+    games library, so the caller falls back to no ROM (the container then
+    reports a missing ``RETRO_ROM`` rather than launching something wrong).
+    """
+    guid = getattr(media_item, "guid", None)
+    if guid is None:
+        return None, None
+    result = await db.execute(
+        select(MediaFile).where(MediaFile.media_item_guid == guid).limit(1)
+    )
+    media_file = result.scalars().first()
+    file_path = _clean_str(getattr(media_file, "file_path", None)) if media_file else None
+    if not file_path:
+        return None, None
+    host_path = _translate_library_path_to_host(file_path)
+    if not host_path:
+        return None, None
+    mount = {
+        "host": os.path.dirname(host_path),
+        "container": RETRO_ROM_CONTAINER_DIR,
+        "ro": True,
+    }
+    app_ref = f"{RETRO_ROM_CONTAINER_DIR}/{os.path.basename(host_path)}"
+    return mount, app_ref
+
+
 async def resolve_launch_config(
     db: AsyncSession, media_item: Any
 ) -> dict[str, Any]:
@@ -292,11 +374,23 @@ async def resolve_launch_config(
     # the field yet). Profile mounts come first, per-game mounts after.
     profile_mounts = _clean_mounts(getattr(profile, "mounts", None))
     state_scope = _clean_str(getattr(profile, "state_scope", None)) or "game"
+
+    # libretro (retro) games carry no importer-stamped app_ref/mounts — the ROM
+    # is a plain MediaFile in the games library. Derive the ROM bind mount + the
+    # in-container ROM path (app_ref) from the file itself, unless the game
+    # already supplies an explicit app_ref (manual override).
+    derived_mounts: list[dict[str, Any]] = []
+    if _clean_str(getattr(profile, "kind", None)) == "libretro" and not app_ref:
+        rom_mount, rom_app_ref = await _derive_rom_launch(db, media_item)
+        if rom_app_ref:
+            app_ref = rom_app_ref
+            derived_mounts = [rom_mount]
+
     return {
         "docker_image": per_game_image or profile.docker_image,
         "runtime_profile": profile.runtime_profile,
         "app_env": _apply_app_ref({**profile_env, **per_game_env}, app_ref),
-        "app_mounts": [*profile_mounts, *per_game_mounts],
+        "app_mounts": [*profile_mounts, *derived_mounts, *per_game_mounts],
         "state_scope": state_scope,
         "profile_name": profile.name,
     }

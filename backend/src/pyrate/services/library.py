@@ -3,6 +3,7 @@
 import json
 import logging
 import uuid
+from pathlib import Path
 from datetime import UTC, datetime
 from typing import Any
 
@@ -1219,7 +1220,68 @@ class LibraryService:
         discovered_files = await plugin.scan_library(library.path)
 
         logger.info("Found %s media files in %s", len(discovered_files), library.name)
+
+        # Games libraries PERSIST scanned ROMs as MediaItem(GAMES)+MediaFile so
+        # they become first-class library media (all other types are
+        # discovery-only today, importing via the download-completion path).
+        # Scoped to GAMES so movie/show/music/book behaviour is unchanged.
+        if library.type == "GAMES":
+            await self._ingest_scanned_games(discovered_files)
+
         return discovered_files
+
+    async def _ingest_scanned_games(
+        self, discovered_files: list[dict[str, Any]]
+    ) -> dict[str, int]:
+        """Upsert scanned ROM files into GAMES MediaItems + MediaFiles.
+
+        Deduplicated on ``MediaFile.file_path`` (an already-ingested ROM is
+        skipped). Each new item is stamped with
+        ``extra_data.lightrays.profile = "retro"`` so the launch resolver picks
+        the retro container profile and derives the ROM bind mount from the
+        file. Commits once; returns created/skipped counts.
+        """
+        created = 0
+        skipped = 0
+        for info in discovered_files:
+            file_path = str(info.get("path") or "").strip()
+            if not file_path:
+                skipped += 1
+                continue
+            existing = await self.db.execute(
+                select(MediaFile).where(MediaFile.file_path == file_path).limit(1)
+            )
+            if existing.scalars().first() is not None:
+                skipped += 1
+                continue
+
+            title = str(info.get("title") or Path(file_path).stem).strip()
+            platform = info.get("platform")
+            extra_data: dict[str, Any] = {"lightrays": {"profile": "retro"}}
+            if platform:
+                extra_data["platform"] = platform
+
+            item = await self.media.create_media_item(
+                media_type=MediaType.GAMES,
+                title=title,
+                commit=False,
+                extra_data=extra_data,
+                availability_status=AvailabilityStatus.AVAILABLE,
+            )
+            await self.media.create_media_file(
+                media_item_guid=item.guid,
+                file_path=file_path,
+                file_name=Path(file_path).name,
+                file_size=info.get("size"),
+                format=str(info.get("extension") or "").lstrip("."),
+                commit=False,
+            )
+            created += 1
+
+        if created:
+            await self.db.commit()
+        logger.info("Games scan ingest: created=%d skipped=%d", created, skipped)
+        return {"created": created, "skipped": skipped}
 
     async def match_media_with_metadata(
         self,
