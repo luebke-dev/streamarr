@@ -14,6 +14,7 @@ from pyrate.api.dependencies import (
     DatabaseSession,
     UserPermissionsDep,
 )
+from pyrate.utils.extra_data import load_extra_data
 from pyrate.models.media import MediaItem
 from pyrate.services.media_access import require_media_read_access
 
@@ -34,16 +35,7 @@ class MediaAttachmentsUpdate(BaseModel):
 
 
 def _load_extra_data(media_item: MediaItem) -> dict:
-    ed = media_item.extra_data
-    if not ed:
-        return {}
-    if isinstance(ed, dict):
-        return ed
-    try:
-        data = json.loads(ed)
-    except (TypeError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return load_extra_data(media_item)
 
 
 def _parse_attachments(extra_data: dict) -> list[MediaAttachment]:

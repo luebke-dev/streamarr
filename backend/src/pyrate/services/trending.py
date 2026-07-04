@@ -12,7 +12,12 @@ from pyrate.models.media import MediaExternalId, MediaItem, MediaRelease, MediaR
 from pyrate.metadata.igdb import IGDB
 from pyrate.metadata.spotify import Spotify
 from pyrate.metadata.tmdb import TMDB
-from pyrate.services.settings import get_igdb_credentials, get_spotify_credentials, get_tmdb_api_key
+from pyrate.services.settings import (
+    get_country,
+    get_igdb_credentials,
+    get_spotify_credentials,
+    get_tmdb_api_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +168,7 @@ class TrendingService:
     async def get_new_trending_music_ids(self) -> list[str]:
         """Return Spotify album IDs from the charts that are not yet in the database."""
         spotify = await self._get_spotify()
-        trending_albums = await spotify.get_trending_albums(limit=50, country="DE")
+        trending_albums = await spotify.get_trending_albums(limit=50, country=await get_country(self.db))
         new_ids: list[str] = []
 
         for album in trending_albums:
@@ -202,7 +207,7 @@ class TrendingService:
 
             # Get trending albums from Spotify
             spotify = await self._get_spotify()
-            trending_albums = await spotify.get_trending_albums(limit=50, country="DE")
+            trending_albums = await spotify.get_trending_albums(limit=50, country=await get_country(self.db))
             trending_spotify_ids = [a["id"] for a in trending_albums if a.get("id")]
             await spotify.close()
 

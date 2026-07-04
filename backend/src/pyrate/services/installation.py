@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pyrate.auth.jwt_handler import jwt_handler
 from pyrate.auth.password import validate_password_strength
 from pyrate.models.user import User
-from pyrate.services.settings import SettingsService
+from pyrate.services.settings import DEFAULT_LOCALE, SettingsService
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class InstallationService:
         first_name: str,
         last_name: str,
         site_name: str | None = "pyrate.media",
-        locale: str | None = "de-DE",
+        locale: str | None = DEFAULT_LOCALE,
     ) -> User:
         """Create the first admin user and configure basic system settings.
 

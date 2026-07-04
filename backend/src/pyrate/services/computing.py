@@ -101,7 +101,15 @@ def _data_root() -> str:
     exist inside the backend container otherwise.
     """
     if os.path.exists("/.dockerenv"):
-        project_root = os.environ.get("PROJECT_ROOT", "/root/pyrate.media").rstrip("/")
+        project_root = os.environ.get("PROJECT_ROOT", "").rstrip("/")
+        if not project_root:
+            # No personal-path fallback: a wrong host root silently breaks every
+            # sibling-container bind mount. Fail loud so it's caught at deploy.
+            raise RuntimeError(
+                "PROJECT_ROOT is not set. Set it to the absolute HOST path of the "
+                "project (the docker-compose default) so sibling containers get "
+                "valid host bind-mount paths."
+            )
         return f"{project_root}/data"
     return os.path.abspath("./data")
 

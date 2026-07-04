@@ -9,6 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from pyrate.models.media import MediaItem
+from pyrate.utils.extra_data import load_extra_data
 from pyrate.utils.net import UnsafeUrlError, assert_safe_url, safe_get
 
 
@@ -18,16 +19,7 @@ class SubtitleProviderError(ValueError):
 
 def load_media_extra_data(media_item: MediaItem) -> dict[str, Any]:
     """Return parsed media ``extra_data`` as a dictionary."""
-    ed = media_item.extra_data
-    if not ed:
-        return {}
-    if isinstance(ed, dict):
-        return ed
-    try:
-        data = json.loads(ed)
-    except (TypeError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return load_extra_data(media_item)
 
 
 class SubtitleProviderService:

@@ -166,6 +166,22 @@ async def launch_session(
     if not user_id:
         user_id = "pyrate-backend"
 
+    # Fail closed on the security-sensitive launch shape. A launch carrying an
+    # admin-vetted ``docker_image`` / ``app_mounts`` proves that vetting to
+    # Lightrays via the ``lightrays:image`` scope in a *signed* token. With no
+    # ``LIGHTRAYS_JWT_SECRET`` the request would go out UNAUTHENTICATED and that
+    # scope claim would be meaningless — anything that can reach the Lightrays
+    # host could then drive container image/mount selection. Refuse rather than
+    # send an unauthenticated image/mount-bearing request. (A default-profile
+    # launch without image/mounts still works in local dev without a secret.)
+    if (docker_image or app_mounts) and not LIGHTRAYS_JWT_SECRET:
+        raise RuntimeError(
+            "Refusing to launch a container with a custom docker_image/app_mounts "
+            "while LIGHTRAYS_JWT_SECRET is unset: the request would be "
+            "unauthenticated and the lightrays:image scope meaningless. "
+            "Set LIGHTRAYS_JWT_SECRET."
+        )
+
     # Per-user persistent storage: Lightrays derives `apps_state/<app_id>`
     # from the `app_id` field we pass below, and handles both the local
     # mkdir and the bind mount at `/home/retro`. No mount injection needed.

@@ -16,6 +16,18 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+# The single canonical fallback locale, used when ``system.locale`` is unset.
+# Every module that needs a default locale/country reads it from here (or the
+# ``get_locale``/``get_country`` helpers) instead of hardcoding "de-DE"/"DE".
+DEFAULT_LOCALE = "de-DE"
+
+
+def locale_to_country(locale: str | None) -> str:
+    """Derive an ISO-3166 country code from a locale string (``de-DE`` → ``DE``)."""
+    if locale and "-" in locale:
+        return locale.rsplit("-", 1)[-1].upper()
+    return DEFAULT_LOCALE.rsplit("-", 1)[-1]
+
 
 # ── Process-global setting cache ────────────────────────────────────────────
 #
@@ -285,8 +297,12 @@ class SettingsService:
         return client_id, client_secret
 
     async def get_locale(self) -> str:
-        """Get system locale."""
-        return await self.get("system.locale") or "de-DE"
+        """Get the configured system locale (falls back to ``DEFAULT_LOCALE``)."""
+        return await self.get("system.locale") or DEFAULT_LOCALE
+
+    async def get_country(self) -> str:
+        """Get the ISO country code derived from the configured locale."""
+        return locale_to_country(await self.get_locale())
 
     # Library settings (plugin-based)
     async def get_library_settings(self, library: str) -> dict[str, Any]:
@@ -379,6 +395,11 @@ async def get_locale(session: AsyncSession) -> str:
     """Standalone helper to get locale."""
     service = SettingsService(session)
     return await service.get_locale()
+
+
+async def get_country(session: AsyncSession) -> str:
+    """Standalone helper to get the country code derived from the locale."""
+    return await SettingsService(session).get_country()
 
 
 async def get_setting(
