@@ -1,6 +1,4 @@
 import logging
-from datetime import UTC
-from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -519,65 +517,9 @@ async def get_subscription_stats(
     db: AsyncSession = Depends(get_db_session),
 ) -> SubscriptionStatsResponse:
     """Get subscription statistics (Admin only)"""
-    from sqlalchemy import func, select
-
-    from ...models.subscription import (
-        PaymentHistory,
-        SubscriptionPackage,
-        SubscriptionStatus,
-        UserSubscription,
-    )
-
-    # Get total packages
-    total_packages_result = await db.execute(
-        select(func.count(SubscriptionPackage.guid)).where(SubscriptionPackage.is_active)
-    )
-    total_packages = total_packages_result.scalar() or 0
-
-    # Get active subscriptions
-    active_subscriptions_result = await db.execute(
-        select(func.count(UserSubscription.guid)).where(
-            UserSubscription.status == SubscriptionStatus.ACTIVE
-        )
-    )
-    active_subscriptions = active_subscriptions_result.scalar() or 0
-
-    # Get total subscriptions
-    total_subscriptions_result = await db.execute(
-        select(func.count(UserSubscription.guid))
-    )
-    total_subscriptions = total_subscriptions_result.scalar() or 0
-
-    # Get total revenue
-    total_revenue_result = await db.execute(
-        select(func.sum(PaymentHistory.amount_cents)).where(
-            PaymentHistory.status == "succeeded"
-        )
-    )
-    total_revenue = Decimal(total_revenue_result.scalar() or 0) / Decimal(100)
-
-    # Get monthly revenue (current month)
-    from datetime import datetime
-
-    current_month_start = datetime.now(UTC).replace(
-        day=1, hour=0, minute=0, second=0, microsecond=0
-    )
-
-    monthly_revenue_result = await db.execute(
-        select(func.sum(PaymentHistory.amount_cents)).where(
-            PaymentHistory.status == "succeeded",
-            PaymentHistory.created_at >= current_month_start,
-        )
-    )
-    monthly_revenue = Decimal(monthly_revenue_result.scalar() or 0) / Decimal(100)
-
-    return SubscriptionStatsResponse(
-        total_packages=total_packages,
-        active_subscriptions=active_subscriptions,
-        total_subscriptions=total_subscriptions,
-        total_revenue=total_revenue,
-        monthly_revenue=monthly_revenue,
-    )
+    service = SubscriptionService(db)
+    stats = await service.get_stats()
+    return SubscriptionStatsResponse(**stats)
 
 
 # Payment provider webhook routes

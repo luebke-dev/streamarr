@@ -630,3 +630,60 @@ class SubscriptionService:
             .order_by(PaymentHistory.created_at.desc())
         )
         return list(result.scalars().all())
+
+    async def get_stats(self) -> dict:
+        """Aggregate subscription statistics (package/subscription counts, revenue).
+
+        Returns a dict with ``total_packages``, ``active_subscriptions``,
+        ``total_subscriptions``, ``total_revenue`` and ``monthly_revenue``
+        (revenues as ``Decimal`` euros).
+        """
+        from decimal import Decimal
+
+        total_packages = (
+            await self.db.execute(
+                select(func.count(SubscriptionPackage.guid)).where(
+                    SubscriptionPackage.is_active
+                )
+            )
+        ).scalar() or 0
+
+        active_subscriptions = (
+            await self.db.execute(
+                select(func.count(UserSubscription.guid)).where(
+                    UserSubscription.status == SubscriptionStatus.ACTIVE
+                )
+            )
+        ).scalar() or 0
+
+        total_subscriptions = (
+            await self.db.execute(select(func.count(UserSubscription.guid)))
+        ).scalar() or 0
+
+        total_revenue_cents = (
+            await self.db.execute(
+                select(func.sum(PaymentHistory.amount_cents)).where(
+                    PaymentHistory.status == "succeeded"
+                )
+            )
+        ).scalar() or 0
+
+        month_start = datetime.now(UTC).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        monthly_revenue_cents = (
+            await self.db.execute(
+                select(func.sum(PaymentHistory.amount_cents)).where(
+                    PaymentHistory.status == "succeeded",
+                    PaymentHistory.created_at >= month_start,
+                )
+            )
+        ).scalar() or 0
+
+        return {
+            "total_packages": total_packages,
+            "active_subscriptions": active_subscriptions,
+            "total_subscriptions": total_subscriptions,
+            "total_revenue": Decimal(total_revenue_cents) / Decimal(100),
+            "monthly_revenue": Decimal(monthly_revenue_cents) / Decimal(100),
+        }
