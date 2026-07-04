@@ -190,6 +190,76 @@ class ListService:
 
         return lists, total
 
+    async def get_tagged_lists_page(
+        self,
+        *,
+        tag: str,
+        owner_guid: str | None = None,
+        visibility: ListVisibility | None = None,
+        current_user_guid: str | uuid.UUID | None = None,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[List], int]:
+        """Page of active USER lists carrying ``tag`` (collections / playlists).
+
+        Applies the same visibility rules the list endpoints use: an explicit
+        ``visibility`` filters to it (PRIVATE additionally scoped to the owner);
+        otherwise a signed-in viewer sees public lists plus their own private
+        ones, and an anonymous viewer sees only public. Callers must reject the
+        unauthenticated PRIVATE case (401) before calling. Eager-loads owner,
+        items and interactions; returns ``(lists, total)`` newest-first.
+        """
+        filters = [
+            List.is_active,
+            self._NOT_DELETED,
+            List.list_type == ListType.USER,
+            List.tags.like(f"%{tag}%"),
+        ]
+        if owner_guid:
+            filters.append(List.owner_guid == _convert_to_uuid(owner_guid))
+
+        if visibility:
+            if visibility == ListVisibility.PRIVATE:
+                filters.append(
+                    and_(
+                        List.visibility == ListVisibility.PRIVATE,
+                        List.owner_guid == current_user_guid,
+                    )
+                )
+            else:
+                filters.append(List.visibility == visibility)
+        elif current_user_guid is not None:
+            filters.append(
+                or_(
+                    List.visibility == ListVisibility.PUBLIC,
+                    and_(
+                        List.visibility == ListVisibility.PRIVATE,
+                        List.owner_guid == current_user_guid,
+                    ),
+                )
+            )
+        else:
+            filters.append(List.visibility == ListVisibility.PUBLIC)
+
+        where_clause = and_(*filters)
+        total = (
+            await self.db.execute(select(func.count(List.guid)).where(where_clause))
+        ).scalar() or 0
+
+        result = await self.db.execute(
+            select(List)
+            .options(
+                selectinload(List.owner),
+                selectinload(List.items),
+                selectinload(List.user_interactions),
+            )
+            .where(where_clause)
+            .order_by(List.updated_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(result.scalars().all()), total
+
     async def get_all_admin(
         self,
         skip: int = 0,

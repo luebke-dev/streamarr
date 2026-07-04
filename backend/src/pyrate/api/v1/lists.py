@@ -4,9 +4,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import select
 from sqlalchemy import update as sa_update
-from sqlalchemy.orm import selectinload
 
 from pyrate.api.dependencies import CurrentSuperuser, DatabaseSession
 from pyrate.auth.dependencies import get_current_user, get_current_user_optional
@@ -667,58 +666,17 @@ async def get_collections(
             raise HTTPException(status_code=401, detail="Not authenticated")
         owner_guid = str(current_user.guid)
 
-    filters = [
-        List.is_active,
-        List.deleted_at.is_(None),
-        List.list_type == ListType.USER,
-        List.tags.like(f"%{COLLECTION_TAG}%"),
-    ]
+    if visibility == ListVisibility.PRIVATE and not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
-    if owner_guid:
-        filters.append(List.owner_guid == _as_uuid(owner_guid))
-
-    if visibility:
-        if visibility == ListVisibility.PRIVATE:
-            if not current_user:
-                raise HTTPException(status_code=401, detail="Not authenticated")
-            filters.append(
-                and_(
-                    List.visibility == ListVisibility.PRIVATE,
-                    List.owner_guid == current_user_guid,
-                )
-            )
-        else:
-            filters.append(List.visibility == visibility)
-    elif current_user:
-        filters.append(
-            or_(
-                List.visibility == ListVisibility.PUBLIC,
-                and_(
-                    List.visibility == ListVisibility.PRIVATE,
-                    List.owner_guid == current_user_guid,
-                ),
-            )
-        )
-    else:
-        filters.append(List.visibility == ListVisibility.PUBLIC)
-
-    where_clause = and_(*filters)
-    count_result = await db.execute(select(func.count(List.guid)).where(where_clause))
-    total = count_result.scalar() or 0
-
-    result = await db.execute(
-        select(List)
-        .options(
-            selectinload(List.owner),
-            selectinload(List.items),
-            selectinload(List.user_interactions),
-        )
-        .where(where_clause)
-        .order_by(List.updated_at.desc())
-        .offset(skip)
-        .limit(per_page)
+    collections, total = await ListService(db).get_tagged_lists_page(
+        tag=COLLECTION_TAG,
+        owner_guid=owner_guid,
+        visibility=visibility,
+        current_user_guid=current_user_guid,
+        skip=skip,
+        limit=per_page,
     )
-    collections = list(result.scalars().all())
 
     items = await ListService(db).get_lists_with_item_types(collections)
     for item in items:
@@ -1090,58 +1048,17 @@ async def get_playlists(
             raise HTTPException(status_code=401, detail="Not authenticated")
         owner_guid = str(current_user.guid)
 
-    filters = [
-        List.is_active,
-        List.deleted_at.is_(None),
-        List.list_type == ListType.USER,
-        List.tags.like(f"%{PLAYLIST_TAG}%"),
-    ]
+    if visibility == ListVisibility.PRIVATE and not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
-    if owner_guid:
-        filters.append(List.owner_guid == _as_uuid(owner_guid))
-
-    if visibility:
-        if visibility == ListVisibility.PRIVATE:
-            if not current_user:
-                raise HTTPException(status_code=401, detail="Not authenticated")
-            filters.append(
-                and_(
-                    List.visibility == ListVisibility.PRIVATE,
-                    List.owner_guid == current_user_guid,
-                )
-            )
-        else:
-            filters.append(List.visibility == visibility)
-    elif current_user:
-        filters.append(
-            or_(
-                List.visibility == ListVisibility.PUBLIC,
-                and_(
-                    List.visibility == ListVisibility.PRIVATE,
-                    List.owner_guid == current_user_guid,
-                ),
-            )
-        )
-    else:
-        filters.append(List.visibility == ListVisibility.PUBLIC)
-
-    where_clause = and_(*filters)
-    count_result = await db.execute(select(func.count(List.guid)).where(where_clause))
-    total = count_result.scalar() or 0
-
-    result = await db.execute(
-        select(List)
-        .options(
-            selectinload(List.owner),
-            selectinload(List.items),
-            selectinload(List.user_interactions),
-        )
-        .where(where_clause)
-        .order_by(List.updated_at.desc())
-        .offset(skip)
-        .limit(per_page)
+    playlists, total = await ListService(db).get_tagged_lists_page(
+        tag=PLAYLIST_TAG,
+        owner_guid=owner_guid,
+        visibility=visibility,
+        current_user_guid=current_user_guid,
+        skip=skip,
+        limit=per_page,
     )
-    playlists = list(result.scalars().all())
 
     items = await ListService(db).get_lists_with_item_types(playlists)
     for item in items:
