@@ -439,6 +439,8 @@ def _gaming_prefs_from(user) -> UserGamingPreferences:
     return UserGamingPreferences(
         keyboard_layout=prefs.get("keyboard_layout", "us"),
         mouse_speed=prefs.get("mouse_speed", 1.0),
+        analog_deadzone=prefs.get("analog_deadzone", 0.15),
+        dpad_mode=prefs.get("dpad_mode", "dpad"),
     )
 
 

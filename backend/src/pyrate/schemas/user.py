@@ -118,6 +118,20 @@ class UserGamingPreferences(BaseSchema):
     keyboard_layout: str = "us"
     mouse_speed: float = Field(1.0, ge=0.1, le=5.0)
 
+    # Controller (gamepad) settings for retro/libretro streaming sessions.
+    # ``analog_deadzone`` maps to RetroArch ``input_analog_deadzone``.
+    # ``dpad_mode`` maps the D-pad to an analog stick (or leaves it as the
+    # D-pad) via ``input_playerN_analog_dpad_mode``:
+    #   "dpad" = D-pad, "left_analog" = D-pad acts as left stick, "right_analog".
+    analog_deadzone: float = Field(0.15, ge=0.0, le=0.5)
+    dpad_mode: str = "dpad"
+
+    @field_validator("dpad_mode")
+    @classmethod
+    def _validate_dpad_mode(cls, v: str) -> str:
+        allowed = {"dpad", "left_analog", "right_analog"}
+        return v if v in allowed else "dpad"
+
 
 class UserDisplayPreferences(BaseSchema):
     """Schema for per-client display preferences."""
