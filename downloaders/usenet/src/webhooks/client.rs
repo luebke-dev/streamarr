@@ -22,6 +22,11 @@ pub struct WebhookPayload {
     pub destination: Option<String>,
     pub path: Option<String>,
     pub error: Option<String>,
+    /// On failure: whether the fault was infrastructure/local IO (disk full,
+    /// write error, bad mount) rather than the release itself. The backend
+    /// uses this to decide whether to blacklist the release — a retriable
+    /// infra fault must NOT poison the release pool. Always false on success.
+    pub retriable: bool,
     pub timestamp: DateTime<Utc>,
     /// Basenames of the files that ended up in the destination directory
     /// after extraction. The importer uses this as a whitelist so a stale

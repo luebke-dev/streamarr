@@ -153,7 +153,7 @@ impl DownloadWorker {
                     if let Some(db_job) = self.db.get_job(&job_id).ok().flatten() {
                         let url = db_job.webhook_url.clone()
                             .unwrap_or_else(|| self.webhook_client.default_url().to_string());
-                        self.fail_job(job_id, "Job dropped from in-memory queue", &url).await;
+                        self.fail_job_infra(job_id, "Job dropped from in-memory queue", &url).await;
                     }
                     return;
                 }
@@ -174,7 +174,7 @@ impl DownloadWorker {
         ) {
             Ok(p) => p.to_string_lossy().into_owned(),
             Err(e) => {
-                self.fail_job(job_id, &format!("Invalid destination: {}", e), &webhook_url).await;
+                self.fail_job_infra(job_id, &format!("Invalid destination: {}", e), &webhook_url).await;
                 return;
             }
         };
@@ -231,10 +231,10 @@ impl DownloadWorker {
         let temp_path = self.config.download.temp_directory.join(job_id.to_string());
 
         if let Err(e) = tokio::fs::create_dir_all(&dest_path).await {
-            self.fail_job(job_id, &format!("Cannot create dest dir: {}", e), &webhook_url).await; return;
+            self.fail_job_infra(job_id, &format!("Cannot create dest dir: {}", e), &webhook_url).await; return;
         }
         if let Err(e) = tokio::fs::create_dir_all(&temp_path).await {
-            self.fail_job(job_id, &format!("Cannot create temp dir: {}", e), &webhook_url).await; return;
+            self.fail_job_infra(job_id, &format!("Cannot create temp dir: {}", e), &webhook_url).await; return;
         }
 
         let downloaded_bytes = Arc::new(AtomicU64::new(0));
@@ -598,7 +598,7 @@ impl DownloadWorker {
                 }
                 Err(e) => {
                     progress_handle.abort();
-                    self.fail_job(job_id, &format!("File task panicked: {}", e), &webhook_url).await;
+                    self.fail_job_infra(job_id, &format!("File task panicked: {}", e), &webhook_url).await;
                     return;
                 }
             }
@@ -671,7 +671,7 @@ impl DownloadWorker {
 
         // Move completed files from temp to destination
         if let Err(e) = Self::move_completed(&temp_path, &dest_path).await {
-            self.fail_job(job_id, &format!("Failed to move completed files: {}", e), &webhook_url).await;
+            self.fail_job_infra(job_id, &format!("Failed to move completed files: {}", e), &webhook_url).await;
             return;
         }
         let _ = tokio::fs::remove_dir_all(&temp_path).await;
@@ -716,6 +716,7 @@ impl DownloadWorker {
             destination: destination.clone(),
             path: destination.or_else(|| Some(dest_dir.clone())),
             error: None,
+            retriable: false,
             timestamp: Utc::now(),
             files: final_files,
         }).await;
@@ -1276,8 +1277,23 @@ impl DownloadWorker {
             .update_job_status(&job_id, &JobStatus::Paused, Some(&display), None, None);
     }
 
+    /// Fail a job caused by the RELEASE itself (bad NZB, missing articles,
+    /// PAR2/RAR failure). The backend may blacklist the release.
     async fn fail_job(&self, job_id: Uuid, error_msg: &str, webhook_url: &str) {
-        error!("Job {} failed: {}", job_id, error_msg);
+        self.fail_job_classified(job_id, error_msg, false, webhook_url).await;
+    }
+
+    /// Fail a job caused by INFRASTRUCTURE / local IO (disk full, write error,
+    /// unwritable mount, bad destination, dropped queue). Marks the failure
+    /// retriable so the backend does NOT blacklist the release.
+    async fn fail_job_infra(&self, job_id: Uuid, error_msg: &str, webhook_url: &str) {
+        self.fail_job_classified(job_id, error_msg, true, webhook_url).await;
+    }
+
+    async fn fail_job_classified(
+        &self, job_id: Uuid, error_msg: &str, retriable: bool, webhook_url: &str,
+    ) {
+        error!("Job {} failed (retriable={}): {}", job_id, retriable, error_msg);
         let completed_at = Utc::now();
         let (name, category, destination) = {
             let mut jobs = self.jobs.write().await;
@@ -1295,6 +1311,7 @@ impl DownloadWorker {
             name: name.clone(), category,
             destination: destination.clone(), path: destination,
             error: Some(error_msg.to_string()),
+            retriable,
             timestamp: Utc::now(),
             files: Vec::new(),
         }).await;

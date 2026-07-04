@@ -187,16 +187,26 @@ async def _handle_downloader_webhook(payload: dict, db, downloader_name: str) ->
 
     elif job_status == "failed":
         error_msg = payload.get("error", "Download failed")
+        # Authoritative infra-vs-release classification from the downloader
+        # (it knows whether a local write/IO/disk fault or a bad release caused
+        # the failure). Optional — older downloaders omit it, in which case the
+        # service falls back to matching the error text.
+        retriable = payload.get("retriable")
+        if not isinstance(retriable, bool):
+            retriable = None
         old_status = download.status
         download.status = DownloadStatus.FAILED
         download.error_reason = error_msg
         await db.commit()
         record_download_transition(old_status, download.status, downloader_name)
 
-        logger.warning("%s webhook: job %s failed: %s", downloader_name, job_id, error_msg)
+        logger.warning(
+            "%s webhook: job %s failed (retriable=%s): %s",
+            downloader_name, job_id, retriable, error_msg,
+        )
 
         # Try alternative link for the same release before blacklisting
-        alt_link = await service.try_alternative_link(download, error_msg)
+        alt_link = await service.try_alternative_link(download, error_msg, retriable)
         if alt_link:
             record_download_retry_event("alternative_link_selected")
             logger.info(
@@ -210,7 +220,8 @@ async def _handle_downloader_webhook(payload: dict, db, downloader_name: str) ->
             }
 
         # No alternative links — blacklist the release and try the next one
-        await service.blacklist_download(download, error_msg)
+        # (a retriable infra failure is never blacklisted; see blacklist_download).
+        await service.blacklist_download(download, error_msg, retriable)
         media_item_guid = await service.get_media_item_guid_for_download(download)
         user_guid = str(download.user_guid) if download.user_guid else None
 
