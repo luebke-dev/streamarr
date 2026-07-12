@@ -1,7 +1,7 @@
 import { defineBoot } from '#q-app/wrappers'
 import axios from 'axios'
 import { useAuthStore } from 'src/stores/auth'
-import { getAccessToken, getServerUrl } from 'src/utils/authStorage'
+import { getAccessToken, getServerUrl, isNativePlatform } from 'src/utils/authStorage'
 import { logger } from 'src/utils/logger'
 
 // Always read the server URL from localStorage (set by the user on the login page).
@@ -12,13 +12,18 @@ function getBaseURL() {
 
 // On native platforms (Capacitor), use fetch adapter to leverage native HTTP
 // which bypasses CORS and WebView restrictions.
-const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()
+const isNative = isNativePlatform()
 
 const api = axios.create({
   baseURL: getBaseURL(),
   timeout: 10000,
+  // Send the httpOnly refresh cookie (web build) on /api/auth/* requests.
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
+    // Tell the backend which token-delivery model to use: web ⇒ httpOnly
+    // refresh cookie, native ⇒ refresh token in the response body.
+    'X-Client-Platform': isNative ? 'native' : 'web',
   },
   ...(isNative ? { adapter: 'fetch' } : {}),
 })
@@ -77,8 +82,13 @@ export default defineBoot(({ app, router }) => {
         originalRequest._retry = true
 
         try {
-          // Only attempt refresh if we have an auth store and refresh token
-          if (authStore && authStore.refreshToken) {
+          // Attempt a refresh when we might have a live session: native holds a
+          // JS refresh token; web relies on the httpOnly refresh cookie, so we
+          // try whenever an access token was in play (the cookie decides).
+          const canRefresh = isNative
+            ? Boolean(authStore?.refreshToken)
+            : Boolean(authStore?.accessToken)
+          if (authStore && canRefresh) {
             await authStore.refreshAccessToken()
 
             // Retry the original request with new token

@@ -31,6 +31,31 @@
         </q-card-section>
       </q-card>
 
+      <!-- Check-your-email (registration succeeded, verification required) -->
+      <q-card v-else-if="registeredEmail" dark class="login-card q-pa-lg">
+        <q-card-section class="text-center">
+          <q-icon name="mdi-email-check-outline" size="3rem" color="primary" />
+          <h5 class="q-mt-md q-mb-sm text-white">{{ $t('registerPage.checkEmailTitle') }}</h5>
+          <p class="text-grey-4">
+            {{ $t('registerPage.checkEmailBody', { email: registeredEmail }) }}
+          </p>
+          <div class="row justify-center q-gutter-sm q-mt-md">
+            <q-btn
+              flat
+              color="primary"
+              :loading="resendLoading"
+              :label="$t('registerPage.resendVerification')"
+              @click="handleResend"
+            />
+            <q-btn
+              color="primary"
+              :label="$t('registerPage.backToLogin')"
+              @click="$router.push('/auth/login')"
+            />
+          </div>
+        </q-card-section>
+      </q-card>
+
       <!-- Registration Form -->
       <q-card v-else dark class="login-card q-pa-lg">
         <q-card-section>
@@ -291,9 +316,9 @@
 
 <script>
 import { defineComponent, ref, onMounted } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useQuasar } from 'quasar'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useAuthStore } from 'src/stores/auth'
 import { useBackgroundRotation } from 'src/composables/useBackgroundRotation'
 import * as authService from 'src/services/authService'
 import {
@@ -310,10 +335,9 @@ export default defineComponent({
   name: 'RegisterPage',
   components: { PasswordPairField, FormBanner },
   setup() {
-    const router = useRouter()
     const route = useRoute()
     const { t } = useI18n()
-    const authStore = useAuthStore()
+    const $q = useQuasar()
 
     const { backgroundStyle, backgroundTitle } = useBackgroundRotation()
 
@@ -323,6 +347,9 @@ export default defineComponent({
     const inviteError = ref('')
     const inviteToken = ref('')
     const inviteInfo = ref(null)
+    // Set after a successful registration → shows the "check your email" panel.
+    const registeredEmail = ref('')
+    const resendLoading = ref(false)
 
     const form = ref({
       first_name: '',
@@ -401,18 +428,28 @@ export default defineComponent({
           subtitle_language: form.value.subtitle_language,
         })
 
-        const { access_token, refresh_token } = response
-        authStore.saveTokensToStorage(access_token, refresh_token)
-
-        await authStore.fetchUserInfo()
-
-        // Redirect to home
-        router.push('/')
+        // Registration is a hard email gate: no session is created. Show the
+        // "check your email" panel instead of logging in.
+        registeredEmail.value = response?.email || form.value.email
       } catch (err) {
         logger.error('Registration error:', err)
         error.value = err.response?.data?.detail || t('registerPage.registrationFailed')
       } finally {
         loading.value = false
+      }
+    }
+
+    const handleResend = async () => {
+      if (!registeredEmail.value) return
+      try {
+        resendLoading.value = true
+        await authService.resendVerification(registeredEmail.value)
+        $q.notify({ type: 'positive', message: t('registerPage.verificationResent') })
+      } catch (err) {
+        logger.error('Resend verification failed:', err)
+        $q.notify({ type: 'negative', message: t('registerPage.registrationFailed') })
+      } finally {
+        resendLoading.value = false
       }
     }
 
@@ -428,9 +465,12 @@ export default defineComponent({
       inviteError,
       inviteInfo,
       form,
+      registeredEmail,
+      resendLoading,
       isValidEmail,
       formatDate,
       handleRegister,
+      handleResend,
       backgroundTitle,
       availableUiLanguages,
       availableMediaLanguages,

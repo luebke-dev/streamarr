@@ -1801,6 +1801,11 @@ export default {
     success: 'Registrierung erfolgreich!',
     welcomeMessage: 'Willkommen! Dein Konto wurde erstellt.',
     registrationFailed: 'Registrierung fehlgeschlagen',
+    checkEmailTitle: 'E-Mail bestätigen',
+    checkEmailBody:
+      'Wir haben einen Bestätigungslink an {email} gesendet. Klicke ihn an, um dein Konto zu aktivieren, und melde dich dann an.',
+    resendVerification: 'E-Mail erneut senden',
+    verificationResent: 'Falls deine Adresse bestätigt werden muss, ist ein neuer Link unterwegs.',
     accountDetails: 'Kontodaten',
     profileSettings: 'Profil & Sprache',
     languageSettings: 'Spracheinstellungen',
