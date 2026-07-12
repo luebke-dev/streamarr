@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyrate.models.media import MediaType
 from pyrate.schemas.search import SearchRequest, SearchType
+from pyrate.services.external_ids import extract_external_ids
 from pyrate.services.library import LibraryService
 from pyrate.services.permission import MEDIA_TYPE_TO_LIBRARY
 
@@ -187,7 +188,7 @@ class LocalSearchService:
             MediaType.BOOKS: SearchType.BOOKS,
         }
         hit_type = type_map.get(item.media_type, SearchType.MOVIES)
-        tmdb_id, igdb_id, spotify_id = cls._extract_external_ids(item.external_ids)
+        tmdb_id, igdb_id, spotify_id = extract_external_ids(item.external_ids)
 
         return {
             "id": str(item.guid),
@@ -216,23 +217,3 @@ class LocalSearchService:
             "in_library": True,
             "library_id": None,
         }
-
-    @staticmethod
-    def _extract_external_ids(external_ids) -> tuple[int | None, int | None, str | None]:
-        tmdb_id = None
-        igdb_id = None
-        spotify_id = None
-        for ext in external_ids or []:
-            if ext.provider == "tmdb":
-                try:
-                    tmdb_id = int(ext.external_id)
-                except (ValueError, TypeError):
-                    logger.debug("Non-integer TMDB external ID: %s", ext.external_id)
-            elif ext.provider == "igdb":
-                try:
-                    igdb_id = int(ext.external_id)
-                except (ValueError, TypeError):
-                    logger.debug("Non-integer IGDB external ID: %s", ext.external_id)
-            elif ext.provider == "spotify":
-                spotify_id = ext.external_id
-        return tmdb_id, igdb_id, spotify_id

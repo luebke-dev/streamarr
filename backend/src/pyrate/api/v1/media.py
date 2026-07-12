@@ -32,7 +32,7 @@ from pyrate.api.dependencies import (
     UserPermissionsDep,
 )
 from pyrate.api.v1.media_filters import MediaListQuery, media_type_for_library
-from pyrate.auth.dependencies import get_current_superuser, get_current_user_optional
+from pyrate.auth.dependencies import get_current_superuser
 from pyrate.libraries import get_library_type_for_media_item_type
 from pyrate.models.media import (
     AvailabilityStatus,
@@ -59,12 +59,31 @@ from pyrate.schemas.media import (
 )
 from pyrate.services import availability as availability_service
 from pyrate.services.activity_log import ActivityLogService
+from pyrate.services.artwork import (
+    apply_image_transform as _apply_image_transform,
+)
+from pyrate.services.artwork import (
+    image_media_type_for_pil_format as _image_media_type_for_pil_format,
+)
+from pyrate.services.artwork import (
+    pil_format_for_content_type as _pil_format_for_content_type,
+)
+from pyrate.services.artwork import (
+    pil_format_for_image_format as _pil_format_for_image_format,
+)
+from pyrate.services.artwork import (
+    serialize_transformed_image as _serialize_transformed_image,
+)
+from pyrate.services.artwork import (
+    transform_image_bytes as _transform_image_bytes,
+)
 from pyrate.services.cache_control import clear_rendered_layout_cache
 from pyrate.services.download_status import download_phase
 from pyrate.services.library import LibraryService
 from pyrate.services.media import MediaService
 from pyrate.services.media_access import (
     allowed_media_types_for_permissions,
+    can_read_media,
     max_age_for_user,
     require_library_access_for_media_type,
     require_media_mutation_access,
@@ -312,6 +331,13 @@ _IMAGE_UPLOAD_TYPES = {
 }
 _MAX_UPLOADED_IMAGE_BYTES = 10 * 1024 * 1024
 _MAX_REMOTE_IMAGE_BYTES = 15 * 1024 * 1024
+# The artwork proxy stays public because browsers load it via <img> tags that
+# cannot send the bearer token. Guard it instead with a per-client request rate
+# limit and an output-resolution cap so anonymous callers cannot use it for
+# CPU/bandwidth amplification.
+_ARTWORK_PROXY_RATE_LIMIT = 240  # requests per minute per client
+_ARTWORK_PROXY_RATE_PERIOD_MINUTES = 1
+_MAX_PROXY_OUTPUT_PIXELS = 4096 * 4096
 def _decode_image_upload(payload: MediaImageUpload) -> tuple[bytes, str, str]:
     content_type = payload.content_type.split(";", 1)[0].strip().lower()
     type_config = _IMAGE_UPLOAD_TYPES.get(content_type)
@@ -371,132 +397,6 @@ async def _fetch_remote_image(source_url: str) -> tuple[bytes, str]:
     if len(response.content) > _MAX_REMOTE_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail="Remote image is too large")
     return response.content, content_type
-
-
-def _pil_format_for_image_format(image_format: ImageFormat | None, storage_path: Path) -> str:
-    if image_format is None:
-        image_format = (
-            "jpg"
-            if storage_path.suffix.lower() in {".jpg", ".jpeg"}
-            else storage_path.suffix.lower().lstrip(".")
-        )
-    if image_format == "jpg":
-        image_format = "jpeg"
-    return image_format.upper()
-
-
-def _pil_format_for_content_type(image_format: ImageFormat | None, content_type: str) -> str:
-    if image_format is None:
-        image_format = {
-            "image/jpeg": "jpeg",
-            "image/png": "png",
-            "image/webp": "webp",
-            "image/avif": "avif",
-        }.get(content_type, "png")
-    if image_format == "jpg":
-        image_format = "jpeg"
-    return image_format.upper()
-
-
-def _image_media_type_for_pil_format(output_format: str) -> str:
-    return {
-        "JPEG": "image/jpeg",
-        "PNG": "image/png",
-        "WEBP": "image/webp",
-        "AVIF": "image/avif",
-    }.get(output_format, "application/octet-stream")
-
-
-def _apply_image_transform(
-    image,
-    *,
-    width: int | None,
-    height: int | None,
-    max_width: int | None,
-    max_height: int | None,
-    fill_width: int | None,
-    fill_height: int | None,
-):
-    from PIL import Image, ImageOps
-
-    if fill_width or fill_height:
-        if not fill_width or not fill_height:
-            raise HTTPException(
-                status_code=400,
-                detail="Both fill_width and fill_height are required for fill transforms",
-            )
-        return ImageOps.fit(image, (fill_width, fill_height), method=Image.Resampling.LANCZOS)
-    if width or height:
-        target_width = width or round(image.width * (height / image.height))
-        target_height = height or round(image.height * (width / image.width))
-        return image.resize((target_width, target_height), Image.Resampling.LANCZOS)
-    if max_width or max_height:
-        image.thumbnail(
-            (
-                max_width or image.width,
-                max_height or image.height,
-            ),
-            Image.Resampling.LANCZOS,
-        )
-    return image
-
-
-def _serialize_transformed_image(image, output_format: str, quality: int | None) -> bytes:
-    if output_format == "JPEG" and image.mode in {"RGBA", "LA"}:
-        from PIL import Image
-
-        background = Image.new("RGB", image.size, (255, 255, 255))
-        background.paste(image, mask=image.getchannel("A"))
-        image = background
-
-    output = BytesIO()
-    save_kwargs = {}
-    if output_format in {"JPEG", "WEBP", "AVIF"}:
-        save_kwargs["quality"] = quality or 85
-    image.save(output, format=output_format, **save_kwargs)
-    return output.getvalue()
-
-
-def _transform_image_bytes(
-    image_bytes: bytes,
-    *,
-    content_type: str,
-    width: int | None,
-    height: int | None,
-    max_width: int | None,
-    max_height: int | None,
-    quality: int | None,
-    image_format: ImageFormat | None,
-    fill_width: int | None,
-    fill_height: int | None,
-) -> tuple[bytes, str]:
-    try:
-        from PIL import Image, UnidentifiedImageError
-    except ImportError:
-        raise HTTPException(
-            status_code=501,
-            detail="Image transform backend is not installed",
-        )
-
-    try:
-        image = Image.open(BytesIO(image_bytes)).convert("RGBA")
-    except UnidentifiedImageError:
-        raise HTTPException(status_code=415, detail="Image is not transformable")
-
-    image = _apply_image_transform(
-        image,
-        width=width,
-        height=height,
-        max_width=max_width,
-        max_height=max_height,
-        fill_width=fill_width,
-        fill_height=fill_height,
-    )
-    output_format = _pil_format_for_content_type(image_format, content_type)
-    return (
-        _serialize_transformed_image(image, output_format, quality),
-        _image_media_type_for_pil_format(output_format),
-    )
 
 
 def _transformed_image_bytes_response(
@@ -573,6 +473,35 @@ def _transformed_image_response(
     )
 
 
+def _write_artwork_cache_file(cache_path: Path, content: bytes) -> None:
+    """Atomically persist proxied artwork bytes to the on-disk cache."""
+    tmp_path = cache_path.with_suffix(f"{cache_path.suffix}.tmp")
+    tmp_path.write_bytes(content)
+    tmp_path.replace(cache_path)
+
+
+def _enforce_proxy_output_limit(
+    *,
+    width: int | None,
+    height: int | None,
+    max_width: int | None,
+    max_height: int | None,
+    fill_width: int | None,
+    fill_height: int | None,
+) -> None:
+    """Reject transforms whose output resolution exceeds the public-proxy cap."""
+    for target_width, target_height in (
+        (fill_width, fill_height),
+        (width, height),
+        (max_width, max_height),
+    ):
+        if target_width and target_height and target_width * target_height > _MAX_PROXY_OUTPUT_PIXELS:
+            raise HTTPException(
+                status_code=422,
+                detail="Requested artwork dimensions exceed the allowed size",
+            )
+
+
 @router.get("/images/proxy")
 async def proxy_artwork_image(
     request: Request,
@@ -586,8 +515,39 @@ async def proxy_artwork_image(
     fill_width: int | None = Query(None, ge=1, le=8192),
     fill_height: int | None = Query(None, ge=1, le=8192),
 ):
-    """Proxy and optionally cache remote artwork from known metadata providers."""
+    """Proxy and optionally cache remote artwork from known metadata providers.
+
+    Public by necessity (served into ``<img>`` tags), so it is guarded by a
+    per-client rate limit and an output-resolution cap rather than auth.
+    """
     _validate_artwork_proxy_url(url)
+    _enforce_proxy_output_limit(
+        width=width,
+        height=height,
+        max_width=max_width,
+        max_height=max_height,
+        fill_width=fill_width,
+        fill_height=fill_height,
+    )
+
+    client_host = request.client.host if request.client else "anonymous"
+    rate_key = uuid.uuid5(uuid.NAMESPACE_URL, f"artwork-proxy:{client_host}")
+    try:
+        within_limit = await check_and_record(
+            rate_key,
+            "artwork_proxy",
+            _ARTWORK_PROXY_RATE_LIMIT,
+            _ARTWORK_PROXY_RATE_PERIOD_MINUTES,
+        )
+    except Exception as exc:  # best-effort: never break <img> rendering on Redis hiccups
+        logger.debug("Artwork proxy rate-limit check failed open: %s", exc)
+        within_limit = True
+    if not within_limit:
+        raise HTTPException(
+            status_code=429,
+            detail="Artwork proxy rate limit reached. Please wait.",
+        )
+
     artwork_host = urlsplit(url).hostname or "unknown"
 
     transform_params = {
@@ -637,9 +597,7 @@ async def proxy_artwork_image(
     cache_status = "disabled"
     if cache_enabled:
         cache_path = _artwork_cache_path(cache_key, media_type)
-        tmp_path = cache_path.with_suffix(f"{cache_path.suffix}.tmp")
-        tmp_path.write_bytes(content)
-        tmp_path.replace(cache_path)
+        await asyncio.to_thread(_write_artwork_cache_file, cache_path, content)
         cache_status = "miss"
 
     record_artwork_cache_event(cache_status, artwork_host)
@@ -671,9 +629,7 @@ async def warm_artwork_cache_urls(urls: list[str], limit: int = 40) -> None:
 
             content, media_type = await _fetch_remote_image(url)
             cache_path = _artwork_cache_path(cache_key, media_type)
-            tmp_path = cache_path.with_suffix(f"{cache_path.suffix}.tmp")
-            tmp_path.write_bytes(content)
-            tmp_path.replace(cache_path)
+            await asyncio.to_thread(_write_artwork_cache_file, cache_path, content)
             record_artwork_cache_event("warmup", urlsplit(url).hostname)
             warmed += 1
         except Exception as exc:
@@ -1294,9 +1250,10 @@ async def search_media_items(
 @router.get("/{item_guid}/similar", response_model=list[MediaItemSummary])
 async def get_media_item_similar(
     db: DatabaseSession,
+    current_user: CurrentUser,
+    permissions: UserPermissionsDep,
     item_guid: uuid.UUID,
     limit: int = Query(20, ge=1, le=50),
-    current_user=Depends(get_current_user_optional),
 ):
     """Return items similar to the given movie or show.
 
@@ -1307,11 +1264,18 @@ async def get_media_item_similar(
     if item is None:
         raise HTTPException(status_code=404, detail="Media item not found")
 
+    require_media_read_access(
+        current_user,
+        permissions,
+        item,
+        hide_age_denials=True,
+    )
+
     svc = RecommendationService(db)
     try:
         similar_items = await svc.get_similar_items(
             item,
-            user_uuid=(current_user.guid if current_user else None),
+            user_uuid=current_user.guid,
             limit=limit,
         )
     finally:
@@ -1319,6 +1283,8 @@ async def get_media_item_similar(
 
     out: list[MediaItemSummary] = []
     for mi in similar_items:
+        if not can_read_media(current_user, permissions, mi):
+            continue
         out.append(
             MediaItemSummary(
                 guid=mi.guid,
@@ -1357,9 +1323,24 @@ async def get_media_item_children(
     """
     service = LibraryService(db)
 
-    children = await service.get_children(
-        parent_guid=item_guid, order_by_sequence=order_by_sequence
+    parent = await service.get_media_item(item_guid)
+    if not parent:
+        raise HTTPException(status_code=404, detail="Media item not found")
+
+    require_media_read_access(
+        current_user,
+        permissions,
+        parent,
+        hide_age_denials=True,
     )
+
+    children = [
+        child
+        for child in await service.get_children(
+            parent_guid=item_guid, order_by_sequence=order_by_sequence
+        )
+        if can_read_media(current_user, permissions, child)
+    ]
 
     child_guids = [child.guid for child in children]
     grandchild_counts = await MediaService(db).get_child_counts(child_guids)
@@ -1404,14 +1385,22 @@ async def get_show_hierarchy(
         hide_age_denials=True,
     )
 
-    seasons = await service.get_children(show_guid, order_by_sequence=True)
+    seasons = [
+        season
+        for season in await service.get_children(show_guid, order_by_sequence=True)
+        if can_read_media(current_user, permissions, season)
+    ]
     episodes_by_season = await service.get_children_bulk(
         [season.guid for season in seasons], order_by_sequence=True
     )
 
     hierarchy = ShowWithHierarchy(show=MediaItemRead.model_validate(show), seasons=[])
     for season in seasons:
-        episodes = episodes_by_season.get(season.guid, [])
+        episodes = [
+            ep
+            for ep in episodes_by_season.get(season.guid, [])
+            if can_read_media(current_user, permissions, ep)
+        ]
         hierarchy.seasons.append(
             SeasonWithEpisodes(
                 season=MediaItemRead.model_validate(season),
@@ -1447,7 +1436,11 @@ async def get_album_tracks(
     )
 
     # Get tracks
-    tracks = await service.get_children(album_guid, order_by_sequence=True)
+    tracks = [
+        track
+        for track in await service.get_children(album_guid, order_by_sequence=True)
+        if can_read_media(current_user, permissions, track)
+    ]
 
     return AlbumWithTracks(
         album=MediaItemRead.model_validate(album),
@@ -1462,6 +1455,7 @@ async def get_album_tracks(
 async def get_media_item_releases(
     db: DatabaseSession,
     current_user: CurrentUser,
+    permissions: UserPermissionsDep,
     item_guid: uuid.UUID,
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
@@ -1478,6 +1472,13 @@ async def get_media_item_releases(
     media_item = await service.get_media_item(item_guid, load_releases=True)
     if not media_item:
         raise HTTPException(status_code=404, detail="Media item not found")
+
+    require_media_read_access(
+        current_user,
+        permissions,
+        media_item,
+        hide_age_denials=True,
+    )
 
     # Get releases
     releases = media_item.releases
@@ -1723,6 +1724,7 @@ async def get_media_external_links(
 async def get_by_external_id(
     db: DatabaseSession,
     current_user: CurrentUser,
+    permissions: UserPermissionsDep,
     provider: str,
     external_id: str,
     media_type: MediaType | None = Query(None, description="Filter by media type"),
@@ -1738,6 +1740,13 @@ async def get_by_external_id(
         raise HTTPException(
             status_code=404, detail="Media item not found with that external ID"
         )
+
+    require_media_read_access(
+        current_user,
+        permissions,
+        media_item,
+        hide_age_denials=True,
+    )
 
     media_item = await service.get_media_item(
         media_item.guid,
@@ -2023,29 +2032,50 @@ async def _get_episode_or_raise(db: AsyncSession, episode_guid: uuid.UUID) -> Me
     return item
 
 
+async def _visible_nav_sibling(
+    db: AsyncSession,
+    sibling: dict | None,
+    current_user: CurrentUser,
+    permissions: UserPermissionsDep,
+) -> dict | None:
+    """Drop an adjacent-episode nav result the caller may not read."""
+    if not sibling:
+        return None
+    neighbour = await MediaService(db).get_media_item(uuid.UUID(sibling["guid"]))
+    if neighbour is None or not can_read_media(current_user, permissions, neighbour):
+        return None
+    return sibling
+
+
 @router.get("/{episode_guid}/next-episode")
 async def get_next_episode(
     db: DatabaseSession,
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: CurrentUser,
+    permissions: UserPermissionsDep,
     episode_guid: uuid.UUID,
 ):
     """Get the next episode/track in sequence, crossing season/album boundaries."""
-    await _get_episode_or_raise(db, episode_guid)
+    anchor = await _get_episode_or_raise(db, episode_guid)
+    require_media_read_access(current_user, permissions, anchor, hide_age_denials=True)
     service = MediaService(db)
     result = await service.get_next_sibling(episode_guid)
+    result = await _visible_nav_sibling(db, result, current_user, permissions)
     return {"next_episode": result}
 
 
 @router.get("/{episode_guid}/previous-episode")
 async def get_previous_episode(
     db: DatabaseSession,
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: CurrentUser,
+    permissions: UserPermissionsDep,
     episode_guid: uuid.UUID,
 ):
     """Get the previous episode/track in sequence, crossing season/album boundaries."""
-    await _get_episode_or_raise(db, episode_guid)
+    anchor = await _get_episode_or_raise(db, episode_guid)
+    require_media_read_access(current_user, permissions, anchor, hide_age_denials=True)
     service = MediaService(db)
     result = await service.get_previous_sibling(episode_guid)
+    result = await _visible_nav_sibling(db, result, current_user, permissions)
     return {"previous_episode": result}
 
 
@@ -2055,7 +2085,8 @@ async def get_previous_episode(
 @router.get("/{item_guid}/images", response_model=MediaImagesResponse)
 async def get_media_images(
     db: DatabaseSession,
-    current_user: CurrentUser,  # noqa: ARG001
+    current_user: CurrentUser,
+    permissions: UserPermissionsDep,
     item_guid: uuid.UUID,
 ):
     """Return poster/backdrop image paths for a media item."""
@@ -2063,6 +2094,14 @@ async def get_media_images(
     media_item = await service.get_media_item(item_guid)
     if not media_item:
         raise HTTPException(status_code=404, detail="Media item not found")
+
+    require_media_read_access(
+        current_user,
+        permissions,
+        media_item,
+        hide_age_denials=True,
+    )
+
     return MediaImagesResponse(
         poster_path=media_item.poster_path,
         backdrop_path=media_item.backdrop_path,

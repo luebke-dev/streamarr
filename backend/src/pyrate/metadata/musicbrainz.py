@@ -294,9 +294,3 @@ class MusicBrainz(MetadataBase):
 
 # Export plugin class for loader
 PLUGIN_CLASS = MusicBrainz
-
-
-async def async_setup(config: dict[str, Any]) -> bool:
-    """Set up the MusicBrainz plugin (no configuration needed)."""
-    logger.info("MusicBrainz plugin setup completed successfully")
-    return True

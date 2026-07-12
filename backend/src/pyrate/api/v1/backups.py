@@ -31,12 +31,13 @@ from sqlalchemy import and_
 from sqlalchemy import types as sqltypes
 
 from pyrate.api.dependencies import CurrentSuperuser, DatabaseSession
+from pyrate.api.v1._fs_roots import get_allowed_roots, is_under_allowed
 from pyrate.database import Base
 from pyrate.models.setting import Setting
 from pyrate.schemas.activity_log import ActivityLogCreate
 from pyrate.services.activity_log import ActivityLogService
 from pyrate.services.backup import BackupService
-from pyrate.services.settings import SettingsService
+from pyrate.services.settings import SettingsService, clear_settings_cache
 
 router = APIRouter()
 
@@ -445,6 +446,16 @@ async def restore_database_backup(
 
     if not backup.dry_run:
         await db.commit()
+        # The settings table is upserted via generic table.insert()/update()
+        # (BackupService), bypassing SettingsService.set() and therefore the
+        # process-global settings cache and its Redis invalidation. Flush and
+        # broadcast explicitly so web/worker/scheduler processes pick up
+        # restored settings instead of serving stale cached values.
+        if (
+            Setting.__tablename__ in table_counts
+            or Setting.__tablename__ in deleted_table_counts
+        ):
+            await clear_settings_cache()
 
     await ActivityLogService(db).create(
         ActivityLogCreate(
@@ -561,6 +572,8 @@ async def copy_media_manifest_files(
         else None
     )
 
+    allowed_roots = await get_allowed_roots(SettingsService(db))
+
     items: list[MediaManifestCopyItem] = []
     copied_count = skipped_count = missing_count = error_count = total_bytes = 0
 
@@ -576,6 +589,13 @@ async def copy_media_manifest_files(
         error = None
 
         try:
+            # The source path is client-supplied; confine reads to the
+            # configured media/storage roots so this endpoint cannot be used to
+            # copy arbitrary host files (e.g. /etc/shadow) into a readable dest.
+            if not is_under_allowed(source_path.resolve(), allowed_roots):
+                raise ValueError(
+                    "Source path is outside the configured media/storage roots"
+                )
             _assert_under_root(destination_path, destination_root)
             if not source_path.is_file():
                 status_value = "missing"

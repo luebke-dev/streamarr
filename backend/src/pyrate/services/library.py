@@ -1,7 +1,9 @@
 """Library service for managing media libraries and unified media operations."""
 
+import asyncio
 import json
 import logging
+import os
 import uuid
 from pathlib import Path
 from datetime import UTC, datetime
@@ -72,6 +74,58 @@ def _clean_lower_values(values: list[str] | None) -> list[str]:
     if not values:
         return []
     return sorted({value.strip().lower() for value in values if value.strip()})
+
+
+def _probe_folder_path(path_str: str) -> dict[str, Any]:
+    """Blocking filesystem probe for a single path.
+
+    Runs the ``exists``/``is_dir``/``os.access`` syscalls off the event loop
+    (via ``asyncio.to_thread``) so a slow mount does not stall the worker.
+    """
+    path_obj = Path(path_str).expanduser()
+    exists = path_obj.exists()
+    is_directory = path_obj.is_dir()
+    parent = path_obj.parent
+    parent_exists = parent.exists()
+    return {
+        "name": path_obj.name,
+        "exists": exists,
+        "is_directory": is_directory,
+        "is_readable": exists and is_directory and os.access(path_obj, os.R_OK),
+        "is_writable": exists and is_directory and os.access(path_obj, os.W_OK),
+        "parent_exists": parent_exists,
+        "parent_writable": parent_exists and os.access(parent, os.W_OK),
+    }
+
+
+def _list_directory_entries(directory: str, root: str) -> list[dict[str, Any]]:
+    """Blocking directory walk used by the library folder browser.
+
+    Returns plain dicts; the router turns them into response models. Runs off
+    the event loop via ``asyncio.to_thread``.
+    """
+    root_path = Path(root)
+    entries: list[dict[str, Any]] = []
+    for child in sorted(
+        Path(directory).iterdir(),
+        key=lambda path: (not path.is_dir(), path.name.lower()),
+    ):
+        try:
+            stat = child.stat()
+        except OSError:
+            continue
+        is_directory = child.is_dir()
+        entries.append(
+            {
+                "name": child.name,
+                "relative_path": str(child.relative_to(root_path)),
+                "path": str(child),
+                "is_directory": is_directory,
+                "size_bytes": None if is_directory else stat.st_size,
+                "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            }
+        )
+    return entries
 
 
 class LibraryService:
@@ -304,6 +358,142 @@ class LibraryService:
                 logger.error("Failed to create default library for %s: %s", lib_type, e)
 
         return created
+
+    # ==================== Library settings / serialization ====================
+
+    @staticmethod
+    def parse_settings(raw_settings: Any) -> dict:
+        """Parse a library's ``settings`` blob (dict or JSON string) into a dict."""
+        if not raw_settings:
+            return {}
+        if isinstance(raw_settings, dict):
+            return dict(raw_settings)
+        if isinstance(raw_settings, str):
+            try:
+                parsed = json.loads(raw_settings)
+            except json.JSONDecodeError:
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
+
+    @staticmethod
+    def media_folder_paths(library: Library) -> list[str]:
+        """Return the primary path plus configured media folders, de-duplicated."""
+        settings = LibraryService.parse_settings(library.settings)
+        raw_paths = settings.get("media_folders")
+        paths = [str(library.path)]
+        if isinstance(raw_paths, list):
+            paths.extend(str(path) for path in raw_paths if path)
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for path in paths:
+            normalized = str(Path(path).expanduser())
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(normalized)
+        return deduped
+
+    @staticmethod
+    def serialize_library(library: Library, *, is_admin: bool) -> dict:
+        """Serialize a library to a response dict.
+
+        Filesystem ``path`` and the raw ``settings`` blob are only exposed to
+        admins; non-admins get ``None`` for both. Centralizing this here keeps
+        the authorization masking identical across every endpoint that returns
+        a library.
+        """
+        lib_type = (
+            library.type.value if hasattr(library.type, "value") else str(library.type)
+        )
+        return {
+            "guid": library.guid,
+            "name": library.name,
+            "type": lib_type,
+            "plugin_id": library.plugin_id,
+            "path": library.path if is_admin else None,
+            "enabled": library.enabled,
+            "settings": library.settings if is_admin else None,
+            "description": library.description,
+            "created_at": library.created_at.isoformat(),
+            "updated_at": library.updated_at.isoformat(),
+        }
+
+    async def list_visible_libraries(
+        self,
+        *,
+        enabled_only: bool = False,
+        include_disabled: bool = False,
+        is_admin: bool = False,
+    ) -> list[Library]:
+        """List libraries, filtering out admin-disabled types for non-admins.
+
+        A library type is hidden when ``plugin.<type>.enable_library`` is false,
+        unless an admin explicitly requests ``include_disabled``.
+        """
+        libraries = await self.list_libraries(enabled_only=enabled_only)
+        if include_disabled and is_admin:
+            return libraries
+
+        settings_service = SettingsService(self.db)
+        type_enabled_cache: dict[str, bool] = {}
+        filtered: list[Library] = []
+        for lib in libraries:
+            lib_type = (
+                lib.type.value if hasattr(lib.type, "value") else str(lib.type)
+            ).lower()
+            if lib_type not in type_enabled_cache:
+                type_enabled_cache[lib_type] = await settings_service.get(
+                    f"plugin.{lib_type}.enable_library", True
+                )
+            if type_enabled_cache[lib_type]:
+                filtered.append(lib)
+        return filtered
+
+    async def replace_settings(self, library: Library, settings: dict) -> Library:
+        """Persist a rebuilt ``settings`` blob for a library (mutate + commit).
+
+        Central choke point for the folder/policy/options endpoints so the raw
+        ``library.settings = json.dumps(...)`` + ``db.commit()`` no longer lives
+        in the router.
+        """
+        library.settings = json.dumps(settings, sort_keys=True)
+        library.updated_at = datetime.now()
+        await self.db.commit()
+        await self.db.refresh(library)
+        return library
+
+    async def probe_path(self, path_str: str) -> dict[str, Any]:
+        """Filesystem facts for a single path (offloaded to a thread)."""
+        return await asyncio.to_thread(_probe_folder_path, path_str)
+
+    async def media_folder_status(self, library: Library) -> list[dict[str, Any]]:
+        """Configured media folders with existence/type flags, FS work threaded."""
+        paths = self.media_folder_paths(library)
+        probes = (
+            await asyncio.gather(
+                *(asyncio.to_thread(_probe_folder_path, path) for path in paths)
+            )
+            if paths
+            else []
+        )
+        return [
+            {
+                "path": path,
+                "exists": probe["exists"],
+                "is_directory": probe["is_directory"],
+                "primary": index == 0,
+            }
+            for index, (path, probe) in enumerate(zip(paths, probes))
+        ]
+
+    async def list_directory_entries(
+        self, directory: Path, root: Path
+    ) -> list[dict[str, Any]]:
+        """List a directory's children (offloaded to a thread)."""
+        return await asyncio.to_thread(
+            _list_directory_entries, str(directory), str(root)
+        )
 
     # ==================== Unified Media Operations ====================
 
@@ -1433,3 +1623,28 @@ class LibraryService:
                 await self.db.rollback()
 
         return releases
+
+
+class LibraryConfigService:
+    """Persistence for per-library-type plugin settings (``plugin.<type>.*``).
+
+    Centralizes the ``settings_service.set(...)`` fan-out that the per-type
+    config endpoints previously duplicated one key at a time, so adding a new
+    per-type setting no longer requires touching every type's update handler.
+    """
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        self.settings = SettingsService(db)
+
+    async def write_type_settings(
+        self, prefix: str, values: dict[str, Any]
+    ) -> None:
+        """Persist ``plugin.<prefix>.<key>`` for each non-``None`` value.
+
+        ``None`` values are skipped (partial update semantics), matching the
+        ``if update.<field> is not None`` guards the handlers used before.
+        """
+        for key, value in values.items():
+            if value is not None:
+                await self.settings.set(f"{prefix}.{key}", value)

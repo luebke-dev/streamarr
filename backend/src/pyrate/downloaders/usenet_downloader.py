@@ -14,9 +14,9 @@ class UsenetDownloader(DownloaderBase):
     URL to an NZB file (e.g. ``https://indexer.example/get/abc123``).
     """
 
-    def __init__(self, base_url: str, api_key: str | None = None):
+    def __init__(self, base_url: str, api_key: str | None = None, verify_ssl: bool = True):
         self.base_url = base_url.rstrip("/")
-        self.client = make_async_client()
+        self.client = make_async_client(verify=verify_ssl)
 
     def get_name(self) -> str:
         return "usenet_downloader"
@@ -149,11 +149,3 @@ class UsenetDownloader(DownloaderBase):
 
 
 PLUGIN_CLASS = UsenetDownloader
-
-
-async def async_setup(config: dict[str, Any]) -> bool:
-    if "base_url" not in config:
-        logger.error("usenet_downloader plugin requires 'base_url' in configuration")
-        return False
-    logger.info("usenet_downloader plugin setup completed successfully")
-    return True

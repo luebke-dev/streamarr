@@ -532,10 +532,3 @@ class DockerComputingProvider(ComputingBase):
 
         logger.info("Cleaned up %s completed Docker tasks", cleaned)
         return cleaned
-
-
-async def async_setup_entry(manifest, config):
-    """Setup plugin entry point."""
-    plugin = DockerComputingProvider(manifest, config)
-    await plugin.setup()
-    return plugin

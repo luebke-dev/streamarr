@@ -337,26 +337,3 @@ class Newznab(IndexerBase):
 
 # Export plugin class for loader
 PLUGIN_CLASS = Newznab
-
-
-async def async_setup(config: dict[str, Any]) -> bool:
-    """
-    Set up the Newznab plugin.
-
-    This function is called by the plugin loader during initialization.
-
-    Args:
-        config: Plugin configuration from manifest
-
-    Returns:
-        bool: True if setup was successful
-    """
-    # Validate required configuration
-    required = ["base_url", "api_key"]
-    for field in required:
-        if field not in config:
-            logger.error("Newznab plugin requires '%s' in configuration", field)
-            return False
-
-    logger.info("Newznab plugin setup completed successfully")
-    return True

@@ -22,6 +22,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyrate.libraries import get_plugin_instance
+from pyrate.libraries.categories import (
+    DOWNLOADABLE_CATEGORIES,
+    MEDIA_TYPE_TO_CATEGORY,
+)
 from pyrate.libraries.quality import (
     QualityInfo,
     QualityKind,
@@ -35,37 +39,16 @@ from pyrate.schemas.scoring import QualityProfile
 
 logger = logging.getLogger(__name__)
 
-# media_type -> library plugin key
+# media_type -> library plugin key (derived from the canonical category map;
+# only the downloadable categories carry a plugin / quality profile).
 _PLUGIN_KEY = {
-    "MOVIES": "MOVIES",
-    "SHOWS": "SHOWS",
-    "SEASONS": "SHOWS",
-    "EPISODES": "SHOWS",
-    "MUSIC": "MUSIC",
-    "ARTISTS": "MUSIC",
-    "ALBUMS": "MUSIC",
-    "SONGS": "MUSIC",
-    "BOOKS": "BOOKS",
-    "AUDIOBOOKS": "BOOKS",
-    "AUDIOBOOK_CHAPTERS": "BOOKS",
-    "GAMES": "GAMES",
+    mt: cat
+    for mt, cat in MEDIA_TYPE_TO_CATEGORY.items()
+    if cat in DOWNLOADABLE_CATEGORIES
 }
 
-# media_type -> profile/settings key segment
-_PROFILE_TYPE = {
-    "MOVIES": "movies",
-    "SHOWS": "shows",
-    "SEASONS": "shows",
-    "EPISODES": "shows",
-    "MUSIC": "music",
-    "ARTISTS": "music",
-    "ALBUMS": "music",
-    "SONGS": "music",
-    "BOOKS": "books",
-    "AUDIOBOOKS": "books",
-    "AUDIOBOOK_CHAPTERS": "books",
-    "GAMES": "games",
-}
+# media_type -> profile/settings key segment (lowercased plugin key).
+_PROFILE_TYPE = {mt: cat.lower() for mt, cat in _PLUGIN_KEY.items()}
 
 PROFILE_TYPES = ("movies", "shows", "music", "books", "games")
 

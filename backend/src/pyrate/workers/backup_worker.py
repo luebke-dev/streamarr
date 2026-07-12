@@ -20,6 +20,7 @@ import asyncio
 import logging
 import os
 import shutil
+import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -50,6 +51,30 @@ def _pg_dump_dsn() -> str:
     return url
 
 
+def _pg_dump_conn() -> tuple[str, dict[str, str]]:
+    """Return a password-stripped DSN plus the subprocess env carrying PGPASSWORD.
+
+    The database password is passed out-of-band via the ``PGPASSWORD`` env var
+    rather than inlined in the DSN, so the secret never appears in the process
+    command line (``/proc/<pid>/cmdline`` / ``ps``). Host, port, dbname and any
+    libpq query params (e.g. ``sslmode``) are preserved in the DSN.
+    """
+    dsn = _pg_dump_dsn()
+    parsed = urllib.parse.urlsplit(dsn)
+    if not parsed.password:
+        return dsn, dict(os.environ)
+
+    userinfo, _, hostpart = parsed.netloc.rpartition("@")
+    username = userinfo.split(":", 1)[0]
+    sanitized_netloc = f"{username}@{hostpart}" if username else hostpart
+    sanitized_dsn = urllib.parse.urlunsplit(
+        parsed._replace(netloc=sanitized_netloc)
+    )
+    env = dict(os.environ)
+    env["PGPASSWORD"] = urllib.parse.unquote(parsed.password)
+    return sanitized_dsn, env
+
+
 async def run_pg_dump_backup(reason: str = "scheduled") -> dict:
     """Write a ``pg_dump --format=custom`` archive to :func:`backup_dir`.
 
@@ -70,19 +95,21 @@ async def run_pg_dump_backup(reason: str = "scheduled") -> dict:
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out_file = out_dir / f"pyrate-db-{ts}.dump"
 
+    dsn, env = _pg_dump_conn()
     cmd = [
         "pg_dump",
         "--format=custom",
         "--no-owner",
         "--no-privileges",
         f"--file={out_file}",
-        f"--dbname={_pg_dump_dsn()}",
+        f"--dbname={dsn}",
     ]
     logger.info("Starting pg_dump backup (reason=%s) -> %s", reason, out_file)
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     _, stderr = await proc.communicate()
 

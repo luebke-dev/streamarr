@@ -1,5 +1,6 @@
 """JWT Token Handler for authentication."""
 
+import hashlib
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -118,13 +119,34 @@ class JWTHandler:
             return payload
         return None
 
-    def create_password_reset_token(self, user_id: str, email: str) -> str:
-        """Create a token for password reset (1h expiry)."""
+    def password_fingerprint(self, password_hash: str | None) -> str:
+        """Derive a short, non-reversible fingerprint of a password hash.
+
+        Bound into password-reset tokens so a token stops verifying the moment
+        the password changes — making reset links effectively single-use
+        (a successful reset changes the hash, so replay no longer matches) and
+        invalidating outstanding links after any password change.
+        """
+        material = (password_hash or "").encode("utf-8")
+        return hashlib.sha256(
+            self.secret_key.encode("utf-8") + b":pwreset:" + material
+        ).hexdigest()[:32]
+
+    def create_password_reset_token(
+        self, user_id: str, email: str, password_hash: str | None = None
+    ) -> str:
+        """Create a token for password reset (1h expiry).
+
+        ``password_hash`` (the user's current hash) is fingerprinted into the
+        token so it becomes invalid once the password changes — see
+        ``password_fingerprint``.
+        """
         to_encode = {
             "sub": user_id,
             "email": email,
             "type": "password_reset",
             "jti": str(uuid.uuid4()),
+            "pwf": self.password_fingerprint(password_hash),
             "exp": datetime.now(UTC) + timedelta(hours=1),
             "iat": datetime.now(UTC),
         }

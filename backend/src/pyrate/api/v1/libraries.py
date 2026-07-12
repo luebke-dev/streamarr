@@ -18,9 +18,7 @@ Routes:
 
 import logging
 import json
-import os
 import uuid
-from datetime import datetime
 import inspect
 from pathlib import Path
 
@@ -41,7 +39,7 @@ from pyrate.schemas.scoring import (
     ShowScoringConfig,
 )
 from pyrate.services.activity_log import ActivityLogService
-from pyrate.services.library import LibraryService
+from pyrate.services.library import LibraryConfigService, LibraryService
 from pyrate.services.library_imports import LibraryImportError, LibraryImportService
 from pyrate.services.settings import SettingsService
 from pyrate.api.utils import get_user_locale
@@ -743,18 +741,8 @@ async def create_library(
             description=library_data.description,
         )
 
-        return LibraryRead(
-            guid=library.guid,
-            name=library.name,
-            type=library.type,
-            plugin_id=library.plugin_id,
-            path=library.path,
-            enabled=library.enabled,
-            settings=library.settings,
-            description=library.description,
-            created_at=library.created_at.isoformat(),
-            updated_at=library.updated_at.isoformat(),
-        )
+        # Creator is a superuser, so no masking applies.
+        return LibraryRead(**service.serialize_library(library, is_admin=True))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -773,40 +761,21 @@ async def list_libraries(
     - enabled_only: If true, only return enabled libraries
     """
     service = LibraryService(db)
-    libraries = await service.list_libraries(enabled_only=enabled_only)
-
-    # Filter out libraries whose type is disabled by admin settings
-    # Only admins can bypass this filter
+    # Admin-vs-user type filtering (disabled types hidden from non-admins) is
+    # owned by the service so every listing endpoint shares one implementation.
     is_admin = getattr(current_user, "is_superuser", False)
-    if not (include_disabled and is_admin):
-        settings_service = SettingsService(db)
-        type_enabled_cache: dict[str, bool] = {}
-        filtered = []
-        for lib in libraries:
-            lib_type = (lib.type.value if hasattr(lib.type, "value") else str(lib.type)).lower()
-            if lib_type not in type_enabled_cache:
-                type_enabled_cache[lib_type] = await settings_service.get(
-                    f"plugin.{lib_type}.enable_library", True
-                )
-            if type_enabled_cache[lib_type]:
-                filtered.append(lib)
-        libraries = filtered
+    libraries = await service.list_visible_libraries(
+        enabled_only=enabled_only,
+        include_disabled=include_disabled,
+        is_admin=is_admin,
+    )
 
     logger.info("list_libraries: Returning %s libraries", len(libraries))
 
+    # Response shaping incl. path/settings masking is delegated to the service
+    # so non-admins never receive server filesystem paths.
     result = [
-        LibraryRead(
-            guid=lib.guid,
-            name=lib.name,
-            type=lib.type.value if hasattr(lib.type, "value") else str(lib.type),
-            plugin_id=lib.plugin_id,
-            path=lib.path if is_admin else None,
-            enabled=lib.enabled,
-            settings=lib.settings if is_admin else None,
-            description=lib.description,
-            created_at=lib.created_at.isoformat(),
-            updated_at=lib.updated_at.isoformat(),
-        )
+        LibraryRead(**service.serialize_library(lib, is_admin=is_admin))
         for lib in libraries
     ]
 
@@ -829,17 +798,10 @@ def _resolve_library_subpath(library_path: str, relative_path: str | None = None
 
 
 def _parse_library_settings(raw_settings) -> dict:
-    if not raw_settings:
-        return {}
-    if isinstance(raw_settings, dict):
-        return dict(raw_settings)
-    if isinstance(raw_settings, str):
-        try:
-            parsed = json.loads(raw_settings)
-        except json.JSONDecodeError:
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
-    return {}
+    # Settings-blob parsing lives on the service; the router keeps this thin
+    # alias so the response-shaping helpers below read the same view the
+    # service does.
+    return LibraryService.parse_settings(raw_settings)
 
 
 def _library_options_from_settings(raw_settings) -> LibraryOptions:
@@ -859,34 +821,18 @@ def _library_folder_policy_from_settings(raw_settings) -> LibraryFolderPolicy:
 
 
 def _library_media_folder_paths(library) -> list[str]:
-    settings = _parse_library_settings(library.settings)
-    raw_paths = settings.get("media_folders")
-    paths = [str(library.path)]
-    if isinstance(raw_paths, list):
-        paths.extend(str(path) for path in raw_paths if path)
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for path in paths:
-        normalized = str(Path(path).expanduser())
-        if normalized in seen:
-            continue
-        seen.add(normalized)
-        deduped.append(normalized)
-    return deduped
+    # Media-folder computation/dedup is owned by the service.
+    return LibraryService.media_folder_paths(library)
 
 
-def _media_folder_response(library) -> LibraryMediaFoldersResponse:
-    folders: list[LibraryMediaFolder] = []
-    for index, folder_path in enumerate(_library_media_folder_paths(library)):
-        path_obj = Path(folder_path).expanduser()
-        folders.append(
-            LibraryMediaFolder(
-                path=str(path_obj),
-                exists=path_obj.exists(),
-                is_directory=path_obj.is_dir(),
-                primary=index == 0,
-            )
-        )
+async def _media_folder_response(
+    service: LibraryService, library
+) -> LibraryMediaFoldersResponse:
+    # Blocking existence/type checks are offloaded to threads inside the service.
+    folders = [
+        LibraryMediaFolder(**folder)
+        for folder in await service.media_folder_status(library)
+    ]
     return LibraryMediaFoldersResponse(
         library_guid=library.guid,
         folders=folders,
@@ -904,7 +850,8 @@ def _path_is_nested(path: Path, other: Path) -> bool:
     return resolved_path != resolved_other and resolved_other in resolved_path.parents
 
 
-def _validate_library_folder_path(
+async def _validate_library_folder_path(
+    service: LibraryService,
     library,
     candidate_path: str,
 ) -> LibraryFolderValidationResponse:
@@ -916,13 +863,14 @@ def _validate_library_folder_path(
     is_primary = normalized_path == primary_path
     is_duplicate = normalized_path in existing_paths
 
-    exists = path_obj.exists()
-    is_directory = path_obj.is_dir()
-    is_readable = exists and is_directory and os.access(path_obj, os.R_OK)
-    is_writable = exists and is_directory and os.access(path_obj, os.W_OK)
-    parent = path_obj.parent
-    parent_exists = parent.exists()
-    parent_writable = parent_exists and os.access(parent, os.W_OK)
+    # Blocking filesystem checks are offloaded to a thread by the service.
+    probe = await service.probe_path(candidate_path)
+    exists = probe["exists"]
+    is_directory = probe["is_directory"]
+    is_readable = probe["is_readable"]
+    is_writable = probe["is_writable"]
+    parent_exists = probe["parent_exists"]
+    parent_writable = probe["parent_writable"]
 
     issues: list[str] = []
     warnings: list[str] = []
@@ -1012,7 +960,7 @@ async def migrate_library_path(
         )
 
     previous_path = str(Path(library.path).expanduser())
-    validation = _validate_library_folder_path(library, body.path)
+    validation = await _validate_library_folder_path(service, library, body.path)
     if validation.issues:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1034,10 +982,8 @@ async def migrate_library_path(
             folder for folder in folders if folder != validation.normalized_path
         ]
         library.path = validation.normalized_path
-        library.settings = json.dumps(settings, sort_keys=True)
-        library.updated_at = datetime.now()
-        await db.commit()
-        await db.refresh(library)
+        # Settings persistence (mutate + commit) is centralized in the service.
+        await service.replace_settings(library, settings)
         await ActivityLogService(db).create(
             ActivityLogCreate(
                 event_type="library.path_migrate",
@@ -1095,22 +1041,11 @@ async def list_library_folder(
             detail="Path is not a directory",
         )
 
-    entries: list[LibraryFolderEntry] = []
-    for child in sorted(requested.iterdir(), key=lambda path: (not path.is_dir(), path.name.lower())):
-        try:
-            stat = child.stat()
-        except OSError:
-            continue
-        entries.append(
-            LibraryFolderEntry(
-                name=child.name,
-                relative_path=str(child.relative_to(root)),
-                path=str(child),
-                is_directory=child.is_dir(),
-                size_bytes=None if child.is_dir() else stat.st_size,
-                modified_at=datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            )
-        )
+    # The directory walk (iterdir/stat) is offloaded to a thread by the service.
+    entries = [
+        LibraryFolderEntry(**entry)
+        for entry in await service.list_directory_entries(requested, root)
+    ]
 
     return LibraryFolderResponse(
         library_guid=library.guid,
@@ -1133,7 +1068,7 @@ async def list_library_media_folders(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Library not found"
         )
-    return _media_folder_response(library)
+    return await _media_folder_response(service, library)
 
 
 @router.get("/{library_guid}/folder-policy", response_model=LibraryFolderPolicy)
@@ -1169,10 +1104,7 @@ async def update_library_folder_policy(
 
     settings = _parse_library_settings(library.settings)
     settings["folder_policy"] = policy.model_dump()
-    library.settings = json.dumps(settings, sort_keys=True)
-    library.updated_at = datetime.now()
-    await db.commit()
-    await db.refresh(library)
+    await service.replace_settings(library, settings)
     await ActivityLogService(db).create(
         ActivityLogCreate(
             event_type="library.folder_policy_update",
@@ -1203,7 +1135,7 @@ async def validate_library_media_folder(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Library not found"
         )
-    return _validate_library_folder_path(library, body.path)
+    return await _validate_library_folder_path(service, library, body.path)
 
 
 @router.post("/{library_guid}/media-folders", response_model=LibraryMediaFoldersResponse)
@@ -1233,10 +1165,7 @@ async def add_library_media_folder(
     if new_path not in folders:
         folders.append(new_path)
     settings["media_folders"] = folders
-    library.settings = json.dumps(settings, sort_keys=True)
-    library.updated_at = datetime.now()
-    await db.commit()
-    await db.refresh(library)
+    await service.replace_settings(library, settings)
     await ActivityLogService(db).create(
         ActivityLogCreate(
             event_type="library.media_folder_add",
@@ -1247,7 +1176,7 @@ async def add_library_media_folder(
         ),
         actor_guid=current_user.guid,
     )
-    return _media_folder_response(library)
+    return await _media_folder_response(service, library)
 
 
 @router.delete("/{library_guid}/media-folders", response_model=LibraryMediaFoldersResponse)
@@ -1280,10 +1209,7 @@ async def remove_library_media_folder(
             detail="Media folder not found",
         )
     settings["media_folders"] = [folder for folder in folders if folder != remove_path]
-    library.settings = json.dumps(settings, sort_keys=True)
-    library.updated_at = datetime.now()
-    await db.commit()
-    await db.refresh(library)
+    await service.replace_settings(library, settings)
     await ActivityLogService(db).create(
         ActivityLogCreate(
             event_type="library.media_folder_remove",
@@ -1294,7 +1220,7 @@ async def remove_library_media_folder(
         ),
         actor_guid=current_user.guid,
     )
-    return _media_folder_response(library)
+    return await _media_folder_response(service, library)
 
 
 @router.get("/{library_guid}/options", response_model=LibraryOptions)
@@ -1330,10 +1256,7 @@ async def update_library_options(
 
     settings = _parse_library_settings(library.settings)
     settings["options"] = options.model_dump()
-    library.settings = json.dumps(settings, sort_keys=True)
-    library.updated_at = datetime.now()
-    await db.commit()
-    await db.refresh(library)
+    await service.replace_settings(library, settings)
     return _library_options_from_settings(library.settings)
 
 
@@ -1435,20 +1358,9 @@ async def get_library(
             status_code=status.HTTP_404_NOT_FOUND, detail="Library not found"
         )
 
-    return LibraryRead(
-        guid=library.guid,
-        name=library.name,
-        type=library.type.value
-        if hasattr(library.type, "value")
-        else str(library.type),
-        plugin_id=library.plugin_id,
-        path=library.path,
-        enabled=library.enabled,
-        settings=library.settings,
-        description=library.description,
-        created_at=library.created_at.isoformat(),
-        updated_at=library.updated_at.isoformat(),
-    )
+    # Mask filesystem path/settings for non-admins, mirroring list_libraries.
+    is_admin = getattr(current_user, "is_superuser", False)
+    return LibraryRead(**service.serialize_library(library, is_admin=is_admin))
 
 
 @router.put("/{library_guid}", response_model=LibraryRead)
@@ -1480,18 +1392,8 @@ async def update_library(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Library not found"
             )
 
-        return LibraryRead(
-            guid=library.guid,
-            name=library.name,
-            type=library.type,
-            plugin_id=library.plugin_id,
-            path=library.path,
-            enabled=library.enabled,
-            settings=library.settings,
-            description=library.description,
-            created_at=library.created_at.isoformat(),
-            updated_at=library.updated_at.isoformat(),
-        )
+        # Updater is a superuser, so no masking applies.
+        return LibraryRead(**service.serialize_library(library, is_admin=True))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -1566,21 +1468,15 @@ async def update_movie_library_config(
     """Update movie library configuration."""
     settings_service = SettingsService(session)
 
-    if update.library_path is not None:
-        await settings_service.set("plugin.movies.library_path", update.library_path)
-    if update.enable_library is not None:
-        await settings_service.set(
-            "plugin.movies.enable_library", update.enable_library
-        )
-    if update.enable_on_demand_downloads is not None:
-        await settings_service.set(
-            "plugin.movies.enable_on_demand_downloads",
-            update.enable_on_demand_downloads,
-        )
-    if update.allowed_languages is not None:
-        await settings_service.set(
-            "plugin.movies.allowed_languages", update.allowed_languages
-        )
+    await LibraryConfigService(session).write_type_settings(
+        "plugin.movies",
+        {
+            "library_path": update.library_path,
+            "enable_library": update.enable_library,
+            "enable_on_demand_downloads": update.enable_on_demand_downloads,
+            "allowed_languages": update.allowed_languages,
+        },
+    )
 
     if update.naming:
         await _save_naming_config(settings_service, "plugin.movies", update.naming)
@@ -1682,26 +1578,17 @@ async def update_show_library_config(
     """Update show library configuration."""
     settings_service = SettingsService(session)
 
-    if update.library_path is not None:
-        await settings_service.set("plugin.shows.library_path", update.library_path)
-    if update.enable_library is not None:
-        await settings_service.set("plugin.shows.enable_library", update.enable_library)
-    if update.enable_on_demand_downloads is not None:
-        await settings_service.set(
-            "plugin.shows.enable_on_demand_downloads", update.enable_on_demand_downloads
-        )
-    if update.enable_prefetch_downloads is not None:
-        await settings_service.set(
-            "plugin.shows.enable_prefetch_downloads", update.enable_prefetch_downloads
-        )
-    if update.hide_season_zero is not None:
-        await settings_service.set(
-            "plugin.shows.hide_season_zero", update.hide_season_zero
-        )
-    if update.allowed_languages is not None:
-        await settings_service.set(
-            "plugin.shows.allowed_languages", update.allowed_languages
-        )
+    await LibraryConfigService(session).write_type_settings(
+        "plugin.shows",
+        {
+            "library_path": update.library_path,
+            "enable_library": update.enable_library,
+            "enable_on_demand_downloads": update.enable_on_demand_downloads,
+            "enable_prefetch_downloads": update.enable_prefetch_downloads,
+            "hide_season_zero": update.hide_season_zero,
+            "allowed_languages": update.allowed_languages,
+        },
+    )
 
     if update.naming:
         await _save_naming_config(settings_service, "plugin.shows", update.naming)
@@ -1856,14 +1743,14 @@ async def update_generic_library_config(
     settings_service = SettingsService(session)
     prefix = f"plugin.{library_type_lower}"
 
-    if update.library_path is not None:
-        await settings_service.set(f"{prefix}.library_path", update.library_path)
-    if update.enable_library is not None:
-        await settings_service.set(f"{prefix}.enable_library", update.enable_library)
-    if update.enable_on_demand_downloads is not None:
-        await settings_service.set(
-            f"{prefix}.enable_on_demand_downloads", update.enable_on_demand_downloads
-        )
+    await LibraryConfigService(session).write_type_settings(
+        prefix,
+        {
+            "library_path": update.library_path,
+            "enable_library": update.enable_library,
+            "enable_on_demand_downloads": update.enable_on_demand_downloads,
+        },
+    )
 
     if update.naming:
         await _save_naming_config(settings_service, prefix, update.naming)

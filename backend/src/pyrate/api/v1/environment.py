@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel
 
 from pyrate.api.dependencies import CurrentSuperuser, DatabaseSession
+from pyrate.api.v1._fs_roots import assert_within_allowed, get_allowed_roots
 from pyrate.config import settings
 from pyrate.services.settings import SettingsService
 
@@ -116,13 +117,14 @@ async def get_environment_paths(
 
 @router.get("/directory", response_model=DirectoryListing)
 async def list_environment_directory(
-    db: DatabaseSession,  # noqa: ARG001
+    db: DatabaseSession,
     current_user: CurrentSuperuser,  # noqa: ARG001
     path: str = Query(..., min_length=1),
     include_hidden: bool = Query(False),
 ):
     """List entries in a server directory (admin only)."""
     target = Path(path).expanduser().resolve()
+    assert_within_allowed(target, await get_allowed_roots(SettingsService(db)))
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=404, detail="Directory not found")
 
@@ -154,6 +156,7 @@ async def list_environment_directory(
 
 @router.get("/directory-contents", response_model=list[FileSystemEntryInfo])
 async def get_directory_contents(
+    db: DatabaseSession,
     current_user: CurrentSuperuser,  # noqa: ARG001
     path: str = Query(..., min_length=1),
     include_files: bool = Query(False),
@@ -161,6 +164,7 @@ async def get_directory_contents(
 ):
     """Return directory contents with explicit file/directory filtering."""
     target = Path(path).expanduser().resolve()
+    assert_within_allowed(target, await get_allowed_roots(SettingsService(db)))
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=404, detail="Directory not found")
 
@@ -179,10 +183,12 @@ async def get_directory_contents(
 @router.post("/validate-path", status_code=status.HTTP_204_NO_CONTENT)
 async def validate_path(
     request: PathValidationRequest,
+    db: DatabaseSession,
     current_user: CurrentSuperuser,  # noqa: ARG001
 ):
     """Validate that a file or directory exists and optionally is writable."""
     target = Path(request.path).expanduser().resolve()
+    assert_within_allowed(target, await get_allowed_roots(SettingsService(db)))
     if request.is_file is True and not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     if request.is_file is False and not target.is_dir():
@@ -207,24 +213,40 @@ async def validate_path(
 
 
 @router.get("/drives", response_model=list[FileSystemEntryInfo])
-async def get_drives(current_user: CurrentSuperuser):  # noqa: ARG001
-    """Return filesystem roots available to the server."""
-    roots = [Path("/")]
+async def get_drives(
+    db: DatabaseSession,
+    current_user: CurrentSuperuser,  # noqa: ARG001
+):
+    """Return the configured media/storage roots the server may browse."""
+    roots = await get_allowed_roots(SettingsService(db))
     return [_entry_info(root) for root in roots if root.exists()]
 
 
 @router.get("/parent-path", response_model=str | None)
 async def get_parent_path(
+    db: DatabaseSession,
     current_user: CurrentSuperuser,  # noqa: ARG001
     path: str = Query(..., min_length=1),
 ):
-    """Return the parent path for a supplied path."""
+    """Return the parent path for a supplied path (confined to media roots)."""
+    allowed_roots = await get_allowed_roots(SettingsService(db))
+    resolved = Path(path).expanduser().resolve()
+    assert_within_allowed(resolved, allowed_roots)
     parent = Path(path).expanduser().parent
     if str(parent) == str(Path(path).expanduser()):
         return None
+    # Never hand back a parent outside the allowed roots (e.g. climbing above
+    # the shallowest configured root).
+    assert_within_allowed(parent.resolve(), allowed_roots)
     return str(parent)
 
 
 @router.get("/default-directory", response_model=DefaultDirectoryInfo)
-async def get_default_directory_browser(current_user: CurrentSuperuser):  # noqa: ARG001
+async def get_default_directory_browser(
+    db: DatabaseSession,
+    current_user: CurrentSuperuser,  # noqa: ARG001
+):
+    roots = await get_allowed_roots(SettingsService(db))
+    if roots:
+        return DefaultDirectoryInfo(path=str(roots[0]))
     return DefaultDirectoryInfo()

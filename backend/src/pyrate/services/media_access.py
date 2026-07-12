@@ -7,7 +7,10 @@ they can be reused from API handlers, services, and tests.
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyrate.models.media import MediaItem, MediaType
 from pyrate.models.user import User
@@ -76,24 +79,6 @@ def can_read_media(
         media_item.min_age,
         max_age_for_user(user),
     )
-
-
-def can_play_media(
-    user: User,
-    permissions: EffectivePermissions,
-    media_item: MediaItem,
-) -> bool:
-    """Return whether a user may play a media item."""
-    return can_read_media(user, permissions, media_item)
-
-
-def can_request_offline(
-    user: User,
-    permissions: EffectivePermissions,
-    media_item: MediaItem,
-) -> bool:
-    """Return whether a user may add media to offline sync."""
-    return can_read_media(user, permissions, media_item)
 
 
 def can_mutate_media(user: User, _media_item: MediaItem | None = None) -> bool:
@@ -185,3 +170,32 @@ def require_media_offline_access(
 ) -> None:
     """Raise when a user may not request an offline copy of a media item."""
     require_media_read_access(user, permissions, media_item)
+
+
+async def get_visible_media_item(
+    db: AsyncSession,
+    item_guid: uuid.UUID,
+    user: User,
+    permissions: EffectivePermissions,
+    *,
+    hide_age_denials: bool = True,
+) -> MediaItem:
+    """Fetch a media item and enforce read access, or raise 404/403.
+
+    Single source of truth for the ``fetch + require_media_read_access`` gate
+    that every per-item media sub-router needs. Routers should call this instead
+    of re-deriving the check so a change to visibility rules applies everywhere.
+    """
+    media_item = await db.get(MediaItem, item_guid)
+    if media_item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Media item not found",
+        )
+    require_media_read_access(
+        user,
+        permissions,
+        media_item,
+        hide_age_denials=hide_age_denials,
+    )
+    return media_item

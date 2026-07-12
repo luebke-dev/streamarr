@@ -46,60 +46,6 @@ async def get_redis() -> redis.Redis:
 _get_redis = get_redis
 
 
-async def check_rate_limit(
-    user_id: uuid.UUID,
-    action: str,
-    limit: int | None,
-    period_minutes: int,
-) -> bool:
-    """
-    Check if a user is within their rate limit for an action.
-
-    Returns True if the action is allowed, False if rate limit exceeded.
-    None limit means unlimited — always returns True.
-    """
-    if limit is None:
-        return True
-
-    r = await _get_redis()
-    key = f"pyrate:ratelimit:{user_id}:{action}"
-    now = time.time()
-    window_start = now - (period_minutes * 60)
-
-    pipe = r.pipeline()
-    # Remove expired entries
-    pipe.zremrangebyscore(key, 0, window_start)
-    # Count current entries in window
-    pipe.zcard(key)
-    results = await pipe.execute()
-
-    current_count = results[1]
-    if current_count >= limit:
-        logger.warning("Rate limit exceeded: user_id=%s action=%s count=%d limit=%d period=%dm", user_id, action, current_count, limit, period_minutes)
-        return False
-    return True
-
-
-async def record_action(
-    user_id: uuid.UUID,
-    action: str,
-    period_minutes: int,
-) -> None:
-    """Record that a user performed an action (for rate limiting)."""
-    r = await _get_redis()
-    key = f"pyrate:ratelimit:{user_id}:{action}"
-    now = time.time()
-
-    pipe = r.pipeline()
-    # Member is made unique per call (uuid suffix) so two requests with the
-    # same float timestamp don't collide — ZADD overwrites the score for a
-    # duplicate member, which would silently undercount the window.
-    pipe.zadd(key, {f"{now}:{uuid.uuid4().hex}": now})
-    # Set TTL to period + buffer so keys don't accumulate forever
-    pipe.expire(key, int(period_minutes * 60) + 60)
-    await pipe.execute()
-
-
 async def check_and_record(
     user_id: uuid.UUID,
     action: str,
@@ -135,27 +81,3 @@ async def check_and_record(
     await pipe.execute()
 
     return True
-
-
-async def get_remaining(
-    user_id: uuid.UUID,
-    action: str,
-    limit: int | None,
-    period_minutes: int,
-) -> int | None:
-    """Get remaining actions in current window. Returns None if unlimited."""
-    if limit is None:
-        return None
-
-    r = await _get_redis()
-    key = f"pyrate:ratelimit:{user_id}:{action}"
-    now = time.time()
-    window_start = now - (period_minutes * 60)
-
-    pipe = r.pipeline()
-    pipe.zremrangebyscore(key, 0, window_start)
-    pipe.zcard(key)
-    results = await pipe.execute()
-
-    current_count = results[1]
-    return max(0, limit - current_count)

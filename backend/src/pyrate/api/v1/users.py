@@ -353,11 +353,27 @@ async def update_my_parental_control(
 ) -> UserParentalControl:
     """Update the current user's parental-control max_age.
 
-    Only superusers should realistically tighten this for other users; self-
-    service here exists so an adult can opt themselves in (e.g. shared-device
-    hygiene). Admin override lives in ``PUT /users/{user_id}/parental-control``.
+    Self-service may only *tighten* the gate (lower max_age), never relax it.
+    A lower ``parental_max_age`` is more restrictive and ``None`` disables the
+    gate entirely, so a non-superuser cannot raise their own limit or clear it
+    once an administrator has set one — otherwise a restricted account could
+    remove its own restriction. Privileged relaxation lives in
+    ``PUT /users/{user_id}/parental-control`` (superuser only).
     """
-    current_user.parental_max_age = settings.parental_max_age
+    new_value = settings.parental_max_age
+    current_value = current_user.parental_max_age
+    if not current_user.is_superuser and current_value is not None:
+        # ``None`` removes the gate; a higher number widens it — both relax.
+        if new_value is None or new_value > current_value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Parental control can only be made more restrictive. "
+                    "Ask an administrator to relax it."
+                ),
+            )
+
+    current_user.parental_max_age = new_value
     await db.commit()
     await db.refresh(current_user)
     return UserParentalControl(parental_max_age=current_user.parental_max_age)

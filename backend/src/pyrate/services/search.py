@@ -41,6 +41,7 @@ from pyrate.models.library import Library
 from pyrate.models.media import MediaExternalId, MediaItem, MediaType
 from pyrate.schemas.search import SearchRequest, SearchType
 from pyrate.services.elasticsearch import elasticsearch_service
+from pyrate.services.external_ids import extract_external_ids
 from pyrate.services.media import MediaService
 from pyrate.services.provider_search import TRANSIENT_SEARCH_ERRORS, ProviderSearchMixin
 from pyrate.services.search_import_queue import (
@@ -345,24 +346,12 @@ class SearchService(ProviderSearchMixin, SearchImportQueueMixin):
 
     @staticmethod
     def _extract_external_ids(external_ids) -> tuple:
-        """Extract (tmdb_id, igdb_id, spotify_id) from a list of external ID objects."""
-        tmdb_id = None
-        igdb_id = None
-        spotify_id = None
-        for ext in (external_ids or []):
-            if ext.provider == "tmdb":
-                try:
-                    tmdb_id = int(ext.external_id)
-                except (ValueError, TypeError):
-                    logger.debug("Non-integer TMDB external ID: %s", ext.external_id)
-            elif ext.provider == "igdb":
-                try:
-                    igdb_id = int(ext.external_id)
-                except (ValueError, TypeError):
-                    logger.debug("Non-integer IGDB external ID: %s", ext.external_id)
-            elif ext.provider == "spotify":
-                spotify_id = ext.external_id
-        return tmdb_id, igdb_id, spotify_id
+        """Extract (tmdb_id, igdb_id, spotify_id) from a list of external ID objects.
+
+        Thin wrapper over the shared :func:`extract_external_ids` helper so both
+        search services parse provider IDs identically.
+        """
+        return extract_external_ids(external_ids)
 
     @staticmethod
     def _parse_date(date_str: str | None, fmt: str = "%Y-%m-%d", label: str = "date"):

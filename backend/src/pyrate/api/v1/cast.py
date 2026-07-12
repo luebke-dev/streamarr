@@ -8,6 +8,7 @@ router wiring.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Literal
 
@@ -104,6 +105,20 @@ async def _load_targets(session: AsyncSession) -> list[CastTarget]:
     return targets
 
 
+# Protocols that drive admin-configured shared network renderers (as opposed to
+# a user's own ``pyrate`` receiver session). Enumerating/controlling these is
+# restricted to superusers so low-privilege users cannot discover internal
+# renderer addresses or drive them with arbitrary media URLs.
+_ADMIN_ONLY_PROTOCOLS: frozenset[str] = frozenset({"dlna", "chromecast", "airplay"})
+
+
+def _redact_target_for_user(target, *, is_superuser: bool):
+    """Strip internal network addressing from targets for non-admin users."""
+    if is_superuser:
+        return target
+    return target.model_copy(update={"host": None, "port": None, "control_url": None})
+
+
 def _container_profiles(containers: list[str]) -> list[CastContainerProfile]:
     profiles = []
     for container in containers:
@@ -123,11 +138,20 @@ def _container_profiles(containers: list[str]) -> list[CastContainerProfile]:
 
 @router.get("/targets", response_model=list[CastTarget])
 async def list_cast_targets(
-    current_user: User = Depends(get_current_user),  # noqa: ARG001
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """List manually registered cast targets."""
-    return [target for target in await _load_targets(session) if target.enabled]
+    """List manually registered cast targets.
+
+    Non-admin users receive the target list with internal network addressing
+    (host/port/control_url) redacted so they cannot enumerate renderer IPs.
+    """
+    is_superuser = bool(current_user.is_superuser)
+    return [
+        _redact_target_for_user(target, is_superuser=is_superuser)
+        for target in await _load_targets(session)
+        if target.enabled
+    ]
 
 
 @router.get("/discover", response_model=CastDiscoveryResponse)
@@ -179,14 +203,25 @@ async def discover_cast_targets(
         known_ids.add(target_id)
 
     if native:
-        for target in [
-            *_discover_dlna_targets(ssdp_timeout_seconds),
-            *_discover_mdns_targets(mdns_timeout_seconds),
-        ]:
+        # SSDP/mDNS discovery uses blocking sockets that run until their
+        # timeout elapses; offload to a worker thread so the event loop is not
+        # stalled for the full ssdp+mdns timeout window.
+        native_targets = await asyncio.to_thread(
+            lambda: [
+                *_discover_dlna_targets(ssdp_timeout_seconds),
+                *_discover_mdns_targets(mdns_timeout_seconds),
+            ]
+        )
+        for target in native_targets:
             if target.id in known_ids:
                 continue
             items.append(target)
             known_ids.add(target.id)
+
+    if not current_user.is_superuser:
+        items = [
+            _redact_target_for_user(item, is_superuser=False) for item in items
+        ]
     return CastDiscoveryResponse(items=items, total=len(items))
 
 
@@ -334,10 +369,15 @@ async def update_cast_targets(
 @router.get("/targets/{target_id}/status", response_model=CastTargetStatus)
 async def get_cast_target_status(
     target_id: str,
-    current_user: User = Depends(get_current_user),  # noqa: ARG001
+    current_user: User = Depends(get_current_superuser),  # noqa: ARG001
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Return protocol status for a configured cast target when supported."""
+    """Return protocol status for a configured cast target when supported.
+
+    Status is only meaningful for admin-configured shared renderers
+    (DLNA/Chromecast/AirPlay), so this is restricted to superusers to avoid
+    disclosing internal renderer state to low-privilege users.
+    """
     target = next(
         (
             target
@@ -378,6 +418,14 @@ async def send_cast_target_command(
     )
     if not target:
         raise HTTPException(status_code=404, detail="Cast target not found")
+    # Controlling admin-configured shared renderers (and, for DLNA, injecting an
+    # arbitrary CurrentURI) is restricted to superusers. Regular users may only
+    # drive their own connected ``pyrate`` receiver sessions below.
+    if target.protocol in _ADMIN_ONLY_PROTOCOLS and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=403,
+            detail="Only administrators can control this cast target",
+        )
     if target.protocol == "dlna":
         await _send_dlna_command(target, body.command, body.payload)
     elif target.protocol == "chromecast":

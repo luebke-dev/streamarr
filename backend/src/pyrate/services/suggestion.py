@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import and_, desc, extract, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -117,17 +117,47 @@ class SuggestionService:
         )
         return list(result.all())
 
-    async def scan_media_for_facets(
-        self, conditions: Sequence[Any], limit: int = 500
-    ) -> list[MediaItem]:
-        """A bounded slice of visible items, for studio/year facet extraction."""
+    async def facet_years(
+        self, conditions: Sequence[Any], limit: int = 200
+    ) -> list[int]:
+        """Distinct release years among visible items (for the year facet).
+
+        Bounded by the number of *distinct* years (tens, not the whole
+        library), computed in SQL rather than by materialising rows.
+        """
+        year_expr = extract("year", MediaItem.release_date)
         result = await self.db.execute(
-            select(MediaItem)
+            select(year_expr)
+            .where(*conditions, MediaItem.release_date.is_not(None))
+            .distinct()
+            .limit(limit)
+        )
+        years: list[int] = []
+        for (value,) in result.all():
+            if value is None:
+                continue
+            try:
+                years.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        return years
+
+    async def scan_studio_facets(
+        self, conditions: Sequence[Any], limit: int = 500
+    ) -> list[Any]:
+        """A bounded slice of visible items' ``extra_data`` blobs (studio facet).
+
+        Selects only the ``extra_data`` column instead of hydrating full ORM
+        rows, so the studio-suggestion scan stays cheap on the autocomplete
+        hot path.
+        """
+        result = await self.db.execute(
+            select(MediaItem.extra_data)
             .where(*conditions)
             .order_by(MediaItem.title.asc())
             .limit(limit)
         )
-        return list(result.scalars().all())
+        return [row[0] for row in result.all()]
 
     async def recommended(
         self, conditions: Sequence[Any], seed_genre_ids: Sequence[int], limit: int

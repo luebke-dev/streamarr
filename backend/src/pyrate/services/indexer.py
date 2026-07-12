@@ -162,12 +162,18 @@ class IndexerService:
         if indexer_type in ["newznab", "string", ""]:
             # Default to newznab for empty or generic types
             return Newznab(
-                base_url=base_url, api_key=indexer.api_key, id=str(indexer.guid)
+                base_url=base_url,
+                api_key=indexer.api_key,
+                id=str(indexer.guid),
+                verify_ssl=indexer.verify_ssl,
             )
         elif indexer_type == "torznab":
             # Torznab for torrent indexers
             return Torznab(
-                base_url=base_url, api_key=indexer.api_key, id=str(indexer.guid)
+                base_url=base_url,
+                api_key=indexer.api_key,
+                id=str(indexer.guid),
+                verify_ssl=indexer.verify_ssl,
             )
         else:
             raise ValueError(f"Unsupported indexer type: {indexer.type}")

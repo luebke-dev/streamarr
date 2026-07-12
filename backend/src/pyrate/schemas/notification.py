@@ -60,12 +60,6 @@ class NotificationListResponse(BaseSchema):
     status: NotificationStatus
     read_at: datetime | None
 
-class NotificationMarkAsRead(BaseModel):
-    """Schema for marking notification as read"""
-
-    notification_id: UUID
-
-
 class NotificationBulkCreate(BaseModel):
     """Schema for creating notifications for multiple users"""
 

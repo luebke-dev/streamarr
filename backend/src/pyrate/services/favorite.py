@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from pyrate.libraries.categories import category_for
 from pyrate.models.list import ListItem
 from pyrate.models.media import MediaItem
 from pyrate.models.media_translation import MediaItemTranslation
@@ -50,7 +51,14 @@ class FavoriteService:
         self.list_service = ListService(db)
 
     async def get_media_item(self, type_prefix: str, item_guid: uuid.UUID) -> MediaItem:
-        """Resolve media item by GUID and validate it matches the given type prefix."""
+        """Resolve media item by GUID and validate it matches the given type prefix.
+
+        Enforces that the item's parent library category matches the prefix, so
+        e.g. ``/favorites/movies/{guid}`` cannot silently toggle a game/show.
+        The check is category-level (not exact media_type) so favoriting a
+        season/episode under ``shows`` or an album/song under ``music`` still
+        resolves correctly before ``resolve_root_item`` walks up to the root.
+        """
         media_type = TYPE_PREFIX_MAP.get(type_prefix.lower())
         if media_type is None:
             raise HTTPException(status_code=404, detail="Unknown media type")
@@ -62,6 +70,12 @@ class FavoriteService:
 
         if media_item is None:
             raise HTTPException(status_code=404, detail="Media item not found")
+
+        if category_for(media_item.media_type) != category_for(media_type):
+            raise HTTPException(
+                status_code=404,
+                detail="Media item does not match the requested type",
+            )
 
         return media_item
 

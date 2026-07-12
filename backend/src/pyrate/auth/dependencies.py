@@ -1,7 +1,6 @@
 """FastAPI dependencies for authentication."""
 
 import logging
-import hashlib
 import hmac
 import ipaddress
 from datetime import UTC, datetime
@@ -12,12 +11,15 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..database import get_db_session
 from ..models.api_key import ApiKey
 from ..models.user import User
 from ..services.permission import PermissionService
+from .api_key_utils import API_KEY_PREFIX, hash_api_key
 from .jwt_handler import jwt_handler
 from .oidc_client import oidc_client
+from .token_revocation import assert_refresh_usable
 
 logger = logging.getLogger(__name__)
 
@@ -53,19 +55,15 @@ async def _resolve_user_from_token(
     return user, payload
 
 
-def _hash_api_key(raw_key: str) -> str:
-    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
-
-
 async def _resolve_user_from_api_key(
     raw_key: str,
     session: AsyncSession,
 ) -> User | None:
     """Load the active user for an unrevoked API key."""
-    if not raw_key.startswith("pmak_"):
+    if not raw_key.startswith(API_KEY_PREFIX):
         return None
 
-    key_hash = _hash_api_key(raw_key)
+    key_hash = hash_api_key(raw_key)
     result = await session.execute(
         select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.revoked_at.is_(None))
     )
@@ -82,11 +80,38 @@ async def _resolve_user_from_api_key(
     return user
 
 
+def _real_client_ip(request: Request | None) -> str | None:
+    """Resolve the true client IP, honouring the trusted reverse-proxy chain.
+
+    Each trusted proxy *appends* its peer to X-Forwarded-For, so the client
+    address the outermost trusted proxy observed sits ``trusted_proxy_count``
+    entries from the right — a position a client cannot forge by prepending
+    values. Falls back to the TCP peer when the header is absent or the proxy
+    count doesn't line up. Mirrors ``api.rate_limit._default_key``.
+    """
+    if request is None:
+        return None
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+        idx = len(parts) - settings.trusted_proxy_count
+        if 0 <= idx < len(parts):
+            return parts[idx]
+    if request.client and request.client.host:
+        return request.client.host
+    return None
+
+
 def _is_remote_request(request: Request | None) -> bool:
-    """Best-effort remote/local classifier for user remote-access policy."""
-    if request is None or request.client is None or not request.client.host:
+    """Best-effort remote/local classifier for user remote-access policy.
+
+    Classifies the real client IP (behind the trusted proxy chain), not the
+    proxy's own address — otherwise every request would look local and the
+    per-user remote-access gate would never trigger.
+    """
+    host = _real_client_ip(request)
+    if not host:
         return False
-    host = request.client.host
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
@@ -230,5 +255,9 @@ async def verify_refresh_token(
             detail="Invalid token payload",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Reject rotated (replayed) or bulk-revoked (logout / password reset)
+    # refresh tokens.
+    await assert_refresh_usable(user.guid, jti, payload.get("iat"))
 
     return user, jti

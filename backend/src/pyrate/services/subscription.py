@@ -38,6 +38,7 @@ class SubscriptionService:
         description: str,
         price_cents: int,
         group_id: UUID,
+        currency: str = "EUR",
         stripe_product_id: str | None = None,
         stripe_price_id: str | None = None,
     ) -> SubscriptionPackage:
@@ -51,6 +52,8 @@ class SubscriptionService:
             description: Package description
             price_cents: Price in cents
             group_id: ID of the group whose permissions this package grants
+            currency: ISO currency code the package is billed in; must match the
+                currency used to create the Stripe price
             stripe_product_id: Stripe product ID
             stripe_price_id: Stripe price ID
 
@@ -62,6 +65,7 @@ class SubscriptionService:
             description=description,
             price_cents=price_cents,
             group_id=group_id,
+            currency=currency,
             stripe_product_id=stripe_product_id,
             stripe_price_id=stripe_price_id,
         )
@@ -434,18 +438,24 @@ class SubscriptionService:
         )
         return result.scalar() or 0
 
-    async def end_session(self, session_id: UUID) -> bool:
+    async def end_session(
+        self, session_id: UUID, user_id: UUID | None = None
+    ) -> bool:
         """End a user session.
 
         Args:
             session_id: The session ID
+            user_id: If provided, only end the session when it belongs to this
+                user (prevents one user from ending another user's session).
 
         Returns:
-            True if session was ended, False if not found
+            True if session was ended, False if not found (or not owned by
+            ``user_id`` when that is supplied)
         """
-        result = await self.db.execute(
-            select(UserSession).where(UserSession.guid == session_id)
-        )
+        query = select(UserSession).where(UserSession.guid == session_id)
+        if user_id is not None:
+            query = query.where(UserSession.user_id == user_id)
+        result = await self.db.execute(query)
         session = result.scalar_one_or_none()
         if not session:
             logger.warning("Session not found for termination: %s", session_id)

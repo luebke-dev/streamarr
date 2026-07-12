@@ -19,13 +19,6 @@ class DeviceBase(BaseSchema):
     language: str | None = None
 
 
-class DeviceCreate(BaseModel):
-    """Schema for device creation (internal use)"""
-
-    device_id: str
-    device_info: dict | None = None
-
-
 class DeviceUpdate(BaseModel):
     """Schema for updating device properties"""
 

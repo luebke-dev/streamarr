@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import secrets
 import uuid
 from datetime import UTC, datetime
 
@@ -12,6 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from pyrate.api.dependencies import CurrentSuperuser, DatabaseSession
+from pyrate.auth.api_key_utils import (
+    api_key_display_prefix,
+    generate_api_key,
+    hash_api_key,
+)
 from pyrate.models.api_key import ApiKey
 from pyrate.models.user import User
 from pyrate.schemas.activity_log import ActivityLogCreate
@@ -42,14 +45,6 @@ class ApiKeyCreateResponse(ApiKeyRead):
     key: str
 
 
-def _new_api_key() -> str:
-    return f"pmak_{secrets.token_urlsafe(32)}"
-
-
-def _hash_api_key(raw_key: str) -> str:
-    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
-
-
 @router.get("", response_model=list[ApiKeyRead])
 async def list_api_keys(db: DatabaseSession, current_user: CurrentSuperuser):
     """List all API keys visible to administrators."""
@@ -69,12 +64,12 @@ async def create_api_key(
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
 
-    raw_key = _new_api_key()
+    raw_key = generate_api_key()
     api_key = ApiKey(
         guid=uuid.uuid4(),
         name=payload.name,
-        key_prefix=raw_key[:12],
-        key_hash=_hash_api_key(raw_key),
+        key_prefix=api_key_display_prefix(raw_key),
+        key_hash=hash_api_key(raw_key),
         user_guid=user.guid,
         created_by_guid=current_user.guid,
     )

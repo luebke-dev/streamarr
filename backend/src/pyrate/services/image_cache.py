@@ -115,7 +115,12 @@ class ImageCacheService:
         self, media_guid: uuid.UUID, source_url: str
     ) -> Path:
         async def do_request() -> httpx.Response:
-            return await safe_get(source_url, client=self.http_client)
+            # block_private=True mirrors the media router's _fetch_remote_image:
+            # poster/backdrop URLs are user-influenced, so refuse RFC1918 /
+            # private-network targets, not just loopback/link-local/reserved.
+            return await safe_get(
+                source_url, client=self.http_client, block_private=True
+            )
 
         try:
             response = await http_with_retries(

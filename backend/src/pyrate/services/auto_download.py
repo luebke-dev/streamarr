@@ -337,10 +337,16 @@ class AutoDownloadService:
         }
 
     async def _get_best_link(self, release: MediaRelease) -> MediaReleaseLink | None:
-        """Get the first download link for a release."""
+        """Get the first non-blacklisted download link for a release.
+
+        Links marked blacklisted by ``try_alternative_link`` (a known-dead NZB /
+        magnet) must be skipped so a later auto-download for the same release
+        doesn't re-dispatch the failed link and burn a retry cycle.
+        """
         links_result = await self.db.execute(
             select(MediaReleaseLink).where(
-                MediaReleaseLink.media_release_guid == release.guid
+                MediaReleaseLink.media_release_guid == release.guid,
+                MediaReleaseLink.blacklisted_reason.is_(None),
             )
         )
         links = links_result.scalars().all()

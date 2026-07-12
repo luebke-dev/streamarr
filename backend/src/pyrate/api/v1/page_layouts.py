@@ -30,7 +30,7 @@ from pyrate.api.dependencies import (
     UserPermissionsDep,
 )
 from pyrate.api.v1.search import search_local_content
-from pyrate.api.v1.suggestions import _summaries, _visibility_conditions
+from pyrate.api.v1.suggestions import _summaries
 from pyrate.api.v1.trailers import browse_trailers
 from pyrate.config import settings
 from pyrate.models.list import List, ListVisibility
@@ -55,6 +55,11 @@ from pyrate.services.cache_control import (
 )
 from pyrate.services.favorite import FavoriteService
 from pyrate.services.list import ListService
+from pyrate.services.media_access import (
+    allowed_media_types_for_permissions,
+    max_age_for_user,
+)
+from pyrate.services.media_visibility import visibility_conditions
 from pyrate.services.observability import (
     observe_layout_render,
     record_layout_cache_event,
@@ -146,32 +151,54 @@ def _payload_etag(payload: dict[str, Any]) -> str:
     return f'"{hashlib.sha256(_json_dump(payload).encode("utf-8")).hexdigest()}"'
 
 
+# The rendered-layout endpoints are the hottest path (home page for every
+# user/media-type). Reuse one connection-pool-backed client across requests
+# rather than opening and tearing down a fresh Redis connection on every cache
+# read/write. On a connection error the client is dropped so the next call
+# rebuilds it.
+_render_redis_client: redis_async.Redis | None = None
+
+
+def _get_render_redis() -> redis_async.Redis:
+    global _render_redis_client
+    if _render_redis_client is None:
+        _render_redis_client = redis_async.from_url(
+            settings.redis_url,
+            encoding="utf-8",
+            decode_responses=True,
+        )
+    return _render_redis_client
+
+
+async def _reset_render_redis() -> None:
+    global _render_redis_client
+    client, _render_redis_client = _render_redis_client, None
+    if client is not None:
+        try:
+            await client.aclose()
+        except Exception:
+            pass
+
+
 async def _read_render_cache(prefix: str, key: str) -> dict[str, Any] | None:
-    client = redis_async.from_url(
-        settings.redis_url,
-        encoding="utf-8",
-        decode_responses=True,
-    )
     try:
-        raw = await client.get(f"{prefix}{key}")
+        raw = await _get_render_redis().get(f"{prefix}{key}")
         if not raw:
             return None
         return json.loads(raw)
-    except (RedisError, ValueError) as exc:
+    except ValueError as exc:
         logger.debug("Failed to read page layout render cache: %s", exc)
         return None
-    finally:
-        await client.aclose()
+    except RedisError as exc:
+        logger.debug("Failed to read page layout render cache: %s", exc)
+        await _reset_render_redis()
+        return None
 
 
 async def _write_render_cache(key: str, payload: dict[str, Any], etag: str) -> None:
-    client = redis_async.from_url(
-        settings.redis_url,
-        encoding="utf-8",
-        decode_responses=True,
-    )
     data = _json_dump({"payload": payload, "etag": etag})
     try:
+        client = _get_render_redis()
         await client.setex(
             f"{RENDER_CACHE_PREFIX}{key}",
             _RENDER_CACHE_TTL_SECONDS,
@@ -184,8 +211,7 @@ async def _write_render_cache(key: str, payload: dict[str, Any], etag: str) -> N
         )
     except RedisError as exc:
         logger.debug("Failed to write page layout render cache: %s", exc)
-    finally:
-        await client.aclose()
+        await _reset_render_redis()
 
 
 def _render_headers(etag: str, status_value: str) -> dict[str, str]:
@@ -212,6 +238,83 @@ def _list_item_payload(entry) -> dict[str, Any] | None:
     item.setdefault("type", item_type)
     item.setdefault("media_type", _LIST_ITEM_TYPE_TO_MEDIA_TYPE.get(item_type, item_type))
     return item
+
+
+async def _drop_gated_items(
+    db: DatabaseSession,
+    items: list[dict[str, Any]],
+    current_user,
+    permissions,
+) -> list[dict[str, Any]]:
+    """Drop items the user may not see (parental age + library gate).
+
+    Curated LIST / TRENDING / FAVORITES / HERO rows are resolved purely by GUID
+    and would otherwise bypass the age/library gate that the search and latest
+    rows enforce. Only items that exist locally *and* violate the gate are
+    removed — items absent from the local DB carry no age we can evaluate and
+    are left as-is (playback/import stay separately gated). No-op for
+    unrestricted (e.g. superuser / full-access adult) accounts.
+    """
+    if not items:
+        return items
+
+    max_age = max_age_for_user(current_user)
+    allowed_types = allowed_media_types_for_permissions(current_user, permissions)
+    unrestricted_libraries = allowed_types is None or set(allowed_types) >= set(MediaType)
+    if max_age is None and unrestricted_libraries:
+        return items
+
+    allowed_type_set = None if allowed_types is None else set(allowed_types)
+    guids: list[uuid.UUID] = []
+    for item in items:
+        raw = item.get("guid")
+        if raw is None:
+            continue
+        try:
+            guids.append(uuid.UUID(str(raw)))
+        except (ValueError, TypeError):
+            continue
+    if not guids:
+        return items
+
+    result = await db.execute(
+        select(MediaItem.guid, MediaItem.min_age, MediaItem.media_type).where(
+            MediaItem.guid.in_(guids)
+        )
+    )
+    blocked: set[str] = set()
+    for guid, min_age, media_type in result.all():
+        if allowed_type_set is not None and media_type not in allowed_type_set:
+            blocked.add(str(guid))
+            continue
+        if max_age is not None and min_age is not None and min_age > max_age:
+            blocked.add(str(guid))
+    if not blocked:
+        return items
+    return [item for item in items if str(item.get("guid")) not in blocked]
+
+
+async def _gate_section_payload(
+    db: DatabaseSession,
+    payload: dict[str, Any],
+    current_user,
+    permissions,
+) -> dict[str, Any]:
+    """Apply :func:`_drop_gated_items` to a rendered section's item collections."""
+    items = payload.get("rendered_items")
+    if items:
+        payload["rendered_items"] = await _drop_gated_items(
+            db, items, current_user, permissions
+        )
+    prefix_lists = payload.get("rendered_prefix_lists")
+    if prefix_lists:
+        for entry in prefix_lists:
+            entry_items = (entry or {}).get("items")
+            if entry_items:
+                entry["items"] = await _drop_gated_items(
+                    db, entry_items, current_user, permissions
+                )
+    return payload
 
 
 async def _render_list_items(
@@ -331,7 +434,7 @@ async def _render_latest_items(
         select(MediaItem)
         .options(selectinload(MediaItem.genres), selectinload(MediaItem.platforms))
         .where(
-            *_visibility_conditions(current_user, permissions, media_type_filter),
+            *visibility_conditions(current_user, permissions, media_type_filter),
             MediaItem.parent_guid.is_(None),
         )
         .order_by(desc(MediaItem.created_at), desc(MediaItem.release_date).nulls_last())
@@ -471,11 +574,21 @@ async def _render_section(
             )
         }
     if section_type == SectionType.LIST.value:
-        return await _render_list_section(db, section, current_user)
+        return await _gate_section_payload(
+            db,
+            await _render_list_section(db, section, current_user),
+            current_user,
+            permissions,
+        )
     if section_type == SectionType.HERO_CAROUSEL.value:
         source_type = config.get("source_type")
         if source_type == "list" or config.get("list_guid") or config.get("list_update_source"):
-            return await _render_list_section(db, section, current_user)
+            return await _gate_section_payload(
+                db,
+                await _render_list_section(db, section, current_user),
+                current_user,
+                permissions,
+            )
         if source_type == "dynamic_search":
             return {
                 "rendered_items": await _render_search_items(
@@ -487,9 +600,19 @@ async def _render_section(
                     limit,
                 )
             }
-        return {"rendered_items": await _render_trending_items(db, media_type, current_user)}
+        return await _gate_section_payload(
+            db,
+            {"rendered_items": await _render_trending_items(db, media_type, current_user)},
+            current_user,
+            permissions,
+        )
     if section_type == SectionType.FAVORITES.value:
-        return {"rendered_items": await _render_favorite_items(db, section, media_type, current_user)}
+        return await _gate_section_payload(
+            db,
+            {"rendered_items": await _render_favorite_items(db, section, media_type, current_user)},
+            current_user,
+            permissions,
+        )
     if section_type == SectionType.TRAILERS.value:
         return {
             "rendered_items": await _render_trailer_items(

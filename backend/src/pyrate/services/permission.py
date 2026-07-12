@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
+from pyrate.libraries.categories import MEDIA_TYPE_TO_CATEGORY
 from pyrate.models.user import User
 from pyrate.schemas.group import EffectivePermissions
 from pyrate.services.group import GroupService
@@ -24,22 +25,21 @@ LIBRARY_TO_PLUGIN = {
     "photos": "photos",
 }
 
-# Mapping from MediaType enum values to library permission names
-MEDIA_TYPE_TO_LIBRARY = {
+# Parent library category -> library permission name (SHOWS is exposed as
+# "series" for historical reasons).
+_CATEGORY_TO_LIBRARY = {
     "MOVIES": "movies",
     "SHOWS": "series",
-    "SEASONS": "series",
-    "EPISODES": "series",
-    "GAMES": "games",
     "MUSIC": "music",
-    "ARTISTS": "music",
-    "ALBUMS": "music",
-    "SONGS": "music",
     "BOOKS": "books",
-    "AUDIOBOOKS": "books",
-    "AUDIOBOOK_CHAPTERS": "books",
+    "GAMES": "games",
     "PHOTOS": "photos",
-    "HOME_VIDEOS": "photos",
+}
+
+# Mapping from MediaType enum values to library permission names, derived from
+# the canonical category map so subtypes stay in sync automatically.
+MEDIA_TYPE_TO_LIBRARY = {
+    mt: _CATEGORY_TO_LIBRARY[cat] for mt, cat in MEDIA_TYPE_TO_CATEGORY.items()
 }
 
 VIDEO_QUALITY_RANKS = {"sd": 1, "hd": 2, "fhd": 3, "uhd": 4}

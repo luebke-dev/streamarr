@@ -597,14 +597,12 @@ async def preview_naming(
 
 
 # Permission Defaults endpoints
-@router.get("/permissions", response_model=PermissionSettingsResponse)
-async def get_permission_settings(
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_superuser),
-):
-    """Get global permission defaults (admin only)."""
-    service = SettingsService(session)
-    settings = await service.get_all("permissions.")
+def _permission_settings_response(settings: dict) -> PermissionSettingsResponse:
+    """Build a PermissionSettingsResponse from a ``permissions.``-prefixed dict.
+
+    Shared by the GET and PUT handlers so the key list and defaults live in a
+    single place.
+    """
     return PermissionSettingsResponse(
         allowed_libraries=settings.get(
             "permissions.allowed_libraries",
@@ -644,6 +642,17 @@ async def get_permission_settings(
             "permissions.playback_period_minutes", 1440
         ),
     )
+
+
+@router.get("/permissions", response_model=PermissionSettingsResponse)
+async def get_permission_settings(
+    session: AsyncSession = Depends(get_db_session),
+    current_user=Depends(get_current_superuser),
+):
+    """Get global permission defaults (admin only)."""
+    service = SettingsService(session)
+    settings = await service.get_all("permissions.")
+    return _permission_settings_response(settings)
 
 
 @router.put("/permissions", response_model=PermissionSettingsResponse)
@@ -662,45 +671,7 @@ async def update_permission_settings(
 
     # Return updated state
     settings = await service.get_all("permissions.")
-    return PermissionSettingsResponse(
-        allowed_libraries=settings.get(
-            "permissions.allowed_libraries",
-            ["movies", "series", "games", "books", "music"],
-        ),
-        max_concurrent_streams=settings.get("permissions.max_concurrent_streams", 3),
-        max_game_streams=settings.get("permissions.max_game_streams", 1),
-        max_video_quality=settings.get("permissions.max_video_quality", "uhd"),
-        max_audio_quality=settings.get("permissions.max_audio_quality", "lossless"),
-        max_concurrent_transcodings=settings.get(
-            "permissions.max_concurrent_transcodings", 2
-        ),
-        offline_download_limit=settings.get("permissions.offline_download_limit"),
-        offline_download_period_minutes=settings.get(
-            "permissions.offline_download_period_minutes", 1440
-        ),
-        prefetch_limit=settings.get("permissions.prefetch_limit"),
-        prefetch_period_minutes=settings.get(
-            "permissions.prefetch_period_minutes", 1440
-        ),
-        on_demand_fetch_limit=settings.get("permissions.on_demand_fetch_limit"),
-        on_demand_fetch_period_minutes=settings.get(
-            "permissions.on_demand_fetch_period_minutes", 1440
-        ),
-        indexer_api_requests_limit=settings.get(
-            "permissions.indexer_api_requests_limit"
-        ),
-        indexer_api_requests_period_minutes=settings.get(
-            "permissions.indexer_api_requests_period_minutes", 60
-        ),
-        indexer_downloads_limit=settings.get("permissions.indexer_downloads_limit"),
-        indexer_downloads_period_minutes=settings.get(
-            "permissions.indexer_downloads_period_minutes", 1440
-        ),
-        playback_limit=settings.get("permissions.playback_limit"),
-        playback_period_minutes=settings.get(
-            "permissions.playback_period_minutes", 1440
-        ),
-    )
+    return _permission_settings_response(settings)
 
 
 @router.get("/{library_type}")

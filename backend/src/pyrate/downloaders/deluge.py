@@ -14,10 +14,10 @@ class Deluge(DownloaderBase):
     Communicates with Deluge Web UI via JSON-RPC API.
     """
 
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url: str, api_key: str, verify_ssl: bool = True):
         self.base_url = base_url
         self.password = api_key  # Deluge uses password authentication
-        self.client = make_async_client()
+        self.client = make_async_client(verify=verify_ssl)
         self.cookie = None
         self._request_id = 0
 
@@ -290,26 +290,3 @@ class Deluge(DownloaderBase):
 
 # Export plugin class for loader
 PLUGIN_CLASS = Deluge
-
-
-async def async_setup(config: dict[str, Any]) -> bool:
-    """
-    Set up the Deluge plugin.
-
-    This function is called by the plugin loader during initialization.
-
-    Args:
-        config: Plugin configuration from manifest
-
-    Returns:
-        bool: True if setup was successful
-    """
-    # Validate required configuration
-    required = ["base_url", "api_key"]
-    for field in required:
-        if field not in config:
-            logger.error(f"Deluge plugin requires '{field}' in configuration")
-            return False
-
-    logger.info("Deluge plugin setup completed successfully")
-    return True

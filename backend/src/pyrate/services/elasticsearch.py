@@ -515,403 +515,245 @@ class ElasticsearchService:
 
         return stats
 
-    async def search_movies(self, search_request: SearchRequest) -> dict[str, Any]:
-        """Sucht nach Filmen mit Full-Text-Search."""
+    # ── Shared query-building helpers ────────────────────────────────────
+    #
+    # ``search_movies``, ``search_shows`` and ``search_all`` used to each
+    # rebuild the same match/fuzzy query, genre + year filters, sort array and
+    # hit post-processing. They now share these helpers; only the index name,
+    # the date field (release_date vs first_air_date) and single- vs
+    # multi-index specifics differ.
+
+    @staticmethod
+    def _empty_result(search_request: SearchRequest, took: int = 0) -> dict[str, Any]:
+        """Uniform empty / zero-hit response payload."""
+        return {
+            "hits": [],
+            "total": 0,
+            "page": search_request.page,
+            "per_page": search_request.per_page,
+            "total_pages": 0,
+            "query": search_request.query,
+            "search_type": search_request.search_type,
+            "took": took,
+        }
+
+    @staticmethod
+    def _base_match_query(search_request: SearchRequest) -> dict[str, Any]:
+        """Multi-field boosted match query (+ optional fuzzy expansion)."""
+        search_query = {
+            "bool": {
+                "should": [
+                    {"match": {"title": {"query": search_request.query, "boost": 3.0}}},
+                    {
+                        "match": {
+                            "original_title": {
+                                "query": search_request.query,
+                                "boost": 2.0,
+                            }
+                        }
+                    },
+                    {
+                        "match": {
+                            "description": {
+                                "query": search_request.query,
+                                "boost": 1.0,
+                            }
+                        }
+                    },
+                    {
+                        "match": {
+                            "tagline": {"query": search_request.query, "boost": 1.5}
+                        }
+                    },
+                ],
+                "minimum_should_match": 1,
+            }
+        }
+        if search_request.fuzzy:
+            search_query["bool"]["should"].extend(
+                [
+                    {
+                        "fuzzy": {
+                            "title": {
+                                "value": search_request.query,
+                                "fuzziness": "AUTO",
+                                "boost": 0.5,
+                            }
+                        }
+                    },
+                    {
+                        "fuzzy": {
+                            "original_title": {
+                                "value": search_request.query,
+                                "fuzziness": "AUTO",
+                                "boost": 0.3,
+                            }
+                        }
+                    },
+                ]
+            )
+        return search_query
+
+    @staticmethod
+    def _genres_filter(genres) -> dict[str, Any] | None:
+        """Nested genre-name terms filter, or None when no genres requested."""
+        if not genres:
+            return None
+        return {
+            "nested": {
+                "path": "genres",
+                "query": {"terms": {"genres.name": genres}},
+            }
+        }
+
+    @staticmethod
+    def _date_range(search_request: SearchRequest) -> dict[str, str] | None:
+        """gte/lte date-range dict from the year_from/year_to filters."""
+        if not (search_request.year_from or search_request.year_to):
+            return None
+        date_range: dict[str, str] = {}
+        if search_request.year_from:
+            date_range["gte"] = f"{search_request.year_from}-01-01"
+        if search_request.year_to:
+            date_range["lte"] = f"{search_request.year_to}-12-31"
+        return date_range
+
+    @staticmethod
+    def _highlight_config() -> dict[str, Any]:
+        return {
+            "fields": {
+                "title": {},
+                "original_title": {},
+                "description": {"fragment_size": 150},
+            }
+        }
+
+    @staticmethod
+    def _single_index_sort(search_request: SearchRequest, date_field: str) -> list:
+        """Sort array for a single-index search (movies or shows)."""
+        sort_field = "_score"
+        sort_order = "desc"
+
+        if search_request.sort_by:
+            if search_request.sort_by == "title":
+                sort_field = "title.keyword"
+            elif search_request.sort_by == "rating":
+                sort_field = "rating"
+            elif search_request.sort_by == "release_date":
+                sort_field = date_field
+            elif search_request.sort_by == "popularity":
+                sort_field = "_score"
+
+        if search_request.sort_order:
+            sort_order = search_request.sort_order
+
+        sort_array = [{"_score": {"order": "desc"}}]
+        if sort_field != "_score":
+            sort_array.append(
+                {sort_field: {"order": sort_order, "unmapped_type": "float"}}
+            )
+        sort_array.append({date_field: {"order": "desc", "unmapped_type": "date"}})
+        return sort_array
+
+    @staticmethod
+    def _process_hits(response: dict, *, include_index: bool = False) -> list[dict]:
+        """Normalise ES hits: rename id→guid, attach score/index/highlight."""
+        hits = []
+        for hit in response["hits"]["hits"]:
+            data = hit["_source"]
+            # Rename "id" field to "guid" for schema compatibility.
+            if "id" in data:
+                data["guid"] = data.pop("id")
+            data["score"] = hit["_score"]
+            if include_index:
+                data["_index"] = hit["_index"]  # index info for the frontend
+            if "highlight" in hit:
+                data["highlight"] = hit["highlight"]
+            hits.append(data)
+        return hits
+
+    def _search_response(
+        self,
+        response: dict,
+        search_request: SearchRequest,
+        start_time: float,
+        *,
+        include_index: bool = False,
+    ) -> dict[str, Any]:
+        """Assemble the paginated response dict from a raw ES response."""
+        hits = self._process_hits(response, include_index=include_index)
+        total = response["hits"]["total"]["value"]
+        total_pages = (
+            total + search_request.per_page - 1
+        ) // search_request.per_page
+        took = int((time.time() - start_time) * 1000)
+        return {
+            "hits": hits,
+            "total": total,
+            "page": search_request.page,
+            "per_page": search_request.per_page,
+            "total_pages": total_pages,
+            "query": search_request.query,
+            "search_type": search_request.search_type,
+            "took": took,
+        }
+
+    async def _search_single_index(
+        self,
+        index_name: str,
+        search_request: SearchRequest,
+        date_field: str,
+    ) -> dict[str, Any]:
+        """Run a single-index full-text search (shared by movies + shows)."""
         start_time = time.time()
 
         if not self.client:
-            return {
-                "hits": [],
-                "total": 0,
-                "page": search_request.page,
-                "per_page": search_request.per_page,
-                "total_pages": 0,
-                "query": search_request.query,
-                "search_type": search_request.search_type,
-                "took": 0,
-            }
+            return self._empty_result(search_request)
 
         try:
-            index_name = f"{self.index_prefix}_movies"
-
-            # Pagination berechnen
             offset = (search_request.page - 1) * search_request.per_page
 
-            # Base query for multi-field search with boosting.
-            search_query = {
-                "bool": {
-                    "should": [
-                        {
-                            "match": {
-                                "title": {"query": search_request.query, "boost": 3.0}
-                            }
-                        },
-                        {
-                            "match": {
-                                "original_title": {
-                                    "query": search_request.query,
-                                    "boost": 2.0,
-                                }
-                            }
-                        },
-                        {
-                            "match": {
-                                "description": {
-                                    "query": search_request.query,
-                                    "boost": 1.0,
-                                }
-                            }
-                        },
-                        {
-                            "match": {
-                                "tagline": {"query": search_request.query, "boost": 1.5}
-                            }
-                        },
-                    ],
-                    "minimum_should_match": 1,
-                }
-            }
+            search_query = self._base_match_query(search_request)
 
-            # Add fuzzy search when enabled.
-            if search_request.fuzzy:
-                search_query["bool"]["should"].extend(
-                    [
-                        {
-                            "fuzzy": {
-                                "title": {
-                                    "value": search_request.query,
-                                    "fuzziness": "AUTO",
-                                    "boost": 0.5,
-                                }
-                            }
-                        },
-                        {
-                            "fuzzy": {
-                                "original_title": {
-                                    "value": search_request.query,
-                                    "fuzziness": "AUTO",
-                                    "boost": 0.3,
-                                }
-                            }
-                        },
-                    ]
-                )
-
-            # Add filters.
             filter_clauses = []
-
-            if search_request.genres:
-                filter_clauses.append(
-                    {
-                        "nested": {
-                            "path": "genres",
-                            "query": {"terms": {"genres.name": search_request.genres}},
-                        }
-                    }
-                )
-
-            if search_request.year_from or search_request.year_to:
-                date_range = {}
-                if search_request.year_from:
-                    date_range["gte"] = f"{search_request.year_from}-01-01"
-                if search_request.year_to:
-                    date_range["lte"] = f"{search_request.year_to}-12-31"
-
-                filter_clauses.append({"range": {"release_date": date_range}})
-
+            genres_filter = self._genres_filter(search_request.genres)
+            if genres_filter:
+                filter_clauses.append(genres_filter)
+            date_range = self._date_range(search_request)
+            if date_range is not None:
+                filter_clauses.append({"range": {date_field: date_range}})
             if filter_clauses:
                 search_query["bool"]["filter"] = filter_clauses
 
-            # Sortierung bestimmen - use _score as default since popularity may not exist
-            sort_field = "_score"
-            sort_order = "desc"
-
-            if search_request.sort_by:
-                if search_request.sort_by == "title":
-                    sort_field = "title.keyword"
-                elif search_request.sort_by == "rating":
-                    sort_field = "rating"
-                elif search_request.sort_by == "release_date":
-                    sort_field = "release_date"
-                elif search_request.sort_by == "popularity":
-                    sort_field = (
-                        "_score"  # Fall back to score since popularity may not exist
-                    )
-
-            if search_request.sort_order:
-                sort_order = search_request.sort_order
-
-            # Build sort array - handle missing fields gracefully
-            sort_array = [{"_score": {"order": "desc"}}]
-            if sort_field != "_score":
-                sort_array.append(
-                    {sort_field: {"order": sort_order, "unmapped_type": "float"}}
-                )
-            sort_array.append(
-                {"release_date": {"order": "desc", "unmapped_type": "date"}}
-            )
-
-            # Execute the Elasticsearch query.
             response = await self.client.search(
                 index=index_name,
                 body={
                     "query": search_query,
                     "from": offset,
                     "size": search_request.per_page,
-                    "sort": sort_array,
-                    "highlight": {
-                        "fields": {
-                            "title": {},
-                            "original_title": {},
-                            "description": {"fragment_size": 150},
-                        }
-                    },
+                    "sort": self._single_index_sort(search_request, date_field),
+                    "highlight": self._highlight_config(),
                 },
             )
-
-            hits = []
-            for hit in response["hits"]["hits"]:
-                movie_data = hit["_source"]
-                # Rename "id" field to "guid" for schema compatibility.
-                if "id" in movie_data:
-                    movie_data["guid"] = movie_data.pop("id")
-                movie_data["score"] = hit["_score"]
-                if "highlight" in hit:
-                    movie_data["highlight"] = hit["highlight"]
-                hits.append(movie_data)
-
-            # Pagination berechnen
-            total = response["hits"]["total"]["value"]
-            total_pages = (
-                total + search_request.per_page - 1
-            ) // search_request.per_page
-
-            # Timing berechnen
-            took = int((time.time() - start_time) * 1000)  # in Millisekunden
-
-            return {
-                "hits": hits,
-                "total": total,
-                "page": search_request.page,
-                "per_page": search_request.per_page,
-                "total_pages": total_pages,
-                "query": search_request.query,
-                "search_type": search_request.search_type,
-                "took": took,
-            }
+            return self._search_response(response, search_request, start_time)
 
         except Exception as e:
-            logger.error("Fehler bei der Film-Suche: %s", e)
-            took = int((time.time() - start_time) * 1000)
-            return {
-                "hits": [],
-                "total": 0,
-                "page": search_request.page,
-                "per_page": search_request.per_page,
-                "total_pages": 0,
-                "query": search_request.query,
-                "search_type": search_request.search_type,
-                "took": took,
-            }
+            logger.error("Fehler bei der Suche (%s): %s", index_name, e)
+            return self._empty_result(
+                search_request, int((time.time() - start_time) * 1000)
+            )
+
+    async def search_movies(self, search_request: SearchRequest) -> dict[str, Any]:
+        """Sucht nach Filmen mit Full-Text-Search."""
+        return await self._search_single_index(
+            f"{self.index_prefix}_movies", search_request, "release_date"
+        )
 
     async def search_shows(self, search_request: SearchRequest) -> dict[str, Any]:
         """Sucht nach Serien mit Full-Text-Search."""
-        start_time = time.time()
-
-        if not self.client:
-            return {
-                "hits": [],
-                "total": 0,
-                "page": search_request.page,
-                "per_page": search_request.per_page,
-                "total_pages": 0,
-                "query": search_request.query,
-                "search_type": search_request.search_type,
-                "took": 0,
-            }
-
-        try:
-            index_name = f"{self.index_prefix}_shows"
-
-            # Pagination berechnen
-            offset = (search_request.page - 1) * search_request.per_page
-
-            # Base query for multi-field search with boosting.
-            search_query = {
-                "bool": {
-                    "should": [
-                        {
-                            "match": {
-                                "title": {"query": search_request.query, "boost": 3.0}
-                            }
-                        },
-                        {
-                            "match": {
-                                "original_title": {
-                                    "query": search_request.query,
-                                    "boost": 2.0,
-                                }
-                            }
-                        },
-                        {
-                            "match": {
-                                "description": {
-                                    "query": search_request.query,
-                                    "boost": 1.0,
-                                }
-                            }
-                        },
-                        {
-                            "match": {
-                                "tagline": {"query": search_request.query, "boost": 1.5}
-                            }
-                        },
-                    ],
-                    "minimum_should_match": 1,
-                }
-            }
-
-            # Add fuzzy search when enabled.
-            if search_request.fuzzy:
-                search_query["bool"]["should"].extend(
-                    [
-                        {
-                            "fuzzy": {
-                                "title": {
-                                    "value": search_request.query,
-                                    "fuzziness": "AUTO",
-                                    "boost": 0.5,
-                                }
-                            }
-                        },
-                        {
-                            "fuzzy": {
-                                "original_title": {
-                                    "value": search_request.query,
-                                    "fuzziness": "AUTO",
-                                    "boost": 0.3,
-                                }
-                            }
-                        },
-                    ]
-                )
-
-            # Add filters.
-            filter_clauses = []
-
-            if search_request.genres:
-                filter_clauses.append(
-                    {
-                        "nested": {
-                            "path": "genres",
-                            "query": {"terms": {"genres.name": search_request.genres}},
-                        }
-                    }
-                )
-
-            if search_request.year_from or search_request.year_to:
-                date_range = {}
-                if search_request.year_from:
-                    date_range["gte"] = f"{search_request.year_from}-01-01"
-                if search_request.year_to:
-                    date_range["lte"] = f"{search_request.year_to}-12-31"
-
-                filter_clauses.append({"range": {"first_air_date": date_range}})
-
-            if filter_clauses:
-                search_query["bool"]["filter"] = filter_clauses
-
-            # Sortierung bestimmen - use _score as default since popularity may not exist
-            sort_field = "_score"
-            sort_order = "desc"
-
-            if search_request.sort_by:
-                if search_request.sort_by == "title":
-                    sort_field = "title.keyword"
-                elif search_request.sort_by == "rating":
-                    sort_field = "rating"
-                elif search_request.sort_by == "release_date":
-                    sort_field = "first_air_date"
-                elif search_request.sort_by == "popularity":
-                    sort_field = (
-                        "_score"  # Fall back to score since popularity may not exist
-                    )
-
-            if search_request.sort_order:
-                sort_order = search_request.sort_order
-
-            # Build sort array - handle missing fields gracefully
-            sort_array = [{"_score": {"order": "desc"}}]
-            if sort_field != "_score":
-                sort_array.append(
-                    {sort_field: {"order": sort_order, "unmapped_type": "float"}}
-                )
-            sort_array.append(
-                {"first_air_date": {"order": "desc", "unmapped_type": "date"}}
-            )
-
-            # Execute the Elasticsearch query.
-            response = await self.client.search(
-                index=index_name,
-                body={
-                    "query": search_query,
-                    "from": offset,
-                    "size": search_request.per_page,
-                    "sort": sort_array,
-                    "highlight": {
-                        "fields": {
-                            "title": {},
-                            "original_title": {},
-                            "description": {"fragment_size": 150},
-                        }
-                    },
-                },
-            )
-
-            hits = []
-            for hit in response["hits"]["hits"]:
-                show_data = hit["_source"]
-                # Rename "id" field to "guid" for schema compatibility.
-                if "id" in show_data:
-                    show_data["guid"] = show_data.pop("id")
-                show_data["score"] = hit["_score"]
-                if "highlight" in hit:
-                    show_data["highlight"] = hit["highlight"]
-                hits.append(show_data)
-
-            # Pagination berechnen
-            total = response["hits"]["total"]["value"]
-            total_pages = (
-                total + search_request.per_page - 1
-            ) // search_request.per_page
-
-            # Timing berechnen
-            took = int((time.time() - start_time) * 1000)  # in Millisekunden
-
-            return {
-                "hits": hits,
-                "total": total,
-                "page": search_request.page,
-                "per_page": search_request.per_page,
-                "total_pages": total_pages,
-                "query": search_request.query,
-                "search_type": search_request.search_type,
-                "took": took,
-            }
-
-        except Exception as e:
-            logger.error("Fehler bei der Serien-Suche: %s", e)
-            took = int((time.time() - start_time) * 1000)
-            return {
-                "hits": [],
-                "total": 0,
-                "page": search_request.page,
-                "per_page": search_request.per_page,
-                "total_pages": 0,
-                "query": search_request.query,
-                "search_type": search_request.search_type,
-                "took": took,
-            }
+        return await self._search_single_index(
+            f"{self.index_prefix}_shows", search_request, "first_air_date"
+        )
 
     async def delete_movie(self, movie_id: UUID) -> bool:
         """Delete a movie from the Elasticsearch index."""
@@ -1035,177 +877,88 @@ class ElasticsearchService:
         )
         return {"success": success_count, "failed": failed_count}
 
+    @staticmethod
+    def _multi_index_sort(search_request: SearchRequest) -> list:
+        """Sort array for the multi-index search (movies + shows + books)."""
+        sort_field: Any = "_score"
+        sort_order = "desc"
+
+        if search_request.sort_by:
+            if search_request.sort_by == "title":
+                sort_field = "title.keyword"
+            elif search_request.sort_by == "rating":
+                sort_field = "rating"
+            elif search_request.sort_by == "release_date":
+                # For multi-index search, use a script that considers both date fields.
+                sort_field = {
+                    "_script": {
+                        "type": "number",
+                        "script": {
+                            "source": "doc.containsKey('release_date') && !doc['release_date'].empty ? doc['release_date'].value.millis : (doc.containsKey('first_air_date') && !doc['first_air_date'].empty ? doc['first_air_date'].value.millis : 0)"
+                        },
+                        "order": sort_order,
+                    }
+                }
+            elif search_request.sort_by == "popularity":
+                sort_field = "_score"
+
+        if search_request.sort_order:
+            sort_order = search_request.sort_order
+
+        sort_array = [{"_score": {"order": "desc"}}]
+        if sort_field != "_score":
+            if isinstance(sort_field, str):
+                sort_array.append(
+                    {sort_field: {"order": sort_order, "unmapped_type": "float"}}
+                )
+            else:
+                sort_array.append(sort_field)
+        return sort_array
+
     async def search_all(self, search_request: SearchRequest) -> dict[str, Any]:
         """Unified search across all content (movies and shows)."""
         start_time = time.time()
 
         if not self.client:
-            return {
-                "hits": [],
-                "total": 0,
-                "page": search_request.page,
-                "per_page": search_request.per_page,
-                "total_pages": 0,
-                "query": search_request.query,
-                "search_type": search_request.search_type,
-                "took": 0,
-            }
+            return self._empty_result(search_request)
 
         try:
-            # Je nach search_type die entsprechenden Indizes bestimmen
+            # Delegate the single-type searches to their dedicated builders.
             if search_request.search_type == SearchType.MOVIES:
                 return await self.search_movies(search_request)
-            elif search_request.search_type == SearchType.SHOWS:
+            if search_request.search_type == SearchType.SHOWS:
                 return await self.search_shows(search_request)
-            elif search_request.search_type == SearchType.ALL:
-                # Multi-index search across all indices.
-                indices = [
-                    f"{self.index_prefix}_movies",
-                    f"{self.index_prefix}_shows",
-                    f"{self.index_prefix}_books",
-                ]
-            else:
-                # Fallback auf ALL
-                indices = [
-                    f"{self.index_prefix}_movies",
-                    f"{self.index_prefix}_shows",
-                    f"{self.index_prefix}_books",
-                ]
 
-            # Pagination berechnen
+            # ALL (and any unexpected type): search every index.
+            indices = [
+                f"{self.index_prefix}_movies",
+                f"{self.index_prefix}_shows",
+                f"{self.index_prefix}_books",
+            ]
+
             offset = (search_request.page - 1) * search_request.per_page
 
-            # Base query for multi-field search with boosting.
-            search_query = {
-                "bool": {
-                    "should": [
-                        {
-                            "match": {
-                                "title": {"query": search_request.query, "boost": 3.0}
-                            }
-                        },
-                        {
-                            "match": {
-                                "original_title": {
-                                    "query": search_request.query,
-                                    "boost": 2.0,
-                                }
-                            }
-                        },
-                        {
-                            "match": {
-                                "description": {
-                                    "query": search_request.query,
-                                    "boost": 1.0,
-                                }
-                            }
-                        },
-                        {
-                            "match": {
-                                "tagline": {"query": search_request.query, "boost": 1.5}
-                            }
-                        },
-                    ],
-                    "minimum_should_match": 1,
-                }
-            }
+            search_query = self._base_match_query(search_request)
 
-            # Add fuzzy search when enabled.
-            if search_request.fuzzy:
-                search_query["bool"]["should"].extend(
-                    [
-                        {
-                            "fuzzy": {
-                                "title": {
-                                    "value": search_request.query,
-                                    "fuzziness": "AUTO",
-                                    "boost": 0.5,
-                                }
-                            }
-                        },
-                        {
-                            "fuzzy": {
-                                "original_title": {
-                                    "value": search_request.query,
-                                    "fuzziness": "AUTO",
-                                    "boost": 0.3,
-                                }
-                            }
-                        },
-                    ]
-                )
-
-            # Add filters.
             filter_clauses = []
-
-            if search_request.genres:
+            genres_filter = self._genres_filter(search_request.genres)
+            if genres_filter:
+                filter_clauses.append(genres_filter)
+            date_range = self._date_range(search_request)
+            if date_range is not None:
+                # For multi-index search, consider both date fields.
                 filter_clauses.append(
                     {
-                        "nested": {
-                            "path": "genres",
-                            "query": {"terms": {"genres.name": search_request.genres}},
+                        "bool": {
+                            "should": [
+                                {"range": {"release_date": date_range}},
+                                {"range": {"first_air_date": date_range}},
+                            ]
                         }
                     }
                 )
-
-            if search_request.year_from or search_request.year_to:
-                date_range = {}
-                if search_request.year_from:
-                    date_range["gte"] = f"{search_request.year_from}-01-01"
-                if search_request.year_to:
-                    date_range["lte"] = f"{search_request.year_to}-12-31"
-
-                # For multi-index search, consider both date fields.
-                date_filter = {
-                    "bool": {
-                        "should": [
-                            {"range": {"release_date": date_range}},
-                            {"range": {"first_air_date": date_range}},
-                        ]
-                    }
-                }
-                filter_clauses.append(date_filter)
-
             if filter_clauses:
                 search_query["bool"]["filter"] = filter_clauses
-
-            # Sortierung bestimmen - use _score as default since popularity may not exist
-            sort_field = "_score"
-            sort_order = "desc"
-
-            if search_request.sort_by:
-                if search_request.sort_by == "title":
-                    sort_field = "title.keyword"
-                elif search_request.sort_by == "rating":
-                    sort_field = "rating"
-                elif search_request.sort_by == "release_date":
-                    # For multi-index search, use a script that considers both date fields.
-                    sort_field = {
-                        "_script": {
-                            "type": "number",
-                            "script": {
-                                "source": "doc.containsKey('release_date') && !doc['release_date'].empty ? doc['release_date'].value.millis : (doc.containsKey('first_air_date') && !doc['first_air_date'].empty ? doc['first_air_date'].value.millis : 0)"
-                            },
-                            "order": sort_order,
-                        }
-                    }
-                elif search_request.sort_by == "popularity":
-                    sort_field = (
-                        "_score"  # Fall back to score since popularity may not exist
-                    )
-
-            if search_request.sort_order:
-                sort_order = search_request.sort_order
-
-            # Build sort array - handle missing fields gracefully
-            sort_array = [{"_score": {"order": "desc"}}]
-            if sort_field != "_score":
-                if isinstance(sort_field, str):
-                    sort_array.append(
-                        {sort_field: {"order": sort_order, "unmapped_type": "float"}}
-                    )
-                else:
-                    sort_array.append(sort_field)
 
             # Execute the Elasticsearch query across multiple indices.
             response = await self.client.search(
@@ -1214,62 +967,19 @@ class ElasticsearchService:
                     "query": search_query,
                     "from": offset,
                     "size": search_request.per_page,
-                    "sort": sort_array,
-                    "highlight": {
-                        "fields": {
-                            "title": {},
-                            "original_title": {},
-                            "description": {"fragment_size": 150},
-                        }
-                    },
+                    "sort": self._multi_index_sort(search_request),
+                    "highlight": self._highlight_config(),
                 },
             )
-
-            hits = []
-            for hit in response["hits"]["hits"]:
-                content_data = hit["_source"]
-                # Rename "id" field to "guid" for schema compatibility.
-                if "id" in content_data:
-                    content_data["guid"] = content_data.pop("id")
-                content_data["score"] = hit["_score"]
-                content_data["_index"] = hit["_index"]  # index info for the frontend
-                if "highlight" in hit:
-                    content_data["highlight"] = hit["highlight"]
-                hits.append(content_data)
-
-            # Pagination berechnen
-            total = response["hits"]["total"]["value"]
-            total_pages = (
-                total + search_request.per_page - 1
-            ) // search_request.per_page
-
-            # Timing berechnen
-            took = int((time.time() - start_time) * 1000)  # in Millisekunden
-
-            return {
-                "hits": hits,
-                "total": total,
-                "page": search_request.page,
-                "per_page": search_request.per_page,
-                "total_pages": total_pages,
-                "query": search_request.query,
-                "search_type": search_request.search_type,
-                "took": took,
-            }
+            return self._search_response(
+                response, search_request, start_time, include_index=True
+            )
 
         except Exception as e:
             logger.error("Fehler bei der einheitlichen Suche: %s", e)
-            took = int((time.time() - start_time) * 1000)
-            return {
-                "hits": [],
-                "total": 0,
-                "page": search_request.page,
-                "per_page": search_request.per_page,
-                "total_pages": 0,
-                "query": search_request.query,
-                "search_type": search_request.search_type,
-                "took": took,
-            }
+            return self._empty_result(
+                search_request, int((time.time() - start_time) * 1000)
+            )
 
 
 # Singleton instance for module-level use.

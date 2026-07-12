@@ -92,31 +92,35 @@ async def browse_trailers(
             )
         )
 
+    # Trailer presence can only be decided in Python (``_trailer_candidates``
+    # parses ``extra_data``), so the coarse SQL predicates above are a prefilter.
+    # Materialize every prefiltered row, apply the real trailer/age filter, then
+    # count and page over the fully-filtered set — otherwise ``total`` undercounts
+    # and deep pages silently drop matching items.
     result = await db.execute(
         select(MediaItem)
         .options(selectinload(MediaItem.genres), selectinload(MediaItem.platforms))
         .where(*conditions)
         .order_by(desc(MediaItem.created_at))
-        .limit(skip + limit + 100)
     )
     candidates = list(result.scalars().unique().all())
 
-    items: list[TrailerBrowseItem] = []
-    total = 0
+    visible: list[TrailerBrowseItem] = []
     for media_item in candidates:
         if not is_allowed(media_item.min_age, max_age_for_user(current_user)):
             continue
         trailers = [MediaTrailer(**candidate) for candidate in _trailer_candidates(media_item)]
         if not trailers:
             continue
-        if total >= skip and len(items) < limit:
-            items.append(
-                TrailerBrowseItem(
-                    media_item=MediaItemSummary.model_validate(media_item),
-                    trailers=trailers,
-                    trailer_count=len(trailers),
-                )
+        visible.append(
+            TrailerBrowseItem(
+                media_item=MediaItemSummary.model_validate(media_item),
+                trailers=trailers,
+                trailer_count=len(trailers),
             )
-        total += 1
+        )
+
+    total = len(visible)
+    items = visible[skip : skip + limit]
 
     return TrailerBrowseResponse(items=items, total=total, skip=skip, limit=limit)

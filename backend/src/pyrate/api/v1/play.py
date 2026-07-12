@@ -23,8 +23,14 @@ from pyrate.api.dependencies import (
     DatabaseSession,
     UserPermissionsDep,
 )
+from pyrate.api.rate_limit import rate_limit
 from pyrate.api.v1.playback_params import PlaybackInfoQuery, PlayMediaQuery
 from pyrate.models.device import Device
+from pyrate.models.media import MediaItem
+from pyrate.services.media_access import (
+    require_media_mutation_access,
+    require_media_play_access,
+)
 from pyrate.services.playback_info import PlaybackInfoService
 from pyrate.services.playback_session import (
     PlayMediaRequest,
@@ -36,6 +42,36 @@ from pyrate.services.settings import SettingsService
 from pyrate.services.song_identification import SongIdentificationService
 
 router = APIRouter()
+
+# Abuse-sensitive playback endpoints: identify-song triggers audio extraction
+# plus an external Shazam lookup, and report-problem mutates shared library
+# state and re-queues downloads. Rate-limit both per client.
+_identify_song_rate_limit = rate_limit(
+    max_calls=10, window_seconds=60, scope="identify_song"
+)
+_report_problem_rate_limit = rate_limit(
+    max_calls=5, window_seconds=300, scope="report_problem"
+)
+
+
+async def _require_playable_media_item(
+    db: DatabaseSession,
+    media_id: UUID,
+    current_user,
+    permissions,
+) -> MediaItem:
+    """Load a media item and enforce library/parental play access.
+
+    Mirrors the object-level authz other media read/play endpoints apply so a
+    user cannot act on items in libraries they cannot access (or that are
+    hidden by the parental gate).
+    """
+    media_item = await db.get(MediaItem, media_id)
+    if not media_item:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    require_media_play_access(current_user, permissions, media_item)
+    return media_item
+
 
 _PLAYBACK_PROFILES: dict[str, dict] = {
     "browser": {
@@ -347,11 +383,15 @@ async def seek_media(
     )
 
 
-@router.post("/{media_id}/identify-song")
+@router.post(
+    "/{media_id}/identify-song",
+    dependencies=[Depends(_identify_song_rate_limit)],
+)
 async def identify_song(
     media_id: UUID,
     db: DatabaseSession,
     current_user: CurrentUser,
+    permissions: UserPermissionsDep,
     position: float = Query(0, description="Current playback position in seconds"),
 ):
     """
@@ -360,6 +400,7 @@ async def identify_song(
     Extracts a 15-second audio segment centered on the given position,
     then uses ShazamIO to identify the song.
     """
+    await _require_playable_media_item(db, media_id, current_user, permissions)
     return await SongIdentificationService(db).identify_song(media_id, position)
 
 
@@ -371,14 +412,29 @@ class StreamProblemReport(BaseModel):
     details: str | None = None
 
 
-@router.post("/{media_id}/report-problem")
+@router.post(
+    "/{media_id}/report-problem",
+    dependencies=[Depends(_report_problem_rate_limit)],
+)
 async def report_problem(
     media_id: UUID,
     report: StreamProblemReport,
     db: DatabaseSession,
     current_user: CurrentUser,
+    permissions: UserPermissionsDep,
 ):
-    """Report a stream problem. Blacklists releases and queues a new download."""
+    """Report a stream problem. Blacklists releases and queues a new download.
+
+    This is a destructive, library-wide operation: it blacklists every release
+    for the item and physically deletes its source files from disk and the
+    database, then re-queues a download. Because that mutates shared library
+    state for all users, it is restricted to administrators rather than being
+    triggerable by any single user report.
+    """
+    media_item = await _require_playable_media_item(
+        db, media_id, current_user, permissions
+    )
+    require_media_mutation_access(current_user, media_item)
     try:
         result = await report_stream_problem_service(
             db=db,

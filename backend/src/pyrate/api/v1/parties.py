@@ -4,9 +4,10 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from pyrate.api.dependencies import CurrentSuperuser, CurrentUser, DatabaseSession
+from pyrate.api.rate_limit import rate_limit
 from pyrate.schemas.party import (
     PlaybackSync,
     WatchPartyAdminResponse,
@@ -22,6 +23,10 @@ from pyrate.services.websocket import get_websocket_manager
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Throttle join attempts per client so party codes cannot be enumerated by
+# unthrottled online guessing.
+_join_rate_limit = rate_limit(max_calls=10, window_seconds=60, scope="party-join")
 
 
 # Centralised mapping so the same ValueError phrase always produces the same
@@ -67,7 +72,11 @@ async def create_watch_party(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/join", response_model=WatchPartyResponse)
+@router.post(
+    "/join",
+    response_model=WatchPartyResponse,
+    dependencies=[Depends(_join_rate_limit)],
+)
 async def join_watch_party(
     data: WatchPartyJoin,
     db: DatabaseSession,
@@ -134,8 +143,12 @@ async def get_watch_party(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         )
 
-    # Check if user is a member
-    if not any(m.user_id == current_user.guid for m in session.members):
+    # Check if user is the owner or a *connected* member. Kicked/departed
+    # members keep their row with is_connected=False and must not retain access.
+    is_connected_member = any(
+        m.user_id == current_user.guid and m.is_connected for m in session.members
+    )
+    if session.owner_id != current_user.guid and not is_connected_member:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not a member of this session",

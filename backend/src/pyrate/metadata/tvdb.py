@@ -305,24 +305,3 @@ class TVDB(MetadataBase):
 
 # Export plugin class for loader
 PLUGIN_CLASS = TVDB
-
-
-async def async_setup(config: dict[str, Any]) -> bool:
-    """
-    Set up the TheTVDB plugin.
-
-    This function is called by the plugin loader during initialization.
-
-    Args:
-        config: Plugin configuration from manifest
-
-    Returns:
-        bool: True if setup was successful
-    """
-    # Validate required configuration
-    if "api_key" not in config:
-        logger.error("TheTVDB plugin requires 'api_key' in configuration")
-        return False
-
-    logger.info("TheTVDB plugin setup completed successfully")
-    return True

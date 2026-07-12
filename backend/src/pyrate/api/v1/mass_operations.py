@@ -84,8 +84,10 @@ async def create_rule(
     if payload.schedule_cron:
         try:
             rule.next_run_at = next_run_after(payload.schedule_cron)
-        except ValueError:
-            rule.next_run_at = None
+        except ValueError as exc:
+            raise HTTPException(
+                422, detail=f"Invalid schedule_cron {payload.schedule_cron!r}: {exc}"
+            )
     db.add(rule)
     await db.commit()
     await db.refresh(rule)
@@ -120,8 +122,10 @@ async def update_rule(
         if rule.schedule_cron:
             try:
                 rule.next_run_at = next_run_after(rule.schedule_cron)
-            except ValueError:
-                rule.next_run_at = None
+            except ValueError as exc:
+                raise HTTPException(
+                    422, detail=f"Invalid schedule_cron {rule.schedule_cron!r}: {exc}"
+                )
         else:
             rule.next_run_at = None
     rule.updated_at = datetime.now(UTC)

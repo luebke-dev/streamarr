@@ -207,7 +207,13 @@ class OverlayRenderer:
             return None
 
         font_size = int(element.get("font_size") or 36)
-        font_path = element.get("font_path") or self.default_font_path
+        # A template-supplied font_path is untrusted and must stay inside the
+        # asset root; the server-configured default_font_path is trusted as-is.
+        font_path_raw = element.get("font_path")
+        if font_path_raw:
+            font_path = str(self._resolve_asset_path(font_path_raw))
+        else:
+            font_path = self.default_font_path
         font = self._load_font(font_path, font_size)
 
         padding = int(element.get("padding") or 0)
@@ -306,12 +312,23 @@ class OverlayRenderer:
         return ImageFont.load_default()
 
     def _resolve_asset_path(self, src: str) -> Path:
-        path = Path(src)
-        if path.is_absolute() or path.exists():
-            return path
-        if self.asset_root is not None:
-            return self.asset_root / src
-        return path
+        """Resolve a template-supplied asset path, contained to the asset root.
+
+        Element ``src``/``font_path`` values come from ``OverlayTemplate``
+        JSON and end up baked into posters served to every user, so they are
+        treated as untrusted: absolute paths and ``..`` traversal are refused
+        and the resolved path must stay inside ``asset_root`` (falling back to
+        the process working directory when no root is configured). This stops
+        a template from reading arbitrary host files (e.g. ``/etc/…``).
+        """
+        raw = Path(src)
+        if raw.is_absolute():
+            raise OverlayRenderError(f"Asset path must be relative: {src!r}")
+        base = (self.asset_root or Path.cwd()).resolve()
+        resolved = (base / raw).resolve()
+        if resolved != base and base not in resolved.parents:
+            raise OverlayRenderError(f"Asset path escapes asset root: {src!r}")
+        return resolved
 
     @staticmethod
     def _fill_rect(

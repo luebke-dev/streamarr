@@ -18,12 +18,6 @@ class PersonBase(BaseSchema):
     known_for_department: str | None = None
 
 
-class PersonCreate(PersonBase):
-    """Schema for creating a person."""
-
-    pass
-
-
 class PersonExternalLinkRead(BaseSchema):
     """Schema for normalized external person/provider links."""
 
@@ -59,13 +53,6 @@ class MediaCastBase(BaseSchema):
     department: str | None = None
     job: str | None = None
     cast_order: int | None = None
-
-
-class MediaCastCreate(MediaCastBase):
-    """Schema for creating a media cast entry."""
-
-    media_item_guid: uuid.UUID
-    person_guid: uuid.UUID
 
 
 class MediaCastRead(MediaCastBase):

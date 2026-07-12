@@ -48,7 +48,7 @@ from pyrate.models.mass_operation import (
     MassOperationRun,
     MassOperationRunStatus,
 )
-from pyrate.models.media import MediaItem
+from pyrate.models.media import AvailabilityStatus, MediaItem
 from pyrate.schemas.activity_log import ActivityLogCreate
 from pyrate.services.activity_log import ActivityLogService
 from pyrate.smart_collections.cron import next_run_after
@@ -204,6 +204,15 @@ class MassOperationService:
                 raise MassOperationError(
                     f"{kind} requires a non-empty string 'value'"
                 )
+            if kind == "set_availability":
+                try:
+                    AvailabilityStatus(value)
+                except ValueError:
+                    allowed = [status.value for status in AvailabilityStatus]
+                    raise MassOperationError(
+                        f"set_availability value {value!r} is not a valid "
+                        f"availability status; allowed: {allowed}"
+                    )
         elif kind == "clear":
             field_name = action.get("field")
             if field_name not in _CLEARABLE_FIELDS:
@@ -253,9 +262,10 @@ class MassOperationService:
                 item.min_age = value
                 updated += 1
         elif kind == "set_availability":
-            value = action["value"]
+            value = AvailabilityStatus(action["value"])
             for item in items:
-                if str(item.availability_status) == value:
+                current = item.availability_status
+                if getattr(current, "value", current) == value.value:
                     skipped += 1
                     continue
                 item.availability_status = value
