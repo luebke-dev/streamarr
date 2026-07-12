@@ -228,14 +228,14 @@ import { useRemoteControlStore } from 'stores/remoteControl'
 import { useMediaAdminActions } from 'src/composables/useMediaAdminActions'
 import { useMediaAvailability } from 'src/composables/useMediaAvailability'
 import { useMediaHelpers } from 'src/composables/useMediaHelpers'
+import { useMediaTypeFlags } from 'src/composables/useMediaTypeFlags'
+import { useMediaCastPlayback } from 'src/composables/useMediaCastPlayback'
 import { getTmdbImageUrl, getFileName, formatTime } from 'src/composables/useMediaFormatters'
-import { startPlayback, getDirectFileUrl, getPlaylistUrl } from 'src/composables/usePlay'
 import { useWebSocket } from 'src/composables/useWebSocket'
 import { useFavorite } from 'src/composables/useFavorite'
 import { useTimeoutRegistry } from 'src/composables/useTimeoutRegistry'
 import { MediaTypes } from 'src/composables/useUnifiedMedia'
 import * as mediaService from 'src/services/mediaService'
-import { getServerUrl } from 'src/utils/authStorage'
 import { logger } from 'src/utils/logger'
 
 import MediaLoadingState from 'src/components/MediaLoadingState.vue'
@@ -313,46 +313,22 @@ export default {
     // fast A->B navigation must not let A's slower fetch overwrite B's state.
     let currentLoadId = 0
 
-    // Media type detection - only from loaded item
-    const mediaType = computed(() => {
-      if (mediaItem.value?.media_type) {
-        return mediaItem.value.media_type
-      }
-      return null
-    })
-
-    // Type checks
-    const isMovie = computed(() => mediaType.value === MediaTypes.MOVIES)
-    // A show is series type WITHOUT a parent (not a season or episode)
-    const isShow = computed(
-      () => mediaType.value === MediaTypes.SERIES && !mediaItem.value?.parent_guid,
-    )
-    // A season is series type WITH a parent but HAS children (episodes)
-    const isSeason = computed(
-      () =>
-        mediaType.value === MediaTypes.SERIES &&
-        mediaItem.value?.parent_guid &&
-        children.value.length > 0,
-    )
-    // An episode is series type WITH a parent but has NO children
-    const isEpisode = computed(
-      () =>
-        mediaType.value === MediaTypes.SERIES &&
-        mediaItem.value?.parent_guid &&
-        children.value.length === 0,
-    )
-    const isGame = computed(() => mediaType.value === MediaTypes.GAMES)
-    const isMusic = computed(() => mediaType.value === MediaTypes.MUSIC)
-    const isArtist = computed(() => mediaType.value === MediaTypes.ARTISTS)
-    const isAlbum = computed(() => mediaType.value === MediaTypes.ALBUMS)
-    const isSong = computed(() => mediaType.value === MediaTypes.SONGS)
-    const isMusicType = computed(
-      () => isMusic.value || isArtist.value || isAlbum.value || isSong.value,
-    )
-    const isBook = computed(() => mediaType.value === MediaTypes.BOOKS)
-    const isContainerType = computed(
-      () => isArtist.value || isAlbum.value || isShow.value || isSeason.value,
-    )
+    // Media type detection + boolean flags (shared with cast/playback routing)
+    const {
+      mediaType,
+      isMovie,
+      isShow,
+      isSeason,
+      isEpisode,
+      isGame,
+      isMusic,
+      isArtist,
+      isAlbum,
+      isSong,
+      isMusicType,
+      isBook,
+      isContainerType,
+    } = useMediaTypeFlags({ mediaItem, children })
 
     // Multi-disc album support
     const groupedTracks = computed(() => {
@@ -428,6 +404,31 @@ export default {
       if (isAlbum.value) return getPosterUrl(mediaItem.value)
       if (isSong.value && parentItem.value) return getPosterUrl(parentItem.value)
       return getBackdropUrl(mediaItem.value)
+    })
+
+    // Cast / remote-target playback routing (shares the type flags + hero refs)
+    const {
+      playSelectedRemoteTarget,
+      playSelectedRemoteQueue,
+      playSelectedRemoteInstantMix,
+      getPlayType,
+      getPlayTypeForItem,
+      trackToPlayerTrack,
+    } = useMediaCastPlayback({
+      mediaItem,
+      files,
+      parentItem,
+      heroTitle,
+      heroPosterUrl,
+      mediaType,
+      isMovie,
+      isShow,
+      isEpisode,
+      isGame,
+      isSong,
+      isMusicType,
+      remoteControlStore,
+      getPosterUrl,
     })
 
     // Dynamic labels and routes based on media type
@@ -795,148 +796,10 @@ export default {
       }
     }
 
-    function absoluteUrl(url) {
-      if (!url) return null
-      if (/^https?:\/\//i.test(url)) return url
-      const baseUrl = getServerUrl(window.location.origin)
-      return new URL(url, baseUrl).toString()
-    }
-
-    function getCastMimeType(playResponse) {
-      if (playResponse?.session_id && !playResponse?.direct_play) {
-        return 'application/x-mpegURL'
-      }
-      if (isSong.value || isMusicType.value) {
-        return 'audio/mpeg'
-      }
-
-      const fileName = String(
-        files.value[0]?.file_path || files.value[0]?.path || files.value[0]?.filename || '',
-      ).toLowerCase()
-      if (fileName.endsWith('.mkv')) return 'video/x-matroska'
-      if (fileName.endsWith('.webm')) return 'video/webm'
-      if (fileName.endsWith('.m4v')) return 'video/mp4'
-      if (fileName.endsWith('.mp4')) return 'video/mp4'
-      if (fileName.endsWith('.mp3')) return 'audio/mpeg'
-      if (fileName.endsWith('.m4a')) return 'audio/mp4'
-      if (fileName.endsWith('.flac')) return 'audio/flac'
-      return 'video/mp4'
-    }
-
-    function getCastMediaUrl(playResponse) {
-      if (!playResponse?.token) return null
-      if (playResponse.direct_file_url) {
-        return absoluteUrl(playResponse.direct_file_url)
-      }
-      if (playResponse.session_id && !playResponse.direct_play) {
-        return absoluteUrl(getPlaylistUrl(playResponse.session_id, playResponse.token))
-      }
-      return absoluteUrl(getDirectFileUrl(playResponse.token))
-    }
-
-    async function playNativeCastTarget(mediaGuid) {
-      const playResponse = await startPlayback(
-        mediaGuid,
-        remoteControlStore.playbackOptionsForTarget(remoteControlStore.targetDevice),
-      )
-      if (playResponse?.status !== 'ready') {
-        return false
-      }
-
-      const mediaUrl = getCastMediaUrl(playResponse)
-      if (!mediaUrl) return false
-
-      return await remoteControlStore.sendRemoteCommand('play', {
-        media_url: mediaUrl,
-        title: mediaItem.value?.title || '',
-        mime_type: getCastMimeType(playResponse),
-        start_position: playResponse.start_position || 0,
-        artwork_url: absoluteUrl(heroPosterUrl.value),
-        metadata: {
-          title: mediaItem.value?.title || '',
-          subtitle: heroTitle.value || '',
-        },
-      })
-    }
-
-    async function playSelectedRemoteTarget(mediaGuid, playType) {
-      if (!remoteControlStore.hasRemoteTarget || !mediaGuid) {
-        return false
-      }
-      if (remoteControlStore.isNativeCastTarget(remoteControlStore.targetDevice)) {
-        return await playNativeCastTarget(mediaGuid)
-      }
-      return await remoteControlStore.sendPlayMediaCommand(
-        playType,
-        mediaGuid,
-        mediaItem.value?.title || '',
-      )
-    }
-
-    async function playSelectedRemoteQueue(itemIds) {
-      if (!remoteControlStore.hasRemoteTarget || itemIds.length === 0) {
-        return false
-      }
-      if (remoteControlStore.isNativeCastTarget(remoteControlStore.targetDevice)) {
-        return false
-      }
-      return await remoteControlStore.sendPlayCommand(itemIds, { playCommand: 'play_now' })
-    }
-
-    async function playSelectedRemoteInstantMix(itemIds) {
-      if (!remoteControlStore.hasRemoteTarget || itemIds.length === 0) {
-        return false
-      }
-      if (remoteControlStore.isNativeCastTarget(remoteControlStore.targetDevice)) {
-        return await playNativeCastTarget(itemIds[0])
-      }
-      return await remoteControlStore.sendPlayCommand(itemIds, { playCommand: 'play_instant_mix' })
-    }
-
-    // Get play type for route parameter
-    function getPlayType() {
-      if (isMovie.value) return 'movie'
-      if (isShow.value || isEpisode.value) return 'episode'
-      if (isGame.value) return 'game'
-      if (isMusicType.value) return 'music'
-      return 'movie'
-    }
-
-    function getPlayTypeForItem(item) {
-      const itemType = item?.media_type
-      if (itemType === MediaTypes.MOVIES) return 'movie'
-      if (itemType === MediaTypes.SERIES) return 'episode'
-      if (itemType === MediaTypes.GAMES) return 'game'
-      if (
-        itemType === MediaTypes.MUSIC ||
-        itemType === MediaTypes.ARTISTS ||
-        itemType === MediaTypes.ALBUMS ||
-        itemType === MediaTypes.SONGS
-      ) {
-        return 'music'
-      }
-      return getPlayType()
-    }
-
     // View child item (season for shows, episode for seasons, album for artists, song for albums)
     function viewChild(child) {
       if (!child || !mediaItem.value) return
       router.push(`/media/${child.guid}`)
-    }
-
-    // Convert a media item / child to audio player track format
-    function trackToPlayerTrack(track) {
-      return {
-        guid: track.guid,
-        title: track.title,
-        artist: track.description || mediaItem.value?.title || '',
-        artistGuid: track.parent_guid || parentItem.value?.guid || null,
-        mediaType: track.media_type || mediaType.value || null,
-        albumTitle: mediaItem.value?.title || '',
-        albumGuid: track.parent_guid || mediaItem.value?.guid || null,
-        albumArt: getPosterUrl(track) || getPosterUrl(mediaItem.value),
-        duration: track.duration || track.runtime || 0,
-      }
     }
 
     async function playInstantMix() {
