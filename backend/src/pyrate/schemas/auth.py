@@ -5,9 +5,23 @@ from pydantic import BaseModel
 
 class TokenResponse(BaseModel):
     access_token: str
-    refresh_token: str
+    # None for web clients: the refresh token is delivered as an httpOnly cookie
+    # instead of the response body. Native clients still receive it here.
+    refresh_token: str | None = None
     token_type: str = "bearer"
     expires_in: int
+
+
+class RegistrationResult(BaseModel):
+    """Returned by registration when email verification is required before
+    login. No tokens are issued until the address is confirmed."""
+
+    status: str = "verification_required"
+    email: str
+    message: str = (
+        "Account created. Check your inbox and confirm your email address "
+        "before signing in."
+    )
 
 
 class UserInfo(BaseModel):

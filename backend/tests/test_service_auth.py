@@ -224,7 +224,7 @@ class TestRegisterWithInvite:
             mock_jwt.create_refresh_token.return_value = "refresh"
             mock_settings.oidc.jwt_access_token_expire_minutes = 30
 
-            user, access, refresh, exp = await service.register_with_invite(
+            user = await service.register_with_invite(
                 email="newuser2@example.com",
                 password="Longpassword123!",
                 first_name="New",
@@ -232,9 +232,11 @@ class TestRegisterWithInvite:
                 invite_token="valid-token",
             )
 
-            # Should succeed despite friendship error
+            # Should succeed despite friendship error. Registration no longer
+            # issues tokens (email must be verified first) — it returns the User.
             assert user is not None
-            assert access == "access"
+            assert user.email == "newuser2@example.com"
+            assert user.email_verified is False
 
 
 # ---------------------------------------------------------------------------

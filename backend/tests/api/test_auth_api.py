@@ -312,8 +312,11 @@ class TestRegister:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert "access_token" in data
-        assert "refresh_token" in data
+        # Registration is a hard email gate: no tokens until the address is
+        # verified — the endpoint returns a verification_required result.
+        assert data["status"] == "verification_required"
+        assert data["email"] == "newuser@example.com"
+        assert "access_token" not in data
 
     async def test_register_invites_disabled(self, client: AsyncClient):
         with patch("pyrate.services.auth.settings") as mock_settings:
@@ -450,7 +453,8 @@ class TestRegister:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert "access_token" in data
+        assert data["status"] == "verification_required"
+        assert "access_token" not in data
 
 
 # ---------------------------------------------------------------------------
@@ -521,7 +525,11 @@ class TestOIDCCallback:
         assert resp.status_code in (302, 307)
         location = resp.headers["location"]
         assert location.startswith("http://frontend.local/auth/callback?return_to=/media/abc")
-        assert "#access_token=access-token&refresh_token=refresh-token" in location
+        # Only the short-lived access token travels in the fragment now; the
+        # refresh token is delivered as an httpOnly cookie, not in the URL.
+        assert "#access_token=access-token" in location
+        assert "refresh_token" not in location
+        assert "pyrate_refresh=refresh-token" in resp.headers.get("set-cookie", "")
 
 
 # ---------------------------------------------------------------------------
@@ -736,7 +744,8 @@ class TestRegisterEdgeCases:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert "access_token" in data
+        assert data["status"] == "verification_required"
+        assert "access_token" not in data
 
     async def test_register_with_language_settings(
         self, client: AsyncClient, db_session: AsyncSession, test_superuser: User
@@ -913,6 +922,7 @@ class TestResetPassword:
         token = jwt_handler.create_password_reset_token(
             user_id=str(test_user.guid),
             email=test_user.email,
+            password_hash=test_user.hashed_password,
         )
         resp = await client.post(
             "/api/auth/reset-password",
@@ -937,6 +947,7 @@ class TestResetPassword:
         token = jwt_handler.create_password_reset_token(
             user_id=str(test_user.guid),
             email=test_user.email,
+            password_hash=test_user.hashed_password,
         )
         resp = await client.post(
             "/api/auth/reset-password",
@@ -1004,6 +1015,7 @@ class TestResetPassword:
         token = jwt_handler.create_password_reset_token(
             user_id=str(test_user.guid),
             email=test_user.email,
+            password_hash=test_user.hashed_password,
         )
         resp = await client.post(
             "/api/auth/reset-password",
@@ -1159,20 +1171,19 @@ class TestResendVerification:
         db_session.add(user)
         await db_session.commit()
 
-        headers = auth_headers(user)
         with patch("pyrate.services.auth.email_service") as mock_email:
             mock_email.send_email = AsyncMock(return_value=True)
             resp = await client.post(
-                "/api/auth/resend-verification", headers=headers
+                "/api/auth/resend-verification", json={"email": user.email}
             )
         assert resp.status_code == 200
-        data = resp.json()
-        assert "sent" in data["message"].lower()
+        # Public + enumeration-safe: a generic message regardless of account state.
+        assert "verification" in resp.json()["message"].lower()
 
     async def test_resend_verification_already_verified(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Already verified user gets a simple message, no email sent."""
+        """Already verified user gets the same generic message, no email sent."""
         user = User(
             guid=uuid.uuid4(),
             email="alreadydone@example.com",
@@ -1185,15 +1196,18 @@ class TestResendVerification:
         db_session.add(user)
         await db_session.commit()
 
-        headers = auth_headers(user)
-        resp = await client.post(
-            "/api/auth/resend-verification", headers=headers
-        )
+        with patch("pyrate.services.auth.email_service") as mock_email:
+            mock_email.send_email = AsyncMock(return_value=True)
+            resp = await client.post(
+                "/api/auth/resend-verification", json={"email": user.email}
+            )
         assert resp.status_code == 200
-        data = resp.json()
-        assert "already" in data["message"].lower()
+        # Same generic response as for an unverified/unknown address.
+        assert "verification" in resp.json()["message"].lower()
+        # No email is sent for an already-verified account.
+        mock_email.send_email.assert_not_called()
 
-    async def test_resend_verification_unauthenticated(self, client: AsyncClient):
-        """Unauthenticated request should fail."""
-        resp = await client.post("/api/auth/resend-verification")
-        assert resp.status_code in (401, 403)
+    async def test_resend_verification_requires_email(self, client: AsyncClient):
+        """The public endpoint validates its body: missing email -> 422."""
+        resp = await client.post("/api/auth/resend-verification", json={})
+        assert resp.status_code == 422
