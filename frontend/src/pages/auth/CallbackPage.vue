@@ -50,7 +50,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from 'src/stores/auth'
 import { useI18n } from 'vue-i18n'
 import { logger } from 'src/utils/logger'
-import { getServerUrl } from 'src/utils/authStorage'
+import { buildServerUrl } from 'src/utils/authStorage'
 import { sanitizeRedirect } from 'src/utils/redirect'
 
 export default defineComponent({
@@ -80,12 +80,9 @@ export default defineComponent({
         // authorization response to the backend callback, which verifies state
         // and exchanges the code for pyrate tokens.
         if (route.query.code && route.query.state && !window.location.hash.includes('access_token')) {
-          const baseUrl = getServerUrl().replace(/\/+$/, '')
-          const callbackUrl = new URL(`${baseUrl || window.location.origin}/api/auth/callback`)
+          const { url: callbackUrl, toHref } = buildServerUrl('/api/auth/callback')
           callbackUrl.search = window.location.search
-          window.location.href = baseUrl
-            ? callbackUrl.toString()
-            : `${callbackUrl.pathname}${callbackUrl.search}`
+          window.location.href = toHref()
           return
         }
 

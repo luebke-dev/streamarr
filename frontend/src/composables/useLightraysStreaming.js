@@ -1,6 +1,7 @@
 import { ref, onUnmounted } from 'vue'
 import { logger } from 'src/utils/logger'
 import { getServerUrl } from 'src/utils/authStorage'
+import { useInterval } from 'src/composables/useInterval'
 
 /**
  * Self-contained WebRTC / WebSocket streaming composable for the Lightrays
@@ -29,7 +30,6 @@ export function useLightraysStreaming() {
   let pc = null
   let dataChannel = null
   let pointerLocked = false
-  let statsInterval = null
   let videoEl = null
   let streamContainerEl = null
   let currentBaseUrl = ''
@@ -398,7 +398,7 @@ export function useLightraysStreaming() {
   }
 
   async function stopStream(keepStatus = false) {
-    if (statsInterval) clearInterval(statsInterval)
+    statsInterval.stop()
     if (ws?.readyState === WebSocket.OPEN) {
       ws.close()
     }
@@ -414,64 +414,71 @@ export function useLightraysStreaming() {
   }
 
   // ── Stats ──
+  let lastBytes = 0
+  let lastTime = 0
+
+  // Lifecycle-safe 1s stats poller; useInterval registers its own
+  // onBeforeUnmount cleanup so the timer can't leak on unmount.
+  const statsInterval = useInterval(async () => {
+    if (!pc) return
+    try {
+      const s = await pc.getStats()
+      let rtt = 0
+      let jitter = 0
+      let packetsLost = 0
+      let codec = ''
+
+      s.forEach((report) => {
+        if (report.type === 'inbound-rtp' && report.mediaType === 'video') {
+          const now = performance.now()
+          const dt = (now - lastTime) / 1000
+          const bytes = report.bytesReceived || 0
+          const bps = dt > 0 ? ((bytes - lastBytes) * 8) / dt : 0
+          lastBytes = bytes
+          lastTime = now
+          jitter = report.jitter || 0
+          packetsLost = report.packetsLost || 0
+
+          const res = videoEl ? `${videoEl.videoWidth}x${videoEl.videoHeight}` : ''
+          const decodeTime =
+            report.totalDecodeTime && report.framesDecoded
+              ? ((report.totalDecodeTime / report.framesDecoded) * 1000).toFixed(1)
+              : 0
+
+          stats.value = {
+            mbps: (bps / 1e6).toFixed(1),
+            fps: report.framesPerSecond || 0,
+            frames: report.framesDecoded || 0,
+            rtt,
+            jitter: (jitter * 1000).toFixed(0),
+            packetsLost,
+            resolution: res,
+            codec,
+            decodeTime,
+          }
+        }
+
+        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          rtt = report.currentRoundTripTime ? (report.currentRoundTripTime * 1000).toFixed(0) : 0
+          stats.value.rtt = rtt
+        }
+
+        if (report.type === 'codec' && report.mimeType?.includes('video')) {
+          codec = report.mimeType.replace('video/', '')
+          stats.value.codec = codec
+        }
+      })
+    } catch (e) {
+      // Stats collection is best-effort; failures are non-fatal
+      logger.debug('WebRTC stats poll failed', e)
+    }
+  }, 1000)
+
   function startStats() {
-    if (statsInterval) clearInterval(statsInterval)
-    let lastBytes = 0
-    let lastTime = performance.now()
-    statsInterval = setInterval(async () => {
-      if (!pc) return
-      try {
-        const s = await pc.getStats()
-        let rtt = 0
-        let jitter = 0
-        let packetsLost = 0
-        let codec = ''
-
-        s.forEach((report) => {
-          if (report.type === 'inbound-rtp' && report.mediaType === 'video') {
-            const now = performance.now()
-            const dt = (now - lastTime) / 1000
-            const bytes = report.bytesReceived || 0
-            const bps = dt > 0 ? ((bytes - lastBytes) * 8) / dt : 0
-            lastBytes = bytes
-            lastTime = now
-            jitter = report.jitter || 0
-            packetsLost = report.packetsLost || 0
-
-            const res = videoEl ? `${videoEl.videoWidth}x${videoEl.videoHeight}` : ''
-            const decodeTime =
-              report.totalDecodeTime && report.framesDecoded
-                ? ((report.totalDecodeTime / report.framesDecoded) * 1000).toFixed(1)
-                : 0
-
-            stats.value = {
-              mbps: (bps / 1e6).toFixed(1),
-              fps: report.framesPerSecond || 0,
-              frames: report.framesDecoded || 0,
-              rtt,
-              jitter: (jitter * 1000).toFixed(0),
-              packetsLost,
-              resolution: res,
-              codec,
-              decodeTime,
-            }
-          }
-
-          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-            rtt = report.currentRoundTripTime ? (report.currentRoundTripTime * 1000).toFixed(0) : 0
-            stats.value.rtt = rtt
-          }
-
-          if (report.type === 'codec' && report.mimeType?.includes('video')) {
-            codec = report.mimeType.replace('video/', '')
-            stats.value.codec = codec
-          }
-        })
-      } catch (e) {
-        // Stats collection is best-effort; failures are non-fatal
-        logger.debug('WebRTC stats poll failed', e)
-      }
-    }, 1000)
+    statsInterval.stop()
+    lastBytes = 0
+    lastTime = performance.now()
+    statsInterval.start()
   }
 
   onUnmounted(() => {
