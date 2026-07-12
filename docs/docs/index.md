@@ -4,97 +4,102 @@
 
 ## What is Pyrate.Media?
 
-Pyrate.Media combines the functionality of a media center (like Jellyfin or Plex) with automation features (like Sonarr/Radarr) in a single application. The platform allows you to discover, organize, stream, and automatically download movies, shows, and games.
+Pyrate.Media combines what usually takes half a dozen tools: a streaming media center (like Jellyfin or Plex), download automation (like Sonarr/Radarr), and a WebRTC cloud-gaming service — in a single application, with one library, one user system, and one UI. Your media, your rules.
 
-## What can you do with it?
+## One library, six media types
 
-### Discover & manage media
+| Media type | Highlights |
+|------------|------------|
+| [Movies](user-guide/movies.md) & [Shows](user-guide/shows.md) | TMDB/TVDB metadata, cast, trailers, localized translations |
+| [Music](user-guide/music.md) | Artists, albums, songs; persistent player with queue, shuffle, lyrics, and song identification |
+| [Games](user-guide/games.md) | IGDB metadata, Steam library import, playable in the browser via cloud streaming |
+| [Books](user-guide/books.md) | OpenLibrary metadata and an in-app EPUB reader |
+| Photos | Photo libraries share the same unified media model |
 
-- **Movies & Shows** — browse with full metadata from TMDB and add them to your library
-- **Games** — catalog with IGDB integration
-- **People** (actors, directors) — explore their filmography
-- Everything in a modern, dark interface with poster views and hero carousels
+Explore people (actors, directors) across their filmography, and find everything with [search](user-guide/search.md) — typed autocomplete, saved filters, genre and platform browsing.
 
-### Stream directly in the browser
+## Stream, cast, take it offline
 
-- **Smart Play**: Click play — the system takes care of the rest. If the file is available, the stream starts. If it's missing, it is automatically searched and downloaded.
-- **Real-time transcoding**: Videos are converted on-the-fly for your browser (HLS via FFmpeg)
-- **Seeking & resuming**: Jump to any position in the video. Your progress is saved so you can pick up right where you left off later.
-- **Automatic language selection**: Audio and subtitles based on your preferences
+- **Smart Play** — press play on something you don't have yet: it is searched on your indexers, downloaded, and streamed automatically
+- **Real-time transcoding** — on-demand FFmpeg in disposable containers, delivered as HLS, with direct play when your device supports the codecs ([Streaming & Playback](user-guide/streaming.md))
+- **Resume everywhere** — viewing history, continue watching, skip intro/outro markers, trickplay scrubbing
+- **Audio & subtitles** — track selection, provider search, and per-user language preferences
+- **Casting & offline** — Chromecast, AirPlay, and DLNA; remote-control your other signed-in devices; per-device offline downloads ([Devices, Casting & Offline](user-guide/devices.md))
 
-### Watch together
+!!! tip "Watch together"
+    Start a [watch party](user-guide/watch-parties.md) and share the 6-digit code — play, pause, and seek stay in sync for everyone. Invite [friends](user-guide/friends.md) to your server first.
 
-- **Watch Parties**: Invite friends and watch the same movie in sync — with a simple 6-digit code
-- **Real-time synchronization**: Play, pause, and seek are executed simultaneously for all participants
+## Automate your library
 
-### Stream games
+- Newznab/Torznab [indexers](administration/indexers.md) with configurable quality and language scoring
+- [Download clients](administration/downloaders.md): SABnzbd and Deluge, plus three built-in Rust downloader services for usenet, torrents, and Spotify
+- Auto-download for monitored favorites, quality-upgrade scans, RSS sync, live download queue
+- Rule-based [smart collections and poster overlays](administration/smart-collections.md), fed by Trakt, IMDb, Letterboxd, AniList, MyAnimeList, MDBList, and TMDB lists
 
-- **Game streaming via Lightrays**: Play games directly in the browser — streamed via WebRTC from a Rust-based streaming server with GPU acceleration
+## Multi-user by design
 
-### Organize & share
+Local login and OIDC SSO, invite-based registration, groups with granular permissions, and parental controls. Optionally sell access with Stripe-backed [memberships and vouchers](administration/membership.md) — users manage their plan on the [membership page](user-guide/membership.md).
 
-- **Lists** — create watchlists, favorites, themed collections
-- **Favorites** — mark with a single click
-- **Playback history** with progress indicator
-- **Invite friends** and share the instance
+## Clients & languages
 
-### Automate
+| Platform | Delivery |
+|----------|----------|
+| Web | Quasar SPA (Vue 3) |
+| Desktop (Linux/macOS/Windows) | Tauri 2 |
+| Android | Capacitor 7 |
 
-- **Download management**: SABnzbd (Usenet) and Deluge (Torrents) integration
-- **Indexers**: Automatic release search via Newznab/Torznab indexers
-- **Quality rules**: Configurable scoring rules for the best download selection
-- **Trending import**: Automatically import popular media from TMDB/IGDB
+The interface is fully available in **English** and **German**.
 
 ## Architecture
 
 ```mermaid
 graph TB
-    A[Browser] --> B[Vue.js/Quasar Frontend]
+    A[Web / Desktop / Android clients] --> B[Quasar Frontend]
     B --> C[FastAPI Backend]
-    C --> D[PostgreSQL]
-    C --> E[Redis]
-    C --> F[TaskIQ Worker]
-    C --> G[Elasticsearch]
-    F --> H[TMDB/IGDB APIs]
-    F --> I[Download-Clients]
-    F --> J[Indexer]
-    A -.->|WebRTC| K[Lightrays Game-Streaming]
+    C --> D[(PostgreSQL)]
+    C --> E[(Redis)]
+    C --> G[(Elasticsearch)]
+    C --> W[TaskIQ Workers]
+    W --> H[Metadata providers<br/>TMDB · TVDB · IGDB · MusicBrainz · OpenLibrary · Spotify]
+    C --> I[Newznab/Torznab indexers]
+    C --> J[Downloader services<br/>usenet · torrent · spotify · SABnzbd · Deluge]
+    C --> K[FFmpeg transcode containers<br/>Docker / Kubernetes Jobs]
+    C --> L[Lightrays<br/>game streaming]
+    A -.->|WebRTC| L
 ```
 
-## Technology Stack
+## Technology stack
 
 | Component | Technology |
 |-----------|------------|
-| **Frontend** | Vue 3, Quasar Framework, Pinia, Video.js, Vue I18n |
-| **Backend** | Python, FastAPI, SQLModel, TaskIQ, JWT + OIDC |
-| **Database** | PostgreSQL, Redis, Elasticsearch |
-| **Streaming** | FFmpeg (Docker), HLS |
-| **Game Streaming** | Lightrays (Rust, GStreamer, WebRTC) |
-| **Infrastructure** | Docker, Kubernetes, Helm |
+| **Backend** | Python 3.13, FastAPI, SQLModel/SQLAlchemy async, TaskIQ, Alembic |
+| **Frontend** | Vue 3, Quasar 2, Pinia, Video.js, epub.js |
+| **Data** | PostgreSQL, Redis, Elasticsearch |
+| **Transcoding** | jellyfin-ffmpeg in per-task containers (VA-API/Vulkan/OpenCL) |
+| **Game streaming** | Lightrays — Rust, GStreamer, WebRTC |
+| **Downloaders** | Rust — axum, librqbit, librespot, native NNTP |
+| **Deployment** | Docker Compose, Helm/Kubernetes, Podman quadlets |
 
-## Languages
+## Getting started
 
-The interface is fully available in **German** and **English**. Audio and subtitle preferences can be configured independently.
+=== "As a user"
 
-## Getting Started
-
-=== "As a User"
-
-    1. Log in (via login or OIDC)
+    1. Log in — or register with an invite link ([Account & Login](user-guide/account.md))
     2. Explore the [home page](user-guide/dashboard.md) and the libraries
-    3. [Play media](user-guide/streaming.md) or create [lists](user-guide/lists.md)
-    4. Invite [friends](user-guide/friends.md) and start a [watch party](user-guide/watch-parties.md)
+    3. [Play media](user-guide/streaming.md), build [lists](user-guide/lists.md), mark [favorites](user-guide/favorites.md)
+    4. Set up your [devices](user-guide/devices.md) for casting and offline, and start a [watch party](user-guide/watch-parties.md)
 
-=== "As an Administrator"
+=== "As an administrator"
 
-    1. [Install](getting-started/installation.md) Pyrate.Media
-    2. Follow the [quick start](getting-started/quick-start.md)
-    3. Configure [plugins, indexers, and download clients](administration/overview.md)
-    4. Create libraries and import trending content
+    1. [Install](getting-started/installation.md) Pyrate.Media — one-line installer, Docker Compose, Helm, or Podman quadlets
+    2. Follow the [quick start](getting-started/quick-start.md) through the setup wizard
+    3. Create [libraries](administration/libraries.md) and configure [indexers](administration/indexers.md) and [download clients](administration/downloaders.md)
+    4. Curate with [smart collections](administration/smart-collections.md), then set up [backups](administration/maintenance.md) and [monitoring](administration/monitoring.md)
 
-## Next Steps
+## Next steps
 
-- [Installation](getting-started/installation.md) — Set up Pyrate.Media
-- [Quick Start](getting-started/quick-start.md) — First steps
-- [User Guide](user-guide/dashboard.md) — Get to know the app
-- [Administration](administration/overview.md) — Configure the system
+- [Getting Started](getting-started/overview.md) — what you need and how the pieces fit
+- [User Guide](user-guide/dashboard.md) — get to know the app
+- [Administration](administration/overview.md) — configure the system
+- [Deployment](deployment/overview.md) — Compose, Kubernetes, and quadlets in depth
+- [Development](developer-guide/overview.md) — hack on Pyrate.Media itself

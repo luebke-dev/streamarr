@@ -1,95 +1,83 @@
 # Download Clients
 
-Download clients are external applications that Pyrate.Media uses to download media files. Currently supported clients are **SABnzbd** (Usenet) and **Deluge** (Torrents).
+Download clients fetch the releases found by your [indexers](indexers.md). pyrate.media speaks to two well-known external clients — **SABnzbd** (Usenet) and **Deluge** (BitTorrent) — and ships **three built-in Rust downloader services** for torrents, Usenet, and Spotify music.
 
-## Overview
+## Supported client types
 
-Navigate to **Admin** -> **Downloaders** to see all configured download clients.
+| Type | Protocol | What it is |
+|------|----------|------------|
+| **SABnzbd** | Usenet | External SABnzbd instance, authenticated with its API key |
+| **Deluge** | BitTorrent | External Deluge instance, via its Web UI password |
+| **Torrent service** (`torrent_downloader`) | BitTorrent | Built-in service using the librqbit engine |
+| **Usenet service** (`usenet_downloader`) | Usenet | Built-in NNTP service with multi-server failover |
+| **SpotDL** (`spotdl`) | Spotify | Built-in Spotify music service using librespot |
 
-Each downloader shows:
+When a download starts, the client is chosen by **link type**, not media type: NZB links go to the Usenet service or SABnzbd, magnet/torrent links to the torrent service or Deluge, and Spotify links always to SpotDL. Music downloads therefore require a SpotDL downloader to be configured.
 
-- **Name** and connection details
-- **Type** (SABnzbd or Deluge)
-- **Status** (connected/disconnected)
-- **Actions**: Edit, Test, Delete
+!!! note "SpotDL is a legacy name"
+    The Spotify service is registered under the historical name *SpotDL*, but it does not use the spotdl tool — it downloads native OGG Vorbis audio through librespot.
 
-## Adding a Download Client
+## Managing downloaders
 
-1. Navigate to **Admin** -> **Downloaders**
-2. Click **Add Downloader**
-3. Select the client type
+Navigate to **Admin → Downloaders** to see all configured download clients, with their **Label**, **Host**, **Type**, **SSL**/**Verify SSL** flags, and creation date. Each row can be edited or deleted.
 
-### SABnzbd Configuration
+Click **Add Downloader**, give the client a descriptive **Label**, and pick the **Downloader Type**. Each downloader record stores a host URL and, where needed, a credential:
 
-| Field | Description |
-|-------|-------------|
-| **Name** | A descriptive name (e.g. "My SABnzbd") |
-| **Host** | IP address or hostname (e.g. `localhost` or `192.168.1.100`) |
-| **Port** | SABnzbd web interface port (default: `8080`) |
-| **API Key** | Found in SABnzbd under Config -> General -> API Key |
-| **Use SSL** | Enable for HTTPS connections |
+| Type | Host | Credential |
+|------|------|-----------|
+| SABnzbd | Base URL of the instance, e.g. `http://sabnzbd:8080` | SABnzbd API key (Config → General in SABnzbd) |
+| Deluge | Base URL of the Deluge Web UI, e.g. `http://deluge:8112` | Web UI password (stored in the API-key field) |
+| Built-in services | Base URL of the service, e.g. `http://torrent-downloader:3000` | None |
 
-### Deluge Configuration
+!!! note "Registering the built-in torrent and Usenet services"
+    The **Add Downloader** dialog currently offers SABnzbd, Deluge, and SpotDL. The built-in torrent and Usenet services are registered via the API instead — `POST /api/downloaders` with `type` set to `torrent_downloader` or `usenet_downloader` and `host` pointing at the service.
 
-| Field | Description |
-|-------|-------------|
-| **Name** | A descriptive name (e.g. "My Deluge") |
-| **Host** | IP address or hostname |
-| **Port** | Deluge web interface port (default: `8112`) |
-| **Password** | Deluge web interface password |
+Saved API keys are never sent back to the browser; when editing, leave the field empty to keep the existing key. A downloader that is temporarily unreachable is retried with backoff and skipped for the current poll rather than failing your downloads outright.
 
-4. Click **Test Connection** to verify the settings
-5. Click **Save**
+## The built-in downloader services
 
-## Testing Connection
+The three services are part of the standard Docker Compose deployment (see the [deployment overview](../deployment/overview.md)) and are configured entirely through environment variables on their containers:
 
-The connection test verifies:
+=== "Torrent"
 
-- The host is reachable
-- The port is correct
-- Authentication credentials are valid
-- The client is responding
+    Accepts magnet URIs and `.torrent` URLs via librqbit. DHT peer discovery can be toggled (`ENABLE_DHT`), concurrency is capped by `MAX_CONCURRENT_DOWNLOADS` (default 5), and finished downloads keep **seeding** until the configured `SEED_RATIO` is reached (`0` = no seeding).
 
-A green notification indicates success; error messages will describe what went wrong.
+=== "Usenet"
 
-## Managing Downloads
+    A full NNTP client: multi-connection downloads over TLS, yEnc decoding with CRC32 checks, **PAR2 verify and repair** (recovery volumes are only fetched when actually needed), and **Direct Unpack** — archives are extracted with unrar while later volumes are still downloading, including password-protected releases. The primary server is set via `USENET_HOST`, `USENET_PORT`, `USENET_USERNAME`, `USENET_PASSWORD`, and `USENET_CONNECTIONS`; up to five prioritized backup servers (`BACKUP_SERVER_1_HOST`, …) provide **failover**, each with its own connection count and retention window. An optional global speed cap is available via `SPEED_LIMIT_KBPS`.
 
-Navigate to **Admin** -> **Downloads** to see all active and completed downloads.
+=== "Spotify"
 
-The downloads page shows a table with:
+    Downloads tracks as native OGG Vorbis through librespot — no re-encoding. Requires a **Spotify Premium** account. On first start the service logs an OAuth login URL; open it, sign in, and the callback (port 8898) completes authentication. Credentials are cached afterwards, so this is a one-time step. Audio quality is set with `BITRATE` (`96`, `160`, or `320`, default 320).
 
-| Column | Description |
-|--------|-------------|
-| **Title** | Name of the media being downloaded |
-| **Status** | queued, downloading, importing, completed, failed |
-| **Progress** | Progress bar for active downloads |
-| **Size** | File size |
-| **Speed** | Current download speed |
-| **Started by** | Which user triggered the download |
-| **Downloader** | Which client is handling the download |
-| **Time** | When the download was started |
+### Webhook callbacks
 
-### Download Status Colors
+The built-in services report finished or failed jobs back to the backend via webhooks (`/api/webhooks/torrent`, `/api/webhooks/usenet`, `/api/webhooks/spotdl`), authenticated with a shared secret sent in the `X-Webhook-Secret` header. Both sides read it from the same environment variable:
 
-| Status | Color | Meaning |
-|--------|-------|---------|
-| **queued** | Grey | Waiting to start |
-| **downloading** | Blue | Currently downloading |
-| **importing** | Amber | Download complete, importing to library |
-| **completed** | Green | Successfully imported |
-| **failed** | Red | Something went wrong |
+- Backend: `DOWNLOADER_WEBHOOK_SECRET`
+- Downloader containers: `WEBHOOK_SECRET` (plus `WEBHOOK_URL`)
 
-### Actions
+!!! warning "The secret is mandatory"
+    The webhook endpoints fail closed: if `DOWNLOADER_WEBHOOK_SECRET` is not set on the backend, callbacks are rejected and completed downloads will never be imported. The standard compose files wire this up for you.
 
-- **Delete**: Remove a download from the queue
-- **Retry**: Retry a failed download
+When a job fails, the backend automatically tries an alternative link for the same release, and if none is left it blacklists the release and queues the next candidate.
 
-## How Downloads Work
+### Volume and path mapping
 
-1. Smart Play or manual release selection triggers a download
-2. Pyrate.Media sends the release to the configured download client
-3. The download client handles the actual download
-4. Pyrate.Media monitors progress via the client's API
-5. Once complete, the file is moved to the library path
-6. FFprobe analyzes the file for metadata (codecs, resolution, duration)
-7. The media item is updated with file information
+Downloaders and backend share files through bind-mounted volumes, and a downloader reports paths *as seen inside its own container*. The backend translates them using a mount map, overridable with the `DOWNLOADER_MOUNT_MAP` environment variable (JSON: `{"<name>": ["<remote_prefix>", "<local_prefix>"]}`). The defaults mirror the standard compose mounts:
+
+| Downloader | Path in downloader | Path in backend |
+|------------|--------------------|-----------------|
+| `torrent` | `/downloads` | `/torrent-downloads` |
+| `spotdl` | `/data/downloads` | `/spotdl-downloads` |
+| `usenet` | `/downloads` | `/downloads` |
+
+Only override this if you change the volume layout — a wrong mapping makes imports fail even though downloads complete.
+
+## Monitoring the download queue
+
+Navigate to **Admin → Downloads** to watch the live queue. The table shows media type, title (linked to the media item), status, downloader, progress, speed, creation time, and which user started the download, with a free-text search and a status filter (*Pending, Queued, Downloading, Paused, Completed, Failed, Imported*). The status column also surfaces detail phases such as *"Searching for releases"*, *"Trying another release"*, and *"Importing into library"*.
+
+Active downloads can be **paused**, **resumed**, or **deleted** from the actions column. Progress is refreshed by polling the clients every few seconds; completions from the built-in torrent and Spotify services arrive instantly via webhook.
+
+The [admin dashboard](dashboard.md) also shows active download activity at a glance, and download metrics are exported for [monitoring](monitoring.md).

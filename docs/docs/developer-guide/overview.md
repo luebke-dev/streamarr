@@ -1,492 +1,124 @@
 # Developer Guide Overview
 
-Welcome to the pyrate.media developer documentation. This guide provides comprehensive information for developers who want to contribute to, extend, or integrate with pyrate.media.
+pyrate.media is a monorepo: a Python backend, a Quasar/Vue frontend, several Rust services, and everything needed to deploy and observe the stack. This page orients you in the repository and gets a development environment running. For running the stack in production, see the [Deployment Overview](../deployment/overview.md).
 
-## Architecture Overview
+## Monorepo layout
 
-### System Architecture
+| Path | Contents |
+|------|----------|
+| `backend/` | FastAPI REST API + TaskIQ workers (Python 3.13, SQLModel/SQLAlchemy async, Alembic) |
+| `frontend/` | Quasar 2 / Vue 3 SPA — web, Tauri 2 desktop, Capacitor 7 Android |
+| `lightrays/` | WebRTC game-streaming server (Rust, GStreamer) |
+| `downloaders/` | `torrent/`, `spotify/`, `usenet/` — standalone Rust downloader services |
+| `deployment/` | Docker Compose, Helm chart, Podman quadlets, installer, backup tooling |
+| `containers/` | Wine and RetroArch game-streaming images |
+| `observability/` | Prometheus config and provisioned Grafana dashboard |
+| `docs/` | This MkDocs Material site |
 
-pyrate.media follows a modern, scalable architecture:
+Each component has its own README with deeper development notes. The backend serves the API under `/api/v1` and a WebSocket at `/api/ws`; data lives in PostgreSQL 16, Redis 7 (queue/cache/pub-sub), and Elasticsearch 9.2 (search index).
 
-**Frontend (Vue.js + Quasar)**:
-- Single Page Application (SPA) built with Vue 3
-- Quasar Framework for UI components and responsive design
-- Pinia for state management
-- Vue Router for client-side routing
-- Axios for HTTP client communication
+## Running the full stack
 
-**Backend (FastAPI + Python)**:
-- RESTful API built with FastAPI
-- SQLAlchemy ORM for database operations
-- Alembic for database migrations
-- Celery for background task processing
-- Redis for caching and task queuing
+The root `docker-compose.yml` builds all images locally and starts the complete stack — nginx backend proxy, API, worker, scheduler, frontend, Lightrays, the three downloaders, PostgreSQL, Redis, Elasticsearch, Prometheus, and Grafana. Create a `.env` in the repo root first (at minimum `SECRET_KEY`, `DATABASE_URL`, `REDIS_URL`), then:
 
-**Database (PostgreSQL)**:
-- Primary data storage with PostgreSQL
-- Redis for caching and session storage
-- Database migrations managed with Alembic
-
-**Infrastructure**:
-- Docker containers for deployment
-- Kubernetes support for orchestration
-- Nginx for reverse proxy and static file serving
-- Helm charts for Kubernetes deployment
-
-### Technology Stack
-
-**Frontend Technologies**:
-- **Vue 3**: Progressive JavaScript framework
-- **Quasar Framework**: Vue.js based UI framework
-- **TypeScript**: Type-safe JavaScript development
-- **Pinia**: State management library
-- **Vue Router**: Client-side routing
-- **Axios**: HTTP client library
-- **i18n**: Internationalization support
-
-**Backend Technologies**:
-- **Python 3.11+**: Programming language
-- **FastAPI**: Modern web framework for APIs
-- **SQLAlchemy**: SQL toolkit and ORM
-- **Alembic**: Database migration tool
-- **Celery**: Distributed task queue
-- **Redis**: In-memory data structure store
-- **Pydantic**: Data validation using Python type hints
-
-**Development Tools**:
-- **Docker**: Containerization platform
-- **Docker Compose**: Multi-container application definition
-- **Poetry**: Python dependency management
-- **Yarn**: JavaScript package manager
-- **ESLint**: JavaScript linting
-- **Prettier**: Code formatting
-- **Black**: Python code formatting
-
-## Development Environment Setup
-
-### Prerequisites
-
-Before setting up the development environment, ensure you have:
-
-- **Docker** and **Docker Compose** installed
-- **Node.js** (v18 or later) and **Yarn**
-- **Python** (3.11 or later) and **Poetry**
-- **Git** for version control
-- **IDE/Editor** (VS Code recommended)
-
-### Quick Setup
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/your-org/pyrate.media.git
-   cd pyrate.media
-   ```
-
-2. **Start development environment**:
-   ```bash
-   docker-compose -f docker-compose.dev.yml up -d
-   ```
-
-3. **Install frontend dependencies**:
-   ```bash
-   cd frontend
-   yarn install
-   yarn dev
-   ```
-
-4. **Install backend dependencies**:
-   ```bash
-   cd backend
-   poetry install
-   poetry run uvicorn src.pyrate.web:app --reload
-   ```
-
-### Detailed Setup
-
-**Backend Setup**:
-1. Navigate to the backend directory
-2. Install Python dependencies with Poetry
-3. Set up environment variables
-4. Run database migrations
-5. Start the development server
-
-**Frontend Setup**:
-1. Navigate to the frontend directory
-2. Install Node.js dependencies with Yarn
-3. Configure environment variables
-4. Start the development server
-5. Access the application at http://localhost:9000
-
-## Project Structure
-
-### Repository Layout
-
-```
-pyrate.media/
-├── backend/                 # Python FastAPI backend
-│   ├── src/pyrate/         # Main application code
-│   ├── alembic/            # Database migrations
-│   ├── tests/              # Backend tests
-│   ├── pyproject.toml      # Python dependencies
-│   └── Containerfile       # Backend Docker image
-├── frontend/               # Vue.js frontend
-│   ├── src/                # Frontend source code
-│   ├── public/             # Static assets
-│   ├── tests/              # Frontend tests
-│   ├── package.json        # Node.js dependencies
-│   └── Containerfile       # Frontend Docker image
-├── docs/                   # Documentation
-├── helm/                   # Kubernetes Helm charts
-├── docker-compose.yml      # Production Docker Compose
-├── docker-compose.dev.yml  # Development Docker Compose
-└── README.md              # Project overview
+```bash
+docker compose up -d --build
 ```
 
-### Backend Structure
+!!! note "Migrations run as a one-shot service"
+    The `migrate` service runs `alembic upgrade head` once; API, worker, and scheduler wait for it to complete. You never race migrations by scaling workers.
 
-```
-backend/src/pyrate/
-├── __init__.py
-├── config.py              # Configuration management
-├── database.py            # Database connection
-├── web.py                 # FastAPI application
-├── worker.py              # Celery worker
-├── api/                   # API endpoints
-│   ├── __init__.py
-│   ├── dependencies.py    # Dependency injection
-│   ├── router.py          # API routing
-│   └── v1/                # API version 1
-├── auth/                  # Authentication
-├── crud/                  # Database operations
-├── models/                # SQLAlchemy models
-├── schemas/               # Pydantic schemas
-├── services/              # Business logic
-└── tasks/                 # Background tasks
-```
+## Working on a single component
 
-### Frontend Structure
+=== "Backend (uv)"
 
-```
-frontend/src/
-├── App.vue                # Root component
-├── main.js                # Application entry point
-├── assets/                # Static assets
-├── boot/                  # Quasar boot files
-├── components/            # Reusable components
-├── css/                   # Global styles
-├── i18n/                  # Internationalization
-├── layouts/               # Page layouts
-├── pages/                 # Page components
-├── router/                # Vue Router configuration
-└── stores/                # Pinia stores
-```
+    The backend uses [uv](https://docs.astral.sh/uv/) — not pip or Poetry — and requires Python ≥ 3.13.
 
-## Development Workflow
+    ```bash
+    cd backend
+    uv sync
 
-### Git Workflow
+    # API with hot reload
+    uv run uvicorn pyrate.web:app --reload --port 8000
 
-We follow a Git flow workflow:
+    # Background worker and cron scheduler
+    uv run taskiq worker pyrate.worker:broker
+    uv run taskiq scheduler pyrate.worker:scheduler
 
-1. **Feature Branches**: Create feature branches from `develop`
-2. **Pull Requests**: Submit PRs for code review
-3. **Code Review**: All code must be reviewed before merging
-4. **Testing**: Automated tests must pass
-5. **Merge**: Merge to `develop` after approval
+    # Database migrations
+    uv run alembic upgrade head
+    ```
 
-### Branch Naming
+    Key packages under `backend/src/pyrate/`: `api/` (routers), `models/` and `schemas/`, `services/`, `libraries/` (library-type plugins), `indexers/`, `downloaders/`, `metadata/`, `workers/`, `smart_collections/`, `overlays/`.
 
-- `feature/description`: New features
-- `bugfix/description`: Bug fixes
-- `hotfix/description`: Critical fixes
-- `refactor/description`: Code refactoring
-- `docs/description`: Documentation updates
+=== "Frontend (yarn)"
 
-### Commit Messages
+    Node 20+ and Yarn. The dev server runs on **:9000** and proxies `/api` to the backend on **:8000** (and `/api/lightrays-ws` to Lightrays on **:8009**), so run it against a local or compose-started backend.
 
-Follow conventional commit format:
-- `feat: add new feature`
-- `fix: resolve bug`
-- `docs: update documentation`
-- `style: formatting changes`
-- `refactor: code refactoring`
-- `test: add tests`
-- `chore: maintenance tasks`
+    ```bash
+    cd frontend
+    yarn install
+    yarn dev          # dev server on :9000 with hot reload
+    yarn dev:tauri    # desktop shell against the same dev server
+    yarn build        # production SPA build
+    ```
 
-## API Development
+=== "Rust services"
 
-### FastAPI Basics
+    Each downloader is a standard Cargo project:
 
-**Creating Endpoints**:
-```python
-from fastapi import APIRouter, Depends
-from ..dependencies import get_current_user
-from ..schemas import MovieResponse
+    ```bash
+    cd downloaders/torrent   # or spotify/, usenet/
+    cargo build --release
+    ./target/release/torrent-downloader
+    ```
 
-router = APIRouter(prefix="/movies", tags=["movies"])
+    Lightrays needs GStreamer and (for hardware encoding) a VA-API GPU, so it is easiest to develop through its compose override, which disables auth and bind-mounts the source:
 
-@router.get("/", response_model=List[MovieResponse])
-async def get_movies(
-    current_user: User = Depends(get_current_user)
-):
-    # Implementation
-    pass
+    ```bash
+    cd lightrays/docker
+    docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+    ```
+
+=== "Docs"
+
+    The docs site is uv-managed too:
+
+    ```bash
+    cd docs
+    uv sync
+    uv run mkdocs serve
+    ```
+
+## Testing and linting
+
+```bash
+# Backend — tests run against in-memory SQLite
+cd backend
+uv run pytest
+uv run pytest -k "search" -v
+uv run pytest --cov=pyrate
+
+# Frontend — Vitest + happy-dom
+cd frontend
+yarn test:unit        # single run
+yarn test             # watch mode
+yarn lint             # ESLint
+yarn format           # Prettier
 ```
 
-**Request/Response Models**:
-```python
-from pydantic import BaseModel
-from typing import Optional
+Backend linting and typing use **ruff** and **mypy** (see `[dependency-groups] dev` in `backend/pyproject.toml`); a pre-commit config is included.
 
-class MovieCreate(BaseModel):
-    title: str
-    year: Optional[int] = None
-    imdb_id: Optional[str] = None
+## Key ports
 
-class MovieResponse(BaseModel):
-    id: int
-    title: str
-    year: Optional[int]
-    
-    class Config:
-        from_attributes = True
-```
+| Service | Port (root compose) | Notes |
+|---------|--------------------|-------|
+| Backend (nginx proxy) | 8000 | Proxies to the FastAPI container |
+| Frontend | 3001 | `yarn dev` uses **9000** instead |
+| Lightrays | 8009 (API), 8099 (stream WS) | |
+| Torrent / usenet / spotify downloader | 3002 / 3003 / 3004 | Each listens on 3000 internally |
+| PostgreSQL / Elasticsearch | 5432 / 9200 | Bound to localhost only |
+| Prometheus / Grafana | 9090 / 3005 | See [Monitoring](../administration/monitoring.md) |
 
-### Database Operations
-
-**SQLAlchemy Models**:
-```python
-from sqlalchemy import Column, Integer, String
-from ..database import Base
-
-class Movie(Base):
-    __tablename__ = "movies"
-    
-    id = Column(Integer, primary_key=True)
-    title = Column(String, nullable=False)
-    year = Column(Integer)
-    imdb_id = Column(String, unique=True)
-```
-
-**CRUD Operations**:
-```python
-from sqlalchemy.orm import Session
-from ..models import Movie
-from ..schemas import MovieCreate
-
-def create_movie(db: Session, movie: MovieCreate):
-    db_movie = Movie(**movie.dict())
-    db.add(db_movie)
-    db.commit()
-    db.refresh(db_movie)
-    return db_movie
-
-def get_movie(db: Session, movie_id: int):
-    return db.query(Movie).filter(Movie.id == movie_id).first()
-```
-
-## Frontend Development
-
-### Vue.js Components
-
-**Component Structure**:
-```vue
-<template>
-  <div class="movie-card">
-    <q-card>
-      <q-img :src="movie.poster" />
-      <q-card-section>
-        <div class="text-h6">{{ movie.title }}</div>
-        <div class="text-subtitle2">{{ movie.year }}</div>
-      </q-card-section>
-    </q-card>
-  </div>
-</template>
-
-<script setup>
-import { defineProps } from 'vue'
-
-const props = defineProps({
-  movie: {
-    type: Object,
-    required: true
-  }
-})
-</script>
-```
-
-**Pinia Store**:
-```javascript
-import { defineStore } from 'pinia'
-import { api } from 'src/boot/axios'
-
-export const useMovieStore = defineStore('movies', {
-  state: () => ({
-    movies: [],
-    loading: false
-  }),
-  
-  actions: {
-    async fetchMovies() {
-      this.loading = true
-      try {
-        const response = await api.get('/movies')
-        this.movies = response.data
-      } finally {
-        this.loading = false
-      }
-    }
-  }
-})
-```
-
-## Testing
-
-### Backend Testing
-
-**Unit Tests**:
-```python
-import pytest
-from fastapi.testclient import TestClient
-from ..web import app
-
-client = TestClient(app)
-
-def test_get_movies():
-    response = client.get("/api/v1/movies")
-    assert response.status_code == 200
-    assert isinstance(response.json(), list)
-```
-
-**Database Testing**:
-```python
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from ..database import Base
-from ..crud import create_movie
-
-@pytest.fixture
-def db_session():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
-```
-
-### Frontend Testing
-
-**Component Tests**:
-```javascript
-import { mount } from '@vue/test-utils'
-import { describe, it, expect } from 'vitest'
-import MovieCard from '../MovieCard.vue'
-
-describe('MovieCard', () => {
-  it('renders movie title', () => {
-    const movie = { title: 'Test Movie', year: 2023 }
-    const wrapper = mount(MovieCard, {
-      props: { movie }
-    })
-    expect(wrapper.text()).toContain('Test Movie')
-  })
-})
-```
-
-## Code Style and Standards
-
-### Python Code Style
-
-- **Black**: Code formatting
-- **isort**: Import sorting
-- **flake8**: Linting
-- **mypy**: Type checking
-
-**Configuration** (pyproject.toml):
-```toml
-[tool.black]
-line-length = 88
-target-version = ['py311']
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3
-
-[tool.mypy]
-python_version = "3.11"
-strict = true
-```
-
-### JavaScript Code Style
-
-- **ESLint**: Linting
-- **Prettier**: Code formatting
-- **TypeScript**: Type checking
-
-**Configuration** (.eslintrc.js):
-```javascript
-module.exports = {
-  extends: [
-    '@quasar/eslint-config-standard',
-    '@quasar/eslint-config-typescript'
-  ],
-  rules: {
-    'prefer-promise-reject-errors': 'off'
-  }
-}
-```
-
-## Contributing Guidelines
-
-### Getting Started
-
-1. **Fork the repository** on GitHub
-2. **Clone your fork** locally
-3. **Create a feature branch** from develop
-4. **Make your changes** following code standards
-5. **Write tests** for new functionality
-6. **Submit a pull request** with clear description
-
-### Pull Request Process
-
-1. **Update documentation** if needed
-2. **Add tests** for new features
-3. **Ensure all tests pass**
-4. **Follow commit message conventions**
-5. **Request review** from maintainers
-
-### Code Review Checklist
-
-- [ ] Code follows style guidelines
-- [ ] Tests are included and passing
-- [ ] Documentation is updated
-- [ ] No breaking changes without discussion
-- [ ] Security considerations addressed
-
-## Resources and References
-
-### Documentation
-
-- **[API Reference](api-reference.md)**: Complete API documentation
-- **[Frontend Guide](frontend-development.md)**: Vue.js development guide
-- **[Backend Guide](backend-development.md)**: FastAPI development guide
-- **[Database Guide](database-development.md)**: Database schema and operations
-- **[Testing Guide](testing.md)**: Testing strategies and examples
-
-### External Resources
-
-- **[FastAPI Documentation](https://fastapi.tiangolo.com/)**
-- **[Vue.js Documentation](https://vuejs.org/)**
-- **[Quasar Framework](https://quasar.dev/)**
-- **[SQLAlchemy Documentation](https://docs.sqlalchemy.org/)**
-- **[Pinia Documentation](https://pinia.vuejs.org/)**
-
-### Community
-
-- **GitHub Issues**: Bug reports and feature requests
-- **Discussions**: Community discussions and questions
-- **Discord**: Real-time chat and support
-- **Contributing**: How to contribute to the project
-
-This developer guide provides the foundation for contributing to pyrate.media. For detailed information on specific topics, refer to the individual guide sections.
+!!! tip
+    Trigger background jobs (scans, index sync, refreshes) from the admin **Tasks** page rather than the CLI — see the [Administration Overview](../administration/overview.md) and [Maintenance & Backups](../administration/maintenance.md).

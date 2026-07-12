@@ -1,74 +1,83 @@
 # Membership
 
-Pyrate.Media can optionally offer a subscription system. This feature must be enabled by the admin.
+pyrate.media can optionally offer paid subscription plans. Payments are processed through **Stripe**; membership can also be granted with **voucher codes**.
 
-!!! info "Optional Feature"
-    The membership page is only visible if the admin has enabled the subscription system. If you do not see the page, the feature is not available for your instance.
+!!! info "Optional feature"
+    Memberships are a per-instance feature that the administrator must enable and configure. If you do not see a **Membership** entry in your user menu, the feature is not available on your server. See [Membership & Vouchers](../administration/membership.md) for the admin side.
 
-## Opening the Membership Page
+## Opening the Membership page
 
-Navigate to `/membership` or find the link in the user menu (if enabled).
+Open the user menu (your avatar in the toolbar) and select **Membership**, or navigate to `/membership` directly. The page is titled *"Manage your subscription and billing information"* and contains everything below on a single screen.
 
-## Current Plan
+## Current plan
 
-At the top of the page you can see your current plan with:
+If you have an active subscription, the top card shows:
 
-- **Plan Name** and **Status** (Active, Expiring)
-- **Price** per month
-- **Description** of the plan
-- **Features**: What is included in the plan
-- **Next Billing**: When the next payment is due
-
-### Plan Status
+- **Plan name**, monthly **price**, and **description**
+- **Features** included in the plan
+- **Status** chip and the **next billing** date
 
 | Status | Meaning |
-|--------|-----------|
+|--------|---------|
 | **Active** | Your subscription is running normally |
-| **Expiring** | Your subscription has been cancelled and will expire on the next billing date |
+| **Expiring** | Your subscription has been cancelled and remains valid until the shown date |
 
-## Available Plans
+While a plan is **Expiring**, a **Renew Now** button lets you re-subscribe before access ends. Without any subscription, a banner invites you to pick a plan below.
 
-Below, all available plans are displayed. Each plan shows:
+## Available plans
 
-- **Name** and **Price**
-- **Description**
-- **Features** as a checklist
-- Button to **Upgrade** or **Downgrade**
+All purchasable plans are shown as cards with name, price per month, description, and a feature checklist. Plan features reflect what the administrator has configured, for example:
 
-The most popular plan is highlighted with a "Most Popular Plan" badge.
+- Number of libraries available
+- Number of concurrent streams
+- Maximum video quality (e.g. 4K)
+- Compressed or lossless audio
+- Offline downloads
 
-## Changing Plans
+Your current plan is highlighted, and each other card offers **Subscribe** (no active plan), **Upgrade** (more expensive plan), or **Downgrade** (cheaper plan).
 
-1. Select a new plan
-2. A confirmation dialog shows the comparison between the current and new plan
-3. Confirm the change
-4. The new plan is activated
+## Changing plans
 
-## Cancelling a Subscription
+1. Click **Upgrade** or **Downgrade** on the plan you want.
+2. A confirmation dialog compares your **Current Plan** with the **New Plan** side by side.
+3. Click **Confirm Change** — changes take effect immediately.
 
-1. Click **Cancel Subscription** on your current plan
-2. Read the warning notice (your access remains until the end of the billing period)
-3. Confirm the cancellation
+## Cancelling a subscription
 
-## Payment Method
+1. Click **Cancel Subscription** on your current plan.
+2. Read the warning: your access remains active until the end of the paid period; after that date you lose access to subscriber content.
+3. Click **Confirm Cancellation** (or **Keep Subscription** to back out).
 
-In the **Payment Method** section you can see:
+The plan then shows as **Expiring** until the date is reached — you can still use **Renew Now** to change your mind.
 
-- Your current card (type and last 4 digits)
-- Card expiration date
-- Button to **Update** the payment method
+## Redeeming vouchers
 
-## Billing History
+The **Redeem Voucher** section accepts codes handed out by your administrator (e.g. `ABCD-1234-EFGH`). Enter the code and click **Redeem**:
 
-A table shows your previous invoices with:
+- With no active subscription, the voucher's plan is activated for the voucher's duration — *"Membership activated"*.
+- With an active subscription on the **same** plan, your expiry date is extended — *"Membership extended"*.
+- With an active subscription on a **different** plan, redemption is refused; cancel the current plan first.
 
-- Date
-- Plan
-- Amount
-- Status (Paid/Open)
-- Download button for invoices
+Invalid, expired, or fully used-up codes are rejected with a matching error message.
 
-## Next Steps
+!!! tip "No card required"
+    Voucher redemption does not require a payment method — it is a convenient way to get membership on instances that do not take card payments.
 
-- [Settings](settings.md) - Edit profile
-- [Dashboard](dashboard.md) - Back to the home page
+## Payment method
+
+The **Payment Method** card shows your saved card (brand, last four digits, expiry date) with an **Update Payment** button, or an **Add Payment Method** button if none is on file.
+
+Card details are entered in a secure Stripe form (card number plus optional cardholder name) and are sent directly to Stripe — the server never sees your full card data.
+
+!!! note
+    If the dialog shows *"Payments are not configured on this server"*, the instance runs without Stripe — memberships can then only be granted via vouchers or by an administrator.
+
+## Billing history
+
+The **Billing History** table lists your Stripe invoices with **Date**, **Plan**, **Amount**, and **Status** (**Paid** or **Failed**). Use **Download Invoice** to open the invoice PDF in a new tab. *"No invoices yet"* appears if you have no billing history.
+
+## Next steps
+
+- [User Settings](settings.md) — profile, language, and playback preferences
+- [Streaming & Playback](streaming.md) — what stream quality and limits mean in practice
+- [Membership & Vouchers (Admin)](../administration/membership.md) — how plans and vouchers are configured

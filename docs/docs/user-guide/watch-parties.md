@@ -1,87 +1,84 @@
 # Watch Parties
 
-Watch Parties enable synchronized streaming - you watch the same movie or episode together with friends, synchronized in real time.
+Watch parties let you watch the same movie or episode together with friends — playback stays synchronized in real time for everyone, no matter where they are.
 
-## Creating a Watch Party
+Everything happens through the **Party** button (the people icon) in the top toolbar. It is available on every page and shows a badge with the member count while you are in a party.
 
-### From the Player
+## Creating a party
 
-1. Open a movie or an episode
-2. Start playback
-3. In the player you will find the **Watch Party** button
-4. A party is created with a **6-digit code**
-5. Share the code with your friends
+1. Click the **Party** button in the toolbar and choose **Create**
+2. Optionally give the party a name (e.g. *Movie Night*)
+3. Decide whether to enable **Allow others to control** — when enabled, all members can play, pause, and seek; otherwise only you as the host
+4. Click **Create** — you get a six-character **party code** to share with your friends
 
-### From the Toolbar
+If you create the party while you are already watching something, that title automatically becomes the party's media. Otherwise the party starts empty: as soon as you (the host) start playing a movie or episode, it becomes the party's title and all members are taken to it automatically.
 
-In the header there is a Watch Party button that shows you active parties and allows creating/joining.
+!!! tip "Guest control"
+    The **Allow others to control** setting is chosen when the party is created. Leave it off for a classic "host runs the show" experience, or turn it on so everyone can pause when someone needs a snack break.
 
-## Joining a Watch Party
+## Joining a party
 
-1. Click the **Watch Party** button in the toolbar
-2. Select **Join**
-3. Enter the 6-digit party code
-4. You will be added to the party and see the same medium as the host
+There are two ways to join:
 
-### Party Codes
+=== "With a party code"
 
-- 6-digit, alphanumeric (e.g. `ABC123`)
-- Case insensitive
+    1. Click the **Party** button in the toolbar and choose **Join**
+    2. Enter the six-character code the host shared with you
+    3. You join the party — if it is already watching something, you are taken straight to playback at the current position
+
+=== "From your friends' parties"
+
+    If a [friend](friends.md) is hosting an active party, it appears under **Friends' Parties** in the Party menu — click it to join without typing a code.
+
+### Party codes
+
+- Six characters, letters and numbers
+- Not case sensitive
 - Valid as long as the party is active
 
-## Roles
+## Host and members
 
-### Host (Creator)
+| Action | Host | Member |
+|--------|------|--------|
+| Play, pause, seek for everyone | Yes | Only if guest control is enabled |
+| Switch to a different movie or episode | Yes (everyone follows) | No |
+| Remove a member from the party | Yes | No |
+| Copy and share the party code | Yes | Yes |
+| Leave the party | Yes — ends the party for everyone | Yes — the party continues |
 
-As host, you control playback for everyone:
+!!! warning "The host leaving ends the party"
+    There is no separate "end party" step: when the host leaves, the session ends and all members are disconnected.
 
-- **Play/Pause**: Starts and stops for all participants
-- **Seek**: Jumps to the desired position for everyone
-- **End Party**: Ends the watch party for everyone
+## How synchronization works
 
-### Participant
+- Play, pause, position, and playback speed are pushed to all members in real time
+- Small timing differences (under a couple of seconds) are tolerated; if you drift further, your player jumps back to the shared position
+- The host's position is re-broadcast periodically, so anyone joining late lands at the right spot
+- When you join a party mid-playback, the party position is used for resume — not your personal viewing history
 
-As a participant:
+Each participant streams the title with their own account and their own quality settings, so one member's slow connection does not degrade the picture for everyone else. See [Streaming & Playback](streaming.md) for how playback itself works.
 
-- You see the same medium as the host
-- Your position is automatically synchronized
-- You can **leave** the party at any time
+## The Party menu
 
-## Synchronization
+While you are in a party, the toolbar **Party** button shows:
 
-The watch party keeps all participants in sync:
+- The party name and the **party code**, with a copy-to-clipboard button
+- The **member list**, with a **Host** badge and a live **Connected** / **Disconnected** status per member
+- **Remove Member** buttons (host only)
+- **Leave Party**
 
-- **Real-time updates** via WebSocket connection
-- **Drift correction**: Small deviations are smoothly compensated
-- **Hard sync**: For large deviations, the position is corrected
-
-### Heartbeat
-
-Your browser regularly sends a signal to the server to show that you are still connected. If the signal is absent (e.g. when the tab is in the background), you are shown as offline.
-
-## Watch Party Controls
-
-In the player, additional controls appear for watch parties:
-
-- **Participant list**: Shows who is currently watching
-- **Sync status**: Shows whether everyone is in sync
-- **Leave/End party**: Depending on your role
-
-## Tips
-
-- **Stable connection**: Ensure good internet for both you and your friends
-- **Start together**: Wait until everyone has joined before the host starts
-- **Modern browser**: Use up-to-date browsers for the best compatibility
-- **Communication**: Use an external chat/voice channel (e.g. Discord) for conversation
+Your app regularly signals the server that you are still there; if that signal stops (for example, a closed laptop), you appear as *Disconnected* to the others.
 
 ## Limitations
 
-- Only one medium per party
-- No integrated video or audio chat functionality
-- Mobile browsers may have limitations with background tabs
+- One title at a time — the whole party watches the same movie or episode
+- Watch parties are for video (movies and episodes)
+- No built-in text, voice, or video chat — use an external channel such as Discord alongside
+- Every participant needs their own account on the server and access to the title
+- Server administrators can see and end any active party
 
-## Next Steps
+## Next steps
 
-- [Streaming](streaming.md) - How playback works
-- [Friends & Invitations](friends.md) - Invite friends
-- [Movies & Series](movies.md) - Discover media
+- [Streaming & Playback](streaming.md) — how playback works
+- [Friends & Invites](friends.md) — add friends to see their parties
+- [Movies & Shows](movies.md) — find something to watch together

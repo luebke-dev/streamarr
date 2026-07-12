@@ -1,77 +1,103 @@
 # User Settings
 
-On the settings page, you can edit your profile, adjust language settings, and change your password.
+The settings page collects everything personal about your account: profile data, languages, parental control, playback behavior, cloud-gaming input, your devices, and security.
 
 ## Opening the Settings
 
-Open the settings via:
-
-- **User Menu** (top right) -> **Settings**
+- **User menu** (avatar, top right) → **Settings**
 - Or navigate directly to `/settings`
 
-## Editing Your Profile
+## Profile
 
 ### Personal Information
 
-Edit your personal details:
+- **First Name** / **Last Name**
+- **Email Address** — read-only if you sign in via an external identity provider (OIDC)
+- **Username** (optional) — used as your display name if provided
 
-- **First Name**: Your first name
-- **Last Name**: Your last name
-- **Email**: Your email address (read-only for OIDC accounts)
-- **Username**: Your public display name
-
-Click **Update Profile** to save the changes.
+Click **Update Profile** to save, or **Reset** to discard your edits.
 
 ### Account Information
 
-On the right side you can see:
-
-- **User ID**: Your unique ID
-- **Account Status**: Active or Inactive
-- **Administrator**: If you have admin privileges
-- **Authentication**: "OIDC" if you are logged in via an external provider
-- **Registered since**: When your account was created
+The sidebar shows read-only details: your **User ID**, **Account Status** (Active/Inactive), an **Administrator** badge if you have admin rights, the **Authentication** method (an *OIDC Provider* badge for SSO accounts), and **Registered since**.
 
 ## Language Settings
 
-Pyrate.Media offers three independent language settings:
+| Setting | What it does |
+|---------|--------------|
+| **Interface Language** | Language of the app itself. Changes apply immediately. |
+| **Preferred Audio Languages** | An ordered priority list — the first language has the highest priority; use the arrows to reorder. When playback starts, the best-matching audio track is selected automatically. |
+| **Preferred Subtitle Language** | A single language. If the file has a matching subtitle track, it is preselected when playback starts. Leave the field empty to disable subtitles by default. |
 
-### UI Language
+!!! note "Available interface translations"
+    The interface is fully translated into **English** and **German**. Further languages appear in the dropdown, but their translations are not complete yet.
 
-The language of the user interface:
+!!! tip "Your audio languages also steer downloads"
+    When pyrate.media downloads something on your behalf (for example via Smart Play or monitored favorites), your preferred audio languages are factored into which release is chosen.
 
-- **German (de-DE)**
-- **English (en-US)**
+You can always override audio and subtitle tracks for the current video in the player itself — see [Streaming & Playback](streaming.md).
 
-The interface is immediately displayed in the selected language.
+## Parental Control
 
-### Audio Language
+Set an age-rating threshold for your own account: **No limit**, **0+**, **6+**, **12+**, **16+**, or **18+**. Movies and shows rated above the threshold are hidden and blocked; unrated media stays visible. Administrators can also enforce this setting per account.
 
-Your preferred audio track for streaming:
+## Playback
 
-- During playback, the audio track in your preferred language is automatically selected
-- If not available, the default audio track of the file is used
+Choose how intros, outros, and credits are handled when markers are available:
 
-### Subtitle Language
+| Option | Behavior |
+|--------|----------|
+| **Show skip button** | A skip button appears in the player (default) |
+| **Skip automatically** | The segment is skipped without asking |
+| **Disabled** | No button, no auto-skip |
 
-Your preferred subtitle language:
+Each of **Skip Intro**, **Skip Outro**, and **Skip Credits** can be set independently.
 
-- Subtitles are burned into the video during transcoding
-- If not available, no subtitles are displayed
+!!! note "Video quality needs no setup"
+    Which codecs your device can play is detected automatically when you sign in, and the server uses that to decide between direct play and transcoding. There is nothing to configure here.
 
-## Changing Your Password
+## Cloud Gaming
 
-!!! info "Only for local accounts"
-    OIDC users cannot change their password in Pyrate.Media - this is done at the identity provider.
+Input preferences for game streaming sessions (see [Games](games.md)):
 
-1. Scroll to the **Change Password** section
-2. Enter your current password
-3. Enter the new password
-4. Confirm the new password
-5. Click **Change Password**
+- **Keyboard Layout** — the layout passed into your game session (English US/UK, German, French, Spanish, Italian, Portuguese, Russian, Japanese)
+- **Mouse Speed** — sensitivity multiplier from 0.1x to 3.0x
+- **Controller** — gamepad behavior for retro game sessions:
+    - **Analog stick deadzone** (0–50%)
+    - **D-Pad mode** — keep the D-pad as a D-pad, or map it to the left or right analog stick
 
-## Next Steps
+## My Devices
 
-- [Dashboard](dashboard.md) - Back to the home page
-- [Friends & Invitations](friends.md) - Manage friends
-- [Membership](membership.md) - Subscription management (if enabled)
+Every device you sign in with appears as a card showing its platform, last activity, and last IP address. The device you are currently using is marked with a **Current Device** badge.
+
+- **Edit** — give the device a custom name for easier identification
+- **Delete** — remove the device; it is signed out. Removing your current device logs you out.
+
+Each card also has an **Offline sync** panel listing that device's offline downloads with their status (*Queued*, *Downloading*, *Ready*, *Failed*, *Removed*), download progress, and expiry. How to download media for offline use and how casting works is covered in [Devices, Casting & Offline](devices.md).
+
+## Security
+
+### Change Password
+
+For local accounts: enter your current password, then the new password (at least 8 characters) and its confirmation.
+
+!!! info "OIDC accounts"
+    If you sign in through an identity provider, password changes are done at the provider, not in pyrate.media.
+
+### Danger Zone
+
+**Delete Account** permanently removes your account after a confirmation dialog.
+
+!!! warning
+    Deleting your account is irreversible — all your data is lost.
+
+## Desktop App: Server Connection
+
+In the desktop app, an additional **Server Connection** section lets you change the **Server URL** your app connects to. Click **Save & Reconnect** to apply.
+
+## Related Pages
+
+- [Account & Login](account.md) — registration, login, password reset
+- [Devices, Casting & Offline](devices.md) — offline downloads, casting, remote control
+- [Friends & Invites](friends.md) — manage friends
+- [Membership](membership.md) — subscription management (if enabled)

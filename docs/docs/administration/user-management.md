@@ -1,137 +1,81 @@
-# User & Group Management
+# Users & Groups
 
-Manage user accounts, permissions, and groups in Pyrate.Media.
+pyrate.media has one user system shared by streaming, downloads, and gaming. Everything in this chapter lives in the admin area: **Users**, **Groups**, **Invites**, and **Devices** in the sidebar's Users section, plus **Active Sessions** under Monitoring & Queues.
 
-## User Roles
+## Roles
 
-### Superuser (Admin)
+There are exactly two roles. **Superusers** (the **Administrator** toggle on a user) get full access to the admin area. Regular users browse and play media within their permissions.
 
-Users with `is_superuser` enabled:
+!!! note
+    Groups and permissions control what users can see, play, and download — they never grant admin access.
 
-- Full access to the admin area
-- Can manage other users and system settings
-- Can edit system lists and configure plugins
-- Can view all downloads and sessions
+## Managing users
 
-### Regular User
+**Admin → Users** lists all accounts with first/last name, email, active status, role, and creation date, plus edit and delete actions.
 
-Standard users:
+- **Create**: **Add User** asks for first/last name, email, and a password (leave empty for OIDC-only users), with **Active User** and **Administrator** toggles.
+- **Edit**: besides the basic fields, the edit page covers language preferences (interface language, prioritized audio languages, subtitle language), per-user playback preferences (skip intro/outro/credits: show button, skip automatically, or disabled), **Permission Overrides**, and a read-only **Effective Permissions** card showing the resolved result. Entering a password here sets a new one for the user.
+- **Detail page**: click a user to see account info (groups, locale), authentication (local or OIDC, OIDC subject, last login), activity statistics, and the user's invites, devices, and lists.
 
-- Can browse and play media
-- Can create personal lists and favorites
-- Can adjust their own settings
-- No access to the admin area
+!!! warning
+    Deleting a user also deletes their lists, favorites, viewing history, devices, invites, and API keys.
 
-## User Management
+Accounts for **OIDC** users are created automatically on first SSO login; they have no local password — password changes happen at the identity provider.
 
-Navigate to **Admin** -> **Users** to see all registered users.
+## Permissions
 
-### User List
+Permissions resolve through three layers:
 
-The users page shows a table with:
+| Layer | Where | Behavior |
+|-------|-------|----------|
+| Global defaults | **Admin → Settings → Global Permission Defaults** | Hard caps for everyone — group and user permissions cannot exceed them |
+| Groups | **Admin → Groups** | Shared permission profiles |
+| User overrides | **Admin → Users → Edit** | Highest priority; empty fields inherit from group or global defaults |
 
-- **Name** and **email**
-- **Status**: Active/Inactive badge
-- **Role**: Superuser badge if applicable
-- **Auth type**: OIDC badge if using external provider
-- **Created**: Registration date
-- **Actions**: View, Edit, Delete
+Groups and user overrides configure the same set of controls:
 
-### Creating a User
+| Section | Settings |
+|---------|----------|
+| Library Access | **Allowed Libraries** — which library types (movies, shows, music, games, books, photos) can be browsed and played |
+| Streaming Limits | Max concurrent streams, max game streams |
+| Quality Limits | Maximum video quality; maximum audio quality (compressed vs. lossless) |
+| Transcoding | Max concurrent transcodings (`0` = no transcoding allowed) |
+| Rate limits | Offline, prefetch, and on-demand downloads; indexer API requests and downloads; playbacks — each as a count per period (minute to month), empty = unlimited |
+| Favorites | Protect favorites from library cleanup |
 
-1. Navigate to **Admin** -> **Users** -> **Create User**
-2. Fill in the form:
-    - **Email**: Unique email address (required)
-    - **First Name** and **Last Name**
-    - **Username**: Public display name
-    - **Password**: For local authentication
-    - **Superuser**: Enable for admin privileges
-3. Click **Create**
+!!! tip "Group membership"
+    Users are placed into groups automatically by the membership package they subscribe to — see [Membership & Vouchers](membership.md). Direct assignment is also possible via the API (`POST /api/groups/assign`). The groups list shows each group's member count.
 
-### Editing a User
+## Parental controls
 
-1. Click a user in the list or the **Edit** button
-2. Editable fields:
-    - Name, email, username
-    - Superuser status
-    - Active/Inactive status
-3. Click **Save**
+Each user has a maximum age rating: media rated above it is hidden and blocked, while unrated media stays visible. Users set their own threshold under **User Settings → Parental control** (No limit, 0+, 6+, 12+, 16+, 18+ — see [User Settings](../user-guide/settings.md)). Administrators can override it for any account via `PUT /api/users/{user_guid}/parental-control`.
 
-### User Detail Page
+!!! tip
+    For child accounts, combine an age-rating limit with a restricted **Allowed Libraries** list.
 
-Clicking a user shows their detail page with:
+## Invites
 
-- Profile information
-- Account status and role
-- Activity history
-- Created lists
-- Registered devices
+The invite system can be switched on or off under **Admin → Settings → Invite System**. **Admin → Invites** shows every invite in the system — including those users create themselves via [Friends & Invites](../user-guide/friends.md) — with creator, who used it, expiry, usage count vs. max uses, and active state.
 
-### Deleting a User
+Creating an invite takes an optional description, an expiry date (empty = never expires), and a max-use count (empty = unlimited). The copy action puts the registration link (`/register?invite=<token>`) on the clipboard, and **Cleanup Expired** removes stale invites in bulk.
 
-1. Click the **Delete** button next to a user
-2. Confirm the deletion
+## Active sessions
 
-!!! warning "Warning"
-    Deleting a user also removes all their lists, favorites, and viewing history.
+**Admin → Active Sessions** shows two live tables:
 
-### Password Management
+- **Transcoding sessions** — user, content, codecs, resolution, progress, and status, with per-session **Terminate** and a global **Terminate All**. **Cleanup** removes orphaned temp files and stale sessions.
+- **Device sessions** — devices with an active WebSocket connection, what they are playing, and their playback state and queue.
 
-For local accounts (not OIDC):
+See [Monitoring](monitoring.md) for stream metrics over time.
 
-- Admins can reset a user's password from the edit page
-- Users can change their own password in their settings
+## Devices
 
-## OIDC Users
+**Admin → Devices** lists every registered device across all users with browser/platform, owner, playback status, last activity, IP address, and online state (a **Show inactive** toggle includes dormant ones). You can rename a device, inspect its live session, or remove it — optionally permanently. Users manage their own devices as described in [Devices, Casting & Offline](../user-guide/devices.md).
 
-Users who authenticate via OIDC (external identity provider):
+## API keys
 
-- Accounts are created automatically on first login
-- Email comes from the identity provider
-- No local password - password changes happen at the identity provider
-- Shown with an "OIDC" badge in the user list
+API keys allow scripts and integrations to call the REST API as a specific user. There is no admin UI yet — superusers manage them via the API:
 
-## Group Management
-
-Navigate to **Admin** -> **Groups** to manage user groups.
-
-### Creating a Group
-
-1. Navigate to **Admin** -> **Groups** -> **Create Group**
-2. Enter a **name** and optional **description**
-3. Select **members** from existing users
-4. Configure **permissions** (what the group can access)
-5. Click **Create**
-
-### Editing a Group
-
-1. Click a group in the list
-2. Add or remove members
-3. Change permissions
-4. Click **Save**
-
-## Invite Management
-
-Navigate to **Admin** -> **Invites** to manage the invitation system.
-
-The invite management shows all created invitations across all users:
-
-- **Token/Link**: The invitation URL
-- **Status**: Pending, Used, Expired, Inactive
-- **Created by**: Which user created the invite
-- **Used by**: Which user used the invite (if any)
-- **Created/Expires**: Timestamps
-- **Actions**: Delete
-
-!!! info "Note"
-    Individual users can create and manage their own invites from the [Friends & Invites](../user-guide/friends.md) page. The admin view shows ALL invites across the system.
-
-## Device Management
-
-Navigate to **Admin** -> **Devices** to see all registered devices:
-
-- **Device Name** and **type** (browser, mobile, TV)
-- **User**: Which user the device belongs to
-- **Last Active**: When the device was last seen
-- **Platform**: Operating system/browser info
-- **Actions**: View details, Remove device
+- `POST /api/api-keys` with a name (and optional `user_guid`) returns the key **once**; it starts with `pmak_` and is stored only as a hash.
+- Send it as a Bearer token: `Authorization: Bearer pmak_...`.
+- `GET /api/api-keys` lists keys with prefix and last-used time; keys can be revoked or deleted.

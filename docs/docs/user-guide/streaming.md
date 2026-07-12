@@ -1,129 +1,84 @@
 # Streaming & Playback
 
-Pyrate.Media offers integrated video streaming directly in the browser. The system automatically decides the best way to play a medium.
+pyrate.media plays movies, shows, and more directly in your browser or app. Pressing **Play** always does the right thing — whether the file is already on the server or still has to be fetched first.
 
 ## Smart Play
 
-Smart Play is the heart of playback. When you press **Play**, the following happens automatically:
+When you press Play, the server checks availability and reacts automatically:
 
-```
-File available?
- +-- YES --> Start streaming (Status: "streamable")
- +-- NO --> Download already running?
-              +-- YES --> Waiting screen with "Stream is being prepared"
-              +-- NO --> Releases available?
-                           +-- YES --> Download best release
-                           +-- NO --> Search indexers for releases
-```
+| What you see | What is happening |
+|--------------|-------------------|
+| "Checking availability..." | The server looks for a playable file |
+| Progress bar with **Speed** and **Remaining** | No file yet — the best matching release is being downloaded |
+| "Download complete, importing…" | The download finished and is being added to the library |
+| "No release found" | Nothing suitable was found — use **Search Releases** to pick one manually |
+| Error message | Something went wrong — **Retry** or **Go Back** |
 
-### Status Indicators
+The waiting screen shows the poster and title of what you picked, and playback starts by itself as soon as the file is ready. You can press **Cancel** at any time.
 
-While Smart Play is working, you will see various states:
+## Direct play or transcode
 
-| Status | What happens | What you see |
-|--------|-------------|---------------|
-| Preparing | System checks availability | Spinner with poster/title of the medium |
-| Downloading | File is being downloaded | "Stream is being prepared" with spinner |
-| No Release | No downloads found | Notice with "Search Releases" button |
-| Error | Something went wrong | Error message with retry button |
-| Ready | Stream is available | Video player starts |
+The player detects which video and audio formats your device can play. Compatible files are **direct played** in original quality; everything else is **transcoded** on the server in real time. This is fully automatic — you never have to choose.
 
-### Preparation Screen
+!!! note "Seeking"
+    Jumping to a part of the video that has not been transcoded yet can take a few seconds while the stream restarts at the new position. Positions you already buffered are instant.
 
-During preparation, the system shows:
+## Player controls
 
-- Poster or still image of the medium
-- Title (for episodes: series title + S01E03 notation)
-- Description
-- Animated spinner
-- "Cancel" button to go back
+The top bar shows a back button, the title (for episodes: show name, season/episode number, and episode title) and the time the video will end ("Ends at …"). The bottom bar contains:
 
-## The Video Player
+- **Play/Pause** — also by clicking the video, plus 10-second skip buttons in both directions
+- **Previous / Next Episode** — for shows and playlists, with a small preview of the episode
+- **Volume** — slider and mute button (on phones, use the hardware volume keys)
+- **Timeline** — click or drag to seek; hovering shows the target time, and where the server has generated trickplay previews you also get thumbnail images while scrubbing
+- **Audio Track**, **Subtitles**, **Quality** — see below
+- **Picture-in-Picture** — keep watching in a floating window (if your browser supports it)
+- **Fullscreen**
 
-Pyrate.Media uses its own player with custom controls built on Video.js.
+A heart button marks the title as a favorite; on small screens the secondary actions move into a **⋮** menu.
 
-### Controls
+### Quality
 
-- **Play/Pause**: Click on the video or the play button
-- **Timeline/Progress bar**: Shows current position, clickable to jump
-- **Volume**: Slider + mute button
-- **Fullscreen**: Switch to fullscreen mode
-- **Back button**: Exits the player
-- **Favorite button**: Mark/unmark medium as favorite
+The **Quality** menu lists every version the server knows about: the file you are watching, other **Downloaded** files, lower **Transcode** resolutions generated on the fly, and better releases that are not on disk yet (greyed out, badged **Download required**).
 
-### Episode Controls
+### Audio tracks & subtitles
 
-For series episodes, additional buttons appear:
+Pick any embedded audio track from the **Audio Track** menu — switching may briefly restart the stream. The **Subtitles** menu lists all available subtitle tracks plus **Off**. Your audio and subtitle choices are remembered per title and reused the next time you play it.
 
-- **Previous Episode** (if available)
-- **Next Episode** (if available)
-- Display of series title and episode (e.g. "S02E05 - Episode Title")
+### Skip intro, outro & credits
 
-### Stream Information
+When a title has markers, **Skip Intro**, **Skip Outro**, and **Skip Credits** buttons appear at the right moments. Under [User Settings](settings.md) → Playback Preferences you can choose per marker type whether to *show a skip button*, *skip automatically*, or disable skipping.
 
-In the player, you can view information about the current stream:
+## Next episode & playlists
 
-- Available audio tracks (with language selection)
-- Quality options
+For episodes, the previous/next buttons walk through the show, and when an episode ends the next one starts automatically. Playing from a playlist works the same way, following the playlist order.
 
-### Seek (Jumping)
+## Keyboard shortcuts
 
-When you jump to a position in the timeline:
+| Key | Action |
+|-----|--------|
+| ++space++ / ++k++ | Play / pause |
+| ++arrow-left++ / ++arrow-right++ | Back / forward 10 seconds |
+| ++arrow-up++ / ++arrow-down++ | Volume up / down |
+| ++m++ | Mute |
+| ++f++ | Fullscreen |
+| ++esc++ | Exit fullscreen |
 
-1. The current transcode process is stopped
-2. A new transcode starts from the desired position
-3. The stream resumes seamlessly
+!!! tip
+    Scrolling the mouse wheel over the player also adjusts the volume.
 
-Jumping takes a few seconds, as a new FFmpeg container is started.
+## Resume
 
-## Transcoding
+Your position is saved automatically while you watch. Unfinished titles appear in **Continue Watching** on the home page and resume exactly where you left off; if you stopped right at the end, the title counts as watched and starts from the beginning next time. See [Viewing History](history.md).
 
-Videos are transcoded in real time for the browser:
+## Reporting a problem
 
-- **Format**: HLS (HTTP Live Streaming) with .m3u8 playlists and .ts segments
-- **Container**: FFmpeg runs in a Docker container
-- **Codecs**: h264, h265, vp9 (depending on configuration)
-- **Audio**: AAC, Opus, or MP3
+If the file itself is bad — wrong content, wrong language, poor video or audio, or a broken file — click the flag icon and submit **Report & Request New Download**. The file is flagged and a replacement is requested automatically.
 
-### Audio and Subtitle Selection
+!!! note "Stream Info"
+    Administrators additionally see a **Stream Info** button with technical details: source file, codecs, resolution, and why (or whether) the stream is being transcoded.
 
-The system automatically selects based on your language settings:
+## Watching somewhere else
 
-1. **Audio track**: Your preferred audio language is selected
-2. **Subtitles**: If desired, subtitles are burned directly into the video
-
-You can change your language preferences in the [User Settings](settings.md).
-
-## Playback History
-
-Your progress is saved automatically:
-
-- **Position**: Where you are in the video
-- **Progress**: Percentage display
-- **Completed**: Marked when you have reached the end
-
-This way you can later continue watching exactly where you left off. Your history is accessible via the menu under **History**.
-
-## Troubleshooting
-
-### Stream does not start
-
-- Check if the file is available
-- Check your internet connection
-- Try again with the retry button
-
-### Poor quality
-
-- Check the source file (some releases are low quality)
-- The admin can adjust the transcoding settings
-
-### Buffering/Stuttering
-
-- Reduced quality settings may help
-- Check the network connection between you and the server
-
-## Next Steps
-
-- [Watch Parties](watch-parties.md) - Stream together
-- [Movies & Series](movies.md) - Back to media management
-- [Settings](settings.md) - Language and audio preferences
+- [Devices, Casting & Offline](devices.md) — cast to Chromecast, AirPlay, or DLNA devices, remote-control your other signed-in devices, and download titles for offline playback
+- [Watch Parties](watch-parties.md) — watch together in sync with friends

@@ -46,3 +46,6 @@ frontend/src-capacitor/ios/
 # --- Editor ---
 .idea/
 .vscode/
+
+# --- Docs ---
+docs/site/

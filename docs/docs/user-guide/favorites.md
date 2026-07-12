@@ -1,62 +1,64 @@
-# Favorites
+# Favorites & Likes
 
-Favorites provide quick access to your favorite media - without having to create extra lists.
+Favorites give you one-click access to the media you care about most — and on servers where it is enabled, favoriting something tells pyrate.media to fetch and maintain it for you automatically. Likes are a lighter signal: a quick thumbs-up for individual items and for other users' lists.
 
-## Marking Media as Favorite
+## Marking Media as a Favorite
 
-You can mark media as a favorite in two places:
+You can toggle a favorite in two places:
 
-### On the Detail Page
+- **On the detail page** — open a movie, show, game, album, or book and click the **heart button**. It fills in red when the item is a favorite; click again to remove it.
+- **In the video player** — the player controls include the same heart button, so you can favorite what you are currently watching.
 
-1. Open the detail page of a movie, series, or game
-2. Click the **Heart button** in the actions
-3. The heart fills in and the medium is saved as a favorite
+!!! tip "Episodes count for the whole show"
+    Favoriting an episode or a season marks the **entire show** as a favorite. The same applies to songs and albums, which roll up to their artist or album.
 
-### In the Player
+## Viewing Your Favorites
 
-During playback, you can use the **Heart button** in the player controls to mark or unmark the current medium as a favorite.
+Your favorites are kept in a personal **Favorites** list that is created automatically and cannot be deleted:
 
-## Viewing Favorites
-
-Open the favorites page via:
-
-- **Side menu** -> **Favorites**
+- Open the **side menu** and pick **Favorites** under **My Lists**
 - Or navigate directly to `/favorites`
 
-### Filter
+The list page offers a **grid view** (poster wall) and a **table view** with sortable columns for title, type, and year. Use the remove action to take an item off the list — this is the same as clicking the heart again.
 
-The favorites page offers tabs for filtering:
+Your favorites can also appear elsewhere:
 
-- **All**: All favorites across all media types
-- **Movies**: Only favorited movies
-- **Series**: Only favorited series
-- **Games**: Only favorited games
-- **Music**: Only favorited music (if enabled)
-- **Books**: Only favorited books (if enabled)
+- **Home page** — if your home layout contains a Favorites section, they show up as a **My Favorites** row. See [Dashboard & Home](dashboard.md).
+- **Search results** — the filter bar has a **Favorite** filter with **Favorites only** and **Not favorites** options. See [Search](search.md).
+- **Recommendations** — what you favorite feeds into your personal recommendations, and can surface in your friends' suggestions too.
 
-!!! info "Note"
-    Only tabs for media types that have been enabled by the admin are shown.
+## Auto-Download of Monitored Favorites
 
-### Display
+On servers with download automation, favorites can do more than bookmark. If the administrator has enabled **Favorites Automation** and your account has the *keep favorites* permission, favoriting an item marks it as **monitored**:
 
-Favorites are shown as a responsive poster grid:
+| | Favorite as bookmark | Monitored favorite |
+|---|---|---|
+| Quick access via the Favorites list | Yes | Yes |
+| Missing content is searched and downloaded | No | Yes — including every episode of a favorited show |
+| Existing files upgraded to better releases | No | Yes, as better releases appear |
+| Protected from automatic library cleanup | No | Yes |
 
-- On desktop: Multiple posters side by side
-- On tablets: Adapted grid
-- On smartphones: 2 posters per row
+You can tell a favorite is monitored by the small **download badge** on the heart button; its tooltip reads *"Monitored — auto-downloading & upgrading"*.
 
-Click on a poster to navigate to the detail page.
+!!! note "Depends on server configuration"
+    All automation switches are **off by default** and permission-gated. If the badge never appears for you, your server either has automation disabled or your account does not have the required permission — ask your administrator.
 
-## Removing a Favorite
+!!! info "Removing a monitored favorite"
+    Unfavoriting stops the monitoring and upgrading for that item. It never deletes files that were already downloaded.
 
-Simply click the heart button again on the detail page or in the player. The heart will become empty again and the medium is no longer in your favorites.
+## Likes
 
-## Favorites on the Home Page
+Next to the heart, playable items (movies, episodes, songs, games, books) have a **thumbs-up button**. Liking is a lightweight way to mark things you enjoyed without managing lists:
 
-If the admin has configured a **Favorites section** in the page layout, your favorites also appear as a horizontal carousel on the home page.
+- Liked items are collected automatically in a **Liked Media** list under **My Lists**.
+- Container pages such as shows, seasons, artists, and albums do not have a like button — like the individual items instead.
+
+### Liking Lists
+
+You can also like **other users' public lists**. Open a list you do not own and click the **heart icon** in its header — the list's like count is shown as a chip next to its details. You cannot like your own lists.
 
 ## Next Steps
 
-- [Lists](lists.md) - For more organization with custom lists
-- [Playback History](history.md) - What you watched recently
-- [Dashboard](dashboard.md) - Back to the home page
+- [Lists & Collections](lists.md) — create and share your own lists
+- [Viewing History](history.md) — everything you have watched so far
+- [Dashboard & Home](dashboard.md) — customize your home page sections

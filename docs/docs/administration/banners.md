@@ -1,68 +1,79 @@
 # Banner Management
 
-Banners are system-wide notifications displayed at the top of every page. Use them for maintenance announcements, feature updates, or important messages.
+Banners are system-wide announcements shown to every signed-in user. They appear as a full-width bar at the top of the page content — on the regular app pages and in the admin area alike. Use them for maintenance announcements, feature news, or anything the whole server should know about.
 
-## Overview
+Banners are managed under **Admin** → **Banners** (the page is titled **System Banners**). Only administrators can create, edit, or delete banners.
 
-Navigate to **Admin** -> **Banners** to manage banners.
+## The banner list
 
-The banner list shows:
+The list shows all banners — active, inactive, and scheduled — with the following columns:
 
-- **Title** and **message**
-- **Type**: Info, Warning, Error, Success
-- **Status**: Active/Inactive
-- **Schedule**: Start and end dates (if configured)
-- **Actions**: Edit, Delete
+| Column | Description |
+|--------|-------------|
+| **Title** | The banner headline |
+| **Type** | Information, Warning, Error, or Success |
+| **Active** | Inline toggle — flip it to show or hide the banner without opening the editor |
+| **Created At** | When the banner was created |
+| **Actions** | Edit and Delete buttons |
 
-## Creating a Banner
+!!! warning "Deleting is permanent"
+    Deleting a banner asks for confirmation and cannot be undone. If you just want to retire a banner temporarily, switch off its **Active** toggle instead.
 
-1. Navigate to **Admin** -> **Banners** -> **Create Banner**
+## Creating a banner
+
+1. Go to **Admin** → **Banners** and click **Create Banner**.
 2. Fill in the form:
 
 | Field | Description |
 |-------|-------------|
-| **Title** | Short headline for the banner |
-| **Message** | The full message text |
-| **Type** | Visual style: Info (blue), Warning (amber), Error (red), Success (green) |
+| **Title** | Required headline, up to 200 characters |
+| **Message** | Required body text, up to 2000 characters. URLs in the message are automatically turned into clickable links that open in a new tab |
+| **Type** | Visual style — see the table below |
 | **Active** | Whether the banner is currently shown |
-| **Dismissible** | Whether users can close the banner |
-| **Start Date** | Optional: When the banner should start showing |
-| **End Date** | Optional: When the banner should stop showing |
+| **Start Date** | Optional — the banner is shown from this time (empty = immediately) |
+| **End Date** | Optional — the banner is shown until this time (empty = unlimited) |
 
-3. Click **Save**
+3. Check the live **Preview** at the bottom of the form — it renders the banner exactly as users will see it.
+4. Click **Save**.
 
-## Banner Types
+## Banner types
 
-| Type | Color | Use Case |
+| Type | Color | Use case |
 |------|-------|----------|
-| **Info** | Blue | General announcements, new features |
+| **Information** | Blue | General announcements, new features |
 | **Warning** | Amber | Upcoming maintenance, known issues |
 | **Error** | Red | Service disruptions, critical issues |
 | **Success** | Green | Resolved issues, positive updates |
 
-## Dismissible Banners
+Each type also gets a matching icon in front of the title.
 
-When **Dismissible** is enabled:
+## Visibility and scheduling
 
-- Users see a close button on the banner
-- Dismissing sends a request to the server
-- The banner won't appear again for that user
-- Other users still see it until they dismiss it too
+A banner is visible to users when **all** of the following hold:
 
-When **Dismissible** is disabled:
+- Its **Active** toggle is on,
+- The current time is after the **Start Date** (or none is set),
+- The current time is before the **End Date** (or none is set).
 
-- The banner has no close button
-- It stays visible for all users until the admin deactivates or deletes it
+Leave both dates empty for a banner that stays up until you deactivate or delete it. Combining a start and end date lets you prepare announcements ahead of time — for example, schedule a maintenance warning for the weekend and it will appear and disappear on its own. See [Maintenance & Backups](maintenance.md) for planning maintenance windows.
 
-## Scheduling
+## Dismissal
 
-Use **Start Date** and **End Date** to schedule banners:
+Every banner has a close button. When a user dismisses a banner:
 
-- A banner with a future start date won't show until that date
-- A banner with a past end date won't show anymore
-- Both fields are optional - leave empty for a permanent banner
+- The dismissal is stored on the server per user, so the banner stays gone for that user on all of their devices and sessions.
+- Other users continue to see the banner until they dismiss it themselves.
 
-## Editing and Deleting
+!!! tip "Re-announcing something"
+    Editing an existing banner does **not** reset dismissals — users who already closed it will not see the updated text. If the change matters, create a new banner instead.
 
-- Click the **Edit** button to modify a banner's content, type, or schedule
-- Click the **Delete** button and confirm to permanently remove a banner
+## Targeting and placement
+
+Banners are deliberately simple:
+
+- **Audience**: all signed-in users. There is no per-user, per-group, or per-library targeting.
+- **Placement**: always the full-width bar at the top of the page, on every page. There are no placement options.
+
+## Banners vs. page layouts
+
+Banners are not part of the page layout system. [Page Layouts](page-layouts.md) control *content* — which sections (hero carousel, continue watching, genres, and so on) appear on the home and browse pages and in what order. Banners sit *above* whatever layout is active and are meant for transient announcements, not curation. If you want to promote media items visually, use a hero section in a page layout; if you want to tell users something, use a banner.
