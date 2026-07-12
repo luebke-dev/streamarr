@@ -4,13 +4,19 @@ import uuid
 
 from fastapi import APIRouter, HTTPException
 
-from pyrate.api.dependencies import CurrentSuperuser, CurrentUser, DatabaseSession
+from pyrate.api.dependencies import (
+    CurrentSuperuser,
+    CurrentUser,
+    DatabaseSession,
+    UserPermissionsDep,
+)
 from pyrate.schemas.media_marker import (
     MediaMarkerCreate,
     MediaMarkerRead,
     MediaMarkersForPlayer,
     MediaMarkerUpdate,
 )
+from pyrate.services.media_access import get_visible_media_item
 from pyrate.services.media_marker import MediaMarkerService
 
 router = APIRouter()
@@ -21,8 +27,10 @@ async def get_markers_for_player(
     media_id: uuid.UUID,
     db: DatabaseSession,
     current_user: CurrentUser,
+    permissions: UserPermissionsDep,
 ):
     """Get effective markers for the player (best per type)."""
+    await get_visible_media_item(db, media_id, current_user, permissions)
     service = MediaMarkerService(db)
     return await service.get_effective_markers(media_id)
 

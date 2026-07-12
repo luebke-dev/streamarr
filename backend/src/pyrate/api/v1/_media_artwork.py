@@ -14,6 +14,13 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import HTTPException
 
+from pyrate.services.cache_control import (
+    artwork_cache_enabled as _artwork_cache_enabled,
+)
+from pyrate.services.cache_control import (
+    artwork_cache_root as _artwork_cache_root_base,
+)
+
 # Hosts whose artwork the proxy endpoint is allowed to fetch (SSRF guard).
 _ARTWORK_PROXY_HOSTS = {
     "image.tmdb.org",
@@ -42,21 +49,10 @@ def _append_image_transform_query(source_url: str, params: dict[str, int | str])
     )
 
 
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _artwork_cache_enabled() -> bool:
-    return _env_flag("PYRATE_ARTWORK_CACHE_ENABLED", False)
-
-
 def _artwork_cache_root() -> Path:
-    root = Path(os.getenv("PYRATE_ARTWORK_CACHE_DIR", "/cache/artwork"))
-    root.mkdir(parents=True, exist_ok=True)
-    return root.resolve()
+    # Writer side: the cache directory must exist before we write into it. Shares
+    # the flag/root source of truth with the cleanup/stats side (cache_control).
+    return _artwork_cache_root_base(create=True)
 
 
 def _validate_artwork_proxy_url(source_url: str) -> None:

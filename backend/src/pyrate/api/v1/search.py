@@ -108,21 +108,43 @@ async def search_all_content(
             or search_request.sort_order.value != "desc"
         )
 
-        if not has_query and has_filters:
+        user_max_age = max_age_for_user(current_user)
+
+        # Route to the local, age-filtered browse path when either:
+        #   * there is no query but filters are present (pure browse), or
+        #   * the account is parental-controlled (a gate is in effect).
+        # Provider/Elasticsearch results carry no age rating, so a minor doing
+        # a keyword search would otherwise see mature titles/posters/overviews
+        # that browse_local and the suggestions endpoints correctly hide. For
+        # gated accounts we serve the same age-filtered local results instead.
+        if (not has_query and has_filters) or user_max_age is not None:
             if search_request.media_type:
                 require_library_access_for_media_type(
                     current_user,
                     permissions,
                     search_request.media_type,
                 )
+            if has_query:
+                # A keyword search still respects the search-type library gate
+                # the provider path enforces.
+                requested_library = SEARCH_TYPE_TO_LIBRARY.get(
+                    search_request.search_type.value
+                )
+                require_library_access(current_user, permissions, requested_library)
             result = await search_service.browse_local(
                 search_request,
                 current_user.guid,
-                max_age=max_age_for_user(current_user),
+                max_age=user_max_age,
                 allowed_libraries=permissions.allowed_libraries,
             )
+            if has_query:
+                list_hits = await search_service.search_lists(
+                    search_request.query, current_user.guid
+                )
+                if list_hits:
+                    result["list_hits"] = list_hits
             logger.info(
-                f"Browse with filters returned {result.get('total', 0)} results"
+                f"Local browse returned {result.get('total', 0)} results"
             )
             return result
 

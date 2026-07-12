@@ -665,11 +665,22 @@ class ReleaseSearchService:
             # Parse publish_date
             parsed_publish_date = self._parse_publish_date(release_data.get("publish_date"))
 
+            # Indexer clients annotate every result with "indexer_id" (already
+            # str(indexer.guid)); there is no "indexer_guid" key. Coerce it to a
+            # UUID for the FK column so per-indexer attribution isn't lost.
+            indexer_id = release_data.get("indexer_id")
+            indexer_guid: uuid.UUID | None = None
+            if indexer_id:
+                try:
+                    indexer_guid = uuid.UUID(str(indexer_id))
+                except (ValueError, TypeError):
+                    indexer_guid = None
+
             # Create release
             release = MediaRelease(
                 guid=uuid.uuid4(),
                 media_item_guid=media_item.guid,
-                indexer_guid=release_data.get("indexer_guid"),
+                indexer_guid=indexer_guid,
                 title=release_title,
                 size=release_data.get("size"),
                 quality=release_data.get("quality"),

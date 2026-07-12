@@ -9,6 +9,13 @@ The guard resolves every candidate host to its IP addresses and rejects the
 request if any of them is private/loopback/link-local/reserved. Redirects are
 validated per hop, which closes the "allowlisted host 302s to 169.254.169.254"
 and DNS-rebinding-on-redirect bypasses.
+
+:func:`safe_get` additionally *pins* the address it validated: it resolves the
+host once, checks the resolved IP, then connects to that exact IP (rewriting
+the URL host, keeping the original ``Host`` header and TLS SNI/certificate
+hostname). This closes the classic resolve-then-connect DNS-rebinding TOCTOU
+where a low-TTL host returns a public IP to the validation lookup and a
+private/loopback IP to httpx's independent connection lookup.
 """
 
 import ipaddress
@@ -67,6 +74,32 @@ def _resolve_host(host: str) -> list[ipaddress._BaseAddress]:
     return addrs
 
 
+def _validate_and_resolve(
+    url: str,
+    *,
+    allowed_schemes: tuple[str, ...],
+    block_private: bool,
+) -> tuple[httpx.URL, ipaddress._BaseAddress]:
+    """Validate ``url`` and return its parsed form plus a pinned safe IP.
+
+    Resolves the host exactly once and rejects the request if *any* resolved
+    address is disallowed, so a host that answers with both a public and an
+    internal IP cannot slip through. Returns the first resolved address for
+    the caller to connect to directly (see :func:`safe_get`).
+    """
+    parts = httpx.URL(url)
+    if parts.scheme not in allowed_schemes:
+        raise UnsafeUrlError(f"Disallowed scheme: {parts.scheme!r}")
+    host = parts.host
+    if not host:
+        raise UnsafeUrlError("URL has no host")
+    addrs = _resolve_host(host)
+    for ip in addrs:
+        if _ip_is_disallowed(ip, block_private=block_private):
+            raise UnsafeUrlError(f"URL resolves to a disallowed address: {ip}")
+    return parts, addrs[0]
+
+
 def assert_safe_url(
     url: str,
     *,
@@ -81,15 +114,47 @@ def assert_safe_url(
     private RFC1918 ranges. Callers that follow redirects must re-validate
     each hop (see :func:`safe_get`).
     """
-    parts = httpx.URL(url)
-    if parts.scheme not in allowed_schemes:
-        raise UnsafeUrlError(f"Disallowed scheme: {parts.scheme!r}")
-    host = parts.host
-    if not host:
-        raise UnsafeUrlError("URL has no host")
-    for ip in _resolve_host(host):
-        if _ip_is_disallowed(ip, block_private=block_private):
-            raise UnsafeUrlError(f"URL resolves to a disallowed address: {ip}")
+    _validate_and_resolve(
+        url, allowed_schemes=allowed_schemes, block_private=block_private
+    )
+
+
+def _host_header(url: httpx.URL) -> str:
+    """Return the ``Host`` header value (with brackets/port) for ``url``."""
+    host = url.host
+    bracketed = f"[{host}]" if ":" in host else host
+    if url.port is not None:
+        return f"{bracketed}:{url.port}"
+    return bracketed
+
+
+async def _pinned_get(
+    http: httpx.AsyncClient,
+    url: httpx.URL,
+    ip: ipaddress._BaseAddress,
+    **kwargs,
+) -> httpx.Response:
+    """GET ``url`` connecting to the pre-validated ``ip``.
+
+    The URL host is rewritten to the pinned IP so httpx connects to the exact
+    address that was checked (no independent re-resolution). The original
+    ``Host`` header and TLS SNI/certificate hostname are preserved so
+    virtual-host routing and certificate verification still target the real
+    hostname.
+    """
+    host = url.host
+    pinned_url = url.copy_with(host=str(ip))
+    headers = dict(kwargs.pop("headers", None) or {})
+    headers.setdefault("Host", _host_header(url))
+    extensions = dict(kwargs.pop("extensions", None) or {})
+    extensions.setdefault("sni_hostname", host)
+    return await http.get(
+        pinned_url,
+        follow_redirects=False,
+        headers=headers,
+        extensions=extensions,
+        **kwargs,
+    )
 
 
 async def safe_get(
@@ -104,19 +169,22 @@ async def safe_get(
     """GET ``url`` with SSRF validation on the initial URL and every redirect.
 
     Redirects are followed manually so each hop is re-validated (``httpx``'s
-    ``follow_redirects`` would skip the per-hop check). Pass an existing
-    ``client`` to reuse connection pools; otherwise a short-lived one is used.
-    Set ``block_private=True`` for user-supplied URLs to also reject RFC1918.
+    ``follow_redirects`` would skip the per-hop check). Each hop is resolved
+    once and the connection is pinned to that validated IP, so the address
+    that was checked is the address that is dialled (closes the resolve-then-
+    connect DNS-rebinding TOCTOU). Pass an existing ``client`` to reuse
+    connection pools; otherwise a short-lived one is used. Set
+    ``block_private=True`` for user-supplied URLs to also reject RFC1918.
     """
     own_client = client is None
     http = client or make_async_client()
     try:
         current = url
         for _ in range(max_redirects + 1):
-            assert_safe_url(
+            parts, pinned_ip = _validate_and_resolve(
                 current, allowed_schemes=allowed_schemes, block_private=block_private
             )
-            response = await http.get(current, follow_redirects=False, **kwargs)
+            response = await _pinned_get(http, parts, pinned_ip, **kwargs)
             if response.is_redirect and response.has_redirect_location:
                 current = str(response.headers["location"])
                 if not httpx.URL(current).is_absolute_url:

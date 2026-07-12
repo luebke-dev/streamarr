@@ -441,24 +441,3 @@ class TMDB(MetadataBase):
 
 # Export plugin class for loader
 PLUGIN_CLASS = TMDB
-
-
-async def async_setup(config: dict[str, Any]) -> bool:
-    """
-    Set up the TMDB plugin.
-
-    This function is called by the plugin loader during initialization.
-
-    Args:
-        config: Plugin configuration from manifest
-
-    Returns:
-        bool: True if setup was successful
-    """
-    # Validate required configuration
-    if "api_key" not in config:
-        logger.error("TMDB plugin requires 'api_key' in configuration")
-        return False
-
-    logger.info("TMDB plugin setup completed successfully")
-    return True

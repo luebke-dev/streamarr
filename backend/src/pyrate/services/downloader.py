@@ -114,23 +114,28 @@ class DownloaderService:
             return Deluge(
                 base_url=downloader.host,
                 api_key=downloader.api_key,
+                verify_ssl=downloader.verify_ssl,
             )
         elif downloader_type == "sabnzbd":
             return Sabnzbd(
                 base_url=downloader.host,
                 api_key=downloader.api_key,
+                verify_ssl=downloader.verify_ssl,
             )
         elif downloader_type == "spotdl":
             return Spotdl(
                 base_url=downloader.host,
+                verify_ssl=downloader.verify_ssl,
             )
         elif downloader_type == "torrent_downloader":
             return TorrentDownloader(
                 base_url=downloader.host,
+                verify_ssl=downloader.verify_ssl,
             )
         elif downloader_type == "usenet_downloader":
             return UsenetDownloader(
                 base_url=downloader.host,
+                verify_ssl=downloader.verify_ssl,
             )
         else:
             # For backward compatibility, default to SABnzbd but log a warning
@@ -141,6 +146,7 @@ class DownloaderService:
             return Sabnzbd(
                 base_url=downloader.host,
                 api_key=downloader.api_key,
+                verify_ssl=downloader.verify_ssl,
             )
 
     @staticmethod

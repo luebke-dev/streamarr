@@ -19,6 +19,10 @@ from ...auth.dependencies import (
 )
 from ...auth.jwt_handler import jwt_handler
 from ...auth.oidc_client import oidc_client
+from ...auth.token_revocation import (
+    mark_refresh_rotated,
+    revoke_user_refresh_tokens,
+)
 from ...config import get_app_url, settings
 from ...database import get_db_session
 from ...models.user import User
@@ -78,6 +82,7 @@ _ERROR_MAP: dict[str, tuple[int, str]] = {
     "missing_oidc_sub": (status.HTTP_400_BAD_REQUEST, "Missing OIDC subject identifier"),
     "registration_disabled": (status.HTTP_403_FORBIDDEN, "User registration is disabled"),
     "email_required": (status.HTTP_400_BAD_REQUEST, "Email is required for user creation"),
+    "oidc_email_unverified": (status.HTTP_403_FORBIDDEN, "The identity provider did not verify this email address, so it cannot be linked to an existing account."),
 }
 
 
@@ -252,6 +257,10 @@ async def refresh_token(user_and_jti: tuple[User, str] = Depends(verify_refresh_
     """Erneuert einen Access Token mit einem Refresh Token"""
     user, jti = user_and_jti
 
+    # Single-use rotation: retire the presented refresh token so it can't be
+    # replayed, then issue a fresh pair.
+    await mark_refresh_rotated(jti)
+
     token_data = {"sub": str(user.guid)}
     access_token = jwt_handler.create_access_token(token_data)
     new_refresh_token = jwt_handler.create_refresh_token(token_data)
@@ -266,6 +275,11 @@ async def refresh_token(user_and_jti: tuple[User, str] = Depends(verify_refresh_
 @router.post("/logout")
 async def logout(request: Request, current_user: User = Depends(get_current_user)):
     """Loggt den Benutzer aus"""
+    # Revoke the user's outstanding refresh tokens server-side so a leaked one
+    # can't keep minting access tokens after logout. Access tokens already held
+    # remain valid until their short natural expiry.
+    await revoke_user_refresh_tokens(current_user.guid)
+
     if oidc_client.is_enabled():
         logout_url = await oidc_client.get_logout_url()
         return {"logout_url": logout_url}

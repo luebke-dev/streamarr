@@ -1011,7 +1011,19 @@ class DownloadService:
         """
         # Already imported at top
 
-        download = await self.get_by_external_id(external_id)
+        # Lock the row for the duration of this transaction so two concurrent
+        # completion deliveries for the same job (e.g. the downloader webhook
+        # AND the poll picking it up) can't both pass the idempotency guard
+        # below and import twice. The second delivery blocks here until the
+        # first commits its status transition, then reads the updated status
+        # and short-circuits. On engines without row locks (SQLite in tests)
+        # with_for_update is a harmless no-op.
+        result = await self.db.execute(
+            select(Download)
+            .where(Download.external_id == external_id)
+            .with_for_update()
+        )
+        download = result.scalar_one_or_none()
 
         if not download:
             logger.error("Download with external ID %s not found.", external_id)
@@ -1328,63 +1340,3 @@ class DownloadService:
             select(Download).where(Download.external_id == external_id)
         )
         return result.scalars().first()
-
-    async def handle_spotdl_webhook(self, payload: dict) -> dict:
-        """Process a spotdl webhook notification.
-
-        Args:
-            payload: The webhook payload from spotdl containing job status.
-
-        Returns:
-            dict with processing result.
-        """
-        from pyrate.downloaders.spotdl import Spotdl
-
-        job_id = payload.get("id")
-        status = payload.get("status")
-
-        download = await self.get_download_by_external_id(job_id)
-        if not download:
-            logger.warning("spotdl webhook for unknown job: %s", job_id)
-            return {"ignored": True, "reason": "unknown_job"}
-
-        if status == "done":
-            download.status = DownloadStatus.COMPLETED
-            download.progress = 100.0
-            await self.db.commit()
-
-            # Remap path from spotdl container to backend mount
-            raw_path = payload.get("path", "")
-            mapped_path = Spotdl._map_path(raw_path)
-
-            logger.info(
-                "spotdl webhook: job %s completed, path=%s → %s",
-                job_id, raw_path, mapped_path,
-            )
-
-            # Trigger file import
-            from pyrate.worker import handle_completed_download
-
-            await handle_completed_download.kiq(job_id, mapped_path)
-
-            return {"processed": True, "action": "import_queued", "path": mapped_path}
-
-        elif status == "failed":
-            error_msg = payload.get("error", "Download failed")
-            download.status = DownloadStatus.FAILED
-            await self.db.commit()
-
-            logger.warning("spotdl webhook: job %s failed: %s", job_id, error_msg)
-
-            # Blacklist and trigger retry
-            await self.blacklist_download(download, error_msg)
-            media_item_guid = await self.get_media_item_guid_for_download(download)
-
-            return {
-                "processed": True,
-                "action": "failed_blacklisted",
-                "error": error_msg,
-                "media_item_guid": str(media_item_guid) if media_item_guid else None,
-            }
-
-        return {"ignored": True, "reason": f"unhandled_status_{status}"}

@@ -7,11 +7,12 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyrate.api.dependencies import CurrentSuperuser, DatabaseSession
 from pyrate.database import get_db_session, sessionmanager
+from pyrate.models.activity_log import ActivityLog
 from pyrate.schemas.activity_log import (
     ActivityLogCreate,
     ActivityLogRead,
@@ -265,22 +266,29 @@ async def list_task_history(
 
     skip = (page - 1) * per_page
     if status_filter == "all":
-        all_entries = []
-        total = 0
-        for event_type in ("task.queued", "task.completed", "task.failed"):
-            entries_for_type, type_total = await ActivityLogService(db).list(
-                skip=0,
-                limit=1000,
-                event_type=event_type,
-                entity_type="task",
+        # Combine the three task event types in a single ordered, paginated
+        # SQL query so ``total``/``total_pages`` stay consistent with what
+        # paging returns even past the old 1000-row-per-type window.
+        task_filters = (
+            ActivityLog.entity_type == "task",
+            ActivityLog.event_type.in_(
+                ("task.queued", "task.completed", "task.failed")
+            ),
+        )
+        total = (
+            await db.scalar(
+                select(func.count(ActivityLog.guid)).where(*task_filters)
             )
-            all_entries.extend(entries_for_type)
-            total += type_total
-        entries = sorted(
-            all_entries,
-            key=lambda entry: entry.created_at,
-            reverse=True,
-        )[skip : skip + per_page]
+            or 0
+        )
+        result = await db.execute(
+            select(ActivityLog)
+            .where(*task_filters)
+            .order_by(ActivityLog.created_at.desc())
+            .offset(skip)
+            .limit(per_page)
+        )
+        entries = list(result.scalars().all())
     else:
         entries, total = await ActivityLogService(db).list(
             skip=skip,
@@ -314,18 +322,30 @@ async def get_task_run_history(
     db: DatabaseSession,
 ):
     """Return the lifecycle events and current status for one task run."""
-    all_entries = []
-    for event_type in ("task.queued", "task.completed", "task.failed"):
-        entries_for_type, _ = await ActivityLogService(db).list(
-            skip=0,
-            limit=1000,
-            event_type=event_type,
-            entity_type="task",
+    # Narrow the scan to rows whose serialized ``extra_data`` carries this
+    # run_id instead of pulling a fixed 3000-row window (which made older runs
+    # unreachable). ``extra_data`` is ``json.dumps(..., sort_keys=True)`` so the
+    # run_id renders as ``"run_id": "<id>"``; escape LIKE metacharacters.
+    escaped_run_id = (
+        run_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    )
+    like_pattern = f'%"run_id": "{escaped_run_id}"%'
+    result = await db.execute(
+        select(ActivityLog)
+        .where(
+            ActivityLog.entity_type == "task",
+            ActivityLog.event_type.in_(
+                ("task.queued", "task.completed", "task.failed")
+            ),
+            ActivityLog.extra_data.like(like_pattern, escape="\\"),
         )
-        all_entries.extend(entries_for_type)
-
+        .order_by(ActivityLog.created_at.asc())
+    )
+    # Confirm the exact run_id (the LIKE is a substring prefilter).
     events = [
-        entry for entry in all_entries if _task_event_extra(entry).get("run_id") == run_id
+        entry
+        for entry in result.scalars().all()
+        if _task_event_extra(entry).get("run_id") == run_id
     ]
     if not events:
         raise HTTPException(status_code=404, detail="Task run not found")

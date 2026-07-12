@@ -231,6 +231,8 @@ async def get_indexer(
 ):
     service = IndexerConfigService(db)
     db_indexer = await service.get_by_id(indexer_id)
+    if db_indexer is None:
+        raise HTTPException(status_code=404, detail="Indexer not found")
     return db_indexer
 
 

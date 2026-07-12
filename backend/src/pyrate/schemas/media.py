@@ -52,13 +52,6 @@ class MediaExternalLinkRead(BaseSchema):
     url: str
 
 
-class MediaExternalIdCreate(BaseModel):
-    """Schema for creating external IDs."""
-
-    provider: str
-    external_id: str
-
-
 # ==================== Media File Schemas ====================
 
 
@@ -66,27 +59,6 @@ class MediaFileBase(BaseSchema):
     """Base schema for media files."""
 
     file_path: str
-    file_name: str | None = None
-    file_size: int | None = None
-    duration: float | None = None
-    width: int | None = None
-    height: int | None = None
-    codec: str | None = None
-    bitrate: int | None = None
-    quality: str | None = None
-    format: str | None = None
-    probe_data: str | None = None
-
-
-class MediaFileCreate(MediaFileBase):
-    """Schema for creating media files."""
-
-    media_item_guid: uuid.UUID
-
-
-class MediaFileUpdate(BaseSchema):
-    """Schema for updating media files."""
-
     file_name: str | None = None
     file_size: int | None = None
     duration: float | None = None
@@ -121,13 +93,6 @@ class MediaReleaseLinkRead(BaseSchema):
     created_at: datetime
 
 
-class MediaReleaseLinkCreate(BaseModel):
-    """Schema for creating release links."""
-
-    link: str
-    link_type: str
-
-
 class MediaReleaseBase(BaseSchema):
     """Base schema for media releases."""
 
@@ -146,15 +111,6 @@ class MediaReleaseCreate(MediaReleaseBase):
     publish_date: datetime | None = None
 
 
-class MediaReleaseUpdate(BaseSchema):
-    """Schema for updating media releases."""
-
-    title: str | None = None
-    size: int | None = None
-    quality: str | None = None
-    score: int | None = None
-
-
 class MediaReleaseRead(MediaReleaseBase):
     """Schema for reading media releases."""
 
@@ -165,14 +121,6 @@ class MediaReleaseRead(MediaReleaseBase):
     created_at: datetime
     publish_date: datetime | None = None
     links: list[MediaReleaseLinkRead] = []
-
-
-class MediaReleaseWithScore(BaseSchema):
-    """Schema for releases with score and matching rules."""
-
-    release: MediaReleaseRead
-    score: int
-    rules: list[dict] = []
 
 
 # ==================== Media Item Schemas ====================
@@ -308,10 +256,6 @@ class AlbumWithTracks(BaseSchema):
 # Pagination envelopes — generic shape lives in schemas/base.py
 
 
-class PaginatedMediaItemsResponse(PaginatedResponse[MediaItemRead]):
-    pass
-
-
 class PaginatedMediaSummaryResponse(PaginatedResponse[MediaItemSummary]):
     pass
 
@@ -323,31 +267,11 @@ class PaginatedMediaReleasesResponse(PaginatedResponse[MediaReleaseRead]):
 # ==================== Search & Filter ====================
 
 
-class MediaSearchRequest(BaseModel):
-    """Search request for media items."""
-
-    query: str
-    media_type: MediaType | None = None
-    limit: int = Field(50, ge=1, le=100)
-
-
 class MediaSearchResponse(BaseModel):
     """Search response for media items."""
 
     results: list[MediaItemSummary]
     total: int
-
-
-# ==================== Stats ====================
-
-
-class MediaStats(BaseModel):
-    """Statistics for media items."""
-
-    total_items: int
-    by_type: dict[str, int] = {}
-    by_status: dict[str, int] = {}
-    by_library: dict[str, int] = {}
 
 
 # Update forward references

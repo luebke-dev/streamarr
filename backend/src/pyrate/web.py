@@ -119,27 +119,52 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-cors_origins = list(settings.cors_allowed_origins)
-if connection_settings.enable_hosted_app:
-    cors_origins.append("https://app.pyrate.media")
-# Capacitor (Android/iOS) apps run from these origins
-cors_origins.append("capacitor://localhost")
-cors_origins.append("https://localhost")
-# Tauri desktop apps use a local custom-protocol origin in production. Keep
-# these runtime origins additive so DB-managed CORS settings cannot lock out
-# the packaged desktop app.
-cors_origins.extend(
-    [
-        "tauri://localhost",
-        "http://tauri.localhost",
-        "https://tauri.localhost",
-    ]
-)
-cors_origins = list(dict.fromkeys(cors_origins))
+def _compute_cors_origins() -> list[str]:
+    """Build the allowed-origin list from *live* settings + additive runtime origins.
+
+    ``settings.cors_allowed_origins`` is read fresh here (not captured once at
+    import) so the DB-managed ``system.cors_allowed_origins`` override applied
+    during lifespan startup actually takes effect — see DynamicCORSMiddleware.
+    """
+    cors_origins = list(settings.cors_allowed_origins)
+    if connection_settings.enable_hosted_app:
+        cors_origins.append("https://app.pyrate.media")
+    # Capacitor (Android/iOS) apps run from these origins
+    cors_origins.append("capacitor://localhost")
+    cors_origins.append("https://localhost")
+    # Tauri desktop apps use a local custom-protocol origin in production. Keep
+    # these runtime origins additive so DB-managed CORS settings cannot lock out
+    # the packaged desktop app.
+    cors_origins.extend(
+        [
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+        ]
+    )
+    return list(dict.fromkeys(cors_origins))
+
+
+class DynamicCORSMiddleware(CORSMiddleware):
+    """CORSMiddleware that re-reads DB-configured origins on each HTTP request.
+
+    Starlette freezes ``allow_origins`` at construction, but the DB override
+    (``system.cors_allowed_origins``) is only loaded during lifespan startup —
+    after this middleware is built. Recompute the allow list from live settings
+    per request so admin-configured origins are actually honored. The set is
+    deterministic (it only changes at startup), so the per-request refresh is
+    cheap and race-free.
+    """
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            self.allow_origins = _compute_cors_origins()
+        await super().__call__(scope, receive, send)
+
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
+    DynamicCORSMiddleware,
+    allow_origins=_compute_cors_origins(),
     allow_credentials=True,
     # Narrowed to the methods / headers the app actually uses. If a future
     # feature needs a new method or header, extend these lists explicitly.

@@ -20,10 +20,50 @@ breaking old items.
 from __future__ import annotations
 
 import re
+from collections import OrderedDict
 from typing import Any
 
+# Template ``matches`` patterns are admin-authored but still untrusted input.
+_MAX_REGEX_PATTERN_LENGTH = 256  # reject implausibly long patterns
+_MAX_REGEX_INPUT_LENGTH = 4096  # cap the string we search to bound cost
+_REGEX_CACHE_MAXSIZE = 256  # LRU bound so distinct patterns can't grow memory
 
-_RegexCache: dict[str, re.Pattern] = {}
+# Reject a quantifier applied to a group that itself contains a quantifier —
+# the classic catastrophic-backtracking shape, e.g. "(a+)+" / "(a*)*".
+_NESTED_QUANTIFIER_RE = re.compile(r"\([^()]*[+*{][^()]*\)[+*{]")
+
+# Bounded LRU of compiled patterns keyed by the raw pattern string. A value of
+# ``None`` memoises "rejected/invalid" so bad patterns aren't re-screened.
+_RegexCache: "OrderedDict[str, re.Pattern | None]" = OrderedDict()
+
+
+def _compiled_pattern(expected: str) -> re.Pattern | None:
+    """Return a cached compiled pattern, or ``None`` if unsafe/invalid.
+
+    Screens out over-long patterns and nested-quantifier ReDoS shapes before
+    compiling, and keeps the cache bounded (LRU eviction) so a flood of
+    distinct template patterns can't grow process memory without limit.
+    """
+    if expected in _RegexCache:
+        _RegexCache.move_to_end(expected)
+        return _RegexCache[expected]
+
+    pattern: re.Pattern | None
+    if len(expected) > _MAX_REGEX_PATTERN_LENGTH or _NESTED_QUANTIFIER_RE.search(
+        expected
+    ):
+        pattern = None
+    else:
+        try:
+            pattern = re.compile(expected, re.IGNORECASE)
+        except re.error:
+            pattern = None
+
+    _RegexCache[expected] = pattern
+    _RegexCache.move_to_end(expected)
+    while len(_RegexCache) > _REGEX_CACHE_MAXSIZE:
+        _RegexCache.popitem(last=False)
+    return pattern
 
 
 def evaluate_condition(
@@ -79,14 +119,10 @@ def _evaluate_leaf(leaf: dict, context: dict[str, Any]) -> bool:
     if op == "matches":
         if not isinstance(actual, str) or not isinstance(expected, str):
             return False
-        pattern = _RegexCache.get(expected)
+        pattern = _compiled_pattern(expected)
         if pattern is None:
-            try:
-                pattern = re.compile(expected, re.IGNORECASE)
-            except re.error:
-                return False
-            _RegexCache[expected] = pattern
-        return bool(pattern.search(actual))
+            return False
+        return bool(pattern.search(actual[:_MAX_REGEX_INPUT_LENGTH]))
     return False
 
 

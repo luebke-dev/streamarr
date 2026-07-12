@@ -2,7 +2,6 @@
 
 import json
 import uuid
-from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -14,11 +13,9 @@ from pyrate.models.genre import Genre
 from pyrate.models.media import MediaItem, MediaType
 from pyrate.models.viewing_history import ViewingHistory
 from pyrate.schemas.media import MediaItemSummary
-from pyrate.services.media_access import (
-    allowed_media_types_for_permissions,
-    max_age_for_user,
-    require_library_access_for_media_type,
-    require_media_read_access,
+from pyrate.services.media_access import require_media_read_access
+from pyrate.services.media_visibility import (
+    visibility_conditions as _visibility_conditions,
 )
 from pyrate.services.suggestion import SuggestionService
 
@@ -76,32 +73,6 @@ class TypedAutocompleteResponse(BaseModel):
     total: int
 
 
-def _allowed_media_types(
-    current_user,
-    permissions,
-    requested_type: MediaType | None = None,
-) -> list[MediaType]:
-    if requested_type:
-        require_library_access_for_media_type(current_user, permissions, requested_type)
-        return [requested_type]
-
-    allowed = allowed_media_types_for_permissions(current_user, permissions)
-    return list(MediaType) if allowed is None else allowed
-
-
-def _visibility_conditions(current_user, permissions, media_type: MediaType | None):
-    conditions = [MediaItem.media_type.in_(_allowed_media_types(current_user, permissions, media_type))]
-    max_age = max_age_for_user(current_user)
-    if max_age is not None:
-        conditions.append(
-            or_(
-                MediaItem.min_age.is_(None),
-                MediaItem.min_age <= max_age,
-            )
-        )
-    return conditions
-
-
 async def _summaries(
     db: DatabaseSession,
     items: list[MediaItem],
@@ -114,12 +85,7 @@ async def _summaries(
     return summaries
 
 
-def _release_year(value: date | None) -> str | None:
-    return str(value.year) if value else None
-
-
-def _media_studios(media_item: MediaItem) -> list[str]:
-    ed = media_item.extra_data
+def _extra_data_studios(ed) -> list[str]:
     if not ed:
         return []
     if isinstance(ed, dict):
@@ -232,8 +198,8 @@ async def typed_autocomplete_suggestions(
         )
     )
 
-    for item in await service.scan_media_for_facets(visibility):
-        for studio in _media_studios(item):
+    for extra_data in await service.scan_studio_facets(visibility):
+        for studio in _extra_data_studios(extra_data):
             if term.lower() in studio.lower() and all(
                 suggestion.type != "studio" or suggestion.value.lower() != studio.lower()
                 for suggestion in suggestions
@@ -241,8 +207,10 @@ async def typed_autocomplete_suggestions(
                 suggestions.append(
                     TypedAutocompleteItem(type="studio", label=studio, value=studio)
                 )
-        year = _release_year(item.release_date)
-        if year and term in year and all(
+
+    for year_value in await service.facet_years(visibility):
+        year = str(year_value)
+        if term in year and all(
             suggestion.type != "year" or suggestion.value != year
             for suggestion in suggestions
         ):

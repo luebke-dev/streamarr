@@ -14,9 +14,18 @@ if TYPE_CHECKING:
     from pyrate.models.user import User
 
 
+# Fixed, unambiguous uppercase alphabet (no I/O/0/1) drawn from directly with
+# ``secrets.choice`` so every character contributes full entropy. Uppercasing a
+# base64 token instead would case-fold letters and collapse the keyspace.
+_SESSION_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_SESSION_CODE_LENGTH = 8
+
+
 def generate_session_code() -> str:
-    """Generate a random 6-character alphanumeric session code."""
-    return secrets.token_urlsafe(6)[:6].upper()
+    """Generate a random uppercase session code with adequate entropy."""
+    return "".join(
+        secrets.choice(_SESSION_CODE_ALPHABET) for _ in range(_SESSION_CODE_LENGTH)
+    )
 
 
 class WatchParty(Base):

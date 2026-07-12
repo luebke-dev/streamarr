@@ -45,7 +45,13 @@ class IndexerBase(ABC):
         """
         self.base_url = kwargs.get("base_url", "")
         self.api_key = kwargs.get("api_key", "")
-        self.client = kwargs.get("client", make_async_client())
+        # Honour the indexer's verify_ssl config (self-signed / self-hosted
+        # indexers) when we build the client ourselves. An explicitly supplied
+        # client is used as-is.
+        self.client = kwargs.get(
+            "client",
+            make_async_client(verify=kwargs.get("verify_ssl", True)),
+        )
         self.max_retries = kwargs.get("max_retries", 3)
         self.retry_delay = kwargs.get("retry_delay", 2)
         self.concurrent_requests = kwargs.get("concurrent_requests", 5)

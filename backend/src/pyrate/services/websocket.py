@@ -1044,14 +1044,19 @@ class WebSocketManager:
     async def _is_party_member(
         self, user_id: str, party_id: str | UUID
     ) -> bool:
-        """Return True if the user owns or has joined the given watch party."""
+        """Return True if the user owns or is a *connected* member of the party.
+
+        Kicked or departed members have ``is_connected=False`` (their row is
+        kept for history), so they must not pass the membership gate — otherwise
+        a kick would not actually revoke channel access.
+        """
         try:
             party_uuid = UUID(str(party_id))
             user_uuid = UUID(str(user_id))
         except (ValueError, TypeError):
             return False
 
-        from sqlalchemy import or_, select
+        from sqlalchemy import and_, or_, select
 
         from pyrate.database import sessionmanager
         from pyrate.models.party import WatchParty, WatchPartyMember
@@ -1068,7 +1073,10 @@ class WebSocketManager:
                     .where(
                         or_(
                             WatchParty.owner_id == user_uuid,
-                            WatchPartyMember.user_id == user_uuid,
+                            and_(
+                                WatchPartyMember.user_id == user_uuid,
+                                WatchPartyMember.is_connected,
+                            ),
                         )
                     )
                     .limit(1)
@@ -1077,6 +1085,57 @@ class WebSocketManager:
                 return result.first() is not None
         except Exception as e:
             logger.warning("Party membership check failed for %s: %s", party_id, e)
+            return False
+
+    async def _can_control_party(
+        self, user_id: str, party_id: str | UUID
+    ) -> bool:
+        """Return True if the user may control playback for the given party.
+
+        Mirrors :meth:`WatchPartyService.sync_playback`: the host controls
+        always, other connected members only when ``allow_control`` is set, and
+        disconnected/kicked members never do. This is the single authorization
+        rule the WebSocket sync path must share with the REST endpoint.
+        """
+        try:
+            party_uuid = UUID(str(party_id))
+            user_uuid = UUID(str(user_id))
+        except (ValueError, TypeError):
+            return False
+
+        from sqlalchemy import select
+
+        from pyrate.database import sessionmanager
+        from pyrate.models.party import WatchParty, WatchPartyMember
+
+        try:
+            async with sessionmanager.session() as db:
+                stmt = (
+                    select(
+                        WatchParty.allow_control,
+                        WatchParty.owner_id,
+                        WatchPartyMember.is_host,
+                    )
+                    .join(
+                        WatchPartyMember,
+                        WatchPartyMember.party_id == WatchParty.guid,
+                    )
+                    .where(
+                        WatchParty.guid == party_uuid,
+                        WatchParty.is_active,
+                        WatchPartyMember.user_id == user_uuid,
+                        WatchPartyMember.is_connected,
+                    )
+                    .limit(1)
+                )
+                result = await db.execute(stmt)
+                row = result.first()
+                if row is None:
+                    return False
+                allow_control, owner_id, is_host = row
+                return bool(allow_control or is_host or owner_id == user_uuid)
+        except Exception as e:
+            logger.warning("Party control check failed for %s: %s", party_id, e)
             return False
 
     async def _handle_party_sync(
@@ -1112,10 +1171,14 @@ class WebSocketManager:
             )
             return
 
-        if not await self._is_party_member(connection.user_id, party_id):
+        # party_sync seizes playback control (it broadcasts a seek/pause AND
+        # persists it to the WatchParty row), so it must enforce the same
+        # host-only/allow_control gate as the REST sync endpoint rather than a
+        # bare membership check.
+        if not await self._can_control_party(connection.user_id, party_id):
             await connection.send_event(
                 "error",
-                {"message": "Not a member of this watch party"},
+                {"message": "Only the host can control playback"},
             )
             return
 

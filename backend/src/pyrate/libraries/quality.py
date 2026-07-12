@@ -165,10 +165,6 @@ def kind_for_media_type(media_type: Any) -> QualityKind:
     return QualityKind.BOOK
 
 
-def ladder_for_kind(kind: QualityKind) -> list[QualityDef]:
-    return list(_LADDERS[kind])
-
-
 def qualities_for_media_type(media_type: Any) -> list[QualityDef]:
     """Canonical ordered ladder for a media type (for default profiles + UI).
 

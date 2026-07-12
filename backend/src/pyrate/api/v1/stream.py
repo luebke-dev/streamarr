@@ -522,6 +522,15 @@ async def get_segment(
     if not _SEGMENT_RE.match(segment_file):
         raise HTTPException(status_code=400, detail="Invalid segment file name")
 
+    # Object-level authz: the token authorizes exactly one session, and every
+    # segment for that session is named "{session_id}_NNN.ts". Reject any
+    # segment whose name is not bound to the authorized session so a valid
+    # token can't be used to read another session's transcoded output.
+    if not segment_file.startswith(f"{session_id}_"):
+        raise HTTPException(
+            status_code=403, detail="Segment does not belong to session"
+        )
+
     # Extend token TTL on segment access
     await token_service.extend_ttl(raw_token)
 
@@ -555,10 +564,6 @@ async def stop_stream(
     session_id: str,
     request: Request,
     db: DatabaseSession,
-    delete_library_file: bool = Query(
-        True,
-        description="Whether to delete the source media file from disk and database",
-    ),
 ):
     """
     Stop a streaming session and clean up all associated files.
@@ -566,8 +571,10 @@ async def stop_stream(
     This endpoint:
     1. Stops the transcoding container
     2. Deletes temporary transcoding files (.ts, .m3u8)
-    3. Optionally deletes the source media file from disk and database
-    4. Invalidates the play token
+    3. Invalidates the play token
+
+    The source media file is never deleted here — it is shared across future
+    playbacks and its lifecycle is owned by the retention task.
     """
     from pyrate.services.media import cleanup_stream_on_stop
 
@@ -615,13 +622,12 @@ async def stop_stream(
     except Exception:
         logger.warning("Failed to stop container for session %s", session_id)
 
-    # Perform full cleanup (temp files + optionally library file)
+    # Perform cleanup of temporary transcoding files.
     cleanup_result = await cleanup_stream_on_stop(
         db=db,
         session_id=session_id,
         content_id=content_id,
         input_path=input_path,
-        delete_library_file=delete_library_file,
     )
 
     # Remove session from Redis so it stops counting toward concurrency limits.

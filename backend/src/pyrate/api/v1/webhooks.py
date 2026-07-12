@@ -97,6 +97,29 @@ def map_download_path(downloader_name: str, remote_path: str) -> str:
     return remote_path
 
 
+def _is_within_allowed_roots(mapped_path: str) -> bool:
+    """Return True iff ``mapped_path`` resolves inside a configured download root.
+
+    The configured mount map's local prefixes are the only directories a
+    downloader is ever expected to write into. Enforcing containment here means
+    a caller who merely holds the shared webhook secret still can't point the
+    importer at an arbitrary server-side directory (e.g. ``path=/etc``): unknown
+    prefixes pass through :func:`map_download_path` unchanged and are rejected
+    here. ``..`` segments are collapsed before the check so they can't escape.
+    """
+    if not mapped_path:
+        return False
+    roots = {local for _, local in _load_mount_map().values() if local}
+    if not roots:
+        return False
+    norm = os.path.normpath(mapped_path)
+    for root in roots:
+        root_norm = os.path.normpath(root)
+        if norm == root_norm or norm.startswith(root_norm + os.sep):
+            return True
+    return False
+
+
 def _verify_webhook_secret(x_webhook_secret: str | None, downloader_name: str) -> None:
     """Fail with 401 if the shared-secret header doesn't match.
 
@@ -179,6 +202,19 @@ async def _handle_downloader_webhook(payload: dict, db, downloader_name: str) ->
             "%s webhook: job %s completed, path=%s → %s, expected files=%s",
             downloader_name, job_id, raw_path, mapped_path, expected_files,
         )
+
+        # The webhook secret is one layer, not the sole control: never import
+        # from a caller-supplied path that escapes the configured download
+        # roots, even for an otherwise-valid completed job.
+        if not _is_within_allowed_roots(mapped_path):
+            logger.warning(
+                "Rejecting %s webhook for job %s: path %r is outside allowed download roots",
+                downloader_name, job_id, mapped_path,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Download path is outside allowed download roots",
+            )
 
         from pyrate.worker import handle_completed_download
 

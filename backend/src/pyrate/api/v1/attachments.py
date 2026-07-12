@@ -16,7 +16,9 @@ from pyrate.api.dependencies import (
 )
 from pyrate.utils.extra_data import load_extra_data
 from pyrate.models.media import MediaItem
-from pyrate.services.media_access import require_media_read_access
+from pyrate.services.media_access import (
+    get_visible_media_item as _get_visible_media_item,
+)
 
 router = APIRouter()
 
@@ -61,25 +63,6 @@ def _parse_attachments(extra_data: dict) -> list[MediaAttachment]:
             )
         )
     return attachments
-
-
-async def _get_visible_media_item(
-    db: DatabaseSession,
-    item_guid: uuid.UUID,
-    current_user: CurrentUser,
-    permissions: UserPermissionsDep,
-) -> MediaItem:
-    media_item = await db.get(MediaItem, item_guid)
-    if not media_item:
-        raise HTTPException(status_code=404, detail="Media item not found")
-
-    require_media_read_access(
-        current_user,
-        permissions,
-        media_item,
-        hide_age_denials=True,
-    )
-    return media_item
 
 
 @router.get("/{item_guid}/attachments", response_model=list[MediaAttachment])

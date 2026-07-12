@@ -4,11 +4,13 @@ Stripe payment provider plugin for pyrate.
 This plugin handles subscription payments and billing through Stripe.
 """
 
+import functools
 import logging
 from decimal import Decimal
 from typing import Any
 from urllib.parse import urlparse
 
+import anyio
 import stripe
 
 from pyrate.payments.base import PaymentProviderPlugin
@@ -18,6 +20,16 @@ logger = logging.getLogger(__name__)
 # Webhook events this plugin has already processed, keyed by event id with a
 # TTL so Stripe can't deliver the same event twice and double-credit an account.
 _WEBHOOK_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60  # 24h, matches Stripe's retry window
+
+
+async def _stripe_call(func, /, *args, **kwargs):
+    """Run a blocking synchronous Stripe SDK call in a worker thread.
+
+    The ``stripe`` SDK is synchronous and performs network round-trips; calling
+    it directly from an async method blocks the whole asyncio event loop for the
+    duration of the request. Offloading to a thread keeps the loop responsive.
+    """
+    return await anyio.to_thread.run_sync(functools.partial(func, *args, **kwargs))
 
 
 def _validate_checkout_url(url: str | None, field: str) -> str | None:
@@ -90,7 +102,8 @@ class Stripe(PaymentProviderPlugin):
         Returns:
             dict: Customer information including ID
         """
-        customer = stripe.Customer.create(
+        customer = await _stripe_call(
+            stripe.Customer.create,
             email=email,
             name=name,
             metadata=metadata or {},
@@ -126,13 +139,15 @@ class Stripe(PaymentProviderPlugin):
         Returns:
             Tuple of (product, price) Stripe objects
         """
-        product = stripe.Product.create(
+        product = await _stripe_call(
+            stripe.Product.create,
             name=name,
             description=description,
             metadata=metadata or {},
         )
 
-        stripe_price = stripe.Price.create(
+        stripe_price = await _stripe_call(
+            stripe.Price.create,
             product=product.id,
             unit_amount=int(price * 100),  # Convert to cents
             currency=currency,
@@ -190,7 +205,7 @@ class Stripe(PaymentProviderPlugin):
 
         session_params.update(kwargs)
 
-        session = stripe.checkout.Session.create(**session_params)
+        session = await _stripe_call(stripe.checkout.Session.create, **session_params)
 
         return {
             "id": session.id,
@@ -221,26 +236,33 @@ class Stripe(PaymentProviderPlugin):
         """
         # Get or create customer
         if not customer_id:
-            customers = stripe.Customer.list(email=user_email, limit=1)
+            customers = await _stripe_call(
+                stripe.Customer.list, email=user_email, limit=1
+            )
             if customers.data:
                 customer_id = customers.data[0].id
             else:
-                customer = stripe.Customer.create(email=user_email)
+                customer = await _stripe_call(
+                    stripe.Customer.create, email=user_email
+                )
                 customer_id = customer.id
 
         # Attach payment method if provided
         if payment_method_id:
-            stripe.PaymentMethod.attach(
+            await _stripe_call(
+                stripe.PaymentMethod.attach,
                 payment_method_id,
                 customer=customer_id,
             )
-            stripe.Customer.modify(
+            await _stripe_call(
+                stripe.Customer.modify,
                 customer_id,
                 invoice_settings={"default_payment_method": payment_method_id},
             )
 
         # Create subscription
-        subscription = stripe.Subscription.create(
+        subscription = await _stripe_call(
+            stripe.Subscription.create,
             customer=customer_id,
             items=[{"price": price_id}],
             payment_behavior="default_incomplete",
@@ -271,12 +293,13 @@ class Stripe(PaymentProviderPlugin):
         """
         try:
             if cancel_at_period_end:
-                stripe.Subscription.modify(
+                await _stripe_call(
+                    stripe.Subscription.modify,
                     subscription_id,
                     cancel_at_period_end=True,
                 )
             else:
-                stripe.Subscription.delete(subscription_id)
+                await _stripe_call(stripe.Subscription.delete, subscription_id)
 
             logger.info("Cancelled Stripe subscription %s", subscription_id)
             return True
@@ -298,7 +321,9 @@ class Stripe(PaymentProviderPlugin):
         Returns:
             dict: Subscription status information
         """
-        subscription = stripe.Subscription.retrieve(subscription_id)
+        subscription = await _stripe_call(
+            stripe.Subscription.retrieve, subscription_id
+        )
 
         return {
             "id": subscription.id,
@@ -332,7 +357,8 @@ class Stripe(PaymentProviderPlugin):
             raise ValueError("Webhook secret not configured")
 
         try:
-            event = stripe.Webhook.construct_event(
+            event = await _stripe_call(
+                stripe.Webhook.construct_event,
                 payload,
                 signature,
                 self.webhook_secret,
@@ -342,8 +368,13 @@ class Stripe(PaymentProviderPlugin):
             raise ValueError("Invalid signature")
 
         # Replay protection: Stripe retries failed deliveries with the same
-        # event ``id`` — we remember the id in Redis for the retry window and
-        # refuse duplicates so a retried event can't double-credit an account.
+        # event ``id``. We only *read* the processed-marker here and refuse
+        # events that were already handled successfully; the marker is written
+        # by :meth:`mark_event_processed` *after* the handler commits (see the
+        # webhook router). Marking on receipt would permanently drop an event
+        # whose handler later raised (DB hiccup, deploy restart), because the
+        # Stripe retry would then be rejected as a duplicate before it is ever
+        # applied.
         event_id = event.get("id") if isinstance(event, dict) else getattr(event, "id", None)
         if event_id:
             try:
@@ -351,11 +382,7 @@ class Stripe(PaymentProviderPlugin):
 
                 redis = await _get_redis()
                 key = f"pyrate:stripe_event:{event_id}"
-                # SET NX — if the key already exists, someone handled this event
-                fresh = await redis.set(
-                    key, "1", nx=True, ex=_WEBHOOK_IDEMPOTENCY_TTL_SECONDS,
-                )
-                if not fresh:
+                if await redis.get(key):
                     logger.warning(
                         "Refusing replayed Stripe webhook event id=%s", event_id,
                     )
@@ -371,6 +398,30 @@ class Stripe(PaymentProviderPlugin):
                 )
 
         return event
+
+    async def mark_event_processed(self, event_id: str | None) -> None:
+        """Record a webhook event id as successfully processed.
+
+        Called by the webhook router only after the handler has committed its
+        state change, so a transient handler failure leaves the event eligible
+        for Stripe's retry. Best-effort: if Redis is unavailable we skip the
+        marker (the DB-level idempotency guards still prevent double writes).
+        """
+        if not event_id:
+            return
+        try:
+            from pyrate.services.rate_limiter import _get_redis
+
+            redis = await _get_redis()
+            key = f"pyrate:stripe_event:{event_id}"
+            await redis.set(
+                key, "1", nx=True, ex=_WEBHOOK_IDEMPOTENCY_TTL_SECONDS,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to record Stripe webhook idempotency marker for %s: %s",
+                event_id, e,
+            )
 
     async def handle_webhook(
         self,
@@ -450,7 +501,7 @@ class Stripe(PaymentProviderPlugin):
         Returns:
             dict: Customer information
         """
-        customer = stripe.Customer.retrieve(customer_id)
+        customer = await _stripe_call(stripe.Customer.retrieve, customer_id)
         return {
             "id": customer.id,
             "email": customer.email,
@@ -485,7 +536,9 @@ class Stripe(PaymentProviderPlugin):
         if metadata:
             update_params["metadata"] = metadata
 
-        customer = stripe.Customer.modify(customer_id, **update_params)
+        customer = await _stripe_call(
+            stripe.Customer.modify, customer_id, **update_params
+        )
         return {
             "id": customer.id,
             "email": customer.email,
@@ -507,7 +560,8 @@ class Stripe(PaymentProviderPlugin):
         Returns:
             list: Payment methods
         """
-        payment_methods = stripe.PaymentMethod.list(
+        payment_methods = await _stripe_call(
+            stripe.PaymentMethod.list,
             customer=customer_id,
             type=type,
         )
@@ -544,10 +598,11 @@ class Stripe(PaymentProviderPlugin):
         Returns:
             str: Stripe customer ID
         """
-        existing = stripe.Customer.list(email=email, limit=1)
+        existing = await _stripe_call(stripe.Customer.list, email=email, limit=1)
         if existing.data:
             return existing.data[0].id
-        customer = stripe.Customer.create(
+        customer = await _stripe_call(
+            stripe.Customer.create,
             email=email,
             name=name,
             metadata=metadata or {},
@@ -575,7 +630,8 @@ class Stripe(PaymentProviderPlugin):
         Returns:
             dict: ``{id, client_secret, status}``
         """
-        intent = stripe.SetupIntent.create(
+        intent = await _stripe_call(
+            stripe.SetupIntent.create,
             customer=customer_id,
             usage=usage,
             payment_method_types=["card"],
@@ -598,7 +654,7 @@ class Stripe(PaymentProviderPlugin):
             bool: True on success
         """
         try:
-            stripe.PaymentMethod.detach(payment_method_id)
+            await _stripe_call(stripe.PaymentMethod.detach, payment_method_id)
             logger.info("Detached Stripe payment method %s", payment_method_id)
             return True
         except stripe.StripeError as e:
@@ -622,7 +678,8 @@ class Stripe(PaymentProviderPlugin):
         Returns:
             bool: True on success
         """
-        stripe.Customer.modify(
+        await _stripe_call(
+            stripe.Customer.modify,
             customer_id,
             invoice_settings={"default_payment_method": payment_method_id},
         )
@@ -655,7 +712,7 @@ class Stripe(PaymentProviderPlugin):
         if customer_id:
             params["customer"] = customer_id
 
-        intent = stripe.PaymentIntent.create(**params)
+        intent = await _stripe_call(stripe.PaymentIntent.create, **params)
         return {
             "id": intent.id,
             "client_secret": intent.client_secret,
@@ -677,7 +734,9 @@ class Stripe(PaymentProviderPlugin):
         Returns:
             list: Invoice information
         """
-        invoices = stripe.Invoice.list(customer=customer_id, limit=limit)
+        invoices = await _stripe_call(
+            stripe.Invoice.list, customer=customer_id, limit=limit
+        )
         # Decimal division avoids float rounding on amounts; the callers that
         # serialise this into JSON will get e.g. "19.99" not 19.989999....
         return [

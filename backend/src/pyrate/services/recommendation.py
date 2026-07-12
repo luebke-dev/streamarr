@@ -187,17 +187,40 @@ class RecommendationService:
             decay = math.exp(-age_days / 180.0)
             return base * decay
 
-        # Resolve episode → parent show for genre lookup
-        async def _resolve_root(item: MediaItem) -> MediaItem:
+        # Resolve episode → parent show for genre lookup. Parents are loaded in
+        # bulk (a couple of queries per hop for the whole batch) rather than a
+        # per-item, per-hop SELECT, which for 200 history rows + favorites would
+        # otherwise fan out into several hundred sequential single-row queries.
+        async def _load_parent_chain(
+            items: list[MediaItem],
+        ) -> dict[uuid.UUID, MediaItem]:
+            by_guid: dict[uuid.UUID, MediaItem] = {it.guid: it for it in items}
+            frontier = {
+                it.parent_guid for it in items if it.parent_guid
+            } - set(by_guid)
+            hops = 0
+            while frontier and hops < 3:
+                res = await self.db.execute(
+                    select(MediaItem)
+                    .where(MediaItem.guid.in_(frontier))
+                    .options(selectinload(MediaItem.genres))
+                )
+                next_frontier: set[uuid.UUID] = set()
+                for parent in res.scalars().unique().all():
+                    by_guid[parent.guid] = parent
+                    if parent.parent_guid and parent.parent_guid not in by_guid:
+                        next_frontier.add(parent.parent_guid)
+                frontier = next_frontier
+                hops += 1
+            return by_guid
+
+        def _resolve_root(
+            item: MediaItem, by_guid: dict[uuid.UUID, MediaItem]
+        ) -> MediaItem:
             cur = item
             safety = 0
             while cur.parent_guid and safety < 3:
-                res = await self.db.execute(
-                    select(MediaItem)
-                    .where(MediaItem.guid == cur.parent_guid)
-                    .options(selectinload(MediaItem.genres))
-                )
-                parent = res.scalar_one_or_none()
+                parent = by_guid.get(cur.parent_guid)
                 if parent is None:
                     break
                 cur = parent
@@ -213,8 +236,10 @@ class RecommendationService:
             .limit(200)
             .options(selectinload(MediaItem.genres))
         )
-        for vh, item in vh_res.all():
-            root = await _resolve_root(item)
+        vh_rows = vh_res.all()
+        vh_parents = await _load_parent_chain([item for _vh, item in vh_rows])
+        for vh, item in vh_rows:
+            root = _resolve_root(item, vh_parents)
             if mt == "MOVIES" and root.media_type.value != "MOVIES":
                 continue
             if mt == "SHOWS" and root.media_type.value not in ("SHOWS",):
@@ -239,8 +264,12 @@ class RecommendationService:
                 .where(ListItem.list_guid == fav_list.guid)
                 .options(selectinload(MediaItem.genres))
             )
-            for li, item in fav_items.all():
-                root = await _resolve_root(item)
+            fav_rows = fav_items.all()
+            fav_parents = await _load_parent_chain(
+                [item for _li, item in fav_rows]
+            )
+            for li, item in fav_rows:
+                root = _resolve_root(item, fav_parents)
                 if mt == "MOVIES" and root.media_type.value != "MOVIES":
                     continue
                 if mt == "SHOWS" and root.media_type.value != "SHOWS":

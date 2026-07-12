@@ -29,7 +29,9 @@ class DownloadRefreshWorker:
             async with sessionmanager.session() as db:
                 downloaders = await self.downloader_service_cls(db).get_all()
 
-            webhook_types = {"spotdl", "torrent_downloader"}
+            # Downloaders that report completion via webhook must NOT also be
+            # polled, or the same completion is enqueued twice (webhook + poll).
+            webhook_types = {"spotdl", "torrent_downloader", "usenet_downloader"}
             poll_downloaders = [
                 downloader
                 for downloader in downloaders

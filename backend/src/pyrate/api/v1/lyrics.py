@@ -20,7 +20,9 @@ from pyrate.utils.extra_data import load_extra_data
 from pyrate.models.media import MediaItem
 from pyrate.schemas.activity_log import ActivityLogCreate
 from pyrate.services.activity_log import ActivityLogService
-from pyrate.services.media_access import require_media_read_access
+from pyrate.services.media_access import (
+    get_visible_media_item as _get_visible_media_item,
+)
 from pyrate.services.settings import SettingsService
 from pyrate.utils.net import safe_get
 
@@ -309,25 +311,6 @@ def _matches_remote_lyrics_result(
         if value
     ).casefold()
     return needle in haystack
-
-
-async def _get_visible_media_item(
-    db: DatabaseSession,
-    item_guid: uuid.UUID,
-    current_user: CurrentUser,
-    permissions: UserPermissionsDep,
-) -> MediaItem:
-    media_item = await db.get(MediaItem, item_guid)
-    if not media_item:
-        raise HTTPException(status_code=404, detail="Media item not found")
-
-    require_media_read_access(
-        current_user,
-        permissions,
-        media_item,
-        hide_age_denials=True,
-    )
-    return media_item
 
 
 @router.get("/{item_guid}/lyrics", response_model=LyricsResponse)

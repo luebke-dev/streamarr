@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
@@ -15,7 +15,9 @@ from pyrate.models.media import MediaItem
 from pyrate.models.viewing_history import ViewingHistory
 from pyrate.services.favorite import MEDIA_TYPE_TO_ITEM_TYPE
 from pyrate.services.list import ListService
-from pyrate.services.media_access import require_media_read_access
+from pyrate.services.media_access import (
+    get_visible_media_item as _get_visible_media_item,
+)
 from pyrate.services.viewing_history import ViewingHistoryService
 
 router = APIRouter()
@@ -50,25 +52,6 @@ class MediaUserDataUpdate(BaseModel):
     selected_subtitle_track_id: str | None = Field(default=None, max_length=255)
     selected_audio_language: str | None = Field(default=None, max_length=16)
     selected_subtitle_language: str | None = Field(default=None, max_length=16)
-
-
-async def _get_visible_media_item(
-    db: DatabaseSession,
-    item_guid: uuid.UUID,
-    current_user: CurrentUser,
-    permissions: UserPermissionsDep,
-) -> MediaItem:
-    media_item = await db.get(MediaItem, item_guid)
-    if not media_item:
-        raise HTTPException(status_code=404, detail="Media item not found")
-
-    require_media_read_access(
-        current_user,
-        permissions,
-        media_item,
-        hide_age_denials=True,
-    )
-    return media_item
 
 
 async def _get_history(

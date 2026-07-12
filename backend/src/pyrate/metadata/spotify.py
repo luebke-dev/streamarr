@@ -544,26 +544,3 @@ class Spotify(MetadataBase, IndexerBase):
 
 # Export plugin class for loader
 PLUGIN_CLASS = Spotify
-
-
-async def async_setup(config: dict[str, Any]) -> bool:
-    """
-    Set up the Spotify plugin.
-
-    This function is called by the plugin loader during initialization.
-
-    Args:
-        config: Plugin configuration from manifest
-
-    Returns:
-        bool: True if setup was successful
-    """
-    # Validate required configuration
-    required = ["client_id", "client_secret"]
-    for field in required:
-        if field not in config:
-            logger.error(f"Spotify plugin requires '{field}' in configuration")
-            return False
-
-    logger.info("Spotify plugin setup completed successfully")
-    return True

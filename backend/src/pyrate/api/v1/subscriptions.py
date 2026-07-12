@@ -53,6 +53,11 @@ async def create_subscription_package(
     """
     service = SubscriptionService(db)
 
+    # SubscriptionPackage.currency defaults to EUR; create the Stripe price in
+    # the same currency (Stripe defaults to usd otherwise) so the customer is
+    # billed exactly what the package/UI advertises.
+    currency = "EUR"
+
     try:
         stripe_product_id: str | None = None
         stripe_price_id: str | None = None
@@ -63,6 +68,7 @@ async def create_subscription_package(
                     name=package_data.name,
                     description=package_data.description,
                     price=package_data.price,
+                    currency=currency.lower(),
                 )
                 stripe_product_id = stripe_product.id
                 stripe_price_id = stripe_price.id
@@ -79,6 +85,7 @@ async def create_subscription_package(
             description=package_data.description,
             price_cents=int(package_data.price * 100),
             group_id=package_data.group_id,
+            currency=currency,
             stripe_product_id=stripe_product_id,
             stripe_price_id=stripe_price_id,
         )
@@ -402,7 +409,8 @@ async def end_session(
     """End a specific session"""
     service = SubscriptionService(db)
 
-    success = await service.end_session(session_id)
+    # Scope to the caller so a user can only end their own session (IDOR guard).
+    success = await service.end_session(session_id, user_id=current_user.guid)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
@@ -565,6 +573,7 @@ async def handle_stripe_webhook(
 
     event_type = event.get("type")
     event_data = event.get("data", {}).get("object", {})
+    event_id = event.get("id")
 
     try:
         if event_type == "invoice.payment_succeeded":
@@ -576,14 +585,20 @@ async def handle_stripe_webhook(
         elif event_type == "customer.subscription.deleted":
             await payment_service.handle_subscription_deleted(event_data)
 
-        return {"status": "success"}
-
     except Exception as e:
+        # Do NOT record the idempotency marker: returning 400 makes Stripe retry
+        # the event, and the retry must be allowed to re-run the handler.
         logger.error("Webhook processing failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Webhook processing failed",
         )
+
+    # Handler committed successfully — only now mark the event processed so a
+    # Stripe retry of this same event id is treated as a duplicate.
+    await payment_service.provider.mark_event_processed(event_id)
+
+    return {"status": "success"}
 
 
 # Utility routes

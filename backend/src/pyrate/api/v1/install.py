@@ -151,8 +151,12 @@ async def get_installation_status(db: DatabaseSession):
 
 
 @router.get("/wizard", response_model=InstallWizardStatus)
-async def get_install_wizard_status(db: DatabaseSession):
+async def get_install_wizard_status(
+    db: DatabaseSession,
+    current_user: User | None = Depends(get_current_user_optional),
+):
     """Return setup checklist state for install/onboarding UIs."""
+    await _require_install_wizard_access(db, current_user)
     settings_service = SettingsService(db)
     user_count = await _count_users(db)
     library_count_result = await db.execute(select(func.count()).select_from(Library))

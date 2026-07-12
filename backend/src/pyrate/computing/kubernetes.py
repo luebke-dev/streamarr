@@ -500,10 +500,3 @@ class KubernetesComputingProvider(ComputingBase):
 
         logger.info("Cleaned up %s completed Kubernetes tasks", cleaned)
         return cleaned
-
-
-async def async_setup_entry(manifest, config):
-    """Setup plugin entry point."""
-    plugin = KubernetesComputingProvider(manifest, config)
-    await plugin.setup()
-    return plugin

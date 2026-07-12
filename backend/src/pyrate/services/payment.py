@@ -8,7 +8,6 @@ delegating to payment provider plugins (Stripe, PayPal, etc.).
 import logging
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -260,6 +259,28 @@ class PaymentService:
                 user_subscription.expires_at = datetime.fromtimestamp(period_end, tz=UTC)
             await self._grant_group_link(user_subscription)
 
+        # Idempotency guard: Stripe may re-deliver invoice.payment_succeeded
+        # (and the Redis webhook dedupe fails open when Redis is down). A missing
+        # payment_intent means the unique constraint on stripe_payment_intent_id
+        # can't catch the duplicate (NULLs are distinct), so guard on the invoice
+        # id explicitly and skip the second insert to avoid inflating revenue.
+        invoice_id = event_data.get("id")
+        if invoice_id is not None:
+            existing = await self.db.execute(
+                select(PaymentHistory).where(
+                    PaymentHistory.stripe_invoice_id == invoice_id,
+                    PaymentHistory.status == "succeeded",
+                )
+            )
+            if existing.scalar_one_or_none() is not None:
+                logger.info(
+                    "Invoice %s already recorded as succeeded; skipping duplicate",
+                    invoice_id,
+                )
+                # Persist the idempotent subscription/group updates made above.
+                await self.db.commit()
+                return
+
         # Create payment history record
         payment_history = PaymentHistory(
             user_id=user_subscription.user_id,
@@ -450,86 +471,3 @@ class PaymentService:
         await self.db.commit()
 
         logger.info("Subscription %s deleted", user_subscription.guid)
-
-    async def sync_subscription(
-        self,
-        subscription: UserSubscription,
-    ) -> UserSubscription:
-        """
-        Sync local subscription with payment provider data.
-
-        Args:
-            subscription: Local subscription to sync
-
-        Returns:
-            Updated UserSubscription
-        """
-        try:
-            # Get status from provider
-            provider_data = await self.provider.get_subscription_status(
-                subscription.stripe_subscription_id
-            )
-
-            # Update local subscription with provider data
-            if provider_data.get("current_period_start"):
-                subscription.starts_at = datetime.fromtimestamp(
-                    provider_data["current_period_start"], tz=UTC
-                )
-            if provider_data.get("current_period_end"):
-                subscription.expires_at = datetime.fromtimestamp(
-                    provider_data["current_period_end"], tz=UTC
-                )
-
-            # Update status
-            provider_status = provider_data.get("status")
-            if provider_status == "active":
-                subscription.status = SubscriptionStatus.ACTIVE
-            elif provider_status == "past_due":
-                subscription.status = SubscriptionStatus.FAILED
-            elif provider_status in ("canceled", "cancelled"):
-                subscription.status = SubscriptionStatus.CANCELLED
-                if not subscription.cancelled_at:
-                    subscription.cancelled_at = datetime.now(UTC)
-            elif provider_status == "unpaid":
-                subscription.status = SubscriptionStatus.FAILED
-
-            await self.db.commit()
-            await self.db.refresh(subscription)
-
-            logger.info("Synced subscription %s with provider", subscription.guid)
-
-            return subscription
-
-        except Exception as e:
-            logger.error("Error syncing subscription: %s", e)
-            raise
-
-    async def get_user_active_subscription(
-        self,
-        user_id: UUID,
-    ) -> UserSubscription | None:
-        """
-        Get the current active subscription for a user.
-
-        Args:
-            user_id: User ID to get subscription for
-
-        Returns:
-            Active UserSubscription or None
-        """
-        result = await self.db.execute(
-            select(UserSubscription)
-            .where(UserSubscription.user_id == user_id)
-            .where(
-                UserSubscription.status.in_(
-                    [
-                        SubscriptionStatus.ACTIVE,
-                        SubscriptionStatus.PENDING,
-                    ]
-                )
-            )
-            .order_by(UserSubscription.created_at.desc())
-            .limit(1)
-        )
-
-        return result.scalars().first()

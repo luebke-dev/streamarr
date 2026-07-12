@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from pyrate.api.dependencies import CurrentSuperuser, DatabaseSession
 
 logger = logging.getLogger(__name__)
+from pyrate.database import sessionmanager
 from pyrate.models.media import MediaType
 from pyrate.services.elasticsearch import elasticsearch_service
 from pyrate.services.media import MediaService
@@ -179,6 +180,42 @@ async def reindex_all_task(db: DatabaseSession) -> ReindexStats:
         )
 
 
+# ---------------------------------------------------------------------------
+# Background-job wrappers
+#
+# Reindex is a minutes-long loop over the whole library. Running it on the
+# request-scoped session would pin one pooled web connection for the entire
+# run (starving unrelated requests) and any error raised after the "queued"
+# response was sent surfaces as an unhandled ASGI error. These wrappers open a
+# fresh session, decoupled from the request connection, and swallow/​log
+# failures instead of letting them escape post-response.
+# ---------------------------------------------------------------------------
+
+
+async def _run_reindex_movies_job() -> None:
+    async with sessionmanager.session() as db:
+        try:
+            await reindex_movies_task(db)
+        except Exception:
+            logger.exception("Background movie reindex failed")
+
+
+async def _run_reindex_shows_job() -> None:
+    async with sessionmanager.session() as db:
+        try:
+            await reindex_shows_task(db)
+        except Exception:
+            logger.exception("Background show reindex failed")
+
+
+async def _run_reindex_all_job() -> None:
+    async with sessionmanager.session() as db:
+        try:
+            await reindex_all_task(db)
+        except Exception:
+            logger.exception("Background full reindex failed")
+
+
 @router.post("/movies", response_model=ReindexResponse)
 async def reindex_movies(
     background_tasks: BackgroundTasks,
@@ -196,8 +233,8 @@ async def reindex_movies(
                 status_code=503, detail="Elasticsearch service unavailable"
             )
 
-        # Schedule the background task.
-        background_tasks.add_task(reindex_movies_task, db)
+        # Schedule the background task on its own session (not the request's).
+        background_tasks.add_task(_run_reindex_movies_job)
 
         return ReindexResponse(
             message="Movie reindexing started", status="queued"
@@ -228,8 +265,8 @@ async def reindex_shows(
                 status_code=503, detail="Elasticsearch service unavailable"
             )
 
-        # Schedule the background task.
-        background_tasks.add_task(reindex_shows_task, db)
+        # Schedule the background task on its own session (not the request's).
+        background_tasks.add_task(_run_reindex_shows_job)
 
         return ReindexResponse(
             message="Show reindexing started", status="queued"
@@ -260,8 +297,8 @@ async def reindex_all(
                 status_code=503, detail="Elasticsearch service unavailable"
             )
 
-        # Schedule the background task.
-        background_tasks.add_task(reindex_all_task, db)
+        # Schedule the background task on its own session (not the request's).
+        background_tasks.add_task(_run_reindex_all_job)
 
         return ReindexResponse(
             message="Full reindexing started", status="queued"
@@ -300,6 +337,9 @@ async def get_reindex_status(current_user: CurrentSuperuser):
             }
 
     except Exception as e:
+        # Log the full detail server-side; the response stays intentionally
+        # generic so infrastructure detail isn't disclosed to the client.
+        logger.error("Failed to read Elasticsearch cluster status: %s", e)
         return {
             "elasticsearch_available": False,
             "cluster_status": "error",

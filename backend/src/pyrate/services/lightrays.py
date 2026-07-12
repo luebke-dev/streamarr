@@ -371,21 +371,6 @@ def _session_key(session_id: str) -> str:
     return f"pyrate:lightrays:session:{session_id}"
 
 
-async def count_active_sessions(user_id: str) -> int:
-    """Return the number of active lightrays sessions for ``user_id``.
-
-    Stale entries (older than ``LIGHTRAYS_SESSION_MAX_SECONDS``) are pruned
-    on read so a crashed backend doesn't cause counters to drift forever.
-    """
-    from pyrate.services.rate_limiter import _get_redis
-
-    r = await _get_redis()
-    key = _user_set_key(user_id)
-    cutoff = time.time() - LIGHTRAYS_SESSION_MAX_SECONDS
-    await r.zremrangebyscore(key, 0, cutoff)
-    return await r.zcard(key)
-
-
 # Atomic reserve-a-slot: prune stale entries, and only if the user is still
 # below the cap, add a short-lived reservation placeholder to the active-set
 # and return the (post-prune, pre-reserve) count. Returns -1 when the cap is

@@ -21,6 +21,11 @@ from pyrate.services.email import email_service
 
 logger = logging.getLogger(__name__)
 
+# A fixed, valid password hash used to spend the same PBKDF2 work on the
+# unknown-email / no-local-password paths as on a real verification, so login
+# response timing doesn't reveal whether an account exists. Computed once.
+_DUMMY_PASSWORD_HASH = jwt_handler.get_password_hash("timing-equalizer-not-a-secret")
+
 # ── Email i18n strings ──────────────────────────────────────────────────
 
 EMAIL_I18N: dict[str, dict[str, dict[str, str]]] = {
@@ -203,6 +208,7 @@ class AuthService:
         token = jwt_handler.create_password_reset_token(
             user_id=str(user.guid),
             email=user.email,
+            password_hash=user.hashed_password,
         )
 
         app_url = _get_app_url()
@@ -303,12 +309,20 @@ class AuthService:
 
         if not user:
             # Don't leak account existence at WARN; INFO is enough for ops.
+            # Spend the same hashing work as a real verify so the response time
+            # doesn't distinguish unknown emails from registered ones, and use
+            # the same generic error code.
+            jwt_handler.verify_password(password, _DUMMY_PASSWORD_HASH)
             logger.info("Local login failed (unknown email) email=%s ip=%s", email, client_ip or "-")
             raise ValueError("invalid_credentials")
 
         if not user.hashed_password:
+            # Account exists but is OIDC-only. Don't reveal that distinction:
+            # equalize timing and return the same generic error as a bad
+            # password / unknown email.
+            jwt_handler.verify_password(password, _DUMMY_PASSWORD_HASH)
             logger.info("Local login refused (no local password) user=%s", user.guid)
-            raise ValueError("no_local_password")
+            raise ValueError("invalid_credentials")
 
         if not jwt_handler.verify_password(password, user.hashed_password):
             logger.warning(
@@ -400,7 +414,9 @@ class AuthService:
         if result.scalar_one_or_none():
             raise ValueError("email_exists")
 
-        # Mark invite as used (prevents race conditions)
+        # Atomically consume one use. use_invite() performs a guarded UPDATE, so
+        # a concurrent registration that raced past get_valid_by_token above
+        # loses here (rowcount 0 -> None) and is rejected as exhausted.
         invite_result = await invite_service.use_invite(invite.guid, None)
         if not invite_result:
             raise ValueError("invite_use_failed")
@@ -673,11 +689,31 @@ class AuthService:
             )
             raise ValueError("email_mismatch")
 
+        # Single-use enforcement: the token carries a fingerprint of the
+        # password hash it was issued against. If the password has since
+        # changed (including by a prior successful use of this same link) the
+        # fingerprint no longer matches and the token is rejected.
+        token_pwf = payload.get("pwf")
+        if token_pwf is not None and token_pwf != jwt_handler.password_fingerprint(
+            user.hashed_password
+        ):
+            logger.warning(
+                "Password reset rejected: token already used or stale user=%s",
+                user.guid,
+            )
+            raise ValueError("invalid_or_expired_token")
+
         from pyrate.auth.password import validate_password_strength
         validate_password_strength(new_password)
 
         user.hashed_password = jwt_handler.get_password_hash(new_password)
         await self.db.commit()
+
+        # Invalidate outstanding refresh tokens so a session opened with the old
+        # credentials (or a leaked refresh token) can't survive the reset.
+        from pyrate.auth.token_revocation import revoke_user_refresh_tokens
+
+        await revoke_user_refresh_tokens(user.guid)
 
         logger.info("Password reset completed for user %s (%s)", user.guid, user.email)
         return {"message": "Password has been reset successfully"}
@@ -739,16 +775,26 @@ class AuthService:
         if isinstance(email, str):
             email = email.strip().lower()
             user_data["email"] = email
-        # Only auto-link to an existing local account when the provider asserts
-        # the email is verified — otherwise an unverified email claim would
-        # allow account takeover. Absence of the claim is treated as verified
-        # to preserve compatibility with providers that omit it.
-        email_verified = user_data.get("email_verified", True) is not False
-        if email and email_verified:
+        if email:
             stmt = select(User).where(func.lower(User.email) == email)
             result = await self.db.execute(stmt)
             existing_user = result.scalar_one_or_none()
             if existing_user:
+                # Auto-linking an OIDC identity into a pre-existing account that
+                # has a local password is an account-takeover vector: an
+                # attacker who registers the victim's email at a provider that
+                # doesn't assert email_verified could otherwise seize the local
+                # account. Require an explicit verified-email claim before
+                # linking to a password-bearing account. Absence of the claim is
+                # treated as unverified.
+                email_verified = user_data.get("email_verified") is True
+                if existing_user.hashed_password and not email_verified:
+                    logger.warning(
+                        "Refused OIDC auto-link to local account (email not "
+                        "verified by provider) email=%s",
+                        email,
+                    )
+                    raise ValueError("oidc_email_unverified")
                 return await self._update_user_from_oidc(existing_user, user_data)
 
         # Create new user

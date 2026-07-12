@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from authlib.integrations.httpx_client import AsyncOAuth2Client
+from authlib.jose import jwt as jose_jwt
 from authlib.oidc.core import CodeIDToken
 
 from ..config import settings
@@ -152,13 +153,20 @@ class OIDCClient:
 
         jwks = await self._get_jwks(metadata["jwks_uri"])
 
-        # Verify the ID token.
-        claims = CodeIDToken.parse(
+        # Verify signature and decode claims, then enforce iss/aud/exp/iat.
+        # ``CodeIDToken`` carries the OIDC-specific claim validation rules.
+        claims_options = {
+            "iss": {"essential": True, "values": [metadata["issuer"]]},
+            "aud": {"essential": True, "values": [self.config.client_id]},
+        }
+        claims = jose_jwt.decode(
             id_token,
-            key=jwks,
-            issuer=metadata["issuer"],
-            audience=self.config.client_id,
+            jwks,
+            claims_cls=CodeIDToken,
+            claims_options=claims_options,
         )
+        # Enforces exp/iat plus the iss/aud constraints declared above.
+        claims.validate()
 
         if nonce is not None:
             token_nonce = claims.get("nonce")

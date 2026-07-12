@@ -10,7 +10,7 @@ from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -233,18 +233,43 @@ class InviteService:
 
     async def use_invite(self, invite_id: UUID, used_by_user_id: UUID) -> Invite | None:
         """
-        Mark an invite as used by incrementing usage counter.
+        Atomically consume one use of an invite.
 
-        If max uses is reached, marks the invite as fully used.
+        The increment is performed as a single guarded UPDATE so two concurrent
+        redemptions of the same limited-use invite cannot both succeed: the
+        ``current_uses < max_uses`` guard is re-evaluated under the row lock, so
+        the loser sees ``rowcount == 0`` and is rejected. Returns ``None`` when
+        the invite is missing, inactive, expired, or already exhausted.
         """
-        result = await self.db.execute(select(Invite).where(Invite.guid == invite_id))
-        db_invite = result.scalar_one_or_none()
+        now = datetime.now(UTC)
+        result = await self.db.execute(
+            update(Invite)
+            .where(
+                Invite.guid == invite_id,
+                Invite.is_active,
+                Invite.expires_at > now,
+                Invite.current_uses < Invite.max_uses,
+            )
+            .values(current_uses=Invite.current_uses + 1)
+        )
 
-        if not db_invite:
+        if result.rowcount == 0:
+            # Lost the race / invalid / exhausted — nothing was consumed.
+            await self.db.rollback()
+            logger.info("Invite %s could not be consumed (invalid or exhausted)", invite_id)
             return None
 
-        db_invite.current_uses += 1
-        db_invite.used_by_user_id = used_by_user_id
+        # Reload the freshly-incremented row to finalise usage metadata.
+        reload_result = await self.db.execute(
+            select(Invite).where(Invite.guid == invite_id)
+        )
+        db_invite = reload_result.scalar_one_or_none()
+        if db_invite is None:
+            await self.db.rollback()
+            return None
+
+        if used_by_user_id is not None:
+            db_invite.used_by_user_id = used_by_user_id
 
         # If this was the last use, mark as used
         if db_invite.current_uses >= db_invite.max_uses:

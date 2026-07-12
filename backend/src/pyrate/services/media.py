@@ -1475,7 +1475,6 @@ async def cleanup_stream_on_stop(
     session_id: str,
     content_id: str | UUID | None = None,
     input_path: str | None = None,
-    delete_library_file: bool = False,
 ) -> dict:
     """
     Full cleanup when a stream is stopped.
@@ -1490,7 +1489,6 @@ async def cleanup_stream_on_stop(
         session_id: Transcoding session ID
         content_id: Media item GUID (kept for API compatibility)
         input_path: Original file path (kept for API compatibility)
-        delete_library_file: Ignored — retained for backward compatibility.
 
     Returns:
         dict with all cleanup results
@@ -1506,6 +1504,6 @@ async def cleanup_stream_on_stop(
     # media_file and must survive — retention handles its lifecycle.
     result["temp_cleanup"] = await media_service.cleanup_temp_files(session_id)
 
-    _ = (content_id, input_path, delete_library_file)
+    _ = (content_id, input_path)
 
     return result

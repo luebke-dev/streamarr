@@ -15,9 +15,9 @@ class Spotdl(DownloaderBase):
     Spotify track ID (e.g. ``3n3Ppam7vgaVa1iaRUc9Lp``).
     """
 
-    def __init__(self, base_url: str, api_key: str | None = None):
+    def __init__(self, base_url: str, api_key: str | None = None, verify_ssl: bool = True):
         self.base_url = base_url.rstrip("/")
-        self.client = make_async_client()
+        self.client = make_async_client(verify=verify_ssl)
 
     def get_name(self) -> str:
         return "spotdl"
@@ -145,12 +145,3 @@ class Spotdl(DownloaderBase):
 
 # Export plugin class for loader
 PLUGIN_CLASS = Spotdl
-
-
-async def async_setup(config: dict[str, Any]) -> bool:
-    """Validate plugin configuration."""
-    if "base_url" not in config:
-        logger.error("spotdl plugin requires 'base_url' in configuration")
-        return False
-    logger.info("spotdl plugin setup completed successfully")
-    return True

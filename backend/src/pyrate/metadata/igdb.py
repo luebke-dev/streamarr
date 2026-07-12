@@ -401,26 +401,3 @@ class IGDB(MetadataBase):
 
 # Export plugin class for loader
 PLUGIN_CLASS = IGDB
-
-
-async def async_setup(config: dict[str, Any]) -> bool:
-    """
-    Set up the IGDB plugin.
-
-    This function is called by the plugin loader during initialization.
-
-    Args:
-        config: Plugin configuration from manifest
-
-    Returns:
-        bool: True if setup was successful
-    """
-    # Validate required configuration
-    required = ["client_id", "client_secret"]
-    for field in required:
-        if field not in config:
-            logger.error(f"IGDB plugin requires '{field}' in configuration")
-            return False
-
-    logger.info("IGDB plugin setup completed successfully")
-    return True
