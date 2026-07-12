@@ -2177,6 +2177,11 @@ export default {
     success: 'Registration successful!',
     welcomeMessage: 'Welcome! Your account has been created.',
     registrationFailed: 'Registration failed',
+    checkEmailTitle: 'Confirm your email',
+    checkEmailBody:
+      "We've sent a verification link to {email}. Click it to activate your account, then sign in.",
+    resendVerification: 'Resend email',
+    verificationResent: 'If your address needs confirming, a new link is on its way.',
     accountDetails: 'Account Details',
     profileSettings: 'Profile & Language',
     languageSettings: 'Language Preferences',

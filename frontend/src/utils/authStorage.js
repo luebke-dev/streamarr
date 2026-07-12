@@ -4,37 +4,62 @@ export const ACCESS_TOKEN_KEY = 'access_token'
 export const REFRESH_TOKEN_KEY = 'refresh_token'
 export const SERVER_URL_KEY = 'pyrate-server-url'
 
-// SECURITY TRADE-OFF (see auth findings): the access and (long-lived) refresh
-// tokens are persisted in localStorage so the session survives page reloads and
-// so the Tauri/Capacitor native builds — which have no shared httpOnly cookie
-// jar with the backend — can authenticate. localStorage is readable by any
-// script in the origin, so a single XSS can exfiltrate the refresh token.
-// The proper fix is a backend-set httpOnly, Secure, SameSite=strict cookie for
-// the refresh token (web build) plus a short-lived in-memory access token, with
-// localStorage gated behind the native targets only. That is a coordinated
-// backend + client change and is intentionally NOT done here; keep the token
-// keys and access surface centralized in this module so that migration is a
-// single-file change on the client side.
+// Token storage model — differs by platform so the web build is not exposed to
+// the localStorage XSS-exfiltration vector:
+//
+//  • Web: the refresh token lives ONLY in a backend-set httpOnly/Secure cookie
+//    that JavaScript cannot read; the short-lived access token is held in a
+//    module-local variable (memory), never persisted. A page reload drops the
+//    in-memory access token and the app silently mints a new one from the
+//    cookie at startup (see auth store initialize()).
+//  • Native (Tauri/Capacitor): there is no shared cookie jar with the backend,
+//    so both tokens are persisted in the app's localStorage as before.
+//
+// The switch is `isNativePlatform()`; the backend mirrors it via the
+// `X-Client-Platform` header (see boot/axios.js) to decide cookie vs. body.
+
+export function isNativePlatform() {
+  return Boolean(
+    typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.(),
+  )
+}
+
+// In-memory access token for the web build (not persisted).
+let memoryAccessToken = null
 
 export function getAccessToken() {
-  return localStorage.getItem(ACCESS_TOKEN_KEY)
+  if (isNativePlatform()) {
+    return localStorage.getItem(ACCESS_TOKEN_KEY)
+  }
+  return memoryAccessToken
 }
 
 export function getRefreshToken() {
-  return localStorage.getItem(REFRESH_TOKEN_KEY)
+  // Web: the refresh token is an httpOnly cookie, not reachable from JS.
+  if (isNativePlatform()) {
+    return localStorage.getItem(REFRESH_TOKEN_KEY)
+  }
+  return null
 }
 
 export function saveAuthTokens(accessToken, refreshToken) {
-  try {
-    setLocalStorageItem(ACCESS_TOKEN_KEY, accessToken)
-    setLocalStorageItem(REFRESH_TOKEN_KEY, refreshToken)
-  } catch (error) {
-    clearAuthTokens()
-    throw error
+  if (isNativePlatform()) {
+    try {
+      setLocalStorageItem(ACCESS_TOKEN_KEY, accessToken)
+      setLocalStorageItem(REFRESH_TOKEN_KEY, refreshToken)
+    } catch (error) {
+      clearAuthTokens()
+      throw error
+    }
+    return
   }
+  // Web: keep only the access token, in memory. The refresh token (if any) is
+  // ignored here because it is delivered as an httpOnly cookie by the backend.
+  memoryAccessToken = accessToken || null
 }
 
 export function clearAuthTokens() {
+  memoryAccessToken = null
   localStorage.removeItem(ACCESS_TOKEN_KEY)
   localStorage.removeItem(REFRESH_TOKEN_KEY)
 }

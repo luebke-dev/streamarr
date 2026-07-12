@@ -6,6 +6,7 @@ import {
   clearAuthTokens,
   getAccessToken,
   getRefreshToken,
+  isNativePlatform,
   saveAuthTokens,
 } from 'src/utils/authStorage'
 import { getDeviceInfo, getOrCreateDeviceId } from 'src/utils/deviceIdentity'
@@ -48,12 +49,18 @@ export const useAuthStore = defineStore('auth', () => {
 
   // Actions
   function loadTokensFromStorage() {
+    // Native persists both tokens; web keeps nothing across reloads (the access
+    // token lives in memory and is re-minted from the httpOnly cookie on init).
     const storedAccessToken = getAccessToken()
     const storedRefreshToken = getRefreshToken()
 
-    if (storedAccessToken && storedRefreshToken) {
+    if (isNativePlatform()) {
+      if (storedAccessToken && storedRefreshToken) {
+        accessToken.value = storedAccessToken
+        refreshToken.value = storedRefreshToken
+      }
+    } else if (storedAccessToken) {
       accessToken.value = storedAccessToken
-      refreshToken.value = storedRefreshToken
     }
   }
 
@@ -163,9 +170,11 @@ export const useAuthStore = defineStore('auth', () => {
     // window.location.search here.
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
     const urlAccessToken = hashParams.get('access_token')
+    // Web OIDC no longer carries the refresh token in the fragment — it arrives
+    // as an httpOnly cookie. Native callback (if any) may still include it.
     const urlRefreshToken = hashParams.get('refresh_token')
 
-    if (urlAccessToken && urlRefreshToken) {
+    if (urlAccessToken) {
       saveTokensToStorage(urlAccessToken, urlRefreshToken)
       isAuthenticated.value = true
 
@@ -180,7 +189,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function refreshAccessToken() {
-    if (!refreshToken.value) {
+    // Native needs a JS refresh token; web refreshes from the httpOnly cookie
+    // and therefore has no local token to check.
+    if (isNativePlatform() && !refreshToken.value) {
       throw new Error('No refresh token available')
     }
 
@@ -201,15 +212,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function _performTokenRefresh() {
     try {
-      const response = await api.post(
-        '/api/auth/refresh',
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${refreshToken.value}`,
-          },
-        },
-      )
+      // Native sends its refresh token in the Authorization header; web sends
+      // nothing and lets the httpOnly cookie (withCredentials) authenticate.
+      const config = isNativePlatform()
+        ? { headers: { Authorization: `Bearer ${refreshToken.value}` } }
+        : {}
+      const response = await api.post('/api/auth/refresh', {}, config)
 
       const { access_token, refresh_token } = response.data
       saveTokensToStorage(access_token, refresh_token)
@@ -298,8 +306,19 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function _performInitialization() {
     try {
-      // Token aus localStorage laden
+      // Token aus Storage laden (native) bzw. Memory (web)
       loadTokensFromStorage()
+
+      // Web: the in-memory access token does not survive a reload, but an
+      // httpOnly refresh cookie might — silently mint a fresh access token from
+      // it before checking status, so a reload keeps the user signed in.
+      if (!accessToken.value && !isNativePlatform()) {
+        try {
+          await refreshAccessToken()
+        } catch {
+          // No cookie / not signed in — proceed as anonymous.
+        }
+      }
 
       // Auth-Status prüfen
       await fetchAuthStatus()
