@@ -164,9 +164,11 @@ export const useListsStore = defineStore('lists', () => {
     initialized.value = false
   }
 
-  // Fetch individual list details
-  async function fetchList(listId) {
-    if (!listId) {
+  // Shared detail fetch for both /lists and /playlists (they only differ by the
+  // base path segment and log label). Keeps the request-race guard and
+  // loading-flag bookkeeping in a single place.
+  async function fetchDetail(basePath, id, label) {
+    if (!id) {
       return null
     }
 
@@ -175,7 +177,7 @@ export const useListsStore = defineStore('lists', () => {
     try {
       loadingList.value = true
 
-      const response = await api.get(`/api/lists/${listId}`)
+      const response = await api.get(`/api/${basePath}/${id}`)
 
       if (currentRequest === currentListRequestId) {
         currentList.value = response.data
@@ -183,7 +185,7 @@ export const useListsStore = defineStore('lists', () => {
 
       return response.data
     } catch (error) {
-      logger.error('[ListsStore] Failed to fetch list details:', error)
+      logger.error(`[ListsStore] Failed to fetch ${label} details:`, error)
       if (currentRequest === currentListRequestId) {
         currentList.value = null
       }
@@ -193,117 +195,66 @@ export const useListsStore = defineStore('lists', () => {
         loadingList.value = false
       }
     }
+  }
+
+  // Shared items fetch for both /lists and /playlists.
+  async function fetchDetailItems(basePath, id, page, perPage, label) {
+    if (!id) {
+      return { items: [], total: 0, totalPages: 1 }
+    }
+
+    const currentRequest = ++listItemsRequestId
+
+    try {
+      loadingItems.value = true
+
+      const response = await api.get(`/api/${basePath}/${id}/items`, {
+        params: {
+          page,
+          per_page: perPage,
+        },
+      })
+
+      if (currentRequest === listItemsRequestId) {
+        currentListItems.value = response.data.items || []
+      }
+
+      return {
+        items: response.data.items || [],
+        total: response.data.total || 0,
+        totalPages: response.data.total_pages || 1,
+      }
+    } catch (error) {
+      logger.error(`[ListsStore] Failed to fetch ${label} items:`, error)
+      if (currentRequest === listItemsRequestId) {
+        currentListItems.value = []
+      }
+      throw error
+    } finally {
+      if (currentRequest === listItemsRequestId) {
+        loadingItems.value = false
+      }
+    }
+  }
+
+  // Fetch individual list details
+  async function fetchList(listId) {
+    return fetchDetail('lists', listId, 'list')
   }
 
   // Fetch individual playlist details through the playlist wrapper API
   async function fetchPlaylist(playlistId) {
-    if (!playlistId) {
-      return null
-    }
-
-    const currentRequest = ++currentListRequestId
-
-    try {
-      loadingList.value = true
-
-      const response = await api.get(`/api/playlists/${playlistId}`)
-
-      if (currentRequest === currentListRequestId) {
-        currentList.value = response.data
-      }
-
-      return response.data
-    } catch (error) {
-      logger.error('[ListsStore] Failed to fetch playlist details:', error)
-      if (currentRequest === currentListRequestId) {
-        currentList.value = null
-      }
-      throw error
-    } finally {
-      if (currentRequest === currentListRequestId) {
-        loadingList.value = false
-      }
-    }
+    return fetchDetail('playlists', playlistId, 'playlist')
   }
 
   // Fetch list items
   async function fetchListItems(listId, page = 1, perPage = 24) {
-    if (!listId) {
-      return { items: [], total: 0, totalPages: 1 }
-    }
-
-    const currentRequest = ++listItemsRequestId
-
-    try {
-      loadingItems.value = true
-
-      const response = await api.get(`/api/lists/${listId}/items`, {
-        params: {
-          page,
-          per_page: perPage,
-        },
-      })
-
-      if (currentRequest === listItemsRequestId) {
-        currentListItems.value = response.data.items || []
-      }
-
-      return {
-        items: response.data.items || [],
-        total: response.data.total || 0,
-        totalPages: response.data.total_pages || 1,
-      }
-    } catch (error) {
-      logger.error('[ListsStore] Failed to fetch list items:', error)
-      if (currentRequest === listItemsRequestId) {
-        currentListItems.value = []
-      }
-      throw error
-    } finally {
-      if (currentRequest === listItemsRequestId) {
-        loadingItems.value = false
-      }
-    }
+    return fetchDetailItems('lists', listId, page, perPage, 'list')
   }
 
   // Fetch playlist items through the playlist wrapper API
   async function fetchPlaylistItems(playlistId, page = 1, perPage = 24) {
-    if (!playlistId) {
-      return { items: [], total: 0, totalPages: 1 }
-    }
-
-    const currentRequest = ++listItemsRequestId
-
-    try {
-      loadingItems.value = true
-
-      const response = await api.get(`/api/playlists/${playlistId}/items`, {
-        params: {
-          page,
-          per_page: perPage,
-        },
-      })
-
-      if (currentRequest === listItemsRequestId) {
-        currentListItems.value = response.data.items || []
-      }
-
-      return {
-        items: response.data.items || [],
-        total: response.data.total || 0,
-        totalPages: response.data.total_pages || 1,
-      }
-    } catch (error) {
-      logger.error('[ListsStore] Failed to fetch playlist items:', error)
-      if (currentRequest === listItemsRequestId) {
-        currentListItems.value = []
-      }
-      throw error
-    } finally {
-      if (currentRequest === listItemsRequestId) {
-        loadingItems.value = false
-      }
-    }
+    return fetchDetailItems('playlists', playlistId, page, perPage, 'playlist')
   }
 
   async function fetchPlaylistQueue(playlistId, options = {}) {

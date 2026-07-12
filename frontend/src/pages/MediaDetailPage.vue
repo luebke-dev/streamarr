@@ -309,6 +309,10 @@ export default {
     const websocketHandler = ref(null)
     const activeSubscriptionGuid = ref(null)
 
+    // Monotonic token guarding loadMediaItem against out-of-order responses:
+    // fast A->B navigation must not let A's slower fetch overwrite B's state.
+    let currentLoadId = 0
+
     // Media type detection - only from loaded item
     const mediaType = computed(() => {
       if (mediaItem.value?.media_type) {
@@ -585,6 +589,10 @@ export default {
         return
       }
 
+      // Claim this invocation's token; any later loadMediaItem() supersedes it.
+      const loadId = ++currentLoadId
+      const isStale = () => loadId !== currentLoadId
+
       loading.value = true
       error.value = null
       children.value = []
@@ -626,6 +634,9 @@ export default {
           load_releases: true,
           load_external_ids: true,
         })
+        // A newer navigation started while this fetch was in flight; drop it so
+        // its data can't overwrite the item the URL now points at.
+        if (isStale()) return
 
         mediaItem.value = data
         files.value = data.files || []
@@ -635,6 +646,7 @@ export default {
         // For shows and seasons, load children (seasons/episodes)
         if (data.media_type === 'SHOWS') {
           const childrenData = await mediaService.loadMediaChildren(guid, true)
+          if (isStale()) return
           children.value = childrenData || []
           logger.debug(
             'Loaded children:',
@@ -647,6 +659,7 @@ export default {
         // For artists, load albums; for albums, load tracks
         if (data.media_type === 'ARTISTS' || data.media_type === 'ALBUMS') {
           const childrenData = await mediaService.loadMediaChildren(guid, true)
+          if (isStale()) return
           children.value = childrenData || []
           logger.debug(
             'Loaded children:',
@@ -664,6 +677,7 @@ export default {
               load_releases: false,
               load_external_ids: false,
             })
+            if (isStale()) return
             parentItem.value = parent
             // If parent itself has a parent (episode -> season -> show)
             if (parent.parent_guid) {
@@ -672,6 +686,7 @@ export default {
                 load_releases: false,
                 load_external_ids: false,
               })
+              if (isStale()) return
               showItem.value = show
             } else {
               // parent IS the show
@@ -684,18 +699,23 @@ export default {
 
         // Fetch availability (triggers auto-search, determines playability)
         await refreshAvailability()
+        if (isStale()) return
 
         // Check favorite status
         await checkFavoriteStatus()
+        if (isStale()) return
         await loadUserDataStatus()
+        if (isStale()) return
 
         // Load downloads for admin
         await loadDownloadsData()
       } catch (err) {
+        if (isStale()) return
         logger.error('Error loading media item:', err)
         error.value = t('common.failedToLoadDetails')
       } finally {
-        loading.value = false
+        // Only the most recent invocation owns the shared loading flag.
+        if (!isStale()) loading.value = false
       }
     }
 
@@ -1044,6 +1064,7 @@ export default {
         isLiked.value = Boolean(data?.is_liked)
       } catch (err) {
         logger.error('Error toggling like state:', err)
+        $q.notify({ type: 'negative', message: t('common.actionFailed') })
       } finally {
         togglingLiked.value = false
       }
@@ -1057,6 +1078,7 @@ export default {
         isPlayed.value = Boolean(data?.is_played)
       } catch (err) {
         logger.error('Error toggling played state:', err)
+        $q.notify({ type: 'negative', message: t('common.actionFailed') })
       } finally {
         togglingPlayed.value = false
       }

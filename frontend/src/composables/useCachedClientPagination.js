@@ -13,10 +13,12 @@
  */
 export function useCachedClientPagination({ loadAll, matchFilter }) {
   let cache = []
+  let loaded = false
 
   async function ensureLoaded() {
-    if (cache.length === 0) {
+    if (!loaded) {
       cache = await loadAll()
+      loaded = true
     }
   }
 
@@ -51,6 +53,7 @@ export function useCachedClientPagination({ loadAll, matchFilter }) {
 
   function invalidate() {
     cache = []
+    loaded = false
   }
 
   return { paginate, invalidate }

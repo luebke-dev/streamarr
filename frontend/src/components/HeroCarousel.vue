@@ -16,10 +16,10 @@
       class="hero-carousel"
     >
       <q-carousel-slide
-        v-for="(item, index) in items"
-        :key="item.guid"
+        v-for="(heroSlide, index) in slides"
+        :key="heroSlide.key"
         :name="index + 1"
-        :img-src="getSlideBackgroundImage(item)"
+        :img-src="heroSlide.background"
         class="hero-slide"
       >
         <div class="carousel-overlay">
@@ -34,22 +34,22 @@
           </div>
           <div class="carousel-content">
             <div class="carousel-text">
-              <h1 class="carousel-title" :style="getTitleStyle(getItemTitle(item))">
-                {{ getItemTitle(item) }}
+              <h1 class="carousel-title" :style="heroSlide.titleStyle">
+                {{ heroSlide.title }}
               </h1>
-              <div v-if="subtitleFn && subtitleFn(item)" class="carousel-subtitle">
-                {{ subtitleFn(item) }}
+              <div v-if="heroSlide.subtitle" class="carousel-subtitle">
+                {{ heroSlide.subtitle }}
               </div>
-              <p v-if="getItemDescription(item) && !isMobile" class="carousel-description">
-                {{ truncateDescription(getItemDescription(item), descriptionLength) }}
+              <p v-if="heroSlide.description && !isMobile" class="carousel-description">
+                {{ truncateDescription(heroSlide.description, descriptionLength) }}
               </p>
               <div class="carousel-meta">
-                <span v-if="getItemReleaseDate(item)" class="release-year">
-                  {{ formatReleaseYear(getItemReleaseDate(item)) }}
+                <span v-if="heroSlide.releaseDate" class="release-year">
+                  {{ formatReleaseYear(heroSlide.releaseDate) }}
                 </span>
-                <span v-if="getItemRating(item)" class="rating">
+                <span v-if="heroSlide.rating" class="rating">
                   <q-icon name="mdi-star" color="yellow" size="sm" />
-                  {{ getItemRating(item).toFixed(1) }}
+                  {{ heroSlide.rating.toFixed(1) }}
                 </span>
               </div>
               <div class="carousel-actions">
@@ -59,14 +59,8 @@
                   outline
                   :round="isMobile"
                   icon="mdi-play-circle"
-                  :label="
-                    isMobile
-                      ? undefined
-                      : primaryButtonLabelFn
-                        ? primaryButtonLabelFn(item)
-                        : primaryButtonLabel
-                  "
-                  @click="$emit('primaryAction', item)"
+                  :label="isMobile ? undefined : heroSlide.primaryLabel"
+                  @click="$emit('primaryAction', heroSlide.item)"
                   class="hero-btn-primary"
                 />
                 <q-btn
@@ -76,13 +70,13 @@
                   :round="isMobile"
                   icon="mdi-information-outline"
                   :label="isMobile ? undefined : secondaryButtonLabel"
-                  @click="$emit('secondaryAction', item)"
+                  @click="$emit('secondaryAction', heroSlide.item)"
                   class="hero-btn-secondary"
                 />
               </div>
             </div>
             <div class="carousel-poster" v-if="isDesktop">
-              <img :src="getItemPoster(item)" :alt="getItemTitle(item)" class="poster-image" />
+              <img :src="heroSlide.poster" :alt="heroSlide.title" class="poster-image" />
             </div>
           </div>
         </div>
@@ -463,8 +457,33 @@ export default {
       return { fontSize }
     }
 
+    // Precompute each slide's derived fields once per items/breakpoint change so
+    // image URLs, title metrics and labels aren't recomputed for every slide on
+    // every re-render (viewport changes, autoplay ticks, parent re-renders).
+    const slides = computed(() =>
+      props.items.map((item) => {
+        const title = getItemTitle(item)
+        return {
+          key: item.guid,
+          item,
+          title,
+          subtitle: props.subtitleFn ? props.subtitleFn(item) : null,
+          description: getItemDescription(item),
+          poster: getItemPoster(item),
+          background: getSlideBackgroundImage(item),
+          titleStyle: getTitleStyle(title),
+          releaseDate: getItemReleaseDate(item),
+          rating: getItemRating(item),
+          primaryLabel: props.primaryButtonLabelFn
+            ? props.primaryButtonLabelFn(item)
+            : props.primaryButtonLabel,
+        }
+      }),
+    )
+
     return {
       slide,
+      slides,
       autoplay,
       isMobile,
       isTablet,
@@ -473,15 +492,8 @@ export default {
       descriptionLength,
       pauseAutoplay,
       resumeAutoplay,
-      getTitleStyle,
-      getItemTitle,
-      getItemDescription,
-      getItemReleaseDate,
-      getItemRating,
-      getItemPoster,
       formatReleaseYear,
       truncateDescription,
-      getSlideBackgroundImage,
     }
   },
 }

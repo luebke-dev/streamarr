@@ -461,7 +461,7 @@ export async function getTrickplayManifest(sessionId, token) {
  */
 export function getPlaylistUrl(sessionId, token) {
   const baseUrl = api.defaults.baseURL || window.location.origin
-  return `${baseUrl}/api/stream/${sessionId}/playlist.m3u8?token=${token}`
+  return `${baseUrl}/api/stream/${sessionId}/playlist.m3u8?token=${encodeURIComponent(token)}`
 }
 
 /**
@@ -472,35 +472,7 @@ export function getPlaylistUrl(sessionId, token) {
  */
 export function getDirectFileUrl(token) {
   const baseUrl = api.defaults.baseURL || window.location.origin
-  return `${baseUrl}/api/stream/file?token=${token}`
-}
-
-/**
- * Get HLS segment URL for a streaming session
- *
- * @param {string} sessionId - Streaming session ID
- * @param {string} segmentName - Segment filename (e.g., "segment_000.ts")
- * @returns {string} Full URL to HLS segment
- */
-export function getSegmentUrl(sessionId, segmentName) {
-  const baseUrl = api.defaults.baseURL || window.location.origin
-  return `${baseUrl}/api/stream/${sessionId}/${segmentName}`
-}
-
-/**
- * Get streaming session status
- * Returns transcoding progress, segment count, and playlist ready state
- *
- * @param {string} sessionId - Streaming session ID
- * @param {string} token - Play token
- * @returns {Promise} Status object with is_ready, segments_available, transcoding_complete
- */
-export async function getStreamStatus(sessionId, token) {
-  const response = await api.get(`/api/stream/${sessionId}/status`, {
-    params: { token },
-    _skipAuthRetry: true,
-  })
-  return response.data
+  return `${baseUrl}/api/stream/file?token=${encodeURIComponent(token)}`
 }
 
 /**
@@ -570,64 +542,12 @@ export async function fetchPlaylist(sessionId, token) {
   return response.data
 }
 
-/**
- * Get media playback info without starting transcoding
- * Useful for checking if media is available before playing
- *
- * @param {string} mediaId - Media item GUID
- * @returns {Promise} Media file info and availability
- */
-export async function getPlaybackInfo(mediaId) {
-  // Use the unified media API to get file info
-  const response = await api.get(`/api/media/${mediaId}`, {
-    params: {
-      load_files: true,
-      load_releases: false,
-      load_external_ids: false,
-    },
-  })
-  return response.data
-}
-
-/**
- * Check availability status of a media item
- * Returns download/file status without starting playback
- *
- * @param {string} mediaId - Media item GUID
- * @returns {Promise} Availability status object
- */
-export async function checkAvailability(mediaId) {
-  const response = await api.get(`/api/media/${mediaId}/availability`)
-  return response.data
-}
-
-// Codec constants for convenience
-export const VideoCodecs = {
-  H264: 'h264',
-  H265: 'h265',
-  VP9: 'vp9',
-}
-
-export const AudioCodecs = {
-  AAC: 'aac',
-  MP3: 'mp3',
-  OPUS: 'opus',
-}
-
 // Resolution constants
 export const Resolutions = {
   '4K': '2160p',
   '1080P': '1080p',
   '720P': '720p',
   '480P': '480p',
-}
-
-// CRF quality presets (lower = better quality, larger file size)
-export const QualityPresets = {
-  ULTRA: 18,
-  HIGH: 21,
-  MEDIUM: 23,
-  LOW: 26,
 }
 
 // Availability status constants
@@ -638,11 +558,4 @@ export const AvailabilityStatus = {
   UNAVAILABLE: 'unavailable',
   MISSING: 'missing',
   DOWNLOADING: 'downloading',
-}
-
-// Smart Play status constants
-export const SmartPlayStatus = {
-  READY: 'ready',
-  DOWNLOADING: 'downloading',
-  SEARCHING: 'searching',
 }

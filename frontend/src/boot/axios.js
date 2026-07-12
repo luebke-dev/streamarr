@@ -102,14 +102,16 @@ export default defineBoot(({ app, router }) => {
       // Handle 401 errors - redirect to login if not authenticated
       // But don't redirect for auth endpoints or stream endpoints (they use play tokens)
       if (error.response?.status === 401 && !isAuthEndpoint && !isStreamEndpoint) {
-        logger.error('Authentication error:', error.response.data)
+        // Log status/URL only — never the raw response body, which can carry
+        // sensitive auth/billing detail and is written to the production console.
+        logger.error('Authentication error:', error.response.status, originalRequest?.url)
 
         // Check if user is not authenticated and redirect to login
         if (authStore && !authStore.isAuthenticated) {
           router.push('/auth/login')
         }
       } else if (error.response?.status >= 500) {
-        logger.error('Server error:', error.response.data)
+        logger.error('Server error:', error.response.status, originalRequest?.url)
       }
 
       return Promise.reject(error)

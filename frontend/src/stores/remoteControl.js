@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { useWebSocket } from 'src/composables/useWebSocket'
 import { useAuthStore } from './auth'
 import { logger } from 'src/utils/logger'
 import { api } from 'boot/axios'
@@ -18,7 +17,6 @@ export const useRemoteControlStore = defineStore('remoteControl', () => {
   const remoteController = ref(null)
 
   // Stores
-  const ws = useWebSocket()
   const authStore = useAuthStore()
 
   // Computed
@@ -271,34 +269,6 @@ export const useRemoteControlStore = defineStore('remoteControl', () => {
     return sendDeviceSessionCommand(command, payload)
   }
 
-  function sendRemoteCommandOverWebSocket(command, payload = {}) {
-    if (!targetDevice.value) {
-      logger.warn('[RemoteControl] No target device set')
-      return false
-    }
-
-    // Check if WebSocket is connected
-    if (!ws.isConnected.value) {
-      logger.error('[RemoteControl] WebSocket not connected!')
-      return false
-    }
-
-    const message = {
-      action: 'remote_control',
-      target_device_id: targetDevice.value.device_id,
-      command,
-      payload,
-    }
-
-    logger.debug('[RemoteControl] Sending command:', command)
-    logger.debug('[RemoteControl] Target device_id:', targetDevice.value.device_id)
-    logger.debug('[RemoteControl] Full message:', JSON.stringify(message))
-
-    const result = ws.send(message)
-    logger.debug('[RemoteControl] Send result:', result)
-    return result
-  }
-
   // Send play_media command to start a specific media item on remote device
   function sendPlayMediaCommand(mediaType, mediaGuid, mediaTitle, fileGuid = null) {
     return sendRemoteCommand('play_media', {
@@ -418,7 +388,6 @@ export const useRemoteControlStore = defineStore('remoteControl', () => {
     loadCastTargetStatus,
     isCommandSupported,
     sendRemoteCommand,
-    sendRemoteCommandOverWebSocket,
     sendCastTargetCommand,
     sendDeviceSessionCommand,
     sendPlayMediaCommand,

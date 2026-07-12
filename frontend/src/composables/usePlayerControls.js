@@ -2,6 +2,17 @@ import { logger } from 'src/utils/logger'
 import { checkPositionAvailable } from 'src/composables/usePlay'
 
 /**
+ * Base transcode profile requested for every stream (re)start — seek, audio
+ * track switch, quality switch and initial play must all request the same
+ * codecs so the stream characteristics don't change between them.
+ */
+export const DEFAULT_TRANSCODE_OPTIONS = {
+  video_codec: 'h264',
+  audio_codec: 'aac',
+  audio_bitrate: '128k',
+}
+
+/**
  * Handlers wired into <CustomPlayerControls>: seek, audio-track switch,
  * quality switch, play/pause, mute, volume, fullscreen.
  *
@@ -94,11 +105,7 @@ export function usePlayerControls({
       // --- Tier 3: Start new transcode ---
       logger.debug(`[Seek] Tier 3 — starting new transcode at ${position}s`)
 
-      const options = {
-        video_codec: 'h264',
-        audio_codec: 'aac',
-        audio_bitrate: '128k',
-      }
+      const options = { ...DEFAULT_TRANSCODE_OPTIONS }
 
       // Preserve current audio track selection during seek
       if (currentAudioTrackIndex.value !== null) {
@@ -133,9 +140,7 @@ export function usePlayerControls({
     )
 
     const options = {
-      video_codec: 'h264',
-      audio_codec: 'aac',
-      audio_bitrate: '128k',
+      ...DEFAULT_TRANSCODE_OPTIONS,
       audio_track: audioTrackIndex,
     }
     if (currentMediaSourceId.value) {
@@ -158,11 +163,7 @@ export function usePlayerControls({
     const currentStreamPos = videoJsPlayer.value ? videoJsPlayer.value.currentTime() : 0
     const absolutePosition = transcodeStartPosition.value + currentStreamPos
 
-    const options = {
-      video_codec: 'h264',
-      audio_codec: 'aac',
-      audio_bitrate: '128k',
-    }
+    const options = { ...DEFAULT_TRANSCODE_OPTIONS }
     if (level.source === 'transcode' && level.height) {
       logger.debug(
         `[Quality] Switching to ${level.label} (${level.height}p) transcode at position ${absolutePosition}s`,

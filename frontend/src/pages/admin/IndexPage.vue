@@ -276,6 +276,7 @@ import { useI18n } from 'vue-i18n'
 import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
 import { formatFileSize, formatTime } from 'src/composables/useMediaFormatters'
+import { downloadStatusColor, downloadStatusIcon } from './downloadStatus'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -386,26 +387,6 @@ const formatRelativeTime = (dateStr) => {
   if (diffH < 24) return `${diffH}h`
   return `${Math.floor(diffH / 24)}d`
 }
-
-const downloadStatusColor = (status) =>
-  ({
-    downloading: 'info',
-    completed: 'positive',
-    failed: 'negative',
-    queued: 'grey-7',
-    importing: 'amber',
-    in_progress: 'info',
-  })[status] || 'grey-7'
-
-const downloadStatusIcon = (status) =>
-  ({
-    downloading: 'mdi-download',
-    completed: 'mdi-check',
-    failed: 'mdi-alert',
-    queued: 'mdi-clock-outline',
-    importing: 'mdi-import',
-    in_progress: 'mdi-progress-download',
-  })[status] || 'mdi-help'
 
 // Data loading
 const loadAll = () =>

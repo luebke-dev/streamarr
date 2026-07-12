@@ -7,7 +7,28 @@ import {
 } from 'vue-router'
 import routes from './routes'
 import { useAuthStore } from 'src/stores/auth'
+import { api } from 'src/boot/axios'
 import { logger } from 'src/utils/logger'
+
+// Install status is checked at most once per app load and cached. We default to
+// "installed" so a failing/unreachable status endpoint never traps users on the
+// wizard; a fresh (uninstalled) instance flips this to false and routes to
+// /install until setup completes.
+let installStatusChecked = false
+let isInstalled = true
+
+async function ensureInstalled() {
+  if (installStatusChecked) return isInstalled
+  try {
+    const response = await api.get('/api/install/status')
+    isInstalled = response.data?.installed !== false
+  } catch (error) {
+    logger.error('Install status check failed:', error?.response?.status)
+    isInstalled = true
+  }
+  installStatusChecked = true
+  return isInstalled
+}
 
 /*
  * If not building with SSR mode, you can
@@ -47,6 +68,26 @@ export default defineRouter(function (/* { store, ssrContext } */) {
         } catch (error) {
           logger.error('Auth initialization failed:', error)
           // If initialization fails, treat as unauthenticated
+        }
+      }
+
+      // Fresh-instance guard: until the deployment is installed, funnel every
+      // route to the install wizard. Once installed, the wizard is redundant so
+      // send it to the login page. Skip this gate for authenticated users so a
+      // stale/false negative can never lock out a working install.
+      if (!authStore.isLoggedIn) {
+        const installed = await ensureInstalled()
+        if (!installed) {
+          if (to.path === '/install') {
+            next()
+            return
+          }
+          next('/install')
+          return
+        }
+        if (to.path === '/install') {
+          next('/auth/login')
+          return
         }
       }
 

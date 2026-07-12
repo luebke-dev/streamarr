@@ -11,7 +11,10 @@
 
       <q-card-section class="q-pt-none" v-if="newPlan">
         <p>{{ $t('membership.changePlanConfirmation', { planName: newPlan.name }) }}</p>
-        <div class="row items-center q-col-gutter-md plan-comparison q-my-md">
+        <div
+          v-if="currentPlan"
+          class="row items-center q-col-gutter-md plan-comparison q-my-md"
+        >
           <div class="col text-center">
             <div class="text-caption text-grey-6 text-uppercase q-mb-xs">
               {{ $t('membership.currentPlan') }}
@@ -62,7 +65,9 @@
 <script setup>
 defineProps({
   modelValue: { type: Boolean, required: true },
-  currentPlan: { type: Object, required: true },
+  // ``null`` on the new-subscriber path (user has no active plan yet); the
+  // template renders a plain confirmation instead of a plan comparison.
+  currentPlan: { type: Object, default: null },
   newPlan: { type: Object, default: null },
   loading: { type: Boolean, default: false },
 })

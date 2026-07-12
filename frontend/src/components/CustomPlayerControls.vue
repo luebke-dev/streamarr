@@ -307,105 +307,6 @@ const props = defineProps({
     type: Object,
     default: null,
   },
-  // Video element reference
-  videoElement: {
-    type: Object,
-    default: null,
-  },
-  // Video.js player instance
-  player: {
-    type: Object,
-    default: null,
-  },
-  // Content ID and Type for loading streams from API
-  contentId: {
-    type: String,
-    default: '',
-  },
-  contentType: {
-    type: String,
-    default: 'movie', // 'movie' or 'episode'
-  },
-  // Real duration of the entire video (from metadata)
-  totalDuration: {
-    type: Number,
-    default: 0,
-  },
-  // The position where current transcode started (offset)
-  transcodeStartPosition: {
-    type: Number,
-    default: 0,
-  },
-  // Current stream position (from video element)
-  streamPosition: {
-    type: Number,
-    default: 0,
-  },
-  // Buffered amount in the stream
-  bufferedAmount: {
-    type: Number,
-    default: 0,
-  },
-  // Is currently seeking (loading new transcode)
-  isSeeking: {
-    type: Boolean,
-    default: false,
-  },
-  // Is video playing
-  isPlaying: {
-    type: Boolean,
-    default: false,
-  },
-  // Content title
-  title: {
-    type: String,
-    default: '',
-  },
-  // Subtitle (e.g., "S1 E5 - Episode Title")
-  subtitle: {
-    type: String,
-    default: '',
-  },
-  // Show episode navigation controls
-  showEpisodeControls: {
-    type: Boolean,
-    default: false,
-  },
-  // Has previous episode
-  hasPreviousEpisode: {
-    type: Boolean,
-    default: false,
-  },
-  // Has next episode
-  hasNextEpisode: {
-    type: Boolean,
-    default: false,
-  },
-  // Previous episode data (title, sequence_number, season_number, poster_path)
-  previousEpisodeData: {
-    type: Object,
-    default: null,
-  },
-  // Next episode data (title, sequence_number, season_number, poster_path)
-  nextEpisodeData: {
-    type: Object,
-    default: null,
-  },
-  // Stream info for admin debug panel
-  streamInfo: {
-    type: Object,
-    default: null,
-  },
-  // Is content favorited
-  isFavorited: {
-    type: Boolean,
-    default: false,
-  },
-  // Identify song loading state
-  identifyingLoading: {
-    type: Boolean,
-    default: false,
-  },
 })
 
 const emit = defineEmits([
@@ -424,38 +325,26 @@ const emit = defineEmits([
   'report-problem',
 ])
 
-const videoElement = computed(() => props.playerState?.videoElement ?? props.videoElement)
-const player = computed(() => props.playerState?.player ?? props.player)
-const totalDuration = computed(() => props.playerState?.totalDuration ?? props.totalDuration)
-const transcodeStartPosition = computed(
-  () => props.playerState?.transcodeStartPosition ?? props.transcodeStartPosition,
-)
-const streamPosition = computed(() => props.playerState?.streamPosition ?? props.streamPosition)
-const bufferedAmount = computed(() => props.playerState?.bufferedAmount ?? props.bufferedAmount)
-const isSeeking = computed(() => props.playerState?.isSeeking ?? props.isSeeking)
-const isPlaying = computed(() => props.playerState?.isPlaying ?? props.isPlaying)
-const contentId = computed(() => props.mediaState?.contentId ?? props.contentId)
-const contentType = computed(() => props.mediaState?.contentType ?? props.contentType)
-const title = computed(() => props.mediaState?.title ?? props.title)
-const subtitle = computed(() => props.mediaState?.subtitle ?? props.subtitle)
-const isFavorited = computed(() => props.mediaState?.isFavorited ?? props.isFavorited)
-const identifyingLoading = computed(
-  () => props.mediaState?.identifyingLoading ?? props.identifyingLoading,
-)
-const showEpisodeControls = computed(
-  () => props.navigationState?.showEpisodeControls ?? props.showEpisodeControls,
-)
-const hasPreviousEpisode = computed(
-  () => props.navigationState?.hasPreviousEpisode ?? props.hasPreviousEpisode,
-)
-const hasNextEpisode = computed(() => props.navigationState?.hasNextEpisode ?? props.hasNextEpisode)
-const previousEpisodeData = computed(
-  () => props.navigationState?.previousEpisodeData ?? props.previousEpisodeData,
-)
-const nextEpisodeData = computed(
-  () => props.navigationState?.nextEpisodeData ?? props.nextEpisodeData,
-)
-const streamInfo = computed(() => props.streamState?.streamInfo ?? props.streamInfo)
+const videoElement = computed(() => props.playerState?.videoElement ?? null)
+const player = computed(() => props.playerState?.player ?? null)
+const totalDuration = computed(() => props.playerState?.totalDuration ?? 0)
+const transcodeStartPosition = computed(() => props.playerState?.transcodeStartPosition ?? 0)
+const streamPosition = computed(() => props.playerState?.streamPosition ?? 0)
+const bufferedAmount = computed(() => props.playerState?.bufferedAmount ?? 0)
+const isSeeking = computed(() => props.playerState?.isSeeking ?? false)
+const isPlaying = computed(() => props.playerState?.isPlaying ?? false)
+const contentId = computed(() => props.mediaState?.contentId ?? '')
+const contentType = computed(() => props.mediaState?.contentType ?? 'movie')
+const title = computed(() => props.mediaState?.title ?? '')
+const subtitle = computed(() => props.mediaState?.subtitle ?? '')
+const isFavorited = computed(() => props.mediaState?.isFavorited ?? false)
+const identifyingLoading = computed(() => props.mediaState?.identifyingLoading ?? false)
+const showEpisodeControls = computed(() => props.navigationState?.showEpisodeControls ?? false)
+const hasPreviousEpisode = computed(() => props.navigationState?.hasPreviousEpisode ?? false)
+const hasNextEpisode = computed(() => props.navigationState?.hasNextEpisode ?? false)
+const previousEpisodeData = computed(() => props.navigationState?.previousEpisodeData ?? null)
+const nextEpisodeData = computed(() => props.navigationState?.nextEpisodeData ?? null)
+const streamInfo = computed(() => props.streamState?.streamInfo ?? null)
 
 // State
 const showCenterIcon = ref(false)
@@ -744,18 +633,6 @@ watch(
     color: rgba(255, 255, 255, 0.7);
     font-size: 0.9rem;
   }
-
-  .quality-badge {
-    display: inline-block;
-    margin-top: 4px;
-    padding: 2px 8px;
-    background: rgba(0, 0, 0, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 4px;
-    color: white;
-    font-size: 0.75rem;
-    font-weight: 500;
-  }
 }
 
 .bottom-controls {
@@ -882,33 +759,6 @@ watch(
 
   .time-separator {
     opacity: 0.7;
-  }
-}
-
-// Stream Info Dialog
-.stream-info-card {
-  width: 400px;
-  max-width: 100vw;
-  background: rgba(30, 30, 30, 0.98);
-
-  .info-section {
-    .info-grid {
-      display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 8px 12px;
-      align-items: center;
-
-      .info-label {
-        color: rgba(255, 255, 255, 0.6);
-        font-size: 12px;
-      }
-
-      .info-value {
-        color: white;
-        font-size: 13px;
-        word-break: break-word;
-      }
-    }
   }
 }
 

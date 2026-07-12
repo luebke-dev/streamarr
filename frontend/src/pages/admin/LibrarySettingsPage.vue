@@ -617,8 +617,10 @@ const saveScoring = async (config) => {
   try {
     const response = await api.put(`${apiRoot.value}/scoring`, config)
     scoringConfig.value = response.data
-  } catch {
-    // silently ignore
+    $q.notify({ type: 'positive', message: t('scoringRules.saveSuccess') })
+  } catch (error) {
+    logger.error('Failed to save scoring config:', error)
+    $q.notify({ type: 'negative', message: t('scoringRules.saveError') })
   } finally {
     savingScoring.value = false
   }
@@ -635,8 +637,9 @@ const confirmDeleteLibrary = () => {
     try {
       await api.delete(`/api/libraries/${props.libraryId}`)
       router.push('/admin')
-    } catch {
-      // silently ignore
+    } catch (error) {
+      logger.error('Failed to delete library:', error)
+      $q.notify({ type: 'negative', message: t('adminLibrary.deleteLibraryError') })
     } finally {
       deleting.value = false
     }
@@ -654,8 +657,10 @@ const resetScoring = () => {
     try {
       const response = await api.post(`${apiRoot.value}/scoring/reset`)
       scoringConfig.value = response.data
-    } catch {
-      // silently ignore
+      $q.notify({ type: 'positive', message: t('scoringRules.resetSuccess') })
+    } catch (error) {
+      logger.error('Failed to reset scoring config:', error)
+      $q.notify({ type: 'negative', message: t('scoringRules.resetError') })
     } finally {
       savingScoring.value = false
     }
@@ -722,8 +727,16 @@ const resetQualityProfile = (variant) => {
       } else {
         qualityProfileStd.value = response.data
       }
-    } catch {
-      // silently ignore
+      $q.notify({
+        type: 'positive',
+        message: t('scoringRules.resetSuccess', 'Reset to defaults'),
+      })
+    } catch (error) {
+      logger.error('Failed to reset quality profile:', error)
+      $q.notify({
+        type: 'negative',
+        message: t('scoringRules.resetError', 'Failed to reset quality profile'),
+      })
     } finally {
       savingQP.value = false
     }

@@ -149,7 +149,7 @@ import { useViewingProgress } from 'src/composables/useViewingProgress'
 import { useStreamSwap } from 'src/composables/useStreamSwap'
 import { useVideoPlayerEvents } from 'src/composables/useVideoPlayerEvents'
 import { useBookPlayback } from 'src/composables/useBookPlayback'
-import { usePlayerControls } from 'src/composables/usePlayerControls'
+import { usePlayerControls, DEFAULT_TRANSCODE_OPTIONS } from 'src/composables/usePlayerControls'
 import { useGameLaunch } from 'src/composables/useGameLaunch'
 import { useEpisodeNavigation } from 'src/composables/useEpisodeNavigation'
 import { usePlaylistNavigation } from 'src/composables/usePlaylistNavigation'
@@ -581,11 +581,7 @@ const startPlayback = async () => {
   isStartingPlayback.value = true
 
   try {
-    const options = {
-      video_codec: 'h264',
-      audio_codec: 'aac',
-      audio_bitrate: '128k',
-    }
+    const options = { ...DEFAULT_TRANSCODE_OPTIONS }
     const routeProfileId = stringRouteQuery('profile_id')
     const routeDeviceGuid = stringRouteQuery('device_guid')
     const routeMediaSourceId = stringRouteQuery('media_source_id')
@@ -937,6 +933,10 @@ videoPlayerStore.registerSeekHandler(handleSeek)
 onUnmounted(() => {
   playbackTimers.clearAll()
 
+  // Stop download polling — the composable's WS subscription would otherwise
+  // survive unmount and resume playback against a torn-down page.
+  stopDownloadPolling()
+
   // Remove beforeunload listener
   window.removeEventListener('beforeunload', saveProgressOnUnload)
 
@@ -1016,9 +1016,5 @@ onUnmounted(() => {
   :deep(.vjs-tech) {
     object-fit: contain;
   }
-}
-
-.custom-player-controls {
-  display: none;
 }
 </style>

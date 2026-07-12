@@ -70,41 +70,32 @@ export function useEpisodeNavigation({ uuid, contentType, router }) {
     }
   }
 
-  const playPreviousEpisode = async () => {
-    try {
-      const response = await api.get(`/api/media/${uuid.value}/previous-episode`)
-      const previousEpisode = response.data?.previous_episode
+  // Navigate using the data already fetched by checkEpisodeNavigation(), so the
+  // target always matches what the player controls display and no redundant
+  // round-trip runs on click.
+  const playPreviousEpisode = () => {
+    const previousEpisode = previousEpisodeData.value
 
-      if (previousEpisode && previousEpisode.guid) {
-        router.replace({
-          path: `/play/${previousEpisode.guid}`,
-          query: { type: 'episode' },
-        })
-      } else {
-        logger.debug('No previous episode available')
-      }
-    } catch (error) {
-      logger.error('Error fetching previous episode:', error)
+    if (previousEpisode && previousEpisode.guid) {
+      router.replace({
+        path: `/play/${previousEpisode.guid}`,
+        query: { type: 'episode' },
+      })
+    } else {
+      logger.debug('No previous episode available')
     }
   }
 
-  const playNextEpisode = async () => {
-    try {
-      const response = await api.get(`/api/media/${uuid.value}/next-episode`)
-      const nextEpisode = response.data?.next_episode
+  const playNextEpisode = () => {
+    const nextEpisode = nextEpisodeData.value
 
-      if (nextEpisode && nextEpisode.guid) {
-        router.replace({
-          path: `/play/${nextEpisode.guid}`,
-          query: { type: 'episode' },
-        })
-      } else {
-        // No next episode available, go back
-        router.back()
-      }
-    } catch (error) {
-      logger.error('Error fetching next episode:', error)
-      // If there's an error or no next episode, just go back
+    if (nextEpisode && nextEpisode.guid) {
+      router.replace({
+        path: `/play/${nextEpisode.guid}`,
+        query: { type: 'episode' },
+      })
+    } else {
+      // No next episode available, go back
       router.back()
     }
   }

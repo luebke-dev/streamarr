@@ -14,7 +14,7 @@ import { logger } from 'src/utils/logger'
  *      * GET /api/subscriptions/packages         (list of plans)
  *      * GET /api/subscriptions/my-subscription  (active sub or null)
  *      * GET /api/subscriptions/payment-methods  (saved cards)
- *      * GET /api/groups/{id}                    (per-package permissions
+ *      * GET /api/groups                         (per-package permissions
  *                                                  for the feature list)
  *  - dialog visibility refs (`showPlanDialog`, `showPaymentDialog`,
  *    `showCancelDialog`) and the matching loading flags
@@ -112,21 +112,24 @@ export function usePlanManagement() {
   }
 
   /**
-   * Resolve a Group payload by id with single-flight caching for the duration
-   * of one ``refresh()``.
+   * Fetch every Group once and index them by ``guid`` so the feature bullets
+   * for all packages (and the current plan) come from a single request
+   * instead of one ``GET /api/groups/{id}`` per package (N+1).
    */
-  async function fetchGroup(cache, groupId) {
-    if (!groupId) return null
-    if (cache.has(groupId)) return cache.get(groupId)
-    const promise = api
-      .get(`/api/groups/${groupId}`)
-      .then((r) => r.data)
-      .catch((err) => {
-        logger.warn(`Failed to fetch group ${groupId}:`, err)
-        return null
+  async function fetchGroups() {
+    try {
+      const { data } = await api.get('/api/groups', {
+        params: { limit: 200, include_inactive: true },
       })
-    cache.set(groupId, promise)
-    return promise
+      const list = Array.isArray(data) ? data : []
+      return new Map(list.map((g) => [g.guid, g]))
+    } catch (err) {
+      // Group listing is admin-only; regular members get a 403 here, which
+      // just means we render plans without their permission-derived feature
+      // bullets — identical to the previous per-group fetch behavior.
+      logger.warn('Failed to fetch groups for membership features:', err)
+      return new Map()
+    }
   }
 
   function buildPlan(pkg, group) {
@@ -161,17 +164,15 @@ export function usePlanManagement() {
       ])
 
       const packages = Array.isArray(packagesRes.data) ? packagesRes.data : []
-      const groupCache = new Map()
-      const groups = await Promise.all(packages.map((p) => fetchGroup(groupCache, p.group_id)))
-      availablePlans.value = packages.map((p, i) => buildPlan(p, groups[i]))
+      const groupsById = await fetchGroups()
+      availablePlans.value = packages.map((p) => buildPlan(p, groupsById.get(p.group_id)))
 
       const sub = subRes.data
       if (sub) {
         const pkg = packages.find((p) => p.guid === sub.package_id)
-        const group = pkg ? await fetchGroup(groupCache, pkg.group_id) : null
         currentPlan.value = pkg
           ? {
-              ...buildPlan(pkg, group),
+              ...buildPlan(pkg, groupsById.get(pkg.group_id)),
               status: sub.status === 'cancelled' ? 'expiring' : sub.status,
               nextBilling: sub.expires_at ? new Date(sub.expires_at) : null,
               subscriptionId: sub.guid,
@@ -233,8 +234,10 @@ export function usePlanManagement() {
     if (!selectedPlan.value?.id) return
     try {
       changingPlan.value = true
-      // Plan change = cancel existing + subscribe to new (no dedicated
-      // change-plan endpoint exists yet on the backend).
+      // Plan change = cancel existing + subscribe to new. There is no atomic
+      // change-plan endpoint, and the backend rejects a second /subscribe
+      // while a subscription is still active (400), so the cancel must come
+      // first. That makes this a non-atomic, two-step mutation.
       if (currentPlan.value) await cancelActive()
       await subscribe(selectedPlan.value.id)
       await refresh()
@@ -242,6 +245,10 @@ export function usePlanManagement() {
       selectedPlan.value = null
     } catch (err) {
       notifyError('membership.planChangeError', err)
+      // A partial failure (cancel succeeded, subscribe failed) may have left
+      // the user with no active subscription. Re-sync from the backend so the
+      // UI reflects the true state instead of the stale old plan.
+      await refresh()
     } finally {
       changingPlan.value = false
     }
