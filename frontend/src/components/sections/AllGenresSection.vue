@@ -56,7 +56,7 @@
 <script setup>
 import { ref, reactive, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from 'boot/axios'
+import { searchMedia, getGenresWithItems, getGenres } from 'src/services/mediaComponentsService'
 import { useMediaHelpers } from 'src/composables/useMediaHelpers'
 import { getItemType } from 'src/composables/useMediaFormatters'
 import PosterCard from 'src/components/PosterCard.vue'
@@ -182,8 +182,8 @@ async function loadGenreItems(genreId) {
     if (f.has_description != null) payload.has_description = f.has_description
     if (f.platform_id) payload.platform_id = f.platform_id
 
-    const res = await api.post('/api/search/', payload)
-    genre.items = (res.data.hits || []).filter((item) => getPosterUrl(item))
+    const res = await searchMedia(payload)
+    genre.items = (res.hits || []).filter((item) => getPosterUrl(item))
   } catch (error) {
     logger.error(`Error loading items for genre ${genreId}:`, error)
     genre.items = []
@@ -206,8 +206,8 @@ async function loadAllGenresWithItems() {
   try {
     const params = { max_items_per_genre: maxItemsPerGenre.value }
     if (props.mediaType) params.media_type = props.mediaType
-    const response = await api.get('/api/genres/with-items', { params })
-    const data = Array.isArray(response.data) ? response.data : []
+    const response = await getGenresWithItems(params)
+    const data = Array.isArray(response) ? response : []
     genres.value = data.map((g) =>
       reactive({
         id: g.id,
@@ -229,8 +229,7 @@ async function loadGenreList() {
   try {
     const params = {}
     if (props.mediaType) params.media_type = props.mediaType
-    const response = await api.get('/api/genres', { params })
-    const rawGenres = response.data || []
+    const rawGenres = (await getGenres(params)) || []
     // Wrap each genre in a reactive object with loading/items state
     genres.value = rawGenres.map((g) =>
       reactive({

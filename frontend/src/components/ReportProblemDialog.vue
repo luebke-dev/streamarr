@@ -32,7 +32,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
+import { reportPlaybackProblem } from 'src/services/mediaComponentsService'
 import { logger } from 'src/utils/logger'
 
 const props = defineProps({
@@ -62,7 +62,7 @@ const close = () => emit('update:modelValue', false)
 const submit = async () => {
   submitting.value = true
   try {
-    await api.post(`/api/play/${props.mediaUuid}/report-problem`, {
+    await reportPlaybackProblem(props.mediaUuid, {
       reason: reason.value,
       details: details.value || null,
     })

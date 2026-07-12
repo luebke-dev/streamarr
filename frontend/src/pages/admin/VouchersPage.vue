@@ -286,9 +286,17 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
 import ConfirmDeleteDialog from 'src/components/ConfirmDeleteDialog.vue'
+import {
+  getVouchers,
+  getPackages,
+  createVoucher as createVoucherApi,
+  batchCreateVouchers,
+  updateVoucher,
+  deleteVoucher as deleteVoucherApi,
+  exportVouchersCsv,
+} from 'src/services/systemAdminService'
 
 const { t } = useI18n()
 const $q = useQuasar()
@@ -373,11 +381,11 @@ async function loadData() {
   loading.value = true
   try {
     const [vRes, pRes] = await Promise.all([
-      api.get('/api/vouchers'),
-      api.get('/api/subscriptions/packages', { params: { active_only: false } }),
+      getVouchers(),
+      getPackages({ active_only: false }),
     ])
-    vouchers.value = vRes.data || []
-    packages.value = pRes.data || []
+    vouchers.value = vRes || []
+    packages.value = pRes || []
   } catch (err) {
     logger.error('Failed to load vouchers:', err)
     $q.notify({ type: 'negative', message: t('adminVouchers.loadError') })
@@ -411,7 +419,7 @@ function buildPayload(src) {
 async function createVoucher() {
   saving.value = true
   try {
-    await api.post('/api/vouchers', buildPayload(form.value))
+    await createVoucherApi(buildPayload(form.value))
     showCreateDialog.value = false
     await loadData()
     $q.notify({ type: 'positive', message: t('adminVouchers.createSuccess') })
@@ -426,10 +434,10 @@ async function createVoucher() {
 async function batchCreate() {
   saving.value = true
   try {
-    const res = await api.post('/api/vouchers/batch', buildPayload(batchForm.value))
+    const res = await batchCreateVouchers(buildPayload(batchForm.value))
     showBatchDialog.value = false
     await loadData()
-    const count = Array.isArray(res.data) ? res.data.length : batchForm.value.count
+    const count = Array.isArray(res) ? res.length : batchForm.value.count
     $q.notify({ type: 'positive', message: t('adminVouchers.batchSuccess', { count }) })
   } catch (err) {
     logger.error('Failed to batch create vouchers:', err)
@@ -441,7 +449,7 @@ async function batchCreate() {
 
 async function toggleActive(voucher, value) {
   try {
-    await api.patch(`/api/vouchers/${voucher.guid}`, { is_active: value })
+    await updateVoucher(voucher.guid, { is_active: value })
     voucher.is_active = value
     $q.notify({ type: 'positive', message: t('adminVouchers.toggleSuccess') })
   } catch (err) {
@@ -459,7 +467,7 @@ async function deleteVoucher() {
   if (!selectedVoucher.value) return
   deleting.value = true
   try {
-    await api.delete(`/api/vouchers/${selectedVoucher.value.guid}`)
+    await deleteVoucherApi(selectedVoucher.value.guid)
     showDeleteDialog.value = false
     selectedVoucher.value = null
     await loadData()
@@ -475,8 +483,8 @@ async function deleteVoucher() {
 async function exportCsv() {
   exporting.value = true
   try {
-    const res = await api.get('/api/vouchers/export.csv', { responseType: 'blob' })
-    const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }))
+    const res = await exportVouchersCsv()
+    const url = window.URL.createObjectURL(new Blob([res], { type: 'text/csv' }))
     const link = document.createElement('a')
     link.href = url
     link.setAttribute('download', `vouchers-${new Date().toISOString().slice(0, 10)}.csv`)

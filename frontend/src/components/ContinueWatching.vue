@@ -46,11 +46,11 @@
 <script>
 import { computed, defineComponent, ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from 'boot/axios'
 import { useAuthStore } from 'stores/auth'
 import { useI18n } from 'vue-i18n'
 import { useViewingHistory } from 'src/composables/useViewingHistory'
 import { getArtworkImageUrl } from 'src/composables/useMediaFormatters'
+import { getContinueWatching } from 'src/services/mediaComponentsService'
 import { logger } from 'src/utils/logger'
 
 export default defineComponent({
@@ -98,9 +98,9 @@ export default defineComponent({
         if (props.contentType) {
           params.content_type = props.contentType
         }
-        const response = await api.get('/api/viewing-history/continue-watching', { params })
+        const data = await getContinueWatching(params)
         // API returns paginated response with items array
-        continueWatchingItems.value = response.data.items || response.data
+        continueWatchingItems.value = data.items || data
       } catch (error) {
         logger.error('Failed to load continue watching items:', error)
       } finally {

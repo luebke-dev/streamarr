@@ -130,8 +130,13 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import {
+  getTasks,
+  runTask as runTaskApi,
+  getTaskHistory,
+  getTaskRun,
+} from 'src/services/systemAdminService'
 import { useAsyncResource } from 'src/composables/useAsyncResource'
 import AsyncState from 'src/components/AsyncState.vue'
 
@@ -142,7 +147,7 @@ const {
   loading,
   error,
   refresh,
-} = useAsyncResource(async () => (await api.get('/api/tasks')).data, {
+} = useAsyncResource(async () => await getTasks(), {
   initial: [],
   immediate: true,
 })
@@ -249,7 +254,7 @@ function taskDesc(task) {
 async function runTask(task) {
   runningTask.value = task.id
   try {
-    await api.post(`/api/tasks/${task.id}/run`)
+    await runTaskApi(task.id)
     await loadTaskHistory()
   } catch (err) {
     logger.error('Failed to run task:', err)
@@ -285,10 +290,8 @@ function formatDateTime(value) {
 async function loadTaskHistory() {
   historyLoading.value = true
   try {
-    const response = await api.get('/api/tasks/history', {
-      params: { status: historyStatus.value, per_page: 50 },
-    })
-    taskHistory.value = response.data.items || []
+    const data = await getTaskHistory({ status: historyStatus.value, per_page: 50 })
+    taskHistory.value = data.items || []
   } catch (err) {
     logger.error('Failed to load task history:', err)
   } finally {
@@ -299,8 +302,8 @@ async function loadTaskHistory() {
 async function loadTaskRun(runId) {
   if (!runId) return
   try {
-    const response = await api.get(`/api/tasks/history/${runId}`)
-    selectedRun.value = response.data
+    const data = await getTaskRun(runId)
+    selectedRun.value = data
     showRunDialog.value = true
   } catch (err) {
     logger.error('Failed to load task run:', err)

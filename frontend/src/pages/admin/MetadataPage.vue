@@ -176,7 +176,12 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { api } from 'boot/axios'
+import {
+  getMetadataProviders,
+  getMetadataProviderConfig,
+  saveMetadataProviderConfig,
+  testMetadataProviderConnection,
+} from 'src/services/libraryAdminService'
 import { useI18n } from 'vue-i18n'
 import { logger } from 'src/utils/logger'
 import FormBanner from 'src/components/FormBanner.vue'
@@ -195,8 +200,7 @@ const passwordVisible = reactive({})
 
 const loadProviders = async () => {
   try {
-    const response = await api.get('/api/metadata/providers')
-    providers.value = response.data
+    providers.value = await getMetadataProviders()
     for (const p of providers.value) {
       providerConfigs[p.domain] = {}
     }
@@ -209,8 +213,8 @@ const loadProviderConfig = async (domain) => {
   if (providerLoading[domain]) return
   providerLoading[domain] = true
   try {
-    const response = await api.get(`/api/metadata/providers/${domain}/config`)
-    providerConfigs[domain] = response.data.config || {}
+    const data = await getMetadataProviderConfig(domain)
+    providerConfigs[domain] = data.config || {}
   } catch (error) {
     logger.error(`Failed to load config for ${domain}:`, error)
   } finally {
@@ -223,9 +227,7 @@ const saveConfig = async (domain) => {
   providerErrors[domain] = null
   providerSuccess[domain] = null
   try {
-    await api.put(`/api/metadata/providers/${domain}/config`, {
-      config: providerConfigs[domain],
-    })
+    await saveMetadataProviderConfig(domain, providerConfigs[domain])
     providerSuccess[domain] = t('admin.metadata.saveSuccess')
     // Update configured status
     const provider = providers.value.find((p) => p.domain === domain)
@@ -255,18 +257,16 @@ const testConnection = async (domain) => {
   try {
     const config = providerConfigs[domain] || {}
     const hasConfig = Object.keys(config).length > 0
-    const response = hasConfig
-      ? await api.post(`/api/metadata/providers/${domain}/test`, { config })
-      : await api.post(`/api/metadata/providers/${domain}/test`)
+    const data = await testMetadataProviderConnection(domain, hasConfig ? config : undefined)
 
-    if (response.data.success) {
+    if (data.success) {
       providerSuccess[domain] = t('admin.metadata.testSuccess')
       setTimeout(() => {
         providerSuccess[domain] = null
       }, 3000)
     } else {
       providerErrors[domain] =
-        response.data.error || response.data.errors?.join(', ') || t('admin.metadata.testFailed')
+        data.error || data.errors?.join(', ') || t('admin.metadata.testFailed')
     }
   } catch (error) {
     logger.error(`Failed to test connection for ${domain}:`, error)

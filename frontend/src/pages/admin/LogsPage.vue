@@ -155,8 +155,8 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import { getSessions, getSessionLogs, getActivityLogs } from 'src/services/systemAdminService'
 import { useInterval } from 'src/composables/useInterval'
 
 const { t } = useI18n()
@@ -245,8 +245,8 @@ const sessionOptions = computed(() =>
 const loadSessions = async () => {
   sessionsLoading.value = true
   try {
-    const res = await api.get('/api/sessions')
-    sessions.value = res.data.sessions || []
+    const res = await getSessions()
+    sessions.value = res.sessions || []
   } catch (error) {
     logger.error('Error loading sessions:', error)
   } finally {
@@ -259,10 +259,8 @@ const loadLogs = async () => {
   logsLoading.value = true
   logsError.value = null
   try {
-    const res = await api.get(`/api/sessions/${selectedSession.value}/logs`, {
-      params: { tail_lines: tailLines.value },
-    })
-    logs.value = res.data.logs || ''
+    const res = await getSessionLogs(selectedSession.value, { tail_lines: tailLines.value })
+    logs.value = res.logs || ''
     await nextTick()
     if (logContainer.value) {
       logContainer.value.scrollTop = logContainer.value.scrollHeight
@@ -286,8 +284,8 @@ const loadActivityLogs = async () => {
       max_date: activityFilters.value.max_date || undefined,
       per_page: 100,
     }
-    const res = await api.get('/api/activity-logs', { params })
-    activityLogs.value = res.data.items || []
+    const res = await getActivityLogs(params)
+    activityLogs.value = res.items || []
   } catch (error) {
     logger.error('Error loading activity logs:', error)
   } finally {

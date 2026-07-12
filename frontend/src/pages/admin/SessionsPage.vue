@@ -420,8 +420,15 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import {
+  getSessions,
+  getActiveDeviceSessions,
+  getDeviceSessionContract,
+  terminateAllSessions,
+  terminateSession,
+  cleanupSessions,
+} from 'src/services/systemAdminService'
 import { formatLongDuration, formatTime } from 'src/composables/useMediaFormatters'
 import { useInterval } from 'src/composables/useInterval'
 const { t } = useI18n()
@@ -592,21 +599,21 @@ const loadSessions = async ({ background = false } = {}) => {
   }
   try {
     const [sessionsResult, deviceSessionsResult] = await Promise.allSettled([
-      api.get('/api/sessions'),
-      api.get('/api/devices/sessions/active'),
+      getSessions(),
+      getActiveDeviceSessions(),
     ])
     if (sessionsResult.status === 'fulfilled') {
-      const response = sessionsResult.value
-      sessions.value = response.data.sessions || []
+      const data = sessionsResult.value
+      sessions.value = data.sessions || []
       stats.value = {
-        total: response.data.total || 0,
-        active: response.data.active_count || 0,
+        total: data.total || 0,
+        active: data.active_count || 0,
       }
     } else {
       logger.error('Failed to load transcoding sessions:', sessionsResult.reason)
     }
     if (deviceSessionsResult.status === 'fulfilled') {
-      deviceSessions.value = deviceSessionsResult.value.data.items || []
+      deviceSessions.value = deviceSessionsResult.value.items || []
     } else {
       logger.error('Failed to load device sessions:', deviceSessionsResult.reason)
       deviceSessions.value = []
@@ -707,8 +714,8 @@ const loadDeviceSessionContract = async (deviceGuid) => {
   sessionContractLoading.value = true
   sessionContractError.value = null
   try {
-    const response = await api.get(`/api/devices/${deviceGuid}/session`)
-    sessionContract.value = response.data
+    const data = await getDeviceSessionContract(deviceGuid)
+    sessionContract.value = data
   } catch (error) {
     sessionContract.value = null
     sessionContractError.value = error
@@ -738,9 +745,9 @@ const executeTerminate = async () => {
   terminating.value = true
   try {
     if (terminateMode.value === 'all') {
-      await api.delete('/api/sessions')
+      await terminateAllSessions()
     } else if (selectedSession.value) {
-      await api.delete(`/api/sessions/${selectedSession.value.session_id}`)
+      await terminateSession(selectedSession.value.session_id)
     }
     showTerminateDialog.value = false
     await loadSessions()
@@ -754,7 +761,7 @@ const executeTerminate = async () => {
 const runCleanup = async () => {
   cleanupLoading.value = true
   try {
-    await api.post('/api/sessions/cleanup')
+    await cleanupSessions()
 
     // Refresh sessions list
     await loadSessions()

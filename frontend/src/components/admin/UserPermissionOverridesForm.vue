@@ -204,8 +204,11 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import {
+  getUserPermissionOverrides,
+  updateUserPermissionOverrides,
+} from 'src/services/accessAdminService'
 import LimitPeriodPair from 'src/components/admin/LimitPeriodPair.vue'
 import {
   LIBRARY_OPTIONS,
@@ -255,8 +258,7 @@ const periodOptions = buildPeriodOptions(t)
 
 const loadPermissionOverrides = async () => {
   try {
-    const response = await api.get(`/api/users/${props.userGuid}/permission-overrides`)
-    permOverrides.value = response.data
+    permOverrides.value = await getUserPermissionOverrides(props.userGuid)
   } catch (error) {
     logger.error('Error loading permission overrides:', error)
   }
@@ -265,7 +267,7 @@ const loadPermissionOverrides = async () => {
 const savePermissionOverrides = async () => {
   try {
     permLoading.value = true
-    await api.put(`/api/users/${props.userGuid}/permission-overrides`, permOverrides.value)
+    await updateUserPermissionOverrides(props.userGuid, permOverrides.value)
     $q.notify({ type: 'positive', message: t('editUser.permissionsSaved') })
     emit('saved')
   } catch (error) {

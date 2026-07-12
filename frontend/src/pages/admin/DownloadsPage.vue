@@ -189,9 +189,13 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { debounce } from 'quasar'
 import { logger } from 'src/utils/logger'
+import {
+  listDownloads,
+  setDownloadPaused,
+  deleteDownload as deleteDownloadRequest,
+} from 'src/services/acquisitionAdminService'
 import ConfirmDeleteDialog from 'src/components/ConfirmDeleteDialog.vue'
 
 const { t } = useI18n()
@@ -288,8 +292,7 @@ const columns = computed(() => [
 const loadDownloads = async (silent = false) => {
   if (!silent) loading.value = true
   try {
-    const response = await api.get('/api/downloads')
-    downloads.value = response.data
+    downloads.value = await listDownloads()
 
     // Apply local filtering
     if (search.value) {
@@ -324,7 +327,7 @@ const isPausable = (download) =>
 
 const togglePause = async (download, pause) => {
   try {
-    await api.post(`/api/downloads/${download.guid}/${pause ? 'pause' : 'resume'}`)
+    await setDownloadPaused(download.guid, pause)
     loadDownloads(true)
   } catch (error) {
     logger.error(`Failed to ${pause ? 'pause' : 'resume'} download:`, error)
@@ -421,7 +424,7 @@ const deleteDownload = async () => {
 
   deleting.value = true
   try {
-    await api.delete(`/api/downloads/${selectedDownload.value.guid}`)
+    await deleteDownloadRequest(selectedDownload.value.guid)
 
     showDeleteDialog.value = false
     selectedDownload.value = null

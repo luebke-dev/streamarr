@@ -104,8 +104,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import {
+  getGroups,
+  getStripeConfig,
+  getPackage,
+  createPackage,
+  updatePackage,
+} from 'src/services/systemAdminService'
 
 const route = useRoute()
 const router = useRouter()
@@ -141,14 +147,14 @@ async function loadInitial() {
   loading.value = true
   try {
     const [grpRes, cfgRes] = await Promise.all([
-      api.get('/api/groups'),
-      api.get('/api/subscriptions/stripe-config').catch(() => ({ data: { publishable_key: null } })),
+      getGroups(),
+      getStripeConfig().catch(() => ({ publishable_key: null })),
     ])
-    groups.value = grpRes.data || []
-    stripeConfigured.value = !!cfgRes.data?.publishable_key
+    groups.value = grpRes || []
+    stripeConfigured.value = !!cfgRes?.publishable_key
 
     if (isEdit.value) {
-      const { data } = await api.get(`/api/subscriptions/packages/${packageId.value}`)
+      const data = await getPackage(packageId.value)
       pkg.value = data
       form.name = data.name
       form.description = data.description || ''
@@ -175,10 +181,10 @@ async function save() {
       is_active: form.is_active,
     }
     if (isEdit.value) {
-      await api.put(`/api/subscriptions/packages/${packageId.value}`, payload)
+      await updatePackage(packageId.value, payload)
       $q.notify({ type: 'positive', message: t('adminPackages.saveSuccess') })
     } else {
-      await api.post('/api/subscriptions/packages', payload)
+      await createPackage(payload)
       $q.notify({ type: 'positive', message: t('adminPackages.createSuccess') })
     }
     router.push('/admin/packages')

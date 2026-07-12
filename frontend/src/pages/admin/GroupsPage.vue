@@ -139,9 +139,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
 import ConfirmDeleteDialog from 'src/components/ConfirmDeleteDialog.vue'
+import { getGroups, deleteGroup as deleteGroupRequest } from 'src/services/accessAdminService'
 
 const { t } = useI18n()
 
@@ -203,8 +203,7 @@ const filteredGroups = computed(() => {
 const loadGroups = async () => {
   loading.value = true
   try {
-    const response = await api.get('/api/groups')
-    groups.value = response.data
+    groups.value = await getGroups()
   } catch (error) {
     logger.error('Failed to load groups:', error)
   } finally {
@@ -226,7 +225,7 @@ const deleteGroup = async () => {
 
   deleting.value = true
   try {
-    await api.delete(`/api/groups/${selectedGroup.value.guid}`)
+    await deleteGroupRequest(selectedGroup.value.guid)
 
     showDeleteDialog.value = false
     selectedGroup.value = null

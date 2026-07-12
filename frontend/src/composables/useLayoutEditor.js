@@ -1,6 +1,16 @@
 import { ref, provide, inject, watch } from 'vue'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import {
+  getGenres,
+  getLists,
+  getPlatforms,
+  getPageLayout,
+  createPageLayout,
+  updateSectionsOrder,
+  createPageLayoutSection,
+  updatePageLayoutSection,
+  deletePageLayoutSection,
+} from 'src/services/contentAdminService'
 
 const LAYOUT_EDITOR_KEY = Symbol('layoutEditor')
 
@@ -35,17 +45,17 @@ export function useLayoutEditor() {
     if (referenceLoadPromise) return referenceLoadPromise
 
     referenceLoadPromise = (async () => {
-      const [genreRes, listRes, platformRes] = await Promise.all([
-        api.get('/api/genres'),
-        api.get('/api/lists', { params: { per_page: 100 } }),
-        api.get('/api/platforms'),
+      const [genreData, listData, platformData] = await Promise.all([
+        getGenres(),
+        getLists({ per_page: 100 }),
+        getPlatforms(),
       ])
-      genreOptions.value = (genreRes.data || []).map((g) => ({ value: g.id, label: g.name }))
-      listOptions.value = (listRes.data.items || listRes.data || []).map((l) => ({
+      genreOptions.value = (genreData || []).map((g) => ({ value: g.id, label: g.name }))
+      listOptions.value = (listData.items || listData || []).map((l) => ({
         value: l.guid,
         label: l.name,
       }))
-      platformOptions.value = (platformRes.data || []).map((p) => ({ value: p.id, label: p.name }))
+      platformOptions.value = (platformData || []).map((p) => ({ value: p.id, label: p.name }))
       referenceLoaded.value = true
     })()
 
@@ -69,10 +79,8 @@ export function useLayoutEditor() {
   async function reloadLayout() {
     if (!layoutGuid.value) return
     try {
-      const response = await api.get(`/api/page-layouts/${layoutGuid.value}`)
-      allSections.value = (response.data.sections || []).sort(
-        (a, b) => a.order_index - b.order_index,
-      )
+      const layout = await getPageLayout(layoutGuid.value)
+      allSections.value = (layout.sections || []).sort((a, b) => a.order_index - b.order_index)
     } catch (error) {
       logger.error('Error reloading layout:', error)
     }
@@ -88,9 +96,10 @@ export function useLayoutEditor() {
     allSections.value = items
 
     try {
-      await api.put(`/api/page-layouts/${layoutGuid.value}/sections-order`, {
-        section_order: items.map((s) => s.guid),
-      })
+      await updateSectionsOrder(
+        layoutGuid.value,
+        items.map((s) => s.guid),
+      )
       await reloadLayout()
     } catch (error) {
       logger.error('Error reordering sections:', error)
@@ -115,13 +124,10 @@ export function useLayoutEditor() {
     savingSection.value = true
     try {
       if (editingSection.value) {
-        await api.put(
-          `/api/page-layouts/${layoutGuid.value}/sections/${editingSection.value.guid}`,
-          payload,
-        )
+        await updatePageLayoutSection(layoutGuid.value, editingSection.value.guid, payload)
       } else {
         payload.order_index = insertAtIndex.value ?? allSections.value.length
-        await api.post(`/api/page-layouts/${layoutGuid.value}/sections`, payload)
+        await createPageLayoutSection(layoutGuid.value, payload)
       }
       showConfigDialog.value = false
       await reloadLayout()
@@ -134,7 +140,7 @@ export function useLayoutEditor() {
 
   async function deleteSection(sectionGuid) {
     try {
-      await api.delete(`/api/page-layouts/${layoutGuid.value}/sections/${sectionGuid}`)
+      await deletePageLayoutSection(layoutGuid.value, sectionGuid)
       await reloadLayout()
     } catch (error) {
       logger.error('Error deleting section:', error)
@@ -143,7 +149,7 @@ export function useLayoutEditor() {
 
   async function toggleSectionEnabled(section) {
     try {
-      await api.put(`/api/page-layouts/${layoutGuid.value}/sections/${section.guid}`, {
+      await updatePageLayoutSection(layoutGuid.value, section.guid, {
         is_enabled: !section.is_enabled,
       })
       await reloadLayout()
@@ -154,16 +160,16 @@ export function useLayoutEditor() {
 
   async function createLayout(name, slug) {
     try {
-      const response = await api.post('/api/page-layouts', {
+      const layout = await createPageLayout({
         name,
         slug,
         is_active: true,
       })
-      layoutGuid.value = response.data.guid
+      layoutGuid.value = layout.guid
       allSections.value = []
       editMode.value = true
       await loadReferenceData()
-      return response.data
+      return layout
     } catch (error) {
       logger.error('Error creating layout:', error)
       throw error

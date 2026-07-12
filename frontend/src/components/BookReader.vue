@@ -43,7 +43,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { api } from 'boot/axios'
+import { getBookViewingHistory, saveViewingHistory } from 'src/services/mediaComponentsService'
 import { logger } from 'src/utils/logger'
 
 const props = defineProps({
@@ -64,10 +64,8 @@ let lastCfi = null
 async function loadSavedProgress() {
   if (!props.mediaGuid) return null
   try {
-    const resp = await api.get('/api/viewing-history', {
-      params: { content_type: 'book', content_guid: props.mediaGuid },
-    })
-    const items = resp.data?.items || resp.data || []
+    const data = await getBookViewingHistory(props.mediaGuid)
+    const items = data?.items || data || []
     if (items.length > 0) {
       return items[0]
     }
@@ -83,7 +81,7 @@ let saveProgressTimer = null
 async function saveProgressNow(percentage, cfi) {
   if (!props.mediaGuid || !percentage) return
   try {
-    await api.post('/api/viewing-history', {
+    await saveViewingHistory({
       content_type: 'book',
       content_guid: props.mediaGuid,
       progress_seconds: 0,

@@ -61,7 +61,7 @@
 
 <script setup>
 import { ref } from 'vue'
-import { api } from 'boot/axios'
+import { forgotPassword } from 'src/services/authService'
 import { useBackgroundRotation } from 'src/composables/useBackgroundRotation'
 
 const email = ref('')
@@ -72,7 +72,7 @@ const { backgroundStyle, backgroundTitle } = useBackgroundRotation()
 async function handleSubmit() {
   try {
     loading.value = true
-    await api.post('/api/auth/forgot-password', { email: email.value })
+    await forgotPassword(email.value)
     submitted.value = true
   } catch {
     // Show success message regardless to avoid email enumeration

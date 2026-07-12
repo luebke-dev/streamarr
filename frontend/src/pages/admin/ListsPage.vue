@@ -191,7 +191,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
+import { getAdminLists, deleteAdminList } from 'src/services/contentAdminService'
 import { useAdminCrudList } from 'src/composables/useAdminCrudList'
 import { formatDate } from 'src/composables/useMediaFormatters'
 import ConfirmDeleteDialog from 'src/components/ConfirmDeleteDialog.vue'
@@ -220,11 +220,10 @@ const {
     if (filter) params.search = filter
     if (filterType.value) params.list_type = filterType.value
     if (filterVisibility.value) params.visibility = filterVisibility.value
-    const response = await api.get('/api/lists/admin/all', { params })
-    const data = response.data
+    const data = await getAdminLists(params)
     return { items: data.items, total: data.total }
   },
-  deleteItem: (list) => api.delete(`/api/lists/admin/${list.guid}`),
+  deleteItem: (list) => deleteAdminList(list.guid),
   initialPagination: { sortBy: 'updated_at', rowsPerPage: 20 },
   errorContext: 'lists',
 })

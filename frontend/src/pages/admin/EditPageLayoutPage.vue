@@ -225,8 +225,19 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import {
+  getPageLayout,
+  createPageLayout,
+  updatePageLayout,
+  updateSectionsOrder,
+  createPageLayoutSection,
+  updatePageLayoutSection,
+  deletePageLayoutSection,
+  getLibraries,
+  getGenres,
+  getLists,
+} from 'src/services/contentAdminService'
 import SectionConfigDialog from 'src/components/sections/SectionConfigDialog.vue'
 import { getSectionIcon, getSectionLabel } from 'src/components/sections/sectionRegistry'
 
@@ -274,8 +285,7 @@ function sectionTypeLabel(type) {
 async function loadLayout() {
   if (isCreateMode.value) return
   try {
-    const response = await api.get(`/api/page-layouts/${layoutGuid.value}`)
-    const layout = response.data
+    const layout = await getPageLayout(layoutGuid.value)
     formData.value = {
       name: layout.name,
       slug: layout.slug,
@@ -293,10 +303,10 @@ async function saveLayout() {
   saving.value = true
   try {
     if (isCreateMode.value) {
-      const response = await api.post('/api/page-layouts', formData.value)
-      router.replace(`/admin/page-layouts/${response.data.guid}`)
+      const created = await createPageLayout(formData.value)
+      router.replace(`/admin/page-layouts/${created.guid}`)
     } else {
-      await api.put(`/api/page-layouts/${layoutGuid.value}`, formData.value)
+      await updatePageLayout(layoutGuid.value, formData.value)
     }
   } catch (error) {
     logger.error('Error saving layout:', error)
@@ -317,9 +327,10 @@ async function moveSection(index, direction) {
 
   // Persist order
   try {
-    await api.put(`/api/page-layouts/${layoutGuid.value}/sections-order`, {
-      section_order: items.map((s) => s.guid),
-    })
+    await updateSectionsOrder(
+      layoutGuid.value,
+      items.map((s) => s.guid),
+    )
   } catch (error) {
     logger.error('Error reordering sections:', error)
     loadLayout() // revert
@@ -352,13 +363,10 @@ async function saveSection(payload) {
   savingSection.value = true
   try {
     if (editingSection.value) {
-      await api.put(
-        `/api/page-layouts/${layoutGuid.value}/sections/${editingSection.value.guid}`,
-        payload,
-      )
+      await updatePageLayoutSection(layoutGuid.value, editingSection.value.guid, payload)
     } else {
       payload.order_index = sections.value.length
-      await api.post(`/api/page-layouts/${layoutGuid.value}/sections`, payload)
+      await createPageLayoutSection(layoutGuid.value, payload)
     }
 
     showSectionDialog.value = false
@@ -373,7 +381,7 @@ async function saveSection(payload) {
 // Update section (toggle enable)
 async function updateSection(section) {
   try {
-    await api.put(`/api/page-layouts/${layoutGuid.value}/sections/${section.guid}`, {
+    await updatePageLayoutSection(layoutGuid.value, section.guid, {
       is_enabled: section.is_enabled,
     })
   } catch (error) {
@@ -392,7 +400,7 @@ async function deleteSection() {
   if (!sectionToDelete.value) return
   deletingSection.value = true
   try {
-    await api.delete(`/api/page-layouts/${layoutGuid.value}/sections/${sectionToDelete.value.guid}`)
+    await deletePageLayoutSection(layoutGuid.value, sectionToDelete.value.guid)
     showDeleteSectionDialog.value = false
     await loadLayout()
   } catch (error) {
@@ -405,15 +413,15 @@ async function deleteSection() {
 // Load reference data
 async function loadReferenceData() {
   try {
-    const [libRes, genreRes, listRes] = await Promise.all([
-      api.get('/api/libraries'),
-      api.get('/api/genres'),
-      api.get('/api/lists', { params: { per_page: 100 } }),
+    const [libData, genreData, listData] = await Promise.all([
+      getLibraries(),
+      getGenres(),
+      getLists({ per_page: 100 }),
     ])
 
-    libraryOptions.value = (libRes.data || []).map((l) => ({ value: l.guid, label: l.name }))
-    genreOptions.value = (genreRes.data || []).map((g) => ({ value: g.id, label: g.name }))
-    listOptions.value = (listRes.data.items || listRes.data || []).map((l) => ({
+    libraryOptions.value = (libData || []).map((l) => ({ value: l.guid, label: l.name }))
+    genreOptions.value = (genreData || []).map((g) => ({ value: g.id, label: g.name }))
+    listOptions.value = (listData.items || listData || []).map((l) => ({
       value: l.guid,
       label: l.name,
     }))

@@ -216,7 +216,16 @@
 import { defineComponent, ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
-import { api } from 'src/boot/axios'
+import {
+  getFriends,
+  getPendingFriendRequests,
+  getSentFriendRequests,
+  getCurrentUser,
+  sendFriendRequest as sendFriendRequestApi,
+  acceptFriendRequest,
+  rejectFriendRequest,
+  deleteFriendship,
+} from 'src/services/socialService'
 import { logger } from 'src/utils/logger'
 
 export default defineComponent({
@@ -271,16 +280,16 @@ export default defineComponent({
     const loadFriends = async () => {
       loadingFriends.value = true
       try {
-        const [friendsRes, pendingRes, sentRes, meRes] = await Promise.all([
-          api.get('/api/friends'),
-          api.get('/api/friends/pending'),
-          api.get('/api/friends/sent'),
-          api.get('/api/auth/me'),
+        const [friendsData, pendingData, sentData, meData] = await Promise.all([
+          getFriends(),
+          getPendingFriendRequests(),
+          getSentFriendRequests(),
+          getCurrentUser(),
         ])
-        friends.value = friendsRes.data
-        pendingReceived.value = pendingRes.data
-        pendingSent.value = sentRes.data
-        currentUserId.value = meRes.data.guid
+        friends.value = friendsData
+        pendingReceived.value = pendingData
+        pendingSent.value = sentData
+        currentUserId.value = meData.guid
       } catch (err) {
         notifyError(err, 'loadFriends')
       } finally {
@@ -302,7 +311,7 @@ export default defineComponent({
       }
       sendingRequest.value = true
       try {
-        await api.post('/api/friends/request', { email: friendEmail.value })
+        await sendFriendRequestApi(friendEmail.value)
         friendEmail.value = ''
         await loadFriends()
       } catch (err) {
@@ -330,7 +339,7 @@ export default defineComponent({
     const acceptRequest = async (req) => {
       actionLoading.value = req.guid + '_accept'
       try {
-        await api.post(`/api/friends/${req.guid}/accept`)
+        await acceptFriendRequest(req.guid)
         await loadFriends()
       } catch (err) {
         notifyError(err, 'acceptRequest')
@@ -347,7 +356,7 @@ export default defineComponent({
       pendingAction.value = async () => {
         actionLoading.value = req.guid + '_reject'
         try {
-          await api.post(`/api/friends/${req.guid}/reject`)
+          await rejectFriendRequest(req.guid)
           await loadFriends()
         } catch (err) {
           notifyError(err, 'rejectRequest')
@@ -366,7 +375,7 @@ export default defineComponent({
       pendingAction.value = async () => {
         actionLoading.value = req.guid + '_remove'
         try {
-          await api.delete(`/api/friends/${req.guid}`)
+          await deleteFriendship(req.guid)
           await loadFriends()
         } catch (err) {
           notifyError(err, 'withdrawRequest')
@@ -385,7 +394,7 @@ export default defineComponent({
       pendingAction.value = async () => {
         actionLoading.value = friendship.guid + '_remove'
         try {
-          await api.delete(`/api/friends/${friendship.guid}`)
+          await deleteFriendship(friendship.guid)
           await loadFriends()
         } catch (err) {
           notifyError(err, 'removeFriend')

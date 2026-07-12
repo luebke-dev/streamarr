@@ -45,7 +45,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { api } from 'boot/axios'
+import { verifyEmail } from 'src/services/authService'
 import { logger } from 'src/utils/logger'
 
 const route = useRoute()
@@ -63,7 +63,7 @@ onMounted(async () => {
   }
 
   try {
-    await api.get('/api/auth/verify-email', { params: { token } })
+    await verifyEmail(token)
     success.value = true
   } catch (err) {
     logger.error('Email verification failed', err)

@@ -173,7 +173,13 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { api } from 'boot/axios'
+import {
+  getAllMarkers,
+  updateMarker,
+  createMarker,
+  deleteMarker as deleteMarkerRequest,
+  detectMarkers,
+} from 'src/services/mediaComponentsService'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
 import { logger } from 'src/utils/logger'
@@ -252,8 +258,7 @@ const parseTime = (input) => {
 
 const loadMarkers = async () => {
   try {
-    const response = await api.get(`/api/media/${props.mediaId}/markers/all`)
-    markers.value = response.data
+    markers.value = await getAllMarkers(props.mediaId)
   } catch (error) {
     logger.error('Failed to load markers:', error)
   }
@@ -271,12 +276,12 @@ const saveMarker = async () => {
     }
 
     if (editingMarker.value) {
-      await api.put(`/api/media/markers/${editingMarker.value.guid}`, {
+      await updateMarker(editingMarker.value.guid, {
         start_seconds: data.start_seconds,
         end_seconds: data.end_seconds,
       })
     } else {
-      await api.post(`/api/media/${props.mediaId}/markers`, data)
+      await createMarker(props.mediaId, data)
     }
 
     await loadMarkers()
@@ -310,7 +315,7 @@ const deleteMarker = async (marker) => {
     dark: true,
   }).onOk(async () => {
     try {
-      await api.delete(`/api/media/markers/${marker.guid}`)
+      await deleteMarkerRequest(marker.guid)
       await loadMarkers()
       $q.notify({ type: 'positive', message: t('markers.deleted') })
     } catch (error) {
@@ -328,7 +333,7 @@ const triggerDetection = async () => {
         ? `/api/media/seasons/${id}/detect-markers`
         : `/api/media/${props.mediaId}/detect-credits`
 
-    await api.post(endpoint)
+    await detectMarkers(endpoint)
     $q.notify({ type: 'info', message: t('markers.detectionStarted') })
   } catch (error) {
     logger.error('Failed to trigger detection:', error)

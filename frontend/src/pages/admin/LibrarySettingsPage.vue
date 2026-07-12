@@ -359,7 +359,21 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useQuasar } from 'quasar'
-import { api } from 'boot/axios'
+import {
+  getPlatforms,
+  getLibrary,
+  deleteLibrary as deleteLibraryRequest,
+  getLibraryConfig,
+  saveLibraryConfig,
+  previewNaming as previewNamingRequest,
+  getScoring,
+  saveScoring as saveScoringRequest,
+  resetScoring as resetScoringRequest,
+  getQualityLadder,
+  getQualityProfile,
+  saveQualityProfile as saveQualityProfileRequest,
+  resetQualityProfile as resetQualityProfileRequest,
+} from 'src/services/libraryAdminService'
 import { useI18n } from 'vue-i18n'
 import ScoringConfigPanel from 'components/admin/ScoringConfigPanel.vue'
 import QualityProfilePanel from 'components/admin/QualityProfilePanel.vue'
@@ -439,10 +453,6 @@ const MEDIA_TYPE_META = {
 
 const lcType = computed(() => mediaType.value?.toLowerCase() || null)
 
-// Per-type API endpoint root, e.g. /api/libraries/movies. All library
-// settings, naming preview and scoring calls hang off the same prefix.
-const apiRoot = computed(() => (lcType.value ? `/api/libraries/${lcType.value}` : null))
-
 const pageTitle = computed(() => {
   const meta = MEDIA_TYPE_META[lcType.value]
   if (meta) return t(meta.nameKey)
@@ -485,8 +495,8 @@ const availablePlatformOptions = ref([])
 
 async function loadPlatformOptions() {
   try {
-    const res = await api.get('/api/platforms')
-    availablePlatformOptions.value = (res.data || []).map((p) => ({ label: p.name, value: p.name }))
+    const data = await getPlatforms()
+    availablePlatformOptions.value = (data || []).map((p) => ({ label: p.name, value: p.name }))
   } catch (e) {
     // Platform options are an optional dropdown; tolerate failures
     logger.warn('Failed to load platform options', e)
@@ -523,17 +533,16 @@ const loadSettings = async () => {
         library.value = { type: mediaType.value, name: props.libraryId }
       } else {
         // Navigate by GUID (legacy)
-        const libResponse = await api.get(`/api/libraries/${props.libraryId}`)
-        library.value = libResponse.data
+        library.value = await getLibrary(props.libraryId)
         mediaType.value = library.value.type
       }
     }
 
     // New unified API endpoint - config suffix for type-specific settings
-    const response = await api.get(`${apiRoot.value}/config`)
+    const data = await getLibraryConfig(lcType.value)
 
     // Extract library settings from response
-    const { naming, ...librarySettings } = response.data
+    const { naming, ...librarySettings } = data
     settings.value = { ...librarySettings }
     originalSettings.value = { ...librarySettings }
 
@@ -556,7 +565,7 @@ const saveSettings = async () => {
   saving.value = true
   try {
     // Combine library settings and naming templates in one request
-    await api.put(`${apiRoot.value}/config`, {
+    await saveLibraryConfig(lcType.value, {
       ...settings.value,
       naming: namingSettings.value,
     })
@@ -577,8 +586,7 @@ const resetSettings = () => {
 const previewNaming = async () => {
   previewing.value = true
   try {
-    const response = await api.post(`${apiRoot.value}/preview-naming`, namingSettings.value)
-    namingPreview.value = response.data
+    namingPreview.value = await previewNamingRequest(lcType.value, namingSettings.value)
   } catch (error) {
     logger.error('Failed to preview naming:', error)
   } finally {
@@ -603,8 +611,7 @@ const loadScoring = async () => {
   if (!['movies', 'shows'].includes(lcType.value)) return
   loadingScoring.value = true
   try {
-    const response = await api.get(`${apiRoot.value}/scoring`)
-    scoringConfig.value = response.data
+    scoringConfig.value = await getScoring(lcType.value)
   } catch (error) {
     logger.error('Failed to load scoring config:', error)
   } finally {
@@ -615,8 +622,7 @@ const loadScoring = async () => {
 const saveScoring = async (config) => {
   savingScoring.value = true
   try {
-    const response = await api.put(`${apiRoot.value}/scoring`, config)
-    scoringConfig.value = response.data
+    scoringConfig.value = await saveScoringRequest(lcType.value, config)
     $q.notify({ type: 'positive', message: t('scoringRules.saveSuccess') })
   } catch (error) {
     logger.error('Failed to save scoring config:', error)
@@ -635,7 +641,7 @@ const confirmDeleteLibrary = () => {
   }).onOk(async () => {
     deleting.value = true
     try {
-      await api.delete(`/api/libraries/${props.libraryId}`)
+      await deleteLibraryRequest(props.libraryId)
       router.push('/admin')
     } catch (error) {
       logger.error('Failed to delete library:', error)
@@ -655,8 +661,7 @@ const resetScoring = () => {
   }).onOk(async () => {
     savingScoring.value = true
     try {
-      const response = await api.post(`${apiRoot.value}/scoring/reset`)
-      scoringConfig.value = response.data
+      scoringConfig.value = await resetScoringRequest(lcType.value)
       $q.notify({ type: 'positive', message: t('scoringRules.resetSuccess') })
     } catch (error) {
       logger.error('Failed to reset scoring config:', error)
@@ -668,22 +673,18 @@ const resetScoring = () => {
 }
 
 // ---- Quality profiles (Sonarr-style ordered list + cutoff) ----
-const qpRoot = computed(() =>
-  lcType.value ? `/api/libraries/quality-profiles/${lcType.value}` : null,
-)
-
 const loadQualityProfiles = async () => {
   if (!showQualityProfile.value) return
   loadingQP.value = true
   try {
     const [ladder, std, fav] = await Promise.all([
-      api.get(`${qpRoot.value}/qualities`),
-      api.get(qpRoot.value),
-      api.get(qpRoot.value, { params: { favorites: true } }),
+      getQualityLadder(lcType.value),
+      getQualityProfile(lcType.value),
+      getQualityProfile(lcType.value, { favorites: true }),
     ])
-    qualityLadder.value = ladder.data || []
-    qualityProfileStd.value = std.data
-    qualityProfileFav.value = fav.data
+    qualityLadder.value = ladder || []
+    qualityProfileStd.value = std
+    qualityProfileFav.value = fav
   } catch (error) {
     logger.error('Failed to load quality profiles:', error)
   } finally {
@@ -694,11 +695,9 @@ const loadQualityProfiles = async () => {
 const saveQualityProfile = async (variant, payload) => {
   savingQP.value = true
   try {
-    const response = await api.put(qpRoot.value, payload, {
-      params: { favorites: variant === 'favorites' },
-    })
-    if (variant === 'favorites') qualityProfileFav.value = response.data
-    else qualityProfileStd.value = response.data
+    const data = await saveQualityProfileRequest(lcType.value, payload, variant === 'favorites')
+    if (variant === 'favorites') qualityProfileFav.value = data
+    else qualityProfileStd.value = data
   } catch (error) {
     logger.error('Failed to save quality profile:', error)
   } finally {
@@ -718,14 +717,12 @@ const resetQualityProfile = (variant) => {
   }).onOk(async () => {
     savingQP.value = true
     try {
-      const response = await api.post(`${qpRoot.value}/reset`, null, {
-        params: { favorites: variant === 'favorites' },
-      })
+      const data = await resetQualityProfileRequest(lcType.value, variant === 'favorites')
       if (variant === 'favorites') {
         // Cleared -> reload so it reflects the standard fallback.
         await loadQualityProfiles()
       } else {
-        qualityProfileStd.value = response.data
+        qualityProfileStd.value = data
       }
       $q.notify({
         type: 'positive',

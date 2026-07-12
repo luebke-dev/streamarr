@@ -265,7 +265,13 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { api } from 'boot/axios'
+import {
+  listDownloaders,
+  getDownloaderTypes,
+  createDownloader,
+  updateDownloader,
+  deleteDownloader as deleteDownloaderRequest,
+} from 'src/services/acquisitionAdminService'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
 import { logger } from 'src/utils/logger'
@@ -278,8 +284,7 @@ const $q = useQuasar()
 const { paginate: paginateDownloaders, invalidate: invalidateDownloadersCache } =
   useCachedClientPagination({
     loadAll: async () => {
-      const response = await api.get('/api/downloaders')
-      return response.data
+      return await listDownloaders()
     },
     matchFilter: (row, needle) =>
       (row.label && row.label.toLowerCase().includes(needle)) ||
@@ -302,7 +307,7 @@ const {
 } = useAdminCrudList({
   fetchPage: paginateDownloaders,
   deleteItem: async (downloader) => {
-    await api.delete(`/api/downloaders/${downloader.guid}`)
+    await deleteDownloaderRequest(downloader.guid)
     invalidateDownloadersCache()
   },
   errorContext: 'downloaders',
@@ -396,8 +401,7 @@ const currentConfigSchema = computed(() => {
 async function loadDownloaderTypes() {
   loadingTypes.value = true
   try {
-    const response = await api.get('/api/downloaders/types')
-    downloaderTypes.value = response.data
+    downloaderTypes.value = await getDownloaderTypes()
   } catch (error) {
     logger.error('Failed to load downloader types:', error)
     $q.notify({
@@ -569,9 +573,9 @@ async function saveDownloader() {
     }
 
     if (editMode.value) {
-      await api.put(`/api/downloaders/${downloaderForm.value.guid}`, payload)
+      await updateDownloader(downloaderForm.value.guid, payload)
     } else {
-      await api.post('/api/downloaders', payload)
+      await createDownloader(payload)
     }
 
     invalidateDownloadersCache()

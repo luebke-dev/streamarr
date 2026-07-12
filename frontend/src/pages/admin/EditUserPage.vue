@@ -30,8 +30,13 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import {
+  getUser,
+  updateUser,
+  updateUserPassword,
+  getUserEffectivePermissions,
+} from 'src/services/accessAdminService'
 import UserBasicInfoForm from 'src/components/admin/UserBasicInfoForm.vue'
 import UserEffectivePermissionsCard from 'src/components/admin/UserEffectivePermissionsCard.vue'
 import UserPlaybackPreferencesForm from 'src/components/admin/UserPlaybackPreferencesForm.vue'
@@ -60,8 +65,7 @@ const effectivePerms = ref(null)
 const loadUser = async () => {
   try {
     loading.value = true
-    const response = await api.get(`/api/users/${route.params.guid}`)
-    const data = response.data
+    const data = await getUser(route.params.guid)
     // Backward compat: migrate audio_language -> audio_languages
     if (!data.audio_languages && data.audio_language) {
       data.audio_languages = [data.audio_language]
@@ -83,8 +87,7 @@ const loadUser = async () => {
 
 const loadEffectivePermissions = async () => {
   try {
-    const response = await api.get(`/api/groups/user/${route.params.guid}/effective-permissions`)
-    effectivePerms.value = response.data
+    effectivePerms.value = await getUserEffectivePermissions(route.params.guid)
   } catch (error) {
     logger.error('Error loading effective permissions:', error)
   }
@@ -105,10 +108,10 @@ const saveUser = async () => {
       subtitle_language: user.value.subtitle_language,
     }
 
-    await api.put(`/api/users/${route.params.guid}`, userData)
+    await updateUser(route.params.guid, userData)
 
     if (user.value.password && user.value.password.trim() !== '') {
-      await api.put(`/api/users/${route.params.guid}/password`, {
+      await updateUserPassword(route.params.guid, {
         new_password: user.value.password,
       })
     }

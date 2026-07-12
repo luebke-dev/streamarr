@@ -480,12 +480,12 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { Dialog } from 'quasar'
-import { api } from 'boot/axios'
 import { useI18n } from 'vue-i18n'
 import { loadLocale } from 'src/i18n'
 import { useAuthStore } from 'src/stores/auth'
 import { useSettingsStore } from 'src/stores/settings'
 import * as settingsService from 'src/services/settingsService'
+import { deleteUser } from 'src/services/userMediaService'
 import { getServerUrl, setServerUrl } from 'src/utils/authStorage'
 import { isDesktopApp, reloadDesktopWindow } from 'src/utils/desktopPlatform'
 import { logger } from 'src/utils/logger'
@@ -713,7 +713,7 @@ function confirmDeleteAccount() {
     persistent: true,
   }).onOk(async () => {
     try {
-      await api.delete(`/api/users/${authStore.user.guid}`)
+      await deleteUser(authStore.user.guid)
       await authStore.logout()
     } catch (error) {
       logger.error('Failed to delete account:', error)

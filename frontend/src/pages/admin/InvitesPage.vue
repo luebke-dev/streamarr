@@ -210,7 +210,13 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { api } from 'boot/axios'
+import {
+  getInvites,
+  createInvite,
+  updateInvite,
+  deleteInvite as deleteInviteRequest,
+  cleanupInvites,
+} from 'src/services/accessAdminService'
 import { useClipboard } from 'src/composables/useClipboard'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
@@ -238,18 +244,16 @@ const {
   performDelete: deleteInvite,
 } = useAdminCrudList({
   fetchPage: async ({ page, rowsPerPage, sortBy, descending, filter }) => {
-    const response = await api.get('/api/invites', {
-      params: {
-        page,
-        size: rowsPerPage,
-        sort_by: sortBy,
-        sort_desc: descending,
-        search: filter,
-      },
+    const data = await getInvites({
+      page,
+      size: rowsPerPage,
+      sort_by: sortBy,
+      sort_desc: descending,
+      search: filter,
     })
-    return { items: response.data.items, total: response.data.total }
+    return { items: data.items, total: data.total }
   },
-  deleteItem: (invite) => api.delete(`/api/invites/${invite.guid}`),
+  deleteItem: (invite) => deleteInviteRequest(invite.guid),
   errorContext: 'invites',
 })
 
@@ -332,9 +336,9 @@ const saveInvite = async () => {
     }
 
     if (editMode.value) {
-      await api.put(`/api/invites/${selectedInvite.value.guid}`, inviteData)
+      await updateInvite(selectedInvite.value.guid, inviteData)
     } else {
-      await api.post('/api/invites', inviteData)
+      await createInvite(inviteData)
     }
 
     showAddDialog.value = false
@@ -374,7 +378,7 @@ const copyInviteLink = async (invite) => {
 
 const cleanupExpired = async () => {
   try {
-    await api.post('/api/invites/cleanup')
+    await cleanupInvites()
     refresh()
     $q.notify({ type: 'positive', message: t('adminInvites.successCleanup') })
   } catch (err) {

@@ -64,9 +64,9 @@
 
 <script setup>
 import { nextTick, ref, watch } from 'vue'
-import { api } from 'src/boot/axios'
 import { getStripe } from 'src/boot/stripe'
 import { logger } from 'src/utils/logger'
+import { createSetupIntent } from 'src/services/membershipUserService'
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
@@ -112,7 +112,7 @@ async function initStripe() {
       return
     }
 
-    const { data } = await api.post('/api/subscriptions/setup-intent')
+    const data = await createSetupIntent()
     clientSecret = data.client_secret
 
     elements = stripe.elements({ clientSecret })

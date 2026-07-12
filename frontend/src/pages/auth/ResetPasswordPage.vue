@@ -78,7 +78,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { api } from 'boot/axios'
+import { resetPassword } from 'src/services/authService'
 import { useBackgroundRotation } from 'src/composables/useBackgroundRotation'
 import PasswordPairField from 'src/components/PasswordPairField.vue'
 import { logger } from 'src/utils/logger'
@@ -99,7 +99,7 @@ async function handleSubmit() {
 
   try {
     loading.value = true
-    await api.post('/api/auth/reset-password', {
+    await resetPassword({
       token: token.value,
       password: password.value,
     })

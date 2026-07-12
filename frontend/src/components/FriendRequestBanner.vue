@@ -49,7 +49,11 @@ import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from 'stores/auth'
 import { useSettingsStore } from 'stores/settings'
-import { api } from 'src/boot/axios'
+import {
+  getPendingFriendRequests,
+  acceptFriendRequest,
+  rejectFriendRequest,
+} from 'src/services/socialService'
 import { logger } from 'src/utils/logger'
 const { t } = useI18n()
 const $q = useQuasar()
@@ -76,8 +80,7 @@ const getInitials = (user) => {
 
 const loadPendingRequests = async () => {
   try {
-    const response = await api.get('/api/friends/pending')
-    pendingRequests.value = response.data
+    pendingRequests.value = await getPendingFriendRequests()
   } catch (error) {
     logger.error('Error loading pending friend requests:', error)
   }
@@ -86,7 +89,7 @@ const loadPendingRequests = async () => {
 const acceptRequest = async (req) => {
   actionLoading.value = req.guid + '_accept'
   try {
-    await api.post(`/api/friends/${req.guid}/accept`)
+    await acceptFriendRequest(req.guid)
     pendingRequests.value = pendingRequests.value.filter((r) => r.guid !== req.guid)
   } catch (error) {
     logger.warn('FriendRequestBanner: accept failed', error)
@@ -99,7 +102,7 @@ const acceptRequest = async (req) => {
 const rejectRequest = async (req) => {
   actionLoading.value = req.guid + '_reject'
   try {
-    await api.post(`/api/friends/${req.guid}/reject`)
+    await rejectFriendRequest(req.guid)
     pendingRequests.value = pendingRequests.value.filter((r) => r.guid !== req.guid)
   } catch (error) {
     logger.warn('FriendRequestBanner: reject failed', error)

@@ -97,7 +97,10 @@
 <script setup>
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
+import {
+  listIndexers,
+  deleteIndexer as deleteIndexerRequest,
+} from 'src/services/acquisitionAdminService'
 import { useAdminCrudList } from 'src/composables/useAdminCrudList'
 import { useCachedClientPagination } from 'src/composables/useCachedClientPagination'
 import ConfirmDeleteDialog from 'src/components/ConfirmDeleteDialog.vue'
@@ -107,8 +110,7 @@ const { t } = useI18n()
 const { paginate: paginateIndexers, invalidate: invalidateIndexersCache } =
   useCachedClientPagination({
     loadAll: async () => {
-      const response = await api.get('/api/indexers')
-      return response.data
+      return await listIndexers()
     },
     matchFilter: (row, needle) =>
       (row.label && row.label.toLowerCase().includes(needle)) ||
@@ -131,7 +133,7 @@ const {
 } = useAdminCrudList({
   fetchPage: paginateIndexers,
   deleteItem: async (indexer) => {
-    await api.delete(`/api/indexers/${indexer.guid}`)
+    await deleteIndexerRequest(indexer.guid)
     invalidateIndexersCache()
   },
   errorContext: 'indexers',

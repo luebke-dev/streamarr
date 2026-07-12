@@ -352,7 +352,6 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
-import { api } from 'boot/axios'
 import { useSettingsStore } from 'src/stores/settings'
 import { logger } from 'src/utils/logger'
 import { useBillingHistory } from 'src/composables/useBillingHistory'
@@ -360,6 +359,7 @@ import { usePlanManagement } from 'src/composables/usePlanManagement'
 import PaymentMethodDialog from 'src/components/membership/PaymentMethodDialog.vue'
 import PlanChangeDialog from 'src/components/membership/PlanChangeDialog.vue'
 import CancelSubscriptionDialog from 'src/components/membership/CancelSubscriptionDialog.vue'
+import { redeemVoucher as redeemVoucherRequest } from 'src/services/membershipUserService'
 
 defineOptions({ name: 'MembershipPage' })
 
@@ -407,9 +407,9 @@ async function redeemVoucher() {
   if (!code) return
   redeemingVoucher.value = true
   try {
-    const res = await api.post('/api/vouchers/redeem', { code })
+    const res = await redeemVoucherRequest(code)
     voucherCode.value = ''
-    const extended = res.data?.extended
+    const extended = res?.extended
     $q.notify({
       type: 'positive',
       message: t(extended ? 'voucher.redeemSuccessExtend' : 'voucher.redeemSuccessNew'),

@@ -126,7 +126,11 @@ import { defineComponent, ref, computed, onMounted } from 'vue'
 import { useClipboard } from 'src/composables/useClipboard'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
-import { api } from 'src/boot/axios'
+import {
+  getInvites,
+  createInvite as createInviteApi,
+  deleteInvite as deleteInviteApi,
+} from 'src/services/socialService'
 import { logger } from 'src/utils/logger'
 
 export default defineComponent({
@@ -208,8 +212,8 @@ export default defineComponent({
     const loadInvites = async () => {
       loading.value = true
       try {
-        const response = await api.get('/api/invites')
-        invites.value = Array.isArray(response.data) ? response.data : response.data.items || []
+        const data = await getInvites()
+        invites.value = Array.isArray(data) ? data : data.items || []
       } catch (err) {
         notifyError(err, 'loadInvites')
       } finally {
@@ -220,8 +224,8 @@ export default defineComponent({
     const createInvite = async () => {
       creating.value = true
       try {
-        const response = await api.post('/api/invites', { expiry_hours: 168, max_uses: 1 })
-        const link = `${window.location.origin}/register?invite=${response.data.token}`
+        const data = await createInviteApi({ expiry_hours: 168, max_uses: 1 })
+        const link = `${window.location.origin}/register?invite=${data.token}`
         await copy(link)
         await loadInvites()
       } catch (err) {
@@ -244,7 +248,7 @@ export default defineComponent({
       if (!selectedInvite.value) return
       deleting.value = true
       try {
-        await api.delete(`/api/invites/${selectedInvite.value.guid}`)
+        await deleteInviteApi(selectedInvite.value.guid)
         showDeleteDialog.value = false
         await loadInvites()
       } catch (err) {

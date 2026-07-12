@@ -354,7 +354,12 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
+import {
+  listDevices,
+  deleteDevice as deleteDeviceRequest,
+  updateDevice,
+  getDeviceSession,
+} from 'src/services/deviceService'
 import { useAdminCrudList } from 'src/composables/useAdminCrudList'
 import { logger } from 'src/utils/logger'
 import { formatTime } from 'src/composables/useMediaFormatters'
@@ -390,13 +395,10 @@ const {
       include_inactive: showInactive.value,
     }
     if (filter) params.search = filter
-    const response = await api.get('/api/devices', { params })
-    return { items: response.data.items, total: response.data.total }
+    const data = await listDevices(params)
+    return { items: data.items, total: data.total }
   },
-  deleteItem: (device) =>
-    api.delete('/api/devices/' + device.guid, {
-      params: { permanent: permanentDelete.value },
-    }),
+  deleteItem: (device) => deleteDeviceRequest(device.guid, permanentDelete.value),
   initialPagination: { sortBy: 'last_activity', rowsPerPage: 20 },
   errorContext: 'devices',
 })
@@ -555,7 +557,7 @@ function cancelEdit() {
 async function saveDevice() {
   saving.value = true
   try {
-    await api.put('/api/devices/' + deviceForm.value.guid, {
+    await updateDevice(deviceForm.value.guid, {
       name: deviceForm.value.name || null,
     })
 
@@ -579,8 +581,7 @@ async function loadDeviceSession(device = selectedSessionDevice.value) {
   if (!device?.guid) return
   sessionLoading.value = true
   try {
-    const response = await api.get(`/api/devices/${device.guid}/session`)
-    selectedSession.value = response.data
+    selectedSession.value = await getDeviceSession(device.guid)
   } catch (error) {
     selectedSession.value = null
     logger.error('Error loading device session:', error)

@@ -158,7 +158,10 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
+import {
+  getViewingHistory,
+  deleteViewingHistoryItem,
+} from 'src/services/userMediaService'
 import { getTmdbImageUrl, formatWatchTime } from 'src/composables/useMediaFormatters'
 import { overlayServeUrl } from 'src/utils/posters'
 
@@ -200,8 +203,7 @@ const loadHistory = async (append = false) => {
     if (activeFilter.value === 'movie') params.content_type = 'movie'
     else if (activeFilter.value === 'episode') params.content_type = 'episode'
 
-    const res = await api.get('/api/viewing-history', { params })
-    const data = res.data
+    const data = await getViewingHistory(params)
     let items = data.items || []
 
     if (activeFilter.value === 'in_progress') {
@@ -310,7 +312,7 @@ const deleteItem = async () => {
   if (!itemToDelete.value) return
   deleting.value = true
   try {
-    await api.delete(`/api/viewing-history/${itemToDelete.value.guid}`)
+    await deleteViewingHistoryItem(itemToDelete.value.guid)
     historyItems.value = historyItems.value.filter((i) => i.guid !== itemToDelete.value.guid)
     deleteDialog.value = false
   } catch {
