@@ -257,29 +257,6 @@ export function formatRelativeTime(dateString) {
 }
 
 /**
- * Format relative future date (e.g., "tomorrow", "in 3 days").
- */
-export function formatRelativeDate(dateString) {
-  if (!dateString) return ''
-  const targetDate = new Date(dateString)
-  const now = new Date()
-  const diffDays = Math.ceil((targetDate - now) / (1000 * 60 * 60 * 24))
-
-  if (diffDays === 1) return 'tomorrow'
-  if (diffDays <= 7) return `in ${diffDays} days`
-  if (diffDays <= 30) {
-    const weeks = Math.ceil(diffDays / 7)
-    return weeks === 1 ? 'in 1 week' : `in ${weeks} weeks`
-  }
-  if (diffDays <= 365) {
-    const months = Math.ceil(diffDays / 30)
-    return months === 1 ? 'in 1 month' : `in ${months} months`
-  }
-  const years = Math.ceil(diffDays / 365)
-  return years === 1 ? 'in 1 year' : `in ${years} years`
-}
-
-/**
  * Check if a date is in the future.
  */
 export function isFutureDate(dateString) {

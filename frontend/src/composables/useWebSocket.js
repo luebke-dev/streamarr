@@ -25,6 +25,11 @@ let reconnectAttempts = 0
 let reconnectTimeout = null
 let heartbeatInterval = null
 let statusUpdateInterval = null
+// True while we're parked waiting for a network/visibility event to resume
+// after exhausting the reconnect budget — prevents stacking listeners.
+let resumeListenersRegistered = false
+// Holds the exact listener refs so we can detach them again.
+let resumeHandlers = null
 const MAX_RECONNECT_ATTEMPTS = 10
 const RECONNECT_DELAY_BASE = 1000 // Start with 1 second
 const HEARTBEAT_INTERVAL = 30000 // 30 seconds
@@ -90,6 +95,14 @@ function getWebSocketUrl() {
 }
 
 /**
+ * Build a copy of the WS URL with the token redacted, safe for logging.
+ * The raw token must never reach logs/consoles/screenshares.
+ */
+function redactWebSocketUrl(url) {
+  return url.replace(/([?&]token=)[^&]*/i, '$1<redacted>')
+}
+
+/**
  * Connect to the WebSocket server.
  */
 function connect() {
@@ -110,7 +123,7 @@ function connect() {
   globalState.value = ConnectionState.CONNECTING
   const wsUrl = getWebSocketUrl()
 
-  logger.debug('[WebSocket] Connecting to:', wsUrl)
+  logger.debug('[WebSocket] Connecting to:', redactWebSocketUrl(wsUrl))
 
   try {
     globalSocket = new WebSocket(wsUrl)
@@ -121,6 +134,7 @@ function connect() {
       globalState.value = ConnectionState.CONNECTED
       reconnectAttempts = 0
       hasEverConnected = true
+      removeResumeListeners()
 
       startHeartbeat()
       startStatusUpdateInterval()
@@ -184,6 +198,7 @@ function disconnect({ clearHandlers = true } = {}) {
 
   stopHeartbeat()
   stopStatusUpdateInterval()
+  removeResumeListeners()
 
   if (globalSocket) {
     globalSocket.close(1000, 'Client disconnect')
@@ -222,7 +237,8 @@ function offReconnected(handler) {
  */
 function scheduleReconnect() {
   if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    logger.error('[WebSocket] Max reconnect attempts reached')
+    logger.error('[WebSocket] Max reconnect attempts reached — parking until network/visibility resumes')
+    registerResumeListeners()
     return
   }
 
@@ -239,6 +255,61 @@ function scheduleReconnect() {
   reconnectTimeout = setTimeout(() => {
     connect()
   }, delay)
+}
+
+/**
+ * Once the reconnect budget is exhausted we stop the exponential-backoff
+ * loop, but we must not stay dead forever: a laptop that slept or lost wifi
+ * for a few minutes should recover on wake. Register one-shot listeners that
+ * reset the attempt counter and reconnect when the browser signals the
+ * network is back (`online`) or the tab becomes visible/focused again.
+ */
+function registerResumeListeners() {
+  if (resumeListenersRegistered || typeof window === 'undefined') {
+    return
+  }
+  resumeListenersRegistered = true
+
+  const resume = () => {
+    // Only resume if we're still meant to be connected (have a token) and
+    // aren't already re-establishing.
+    if (globalSocket?.readyState === WebSocket.OPEN || globalSocket?.readyState === WebSocket.CONNECTING) {
+      removeResumeListeners()
+      return
+    }
+    if (!getAccessToken()) {
+      return
+    }
+    logger.debug('[WebSocket] Resume signal received — retrying connection')
+    removeResumeListeners()
+    reconnectAttempts = 0
+    connect()
+  }
+
+  const onVisibility = () => {
+    if (document.visibilityState === 'visible') {
+      resume()
+    }
+  }
+
+  // Stash the handlers so removeResumeListeners can detach the exact refs.
+  resumeHandlers = { resume, onVisibility }
+  window.addEventListener('online', resume)
+  window.addEventListener('focus', resume)
+  document.addEventListener('visibilitychange', onVisibility)
+}
+
+function removeResumeListeners() {
+  if (!resumeListenersRegistered || typeof window === 'undefined') {
+    return
+  }
+  resumeListenersRegistered = false
+  if (resumeHandlers) {
+    window.removeEventListener('online', resumeHandlers.resume)
+    window.removeEventListener('focus', resumeHandlers.resume)
+    document.removeEventListener('visibilitychange', resumeHandlers.onVisibility)
+    resumeHandlers = null
+  }
 }
 
 /**
@@ -415,7 +486,9 @@ function handleMessage(message) {
   if (
     event === 'party_sync' ||
     event === 'party_member_update' ||
-    event === 'party_member_kicked'
+    event === 'party_member_kicked' ||
+    event === 'party_sync_requested' ||
+    event === 'party_media_changed'
   ) {
     const channelKey = `party:${data.party_id}`
     const handlers = eventHandlers.get(channelKey)

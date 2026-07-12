@@ -3,6 +3,28 @@ import { LocalStorage } from 'quasar'
 import { api } from 'src/boot/axios'
 import { logger } from 'src/utils/logger'
 
+// Shared libraries <-> API field mapping, used by both fetch and update so the
+// two directions can never drift apart.
+function librariesFromResponse(data) {
+  return {
+    movies: data.movies_enabled,
+    shows: data.shows_enabled,
+    music: data.music_enabled,
+    books: data.books_enabled,
+    games: data.games_enabled,
+  }
+}
+
+function librariesToPayload(settings) {
+  return {
+    movies_enabled: settings.movies,
+    shows_enabled: settings.shows,
+    music_enabled: settings.music,
+    books_enabled: settings.books,
+    games_enabled: settings.games,
+  }
+}
+
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
     language: LocalStorage.getItem('user-language') || 'en-US',
@@ -61,6 +83,32 @@ export const useSettingsStore = defineStore('settings', {
   },
 
   actions: {
+    // Generic fetch/update for the boolean setting groups that follow the
+    // `${prefix}Enabled` / `${prefix}Loaded` / `${prefix}Error` convention.
+    async _fetchFlag(prefix, endpoint, field) {
+      this[`${prefix}Error`] = null
+      try {
+        const response = await api.get(endpoint)
+        this[`${prefix}Enabled`] = response.data[field]
+        this[`${prefix}Loaded`] = true
+      } catch (error) {
+        this[`${prefix}Error`] = error
+        logger.error(`Failed to fetch ${prefix} settings:`, error)
+        // Keep default value
+      }
+    },
+
+    async _updateFlag(prefix, endpoint, field, enabled) {
+      try {
+        const response = await api.put(endpoint, { [field]: enabled })
+        this[`${prefix}Enabled`] = response.data[field]
+        return true
+      } catch (error) {
+        logger.error(`Failed to update ${prefix} settings:`, error)
+        throw error
+      }
+    },
+
     setLanguage(locale) {
       this.language = locale
       LocalStorage.set('user-language', locale)
@@ -117,13 +165,7 @@ export const useSettingsStore = defineStore('settings', {
       this.librariesError = null
       try {
         const response = await api.get('/api/settings/libraries')
-        this.libraries = {
-          movies: response.data.movies_enabled,
-          shows: response.data.shows_enabled,
-          music: response.data.music_enabled,
-          books: response.data.books_enabled,
-          games: response.data.games_enabled,
-        }
+        this.libraries = librariesFromResponse(response.data)
         this.librariesLoaded = true
       } catch (error) {
         this.librariesError = error
@@ -150,20 +192,8 @@ export const useSettingsStore = defineStore('settings', {
 
     async updateLibrariesSettings(settings) {
       try {
-        const response = await api.put('/api/settings/libraries', {
-          movies_enabled: settings.movies,
-          shows_enabled: settings.shows,
-          music_enabled: settings.music,
-          books_enabled: settings.books,
-          games_enabled: settings.games,
-        })
-        this.libraries = {
-          movies: response.data.movies_enabled,
-          shows: response.data.shows_enabled,
-          music: response.data.music_enabled,
-          books: response.data.books_enabled,
-          games: response.data.games_enabled,
-        }
+        const response = await api.put('/api/settings/libraries', librariesToPayload(settings))
+        this.libraries = librariesFromResponse(response.data)
         return true
       } catch (error) {
         logger.error('Failed to update libraries settings:', error)
@@ -172,80 +202,32 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     async fetchSubscriptionSettings() {
-      this.subscriptionsError = null
-      try {
-        const response = await api.get('/api/settings/subscriptions')
-        this.subscriptionsEnabled = response.data.subscriptions_enabled
-        this.subscriptionsLoaded = true
-      } catch (error) {
-        this.subscriptionsError = error
-        logger.error('Failed to fetch subscription settings:', error)
-        // Keep default value (disabled)
-      }
+      return this._fetchFlag('subscriptions', '/api/settings/subscriptions', 'subscriptions_enabled')
     },
 
     async updateSubscriptionSettings(enabled) {
-      try {
-        const response = await api.put('/api/settings/subscriptions', {
-          subscriptions_enabled: enabled,
-        })
-        this.subscriptionsEnabled = response.data.subscriptions_enabled
-        return true
-      } catch (error) {
-        logger.error('Failed to update subscription settings:', error)
-        throw error
-      }
+      return this._updateFlag(
+        'subscriptions',
+        '/api/settings/subscriptions',
+        'subscriptions_enabled',
+        enabled,
+      )
     },
 
     async fetchInviteSettings() {
-      this.invitesError = null
-      try {
-        const response = await api.get('/api/settings/invites')
-        this.invitesEnabled = response.data.invites_enabled
-        this.invitesLoaded = true
-      } catch (error) {
-        this.invitesError = error
-        logger.error('Failed to fetch invite settings:', error)
-        // Keep default value (enabled)
-      }
+      return this._fetchFlag('invites', '/api/settings/invites', 'invites_enabled')
     },
 
     async updateInviteSettings(enabled) {
-      try {
-        const response = await api.put('/api/settings/invites', {
-          invites_enabled: enabled,
-        })
-        this.invitesEnabled = response.data.invites_enabled
-        return true
-      } catch (error) {
-        logger.error('Failed to update invite settings:', error)
-        throw error
-      }
+      return this._updateFlag('invites', '/api/settings/invites', 'invites_enabled', enabled)
     },
 
     async fetchFriendsSettings() {
-      this.friendsError = null
-      try {
-        const response = await api.get('/api/settings/friends')
-        this.friendsEnabled = response.data.friends_enabled
-        this.friendsLoaded = true
-      } catch (error) {
-        this.friendsError = error
-        logger.error('Failed to fetch friends settings:', error)
-      }
+      return this._fetchFlag('friends', '/api/settings/friends', 'friends_enabled')
     },
 
     async updateFriendsSettings(enabled) {
-      try {
-        const response = await api.put('/api/settings/friends', {
-          friends_enabled: enabled,
-        })
-        this.friendsEnabled = response.data.friends_enabled
-        return true
-      } catch (error) {
-        logger.error('Failed to update friends settings:', error)
-        throw error
-      }
+      return this._updateFlag('friends', '/api/settings/friends', 'friends_enabled', enabled)
     },
   },
 })

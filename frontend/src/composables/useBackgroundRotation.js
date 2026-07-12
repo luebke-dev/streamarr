@@ -1,5 +1,6 @@
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import { api } from 'src/boot/axios'
+import { useInterval } from './useInterval'
 
 /**
  * Fetches a background image from /api/auth/background and rotates it
@@ -19,8 +20,6 @@ export function useBackgroundRotation(intervalMs = 10000) {
     }
   })
 
-  let timer = null
-
   const fetchBackground = async () => {
     try {
       const res = await api.get('/api/auth/background')
@@ -37,17 +36,10 @@ export function useBackgroundRotation(intervalMs = 10000) {
     }
   }
 
-  onMounted(async () => {
-    await fetchBackground()
-    timer = setInterval(fetchBackground, intervalMs)
-  })
-
-  onUnmounted(() => {
-    if (timer) {
-      clearInterval(timer)
-      timer = null
-    }
-  })
+  // useInterval registers its onBeforeUnmount cleanup synchronously at setup
+  // time and starts the timer on mount, so an in-flight fetch can never install
+  // an orphaned interval after the component has already unmounted.
+  useInterval(fetchBackground, intervalMs, { immediate: true, runImmediately: true })
 
   return { backgroundUrl, backgroundTitle, backgroundStyle }
 }

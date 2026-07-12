@@ -129,7 +129,13 @@ export const useOfflineStore = defineStore('offline', () => {
 
     const request = (async () => {
       await fetchManifest({ force })
-      const item = findManifestItem(mediaGuid)
+      let item = findManifestItem(mediaGuid)
+      // The cached manifest's signed download URLs may have expired; retry once
+      // with a forced refetch before giving up so still-valid URLs are used.
+      if (!item && !force) {
+        await fetchManifest({ force: true })
+        item = findManifestItem(mediaGuid)
+      }
       if (!item) return null
 
       const response = await api.get(item.download_url, { responseType: 'blob' })

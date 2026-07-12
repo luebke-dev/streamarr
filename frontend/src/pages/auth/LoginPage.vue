@@ -212,9 +212,10 @@ export default defineComponent({
       setServerUrl(normalized)
     }
 
-    const isValidUrl = (val) => {
+    const isValidUrl = (val, { requireHttps = false } = {}) => {
       try {
         const url = new URL(val)
+        if (requireHttps) return url.protocol === 'https:'
         return url.protocol === 'https:' || url.protocol === 'http:'
       } catch {
         return false
@@ -325,10 +326,19 @@ export default defineComponent({
       const pollClaims = async () => {
         try {
           const res = await axios.get(`https://api.pyrate.media/v1/claims/${deviceId.value}`)
-          if (res.data?.server_url) {
+          const claimedUrl = res.data?.server_url
+          if (claimedUrl) {
+            // The claims service is an external, untrusted source: only adopt a
+            // valid https origin as the API base. Refusing http:// blocks a
+            // credential downgrade to plaintext and an unvalidated/attacker
+            // host from silently receiving the next email+password POST.
+            if (!isValidUrl(claimedUrl, { requireHttps: true })) {
+              logger.warn('Ignoring invalid server_url from claims poll')
+              return
+            }
             clearInterval(claimsInterval.value)
             claimsInterval.value = null
-            lockServerUrl(res.data.server_url, 'qr')
+            lockServerUrl(claimedUrl, 'qr')
           }
         } catch {
           // Server not ready yet – keep polling

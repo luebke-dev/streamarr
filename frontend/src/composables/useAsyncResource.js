@@ -12,7 +12,7 @@
  * @param {T} [options.initial=null] - Initial value for data.
  * @param {boolean} [options.immediate=false] - Auto-fetch on mount.
  * @param {import('vue').WatchSource | import('vue').WatchSource[]} [options.watch] - Sources that trigger refresh.
- * @param {(err: unknown) => void} [options.onError] - Custom error handler (logger.error is called regardless).
+ * @param {(err: unknown) => void} [options.onError] - Custom error handler (only invoked for the latest request; superseded requests are ignored).
  * @returns {{
  *   data: import('vue').Ref<T|null>,
  *   loading: import('vue').Ref<boolean>,
@@ -45,9 +45,9 @@ export function useAsyncResource(
     } catch (err) {
       if (currentRequest === requestId) {
         error.value = err
+        logger.error('useAsyncResource fetch failed:', err)
+        if (onError) onError(err)
       }
-      logger.error('useAsyncResource fetch failed:', err)
-      if (onError) onError(err)
       return null
     } finally {
       if (currentRequest === requestId) {

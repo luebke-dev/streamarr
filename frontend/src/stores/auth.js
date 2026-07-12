@@ -2,13 +2,14 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from 'src/boot/axios'
 import {
+  buildServerUrl,
   clearAuthTokens,
   getAccessToken,
   getRefreshToken,
-  getServerUrl,
   saveAuthTokens,
 } from 'src/utils/authStorage'
 import { getDeviceInfo, getOrCreateDeviceId } from 'src/utils/deviceIdentity'
+import { invalidateApiCache } from 'src/composables/useApiResponseCache'
 import { logger } from 'src/utils/logger'
 import { sanitizeRedirect } from 'src/utils/redirect'
 
@@ -53,7 +54,6 @@ export const useAuthStore = defineStore('auth', () => {
     if (storedAccessToken && storedRefreshToken) {
       accessToken.value = storedAccessToken
       refreshToken.value = storedRefreshToken
-      setAuthHeader(storedAccessToken)
     }
   }
 
@@ -61,24 +61,12 @@ export const useAuthStore = defineStore('auth', () => {
     saveAuthTokens(newAccessToken, newRefreshToken)
     accessToken.value = newAccessToken
     refreshToken.value = newRefreshToken
-    setAuthHeader(newAccessToken)
   }
 
   function clearTokensFromStorage() {
     clearAuthTokens()
     accessToken.value = null
     refreshToken.value = null
-    removeAuthHeader()
-  }
-
-  function setAuthHeader(token) {
-    if (token) {
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`
-    }
-  }
-
-  function removeAuthHeader() {
-    delete api.defaults.headers.common['Authorization']
   }
 
   async function fetchAuthStatus() {
@@ -117,7 +105,13 @@ export const useAuthStore = defineStore('auth', () => {
       return response.data
     } catch (error) {
       logger.error('Failed to fetch user info:', error)
-      logout()
+      // Only tear down the session on a definitive auth rejection. Transient
+      // network blips or 5xx must NOT wipe freshly-established tokens — the
+      // axios 401 interceptor already handles genuine auth failures.
+      const status = error.response?.status
+      if (status === 401 || status === 403) {
+        logout()
+      }
       throw error
     }
   }
@@ -127,13 +121,12 @@ export const useAuthStore = defineStore('auth', () => {
       throw new Error('OIDC authentication is not enabled')
     }
 
-    const baseUrl = getServerUrl().replace(/\/+$/, '')
-    const loginUrl = new URL(`${baseUrl || window.location.origin}/api/auth/login`)
+    const { url: loginUrl, toHref } = buildServerUrl('/api/auth/login')
     const target = sanitizeRedirect(returnTo || `${window.location.pathname}${window.location.search}`)
     if (target !== '/auth/login') {
       loginUrl.searchParams.set('return_to', target)
     }
-    window.location.href = baseUrl ? loginUrl.toString() : `${loginUrl.pathname}${loginUrl.search}`
+    window.location.href = toHref()
   }
 
   async function localLogin(email, password) {
@@ -164,10 +157,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function handleLoginCallback() {
-    const urlParams = new URLSearchParams(window.location.search)
+    // Accept tokens ONLY from the URL fragment. The fragment is never sent to
+    // the server, kept out of access logs, and not leaked via the Referer
+    // header — unlike the query string, so we deliberately do not fall back to
+    // window.location.search here.
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
-    const urlAccessToken = hashParams.get('access_token') || urlParams.get('access_token')
-    const urlRefreshToken = hashParams.get('refresh_token') || urlParams.get('refresh_token')
+    const urlAccessToken = hashParams.get('access_token')
+    const urlRefreshToken = hashParams.get('refresh_token')
 
     if (urlAccessToken && urlRefreshToken) {
       saveTokensToStorage(urlAccessToken, urlRefreshToken)
@@ -230,6 +226,15 @@ export const useAuthStore = defineStore('auth', () => {
     clearTokensFromStorage()
     user.value = null
     isAuthenticated.value = false
+    // Purge cached personal API responses (watch history, library listings,
+    // profile data) from both the in-memory Map and localStorage so a logged-
+    // out user's data doesn't linger on shared/kiosk devices. Predicate `true`
+    // matches every cache entry.
+    try {
+      invalidateApiCache(() => true)
+    } catch (error) {
+      logger.warn('Failed to clear API cache on logout:', error)
+    }
   }
 
   async function logout() {
@@ -485,8 +490,6 @@ export const useAuthStore = defineStore('auth', () => {
     loadTokensFromStorage,
     saveTokensToStorage,
     clearTokensFromStorage,
-    setAuthHeader,
-    removeAuthHeader,
     fetchAuthStatus,
     fetchUserInfo,
     login,

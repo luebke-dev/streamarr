@@ -292,8 +292,10 @@
                 class="col-12 col-sm-4"
                 v-model.number="automation.rss_min_interval_minutes"
                 type="number"
+                min="1"
                 dense
                 :label="$t('adminSettings.automation.rssInterval')"
+                :rules="[automationNumberRule(1)]"
                 @blur="updateAutomationSettings"
                 :disable="savingAutomation"
               />
@@ -301,8 +303,10 @@
                 class="col-12 col-sm-4"
                 v-model.number="automation.upgrade_scan_batch_size"
                 type="number"
+                min="1"
                 dense
                 :label="$t('adminSettings.automation.batchSize')"
+                :rules="[automationNumberRule(1)]"
                 @blur="updateAutomationSettings"
                 :disable="savingAutomation"
               />
@@ -310,8 +314,10 @@
                 class="col-12 col-sm-4"
                 v-model.number="automation.max_concurrent_upgrade_downloads"
                 type="number"
+                min="1"
                 dense
                 :label="$t('adminSettings.automation.maxConcurrent')"
+                :rules="[automationNumberRule(1)]"
                 @blur="updateAutomationSettings"
                 :disable="savingAutomation"
               />
@@ -648,6 +654,7 @@
 
 <script setup>
 import { computed, ref, onMounted } from 'vue'
+import { useQuasar } from 'quasar'
 import { useSettingsStore } from 'stores/settings'
 import { useI18n } from 'vue-i18n'
 import { api } from 'boot/axios'
@@ -658,6 +665,7 @@ import {
   buildAudioQualityOptions,
 } from 'src/utils/userEditOptions'
 const { t } = useI18n()
+const $q = useQuasar()
 const settingsStore = useSettingsStore()
 
 const saving = ref(false)
@@ -820,15 +828,63 @@ const updateFavoritesSettings = async () => {
   }
 }
 
+// Minimum allowed value for each numeric automation field. Used both for the
+// per-input validation rules and the guard in updateAutomationSettings so we
+// never PUT NaN/empty/out-of-range values to the scheduler.
+const AUTOMATION_NUMERIC_MINIMUMS = {
+  rss_min_interval_minutes: 1,
+  upgrade_scan_batch_size: 1,
+  max_concurrent_upgrade_downloads: 1,
+}
+
+const automationNumberRule = (min) => (val) => {
+  const num = Number(val)
+  return (
+    (val !== null && val !== '' && Number.isFinite(num) && num >= min) ||
+    t('adminSettings.automation.minValue', `Must be a number of at least ${min}`)
+  )
+}
+
+const hasInvalidAutomationNumbers = () =>
+  Object.entries(AUTOMATION_NUMERIC_MINIMUMS).some(([field, min]) => {
+    const num = Number(automation.value[field])
+    return automation.value[field] === '' || !Number.isFinite(num) || num < min
+  })
+
 const updateAutomationSettings = async () => {
+  if (hasInvalidAutomationNumbers()) {
+    $q.notify({
+      type: 'negative',
+      message: t(
+        'adminSettings.automation.invalidNumeric',
+        'Please enter a valid number (1 or greater) for all automation intervals.',
+      ),
+    })
+    // Restore known-good values from the server so a later save can proceed.
+    await reloadAutomationSettings()
+    return
+  }
   savingAutomation.value = true
   try {
     const resp = await api.put('/api/settings/automation', automation.value)
     automation.value = { ...automation.value, ...resp.data }
   } catch (error) {
     logger.error('Failed to update automation settings:', error)
+    $q.notify({
+      type: 'negative',
+      message: t('adminSettings.automation.saveError', 'Failed to save automation settings'),
+    })
   } finally {
     savingAutomation.value = false
+  }
+}
+
+const reloadAutomationSettings = async () => {
+  try {
+    const autoResp = await api.get('/api/settings/automation')
+    automation.value = { ...automation.value, ...autoResp.data }
+  } catch (error) {
+    logger.error('Failed to reload automation settings:', error)
   }
 }
 

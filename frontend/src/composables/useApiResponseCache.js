@@ -9,6 +9,7 @@ import { clearApiCacheStorage, isQuotaExceededError } from 'src/utils/storageQuo
 // persistent entries now carry their cache key for targeted invalidation.
 const STORAGE_PREFIX = 'pyrate:api-cache:v3:'
 const MEMORY_CACHE_MAX_ENTRIES = 200
+const PERSISTENT_CACHE_MAX_ENTRIES = 300
 const memoryCache = new Map()
 const pendingRequests = new Map()
 
@@ -61,16 +62,45 @@ function readPersistentEntry(key) {
   }
 }
 
+// Bounded-LRU eviction for persisted entries so the cache can't grow until a
+// QuotaExceededError wipes everything at once. Evicts the oldest entries (by
+// write time) once the count exceeds PERSISTENT_CACHE_MAX_ENTRIES.
+function evictPersistentEntries(exclude = null) {
+  if (typeof localStorage === 'undefined') return
+  const storageKeys = Object.keys(localStorage).filter((k) => k.startsWith(STORAGE_PREFIX))
+  if (storageKeys.length <= PERSISTENT_CACHE_MAX_ENTRIES) return
+  const scored = storageKeys.map((storageKey) => {
+    let writtenAt = 0
+    try {
+      writtenAt = JSON.parse(localStorage.getItem(storageKey))?.writtenAt || 0
+    } catch {
+      writtenAt = 0
+    }
+    return { storageKey, writtenAt }
+  })
+  scored.sort((a, b) => a.writtenAt - b.writtenAt)
+  const removeCount = scored.length - PERSISTENT_CACHE_MAX_ENTRIES
+  let removed = 0
+  for (const { storageKey } of scored) {
+    if (removed >= removeCount) break
+    if (storageKey === exclude) continue
+    localStorage.removeItem(storageKey)
+    removed += 1
+  }
+}
+
 function writePersistentEntry(key, entry) {
   if (typeof localStorage === 'undefined') return
-  const serialized = JSON.stringify({ ...entry, key })
+  const storageKey = `${STORAGE_PREFIX}${simpleHash(key)}`
+  const serialized = JSON.stringify({ ...entry, key, writtenAt: Date.now() })
   try {
-    localStorage.setItem(`${STORAGE_PREFIX}${simpleHash(key)}`, serialized)
+    localStorage.setItem(storageKey, serialized)
+    evictPersistentEntries(storageKey)
   } catch (error) {
     if (isQuotaExceededError(error)) {
       try {
         clearApiCacheStorage()
-        localStorage.setItem(`${STORAGE_PREFIX}${simpleHash(key)}`, serialized)
+        localStorage.setItem(storageKey, serialized)
       } catch (retryError) {
         logger.debug('API cache write failed after quota cleanup', retryError)
       }

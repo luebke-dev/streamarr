@@ -126,7 +126,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { api } from 'boot/axios'
@@ -180,6 +180,9 @@ const displaySections = computed(() => {
 const showIgdbSearch = ref(false)
 const igdbSearchQuery = ref('')
 const searchingIgdb = ref(false)
+// Deferred layout refresh after an IGDB import; tracked so it can be cancelled
+// on unmount / route change instead of writing state on a departed page.
+let igdbRefreshTimer = null
 
 // Navigate to item detail page
 function navigateToItem(guidOrItem) {
@@ -405,7 +408,11 @@ async function searchIgdb() {
     await api.post('/api/games/search-igdb', { query: igdbSearchQuery.value })
     showIgdbSearch.value = false
     igdbSearchQuery.value = ''
-    setTimeout(loadLayout, 2000)
+    if (igdbRefreshTimer) clearTimeout(igdbRefreshTimer)
+    igdbRefreshTimer = setTimeout(() => {
+      igdbRefreshTimer = null
+      loadLayout()
+    }, 2000)
   } catch (error) {
     logger.error('Error searching IGDB:', error)
   } finally {
@@ -422,10 +429,21 @@ onMounted(async () => {
 watch(
   () => route.params.mediaType,
   () => {
+    if (igdbRefreshTimer) {
+      clearTimeout(igdbRefreshTimer)
+      igdbRefreshTimer = null
+    }
     layoutSections.value = []
     loadLayout()
   },
 )
+
+onUnmounted(() => {
+  if (igdbRefreshTimer) {
+    clearTimeout(igdbRefreshTimer)
+    igdbRefreshTimer = null
+  }
+})
 </script>
 
 <style lang="scss" scoped>

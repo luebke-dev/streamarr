@@ -8,7 +8,7 @@ export function useBookPlayback({ status, loading }) {
 
   function openBookFile(playResponse) {
     const baseUrl = getServerUrl(window.location.origin)
-    bookFileUrl.value = `${baseUrl}/api/stream/book/file?token=${playResponse.token}`
+    bookFileUrl.value = `${baseUrl}/api/stream/book/file?token=${encodeURIComponent(playResponse.token)}`
     bookFormat.value = playResponse.book_format || ''
     bookFileName.value = playResponse.file_name || ''
     status.value = 'book-reading'

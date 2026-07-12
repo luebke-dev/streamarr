@@ -92,28 +92,6 @@ export const usePartyStore = defineStore('watchParty', () => {
     }
   }
 
-  async function syncPlayback(currentTime, isPlaying, playbackRate = 1.0) {
-    if (!activeParty.value) return
-
-    try {
-      await api.post(`/api/parties/${activeParty.value.guid}/sync`, {
-        current_time: currentTime,
-        is_playing: isPlaying,
-        playback_rate: playbackRate,
-      })
-
-      // Update local sync state
-      syncState.value = {
-        currentTime,
-        isPlaying,
-        playbackRate,
-        lastSyncAt: new Date(),
-      }
-    } catch (error) {
-      logger.error('Failed to sync playback:', error)
-    }
-  }
-
   async function sendHeartbeat() {
     if (!activeParty.value) return
 
@@ -267,7 +245,6 @@ export const usePartyStore = defineStore('watchParty', () => {
     joinParty,
     leaveParty,
     endParty,
-    syncPlayback,
     sendHeartbeat,
     fetchPartyDetails,
     fetchMyParties,

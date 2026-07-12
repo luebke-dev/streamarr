@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, onBeforeUnmount } from 'vue'
 import { api } from 'boot/axios'
 import { useInterval } from 'src/composables/useInterval'
 import { useWebSocket } from 'src/composables/useWebSocket'
@@ -174,12 +174,12 @@ export function useDownloadPolling({ uuid, status, loading, videoDuration, onAva
           await onAvailable()
         }
       } catch (error) {
-        if (error.response?.status === 401) {
-          await resumePlayback()
-        } else {
-          // Don't spam on every poll tick, but do log so failures are diagnosable
-          logger.debug('Download poll error', error)
-        }
+        // A 401 here means token refresh failed (the axios interceptor already
+        // retried) — it is an auth failure, NOT an availability signal, so it
+        // must not resume playback. Let it fall through to the diagnostic log
+        // like any other transient poll error.
+        // Don't spam on every poll tick, but do log so failures are diagnosable
+        logger.debug('Download poll error', error)
       }
     }
     poller.start()
@@ -193,6 +193,11 @@ export function useDownloadPolling({ uuid, status, loading, videoDuration, onAva
       subscribedGuid = null
     }
   }
+
+  // The poller timer is cleared by useInterval's own onBeforeUnmount, but the
+  // WebSocket subscription lives here and would otherwise survive unmount and
+  // fire resumePlayback() against a torn-down page. Own the cleanup ourselves.
+  onBeforeUnmount(stop)
 
   return {
     downloadProgress,

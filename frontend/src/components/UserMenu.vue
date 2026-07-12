@@ -6,12 +6,6 @@
           <img :src="userAvatar" alt="" />
         </q-avatar>
         <q-icon v-else name="mdi-account" size="32px" class="q-mr-sm" />
-        <div class="text-center" v-if="false">
-          <div class="text-weight-bold">{{ displayName }}</div>
-          <div v-if="authStore.user?.email" class="text-caption text-grey-4">
-            {{ authStore.user.email }}
-          </div>
-        </div>
       </div>
 
       <q-menu>
@@ -117,17 +111,6 @@ export default defineComponent({
     const settingsStore = useSettingsStore()
     const $q = useQuasar()
 
-    const displayName = computed(() => {
-      if (!authStore.user) return t('userMenu.user')
-
-      return (
-        authStore.user.preferred_username ||
-        authStore.user.name ||
-        authStore.user.email ||
-        t('userMenu.user')
-      )
-    })
-
     const userAvatar = computed(() => {
       return authStore.user?.picture || null
     })
@@ -180,7 +163,6 @@ export default defineComponent({
     return {
       authStore,
       settingsStore,
-      displayName,
       userAvatar,
       handleLogin,
       handleLogout,

@@ -27,6 +27,29 @@
 
 import { onBeforeUnmount } from 'vue'
 import { logger } from 'src/utils/logger'
+import { realPlayerTime as computeRealPlayerTime } from 'src/composables/playbackPosition'
+
+// Commands this receiver knows how to act on. A frame whose `command` is not
+// in this set is ignored entirely (and does not flip the UI into the
+// "remote controlled" state). Authorization is still the backend's job; this
+// is defensive validation of the surface we act on.
+const KNOWN_COMMANDS = new Set([
+  'pause',
+  'resume',
+  'play',
+  'stop',
+  'seek',
+  'volume',
+  'mute',
+  'next',
+  'previous',
+  'skip_forward',
+  'skip_backward',
+  'play_media',
+  'play_command',
+])
+
+const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value)
 
 export function useRemoteControlReceiver({
   wsStore,
@@ -45,12 +68,18 @@ export function useRemoteControlReceiver({
     return player && !player.isDisposed?.() ? player : null
   }
 
-  const realPlayerTime = (player) =>
-    (transcodeStartPosition?.value || 0) + (player.currentTime() || 0)
+  const realPlayerTime = (player) => computeRealPlayerTime(player, transcodeStartPosition)
 
   const handleRemoteControlCommand = (data) => {
     const { command, payload } = data
     logger.debug('[useRemoteControlReceiver] command received:', command, payload)
+
+    // Ignore anything we don't explicitly support: don't act on it and don't
+    // flip the UI into the "remote controlled" state for a no-op frame.
+    if (!KNOWN_COMMANDS.has(command)) {
+      logger.warn('[useRemoteControlReceiver] ignoring unknown command:', command)
+      return
+    }
 
     switch (command) {
       case 'pause':
@@ -64,13 +93,14 @@ export function useRemoteControlReceiver({
         router.back()
         break
       case 'seek':
-        if (getPlayer() && payload?.position !== undefined) {
+        if (getPlayer() && isFiniteNumber(payload?.position) && payload.position >= 0) {
           onSeek(payload.position)
         }
         break
       case 'volume':
-        if (payload?.level !== undefined) {
-          getPlayer()?.volume(payload.level)
+        if (isFiniteNumber(payload?.level)) {
+          // Video.js expects a 0..1 volume; clamp to guard against bad input.
+          getPlayer()?.volume(Math.min(1, Math.max(0, payload.level)))
         }
         break
       case 'mute': {
@@ -89,14 +119,16 @@ export function useRemoteControlReceiver({
       case 'skip_forward': {
         const player = getPlayer()
         if (player) {
-          onSeek(realPlayerTime(player) + (payload?.seconds || 10))
+          const seconds = isFiniteNumber(payload?.seconds) && payload.seconds > 0 ? payload.seconds : 10
+          onSeek(realPlayerTime(player) + seconds)
         }
         break
       }
       case 'skip_backward': {
         const player = getPlayer()
         if (player) {
-          onSeek(Math.max(0, realPlayerTime(player) - (payload?.seconds || 10)))
+          const seconds = isFiniteNumber(payload?.seconds) && payload.seconds > 0 ? payload.seconds : 10
+          onSeek(Math.max(0, realPlayerTime(player) - seconds))
         }
         break
       }

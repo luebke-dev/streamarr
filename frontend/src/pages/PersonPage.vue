@@ -64,7 +64,7 @@
               v-for="link in person.external_links"
               :key="`${link.provider}:${link.provider_id || link.url}`"
               :label="link.display_name"
-              :href="link.url"
+              :href="safeExternalHref(link.url)"
               target="_blank"
               rel="noopener noreferrer"
               icon-right="mdi-open-in-new"
@@ -214,6 +214,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from 'boot/axios'
 import { getTmdbImageUrl, formatAirDate } from 'src/composables/useMediaFormatters'
 import { posterUrl } from 'src/utils/posters'
+import { safeExternalHref } from 'src/composables/useExternalLinks'
 import { useWebSocket } from 'src/composables/useWebSocket'
 import PosterCard from 'components/PosterCard.vue'
 import { logger } from 'src/utils/logger'
@@ -229,6 +230,9 @@ const credits = ref([])
 const biographyExpanded = ref(false)
 const refreshing = ref(false)
 let pollTimer = null
+// Tracks the "final catch-up" reload scheduled after import completes so it can
+// be cancelled on route change / unmount instead of firing on a torn-down page.
+let finalReloadTimer = null
 
 const age = computed(() => {
   if (!person.value?.birthday || person.value?.deathday) return null
@@ -285,20 +289,25 @@ async function loadPerson() {
   try {
     // Load person details (auto-triggers filmography import on backend if needed)
     const personRes = await api.get(`/api/persons/${guid}`)
+    // Bail if the user navigated to a different person while this was in flight,
+    // so a slower response can't overwrite the newer person's state.
+    if (route.params.guid !== guid) return
     person.value = personRes.data
 
     // Load credits (includes media_item data now - no N+1)
     await loadCredits(guid)
+    if (route.params.guid !== guid) return
 
     // If filmography not yet imported, poll for updates
     if (person.value.tmdb_id && !person.value.metadata_imported) {
       startPolling(guid)
     }
   } catch (err) {
+    if (route.params.guid !== guid) return
     logger.error('Failed to load person', err)
     error.value = err.response?.data?.detail || 'Failed to load person'
   } finally {
-    loading.value = false
+    if (route.params.guid === guid) loading.value = false
   }
 }
 
@@ -306,11 +315,12 @@ async function loadCredits(guid) {
   creditsLoading.value = true
   try {
     const creditsRes = await api.get(`/api/persons/${guid}/credits`)
+    if (route.params.guid !== guid) return
     credits.value = creditsRes.data
   } catch (err) {
     logger.error('Failed to load credits:', err)
   } finally {
-    creditsLoading.value = false
+    if (route.params.guid === guid) creditsLoading.value = false
   }
 }
 
@@ -329,10 +339,19 @@ function startPolling(guid) {
     try {
       // Re-check person status
       const personRes = await api.get(`/api/persons/${guid}`)
+      // Stop applying poll results once the user has navigated away.
+      if (route.params.guid !== guid) {
+        stopPolling()
+        return
+      }
       person.value = personRes.data
 
       // Reload credits to pick up newly imported media
       const creditsRes = await api.get(`/api/persons/${guid}/credits`)
+      if (route.params.guid !== guid) {
+        stopPolling()
+        return
+      }
       const newCredits = creditsRes.data
 
       if (newCredits.length > credits.value.length) {
@@ -341,12 +360,20 @@ function startPolling(guid) {
 
       // Stop polling once metadata is imported
       if (person.value.metadata_imported) {
-        // One final reload after a short delay to catch last imports
-        setTimeout(async () => {
-          const finalRes = await api.get(`/api/persons/${guid}/credits`)
-          credits.value = finalRes.data
-        }, 3000)
+        // Stop the interval first, then schedule one final reload to catch last
+        // imports. Tracking the timer lets stopPolling() cancel it on route
+        // change / unmount so it never writes state on a torn-down page.
         stopPolling()
+        finalReloadTimer = setTimeout(async () => {
+          finalReloadTimer = null
+          try {
+            const finalRes = await api.get(`/api/persons/${guid}/credits`)
+            if (route.params.guid !== guid) return
+            credits.value = finalRes.data
+          } catch {
+            // Ignore final reload errors
+          }
+        }, 3000)
       }
     } catch {
       // Ignore polling errors
@@ -358,6 +385,10 @@ function stopPolling() {
   if (pollTimer) {
     clearInterval(pollTimer)
     pollTimer = null
+  }
+  if (finalReloadTimer) {
+    clearTimeout(finalReloadTimer)
+    finalReloadTimer = null
   }
 }
 
@@ -382,11 +413,20 @@ function navigateToMedia(credit) {
 
 const { subscribe, unsubscribe } = useWebSocket()
 let wsHandler = null
+// The guid we actually subscribed with, so unsubscribe always targets the same
+// key even if the person fetch failed or the route changed since.
+let wsSubscribedGuid = null
+
+function teardownWebSocket() {
+  if (wsHandler && wsSubscribedGuid) {
+    unsubscribe('person', wsSubscribedGuid, wsHandler)
+  }
+  wsHandler = null
+  wsSubscribedGuid = null
+}
 
 function setupWebSocket(guid) {
-  if (wsHandler) {
-    unsubscribe('person', guid, wsHandler)
-  }
+  teardownWebSocket()
   wsHandler = (event) => {
     if (event === 'person_credits_updated') {
       logger.debug('[PersonPage] Credits updated via WebSocket, reloading...')
@@ -394,15 +434,14 @@ function setupWebSocket(guid) {
     }
   }
   subscribe('person', guid, wsHandler)
+  wsSubscribedGuid = guid
 }
 
 watch(
   () => route.params.guid,
   (newGuid) => {
     stopPolling()
-    if (wsHandler && person.value?.guid) {
-      unsubscribe('person', person.value.guid, wsHandler)
-    }
+    teardownWebSocket()
     loadPerson()
     if (newGuid) setupWebSocket(newGuid)
   },
@@ -411,9 +450,7 @@ watch(
 
 onUnmounted(() => {
   stopPolling()
-  if (wsHandler && person.value?.guid) {
-    unsubscribe('person', person.value.guid, wsHandler)
-  }
+  teardownWebSocket()
 })
 </script>
 

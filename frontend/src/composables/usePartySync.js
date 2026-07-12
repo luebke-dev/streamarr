@@ -49,6 +49,7 @@ import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
 import { useInterval } from 'src/composables/useInterval'
 import { useTimeoutRegistry } from 'src/composables/useTimeoutRegistry'
+import { realPlayerTime as computeRealPlayerTime } from 'src/composables/playbackPosition'
 
 const SYNC_TOLERANCE = 2.0
 const HOST_SYNC_INTERVAL_MS = 10000
@@ -71,7 +72,7 @@ export function usePartySync({
   const syncTimers = useTimeoutRegistry()
 
   const realPlayerTime = (vjsPlayer) =>
-    (transcodeStartPosition?.value || 0) + (vjsPlayer.currentTime() || 0)
+    computeRealPlayerTime(vjsPlayer, transcodeStartPosition)
 
   const applyResumePosition = (lastPositionRef) => {
     if (partyStore.isInParty && partyStore.activeParty?.current_time > 0) {

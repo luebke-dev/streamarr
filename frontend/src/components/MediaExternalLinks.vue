@@ -6,7 +6,7 @@
         v-for="link in links"
         :key="`${link.provider}:${link.provider_id}`"
         :label="link.display_name"
-        :href="link.url"
+        :href="safeExternalHref(link.url)"
         target="_blank"
         rel="noopener noreferrer"
         icon-right="mdi-open-in-new"
@@ -20,6 +20,8 @@
 </template>
 
 <script setup>
+import { safeExternalHref } from 'src/composables/useExternalLinks'
+
 defineProps({
   links: {
     type: Array,
