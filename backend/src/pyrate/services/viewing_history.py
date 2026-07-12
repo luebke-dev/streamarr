@@ -4,6 +4,7 @@ Viewing History Service
 Tracks and manages user viewing progress across media items.
 """
 
+import json
 import logging
 import math
 import uuid
@@ -114,6 +115,24 @@ def _calculate_progress(progress_seconds: float, duration_seconds: float | None)
         return 0.0, False
     pct = min(100.0, (progress_seconds / duration_seconds) * 100.0)
     return pct, pct >= COMPLETION_THRESHOLD
+
+
+def _load_history_extra_data(history: ViewingHistory | None) -> dict:
+    """Parse a history row's JSON ``extra_data`` into a dict (empty if absent)."""
+    if not history or not history.extra_data:
+        return {}
+    try:
+        data = json.loads(history.extra_data)
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def get_playback_preferences(history: ViewingHistory | None) -> dict:
+    """The ``playback_preferences`` sub-dict stored in a history row's extra data."""
+    extra_data = _load_history_extra_data(history)
+    raw_preferences = extra_data.get("playback_preferences")
+    return raw_preferences if isinstance(raw_preferences, dict) else {}
 
 
 class ViewingHistoryService:
@@ -235,6 +254,52 @@ class ViewingHistoryService:
         if is_completed:
             await _enqueue_rec_rebuilds_for_watcher_and_friends(self.db, user_guid)
         return new_history
+
+    async def update_playback_preferences(
+        self,
+        *,
+        user_guid: uuid.UUID,
+        media_item_guid: uuid.UUID,
+        preference_updates: dict[str, object | None],
+        history: ViewingHistory | None = None,
+    ) -> ViewingHistory:
+        """Persist per-item playback preferences on the user's history row.
+
+        ``preference_updates`` maps a preference key to its new value; a value
+        of ``None`` removes that key. Only the keys present in the mapping are
+        touched. Creates the history row if it does not exist yet. Commits.
+        """
+        if history is None:
+            history = await self.get_history_entry(user_guid, media_item_guid)
+        if history is None:
+            history = ViewingHistory(
+                user_guid=user_guid,
+                media_item_guid=media_item_guid,
+                progress_seconds=0,
+                duration_seconds=None,
+                progress_percentage=0.0,
+                is_completed=False,
+            )
+            self.db.add(history)
+
+        extra_data = _load_history_extra_data(history)
+        preferences = get_playback_preferences(history)
+
+        for preference_key, value in preference_updates.items():
+            if value is None:
+                preferences.pop(preference_key, None)
+            else:
+                preferences[preference_key] = value
+
+        if preferences:
+            extra_data["playback_preferences"] = preferences
+        else:
+            extra_data.pop("playback_preferences", None)
+
+        history.extra_data = json.dumps(extra_data) if extra_data else None
+        await self.db.commit()
+        await self.db.refresh(history)
+        return history
 
     async def delete(self, user_guid: uuid.UUID, history_guid: uuid.UUID) -> None:
         """Delete a viewing history record.

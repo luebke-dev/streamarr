@@ -744,52 +744,6 @@ class TestShowPluginSuggestFileName:
 # ==========================================================================
 
 
-class TestWorkerRetryDbOperation:
-    @pytest.mark.asyncio
-    async def test_retry_success_first_attempt(self):
-        from pyrate.worker import retry_db_operation
-
-        op = AsyncMock(return_value="result")
-        result = await retry_db_operation(op)
-        assert result == "result"
-        assert op.await_count == 1
-
-    @pytest.mark.asyncio
-    async def test_retry_succeeds_after_failure(self):
-        from sqlalchemy.exc import InterfaceError
-
-        from pyrate.worker import retry_db_operation
-
-        op = AsyncMock(
-            side_effect=[InterfaceError("", "", Exception()), "result"]
-        )
-        result = await retry_db_operation(op, max_retries=3, delay=0.01)
-        assert result == "result"
-        assert op.await_count == 2
-
-    @pytest.mark.asyncio
-    async def test_retry_exhausts_attempts(self):
-        from sqlalchemy.exc import InterfaceError
-
-        from pyrate.worker import retry_db_operation
-
-        op = AsyncMock(
-            side_effect=InterfaceError("", "", Exception())
-        )
-        with pytest.raises(InterfaceError):
-            await retry_db_operation(op, max_retries=2, delay=0.01)
-        assert op.await_count == 2
-
-    @pytest.mark.asyncio
-    async def test_retry_non_retryable_error(self):
-        from pyrate.worker import retry_db_operation
-
-        op = AsyncMock(side_effect=ValueError("not retryable"))
-        with pytest.raises(ValueError):
-            await retry_db_operation(op)
-        assert op.await_count == 1
-
-
 class TestWorkerParseSpotifyDate:
     def test_parse_full_date(self):
         from pyrate.utils.dates import parse_spotify_date

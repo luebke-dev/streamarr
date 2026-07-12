@@ -1,16 +1,13 @@
 """Per-item user data endpoints."""
 
-import json
 import uuid
 from datetime import datetime
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 
 from pyrate.api.dependencies import CurrentUser, DatabaseSession, UserPermissionsDep
-from pyrate.models.list import List, ListItem, ListType
 from pyrate.models.media import MediaItem
 from pyrate.models.viewing_history import ViewingHistory
 from pyrate.services.favorite import MEDIA_TYPE_TO_ITEM_TYPE
@@ -18,9 +15,21 @@ from pyrate.services.list import ListService
 from pyrate.services.media_access import (
     get_visible_media_item as _get_visible_media_item,
 )
-from pyrate.services.viewing_history import ViewingHistoryService
+from pyrate.services.viewing_history import (
+    ViewingHistoryService,
+    get_playback_preferences as _get_playback_preferences,
+)
 
 router = APIRouter()
+
+# Maps update-body field names to the persisted playback-preference keys.
+_PLAYBACK_PREFERENCE_FIELD_MAP = {
+    "selected_audio_track_index": "audio_track_index",
+    "selected_subtitle_track_index": "subtitle_track_index",
+    "selected_subtitle_track_id": "subtitle_track_id",
+    "selected_audio_language": "audio_language",
+    "selected_subtitle_language": "subtitle_language",
+}
 
 
 class MediaUserData(BaseModel):
@@ -68,150 +77,15 @@ async def _get_history(
     return result.scalar_one_or_none()
 
 
-def _load_history_extra_data(history: ViewingHistory | None) -> dict:
-    if not history or not history.extra_data:
-        return {}
-    try:
-        data = json.loads(history.extra_data)
-    except (TypeError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _get_playback_preferences(history: ViewingHistory | None) -> dict:
-    extra_data = _load_history_extra_data(history)
-    raw_preferences = extra_data.get("playback_preferences")
-    return raw_preferences if isinstance(raw_preferences, dict) else {}
-
-
-_LIKED_MEDIA_UPDATE_SOURCE = "user:liked_media"
-
-
-async def _get_or_create_likes_list(db: DatabaseSession, user_guid: uuid.UUID):
-    return await ListService(db).get_or_create_system_list(
-        user_guid,
-        update_source=_LIKED_MEDIA_UPDATE_SOURCE,
-        name="Liked Media",
-        description="Media items liked by the user",
-    )
-
-
-async def _get_likes_list(db: DatabaseSession, user_guid: uuid.UUID):
-    result = await db.execute(
-        select(List).where(
-            List.owner_guid == user_guid,
-            List.update_source == _LIKED_MEDIA_UPDATE_SOURCE,
-            List.list_type == ListType.SYSTEM,
-            List.deleted_at.is_(None),
-        )
-    )
-    return result.scalar_one_or_none()
-
-
-async def _get_like_item(
-    db: DatabaseSession,
-    user_guid: uuid.UUID,
-    media_item_guid: uuid.UUID,
-) -> ListItem | None:
-    likes_list = await _get_likes_list(db, user_guid)
-    if likes_list is None:
-        return None
-    result = await db.execute(
-        select(ListItem).where(
-            ListItem.list_guid == likes_list.guid,
-            ListItem.item_guid == media_item_guid,
-        )
-    )
-    return result.scalar_one_or_none()
-
-
-async def _set_liked(
-    db: DatabaseSession,
-    *,
-    user_guid: uuid.UUID,
-    media_item: MediaItem,
-    liked: bool,
-) -> None:
-    existing = await _get_like_item(db, user_guid, media_item.guid)
-    if liked and existing is None:
-        likes_list = await _get_or_create_likes_list(db, user_guid)
-        media_type = media_item.media_type.value
-        db.add(
-            ListItem(
-                list_guid=likes_list.guid,
-                item_type=MEDIA_TYPE_TO_ITEM_TYPE.get(media_type, "MOVIE"),
-                item_guid=media_item.guid,
-                added_by_guid=user_guid,
-            )
-        )
-        likes_list.item_count += 1
-        await db.commit()
-    elif not liked and existing is not None:
-        likes_list = await _get_likes_list(db, user_guid)
-        await db.execute(sa_delete(ListItem).where(ListItem.guid == existing.guid))
-        if likes_list is not None:
-            likes_list.item_count = max(0, likes_list.item_count - 1)
-        await db.commit()
-
-
-async def _update_playback_preferences(
-    db: DatabaseSession,
-    *,
-    user_guid: uuid.UUID,
-    media_item_guid: uuid.UUID,
-    history: ViewingHistory | None,
-    body: MediaUserDataUpdate,
-) -> ViewingHistory:
-    if history is None:
-        history = ViewingHistory(
-            user_guid=user_guid,
-            media_item_guid=media_item_guid,
-            progress_seconds=0,
-            duration_seconds=None,
-            progress_percentage=0.0,
-            is_completed=False,
-        )
-        db.add(history)
-
-    extra_data = _load_history_extra_data(history)
-    preferences = _get_playback_preferences(history)
-    field_map = {
-        "selected_audio_track_index": "audio_track_index",
-        "selected_subtitle_track_index": "subtitle_track_index",
-        "selected_subtitle_track_id": "subtitle_track_id",
-        "selected_audio_language": "audio_language",
-        "selected_subtitle_language": "subtitle_language",
-    }
-
-    fields_set = body.model_fields_set
-    for body_field, preference_key in field_map.items():
-        if body_field not in fields_set:
-            continue
-        value = getattr(body, body_field)
-        if value is None:
-            preferences.pop(preference_key, None)
-        else:
-            preferences[preference_key] = value
-
-    if preferences:
-        extra_data["playback_preferences"] = preferences
-    else:
-        extra_data.pop("playback_preferences", None)
-
-    history.extra_data = json.dumps(extra_data) if extra_data else None
-    await db.commit()
-    await db.refresh(history)
-    return history
-
-
 async def _build_user_data(
     db: DatabaseSession,
     current_user: CurrentUser,
     media_item: MediaItem,
 ) -> MediaUserData:
+    list_service = ListService(db)
     history = await _get_history(db, current_user.guid, media_item.guid)
-    is_favorite = await ListService(db).is_in_favorites(current_user.guid, media_item.guid)
-    like_item = await _get_like_item(db, current_user.guid, media_item.guid)
+    is_favorite = await list_service.is_in_favorites(current_user.guid, media_item.guid)
+    like_item = await list_service.get_like_item(current_user.guid, media_item.guid)
     playback_preferences = _get_playback_preferences(history)
     return MediaUserData(
         media_item_guid=media_item.guid,
@@ -252,8 +126,7 @@ async def _apply_media_user_data_update(
             )
 
     if body.is_liked is not None:
-        await _set_liked(
-            db,
+        await list_service.set_liked(
             user_guid=current_user.guid,
             media_item=media_item,
             liked=body.is_liked,
@@ -288,21 +161,19 @@ async def _apply_media_user_data_update(
             progress_percentage=progress_percentage,
         )
 
-    preference_fields = {
-        "selected_audio_track_index",
-        "selected_subtitle_track_index",
-        "selected_subtitle_track_id",
-        "selected_audio_language",
-        "selected_subtitle_language",
-    }
-    if preference_fields.intersection(body.model_fields_set):
+    fields_set = body.model_fields_set
+    if _PLAYBACK_PREFERENCE_FIELD_MAP.keys() & fields_set:
+        preference_updates = {
+            preference_key: getattr(body, body_field)
+            for body_field, preference_key in _PLAYBACK_PREFERENCE_FIELD_MAP.items()
+            if body_field in fields_set
+        }
         history = await _get_history(db, current_user.guid, media_item.guid)
-        await _update_playback_preferences(
-            db,
+        await ViewingHistoryService(db).update_playback_preferences(
             user_guid=current_user.guid,
             media_item_guid=media_item.guid,
+            preference_updates=preference_updates,
             history=history,
-            body=body,
         )
 
     return await _build_user_data(db, current_user, media_item)
