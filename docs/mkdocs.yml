@@ -3,8 +3,8 @@ site_url: https://docs.pyrate.luebke.dev
 site_description: All-in-One Media Management and Automation
 site_author: Pyrate.Media Team
 
-repo_name: pyrate.media
-repo_url: https://github.com/luebke-dev/pyrate.media
+repo_name: pyrate-media
+repo_url: https://github.com/luebke-dev/pyrate-media
 
 theme:
   name: material
@@ -79,8 +79,11 @@ nav:
     - Search: user-guide/search.md
     - Movies & Shows: user-guide/movies.md
     - Shows in Detail: user-guide/shows.md
+    - Music: user-guide/music.md
     - Games: user-guide/games.md
+    - Books: user-guide/books.md
     - Streaming & Playback: user-guide/streaming.md
+    - Devices, Casting & Offline: user-guide/devices.md
     - Lists & Collections: user-guide/lists.md
     - Favorites: user-guide/favorites.md
     - Viewing History: user-guide/history.md
@@ -96,10 +99,13 @@ nav:
     - Indexers: administration/indexers.md
     - Download Clients: administration/downloaders.md
     - Transcoding: administration/transcoding.md
+    - Smart Collections & Overlays: administration/smart-collections.md
     - Page Layouts: administration/page-layouts.md
-    - Users & Groups: administration/user-management.md
-    - System Settings: administration/system-configuration.md
     - Banners: administration/banners.md
+    - Users & Groups: administration/user-management.md
+    - Membership & Vouchers: administration/membership.md
+    - System Settings: administration/system-configuration.md
+    - Maintenance & Backups: administration/maintenance.md
     - Monitoring: administration/monitoring.md
   - Development:
     - Overview: developer-guide/overview.md
@@ -109,6 +115,6 @@ nav:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/luebke-dev/pyrate.media
+      link: https://github.com/luebke-dev/pyrate-media
 
-copyright: Copyright &copy; 2024 Pyrate.Media Team
+copyright: Copyright &copy; 2024&ndash;2026 Pyrate.Media Team

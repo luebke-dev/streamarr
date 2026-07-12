@@ -1,152 +1,81 @@
 # Overview
 
-This section helps you understand what Pyrate.Media is, how it works, and how to get started.
+**Your media, your rules.** pyrate.media is a self-hosted, all-in-one platform for media management, streaming, and automation. It combines what usually takes half a dozen tools — a streaming media center, release automation, and cloud gaming — with one library, one user system, and one UI.
 
-## What is Pyrate.Media?
+## What is pyrate.media?
 
-Pyrate.Media is an all-in-one media management platform that enables the following:
+With pyrate.media you can:
 
-- **Discover**: Find new movies, shows, and games
-- **Organize**: Manage media in libraries and lists
-- **Stream**: Play directly in the browser
-- **Automate**: Automatically search for and start downloads
-- **Share**: Host watch parties with friends
+- **Discover** — find movies, shows, music, games, and books via rich metadata, trending lists, and recommendations
+- **Organize** — manage everything in libraries, lists, playlists, and collections
+- **Stream** — play directly in the browser, on desktop, or on Android, with on-the-fly transcoding
+- **Automate** — search indexers and start downloads automatically, right from the play button
+- **Play** — stream games from your server to your browser via cloud gaming
+- **Share** — host watch parties, invite friends, and optionally sell memberships
 
-## Core Concepts
+## One library, six media types
 
-### Media Types
+Every library type shares the same unified media model, so browsing, search, favorites, and lists work the same everywhere.
 
-Pyrate.Media supports various media types:
+| Media type | Metadata | Highlights |
+|------------|----------|------------|
+| 🎬 Movies | TMDB | Trailers, cast, collections, release automation — see [Movies & Shows](../user-guide/movies.md) |
+| 📺 Shows | TVDB / TMDB | Seasons and episodes, next-up, per-episode automation — see [Shows in Detail](../user-guide/shows.md) |
+| 🎵 Music | MusicBrainz, Spotify import | Artists, albums, songs; persistent player with queue and lyrics — see [Music](../user-guide/music.md) |
+| 🎮 Games | IGDB, Steam import | Playable in the browser via cloud game streaming — see [Games](../user-guide/games.md) |
+| 📖 Books | OpenLibrary | Authors and books with an in-app EPUB reader — see [Books](../user-guide/books.md) |
+| 📷 Photos | Local files | Photo libraries using the same unified media model |
 
-#### 🎬 Movies
-- Movie database with TMDB metadata
-- Posters, backdrops, and descriptions
-- Release tracking and download management
-- Direct playback in the browser
+Admins create a library per media type and configure storage paths, metadata, and download rules — see [Libraries](../administration/libraries.md).
 
-#### 📺 Shows
-- Full show management
-- Seasons and episodes with metadata
-- Automatic release search per episode
-- Episode-based streaming
+## Main capabilities
 
-#### 🎮 Games
-- Game library with IGDB integration
-- Platform and genre information
-- Cover art and screenshots
+### Streaming & playback
 
-### Libraries
+Media plays directly in the client. When a file is compatible it direct-plays; otherwise the server transcodes it on demand and streams it as HLS. Playback includes subtitles, chapters, skip intro/outro markers, trickplay scrubbing thumbnails, and resume via continue watching. See [Streaming & Playback](../user-guide/streaming.md).
 
-Each media type has its own library:
+### Smart Play & automation
 
-- **Create library**: Admin creates libraries for desired media types
-- **Plugin-based**: Each library uses a library plugin (movies, shows, games)
-- **Configurable**: Storage paths, naming schemes, and download rules
+!!! tip "Press play on anything"
+    You can start playback even for media you don't have a file for yet. pyrate.media searches your configured indexers, starts the download, and shows live status — *Searching for releases* → *Downloading* → *Ready to play*.
 
-### Smart Play
+Behind the scenes, admins configure Newznab/Torznab [indexers](../administration/indexers.md) and [download clients](../administration/downloaders.md), including release scoring, auto-download of monitored favorites, and quality upgrades.
 
-The Smart Play system makes playback simple:
+### Cloud gaming
 
-1. **File available** → Streaming starts immediately
-2. **Releases available** → Download is started, status displayed
-3. **No releases** → Search is started, then download
+Games in your library can be streamed straight to the browser: the server launches the game in an isolated container and streams video, audio, and input in real time. See [Games](../user-guide/games.md).
 
-The client polls the status until the media is ready to play.
+### Watch parties
 
-### Lists
+Watch together with synchronized playback — create a party, share the party code, and everyone stays in sync. See [Watch Parties](../user-guide/watch-parties.md).
 
-Organize media with lists:
+### Devices, casting & offline
 
-- **User lists**: Create your own collections
-- **System lists**: Automatic trending lists
-- **Visibility**: Private, public, or shared
-- **Interactions**: Like, follow, bookmark
+Cast to Chromecast, AirPlay, and DLNA targets, remote-control playback on your other signed-in devices, and download media to a device for offline use. See [Devices, Casting & Offline](../user-guide/devices.md).
 
-## System Requirements
+### Discovery & curation
 
-### Minimum
+Fast search with autocomplete and filters, genre and person browsing, trending and recommendations, plus [lists, playlists, and collections](../user-guide/lists.md). Admins can add rule-based [smart collections and poster overlays](../administration/smart-collections.md) and design the home page with [page layouts](../administration/page-layouts.md).
 
-- **CPU**: 2 cores, 2.0 GHz
-- **RAM**: 4 GB
-- **Storage**: 20 GB free
-- **Network**: Stable internet connection
+### Multi-user & memberships
 
-### Recommended
+Local accounts or SSO login, invite-based registration, groups with granular permissions, and parental controls — see [Users & Groups](../administration/user-management.md).
 
-- **CPU**: 4+ cores (for transcoding)
-- **RAM**: 8 GB or more
-- **Storage**: 50 GB+ (SSD recommended)
-- **Network**: Fast connection for streaming
+!!! note "Memberships are optional"
+    Servers can offer paid subscription plans and vouchers. Users manage their plan under [Membership](../user-guide/membership.md); admins configure plans in [Membership & Vouchers](../administration/membership.md).
 
-### Dependencies
+## Clients
 
-- **Docker**: For container deployment
-- **PostgreSQL**: Main database
-- **Redis**: Caching and task queue
-- **Elasticsearch**: Media search (optional)
+| Platform | Delivery |
+|----------|----------|
+| Web | Runs in any modern browser |
+| Desktop (Linux, macOS, Windows) | Native app (Tauri) |
+| Android | Native app (Capacitor) |
 
-## Architecture
+The UI is available in English and German.
 
-```mermaid
-graph TB
-    subgraph "Frontend"
-        A[Vue.js SPA]
-        B[Quasar UI]
-        C[Video.js Player]
-    end
+## Next steps
 
-    subgraph "Backend"
-        D[FastAPI Web Server]
-        E[TaskIQ Worker]
-    end
-
-    subgraph "Data"
-        F[PostgreSQL]
-        G[Redis]
-        H[Elasticsearch]
-    end
-
-    subgraph "External Services"
-        I[TMDB API]
-        J[IGDB API]
-        K[Download Clients]
-        L[Indexers]
-    end
-
-    A --> D
-    D --> F
-    D --> G
-    D --> H
-    E --> F
-    E --> I
-    E --> J
-    E --> K
-    E --> L
-```
-
-### Components
-
-#### Frontend (Vue.js)
-- **Vue 3**: Composition API with `<script setup>`
-- **Quasar**: Material Design components
-- **Pinia**: State management
-- **Video.js**: Media playback
-- **Vue I18n**: Internationalization
-
-#### Backend (FastAPI)
-- **FastAPI**: Async Python web framework
-- **SQLModel**: ORM based on SQLAlchemy
-- **TaskIQ**: Background task queue
-- **JWT**: Authentication
-
-#### Plugins
-- **Metadata**: TMDB, IGDB for metadata
-- **Downloader**: SABnzbd, Deluge
-- **Indexer**: Newznab-based indexers
-- **Library**: movies, shows, games plugins
-
-## Next Steps
-
-1. **[Installation](installation.md)** - Set up Pyrate.Media
-2. **[Quick Start](quick-start.md)** - First steps
-3. **[Dashboard](../user-guide/dashboard.md)** - Get to know the interface
+1. **[Installation](installation.md)** — deploy pyrate.media with Docker Compose, Kubernetes, or Podman
+2. **[Quick Start](quick-start.md)** — first-run setup and your first library
+3. **[Dashboard & Home](../user-guide/dashboard.md)** — get to know the interface

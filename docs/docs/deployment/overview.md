@@ -1,694 +1,95 @@
 # Deployment Overview
 
-This section provides comprehensive guidance for deploying pyrate.media in various environments, from development to production-scale deployments.
+pyrate.media ships four supported deployment models, each with a clearly assigned role and a single source of truth in the repository's `deployment/` directory. Change the maintained file for your target — never a downstream copy.
 
-## Deployment Options
+## The four models
 
-### Deployment Methods
+| Model | Path | Target | Status |
+|-------|------|--------|--------|
+| **Helm chart** | `deployment/helm/pyrate` | Kubernetes / production | Authoritative for K8s |
+| **Docker Compose (prod)** | `deployment/docker/docker-compose.yml` | Single-host production, pre-built registry images | Authoritative for single-host prod |
+| **Root Compose (dev)** | `docker-compose.yml` (repo root) | Local development, all images built locally | Not a production artifact |
+| **Podman quadlets** | `deployment/quadlets/*.container` | Single-host Podman + systemd | Lean SABnzbd-only variant |
 
-pyrate.media supports multiple deployment approaches:
+!!! tip "Rules of thumb"
+    Kubernetes → **Helm** (nothing else is kept current for K8s). One box with Docker → **`docker/docker-compose.yml`** or the installer. One box with Podman/systemd → **quadlets**. Hacking on the code → the repo-root compose file.
 
-**Docker Compose**:
-- Simple single-server deployment
-- Ideal for small to medium installations
-- Easy setup and maintenance
-- Built-in service orchestration
+## Single-host production
 
-**Kubernetes**:
-- Scalable container orchestration
-- High availability and fault tolerance
-- Advanced networking and storage options
-- Production-ready with Helm charts
+The prod Compose file pulls images from `registry.gitlab.com/pyrate.media`. For a fresh box, the interactive installer bootstraps everything:
 
-**Manual Installation**:
-- Direct installation on servers
-- Maximum control and customization
-- Suitable for specialized environments
-- Requires more maintenance effort
-
-**Cloud Platforms**:
-- AWS, Google Cloud, Azure support
-- Managed services integration
-- Auto-scaling capabilities
-- Global content delivery
-
-### Architecture Considerations
-
-**Single Server Deployment**:
-- All components on one server
-- Suitable for small user bases
-- Lower resource requirements
-- Simplified maintenance
-
-**Multi-Server Deployment**:
-- Distributed components across servers
-- Better performance and reliability
-- Horizontal scaling capabilities
-- Load balancing and redundancy
-
-**Microservices Architecture**:
-- Containerized service deployment
-- Independent scaling and updates
-- Service mesh integration
-- Advanced monitoring and observability
-
-## Docker Compose Deployment
-
-### Quick Start
-
-**Prerequisites**:
-- Docker Engine 20.10+
-- Docker Compose 2.0+
-- 4GB RAM minimum
-- 20GB storage space
-
-**Basic Deployment**:
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/pyrate.media.git
-cd pyrate.media
-
-# Copy environment configuration
-cp .env.example .env
-
-# Edit configuration
-nano .env
-
-# Start services
-docker-compose up -d
-
-# Check status
-docker-compose ps
+curl -fsSL https://get.pyrate.media | sudo bash
 ```
 
-### Configuration
+It installs Docker (Debian/Fedora/RHEL), generates secrets with `openssl rand`, writes a `chmod 600` `.env` plus a systemd unit, and emits a **generated subset** of the maintained Compose file with only the services you opt into. For the full service set (the three Rust downloaders in addition to SABnzbd), deploy `docker/docker-compose.yml` directly — it remains the source of truth.
 
-**Environment Variables** (.env):
+## Kubernetes (Helm)
+
+The chart is published as an OCI artifact:
+
 ```bash
-# Database Configuration
-POSTGRES_DB=pyrate
-POSTGRES_USER=pyrate
-POSTGRES_PASSWORD=secure_password
-DATABASE_URL=postgresql://pyrate:secure_password@postgres:5432/pyrate
-
-# Redis Configuration
-REDIS_URL=redis://redis:6379/0
-
-# Application Configuration
-SECRET_KEY=your-secret-key-here
-DEBUG=false
-ALLOWED_HOSTS=your-domain.com
-
-# External Services
-TMDB_API_KEY=your-tmdb-api-key
-TVDB_API_KEY=your-tvdb-api-key
+helm install pyrate oci://registry.gitlab.com/pyrate.media/deployment/pyrate \
+  --namespace pyrate --create-namespace \
+  --set secrets.postgresPassword=$(openssl rand -hex 32) \
+  --set secrets.secretKey=$(openssl rand -hex 32) \
+  --set secrets.lightraysJwtSecret=$(openssl rand -hex 32) \
+  --set secrets.downloaderWebhookSecret=$(openssl rand -hex 32)
 ```
 
-**Docker Compose Configuration** (docker-compose.yml):
-```yaml
-version: '3.8'
+Production options in `values.yaml`:
 
-services:
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
+- **External PostgreSQL** — set `postgres.enabled: false` and point `postgres.external` at a CloudNativePG cluster (`existingSecret` supported).
+- **Persistence** — `persistence.mode: pvc` (default; needs RWX-capable storage such as NFS, CephFS, or Longhorn-RWX) or `hostPath`, mounting `<hostPath.base>/data/{key}` off the node filesystem.
+- **Ingress/TLS** — optional single-host Ingress with separate paths for frontend, backend, and Lightrays.
+- **GPU & node pools** — `lightrays.gpu.enabled`, plus `nodeSelector`s to pin app, gaming, and transcode workloads to dedicated pools.
 
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
+The backend auto-detects Kubernetes and runs FFmpeg, ffprobe, chromaprint, and trickplay work as **per-task Job pods**. The chart provisions the required ServiceAccount and Role (jobs, pods, pods/log) and forwards `transcoding.nodeSelector`/`tolerations` to every spawned Job.
 
-  backend:
-    build: ./backend
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      SECRET_KEY: ${SECRET_KEY}
-    depends_on:
-      - postgres
-      - redis
-    restart: unless-stopped
+!!! warning "Known caveats"
+    - **Lightrays has no Kubernetes session provider yet** — it mounts the host Docker socket, so schedule it on a node running Docker as the container runtime, not pure containerd.
+    - **`hostPath` persistence is required** when transcode Job pods must see the same files as the app pods; pin both to the same node pool.
+    - **The Rust usenet downloader runs off-cluster** in the Helm model and is reached via `downloaders.usenetRemote.url` or an rclone-mounted download share.
 
-  frontend:
-    build: ./frontend
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
-    restart: unless-stopped
+## Podman quadlets
 
-  worker:
-    build: ./backend
-    command: celery -A src.pyrate.worker worker --loglevel=info
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-    depends_on:
-      - postgres
-      - redis
-    restart: unless-stopped
+The leanest single-host option: systemd `.container` units with SABnzbd as the **only** downloader — no Rust downloader services and no nginx backend proxy (the backend unit publishes port 8000 directly). Secrets come from `EnvironmentFile=/etc/pyrate/pyrate.env` (`root:root`, mode `0600`); without it the units start with empty passwords and paths.
 
-volumes:
-  postgres_data:
-```
+## Migrations, secrets, Elasticsearch
 
-### Production Optimizations
+Database migrations run as a dedicated **one-shot step** before any app process starts — app containers never race to apply DDL:
 
-**Security Enhancements**:
-- Use secrets management
-- Enable SSL/TLS encryption
-- Configure firewall rules
-- Implement access controls
-- Regular security updates
+=== "Compose"
+    A `migrate` service runs `alembic upgrade head` once; backend, worker, and scheduler declare `depends_on: migrate (service_completed_successfully)`.
 
-**Performance Tuning**:
-- Resource limits and reservations
-- Health checks and monitoring
-- Log rotation and management
-- Backup and recovery procedures
-- Load balancing configuration
+=== "Helm"
+    A `pre-install,pre-upgrade` hook Job applies migrations once per release before the Deployments roll out (`migrations.enabled`, default `true`).
 
-## Kubernetes Deployment
+=== "Quadlets"
+    `pyrate-migrate.container` is a `Type=oneshot` unit; the app units order themselves `After=`/`Requires=` it.
 
-### Prerequisites
+Secrets are never committed. Compose reads a git-ignored `.env` (copy `docker/.env.example`; keys: `SECRET_KEY`, `POSTGRES_PASSWORD`, `LIGHTRAYS_JWT_SECRET`, `DOWNLOADER_WEBHOOK_SECRET`); Helm uses the `secrets:` values block or `secrets.existingSecret` and fails fast when one is missing; quadlets use the systemd EnvironmentFile above.
 
-**Kubernetes Cluster**:
-- Kubernetes 1.24+
-- kubectl configured
-- Helm 3.0+
-- Ingress controller
-- Storage class available
+!!! note "Elasticsearch is pinned to 9.2.0"
+    The backend's Python client requires 9.x and refuses the handshake against an 8.x server. Every model pins **Elasticsearch 9.2.0** (`ES_IMAGE_TAG` in Compose, `elasticsearch.image.tag` in Helm, hardcoded in the quadlet).
 
-**Resource Requirements**:
-- 2 CPU cores minimum
-- 4GB RAM minimum
-- 50GB storage minimum
-- Load balancer support
+## Service topology and ports
 
-### Helm Chart Deployment
+The stack: one-shot migrate, FastAPI backend, TaskIQ workers plus a singleton scheduler, the Quasar frontend, Lightrays game streaming, downloaders (SABnzbd and/or the Rust torrent/spotify/usenet services), PostgreSQL 16, Redis 7, and Elasticsearch 9.2.0. The dev Compose and Helm additionally run an nginx proxy in front of the backend.
 
-**Add Helm Repository**:
-```bash
-helm repo add pyrate https://charts.pyrate.media
-helm repo update
-```
+Default host ports on the single-host prod model (all overridable via `.env`):
 
-**Install with Helm**:
-```bash
-# Create namespace
-kubectl create namespace pyrate
+| Service | Port | Notes |
+|---------|------|-------|
+| Frontend | `3000` | `FRONTEND_PORT` (dev compose maps 3001) |
+| Backend API | `8000` | `BACKEND_PORT` |
+| Lightrays | `8009` | `network_mode: host` for WebRTC UDP (`LIGHTRAYS_PORT`) |
+| SABnzbd | `8080` | `SABNZBD_PORT` |
+| spotify / torrent / usenet downloaders | `3001` / `3002` / `3003` | each serves `:3000` internally |
+| PostgreSQL / Redis / Elasticsearch | loopback or unpublished | not exposed by default |
 
-# Install chart
-helm install pyrate pyrate/pyrate-media \
-  --namespace pyrate \
-  --set ingress.enabled=true \
-  --set ingress.hosts[0].host=pyrate.example.com \
-  --set postgresql.auth.password=secure_password
-```
+## Observability and disaster recovery
 
-**Custom Values** (values.yaml):
-```yaml
-# Application configuration
-app:
-  name: pyrate-media
-  version: latest
-  debug: false
+The dev Compose ships Prometheus (v2.55.1) and a fully provisioned Grafana with the "pyrate.media Overview" dashboard (`observability/`); in production, point your own Prometheus at the backend's `/metrics` endpoint and the worker metrics port. See [Monitoring](../administration/monitoring.md).
 
-# Database configuration
-postgresql:
-  enabled: true
-  auth:
-    database: pyrate
-    username: pyrate
-    password: secure_password
-  primary:
-    persistence:
-      size: 20Gi
-
-# Redis configuration
-redis:
-  enabled: true
-  auth:
-    enabled: false
-
-# Ingress configuration
-ingress:
-  enabled: true
-  className: nginx
-  hosts:
-    - host: pyrate.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: pyrate-tls
-      hosts:
-        - pyrate.example.com
-
-# Resource limits
-resources:
-  backend:
-    limits:
-      cpu: 1000m
-      memory: 2Gi
-    requests:
-      cpu: 500m
-      memory: 1Gi
-  frontend:
-    limits:
-      cpu: 500m
-      memory: 512Mi
-    requests:
-      cpu: 250m
-      memory: 256Mi
-```
-
-### Scaling Configuration
-
-**Horizontal Pod Autoscaler**:
-```yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: pyrate-backend-hpa
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: pyrate-backend
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-```
-
-**Persistent Volume Claims**:
-```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: pyrate-media-storage
-spec:
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: 100Gi
-  storageClassName: fast-ssd
-```
-
-## Cloud Platform Deployment
-
-### AWS Deployment
-
-**EKS Cluster Setup**:
-```bash
-# Create EKS cluster
-eksctl create cluster \
-  --name pyrate-cluster \
-  --region us-west-2 \
-  --nodes 3 \
-  --node-type t3.medium
-
-# Configure kubectl
-aws eks update-kubeconfig --region us-west-2 --name pyrate-cluster
-```
-
-**RDS Database**:
-```bash
-# Create RDS instance
-aws rds create-db-instance \
-  --db-instance-identifier pyrate-db \
-  --db-instance-class db.t3.micro \
-  --engine postgres \
-  --master-username pyrate \
-  --master-user-password secure_password \
-  --allocated-storage 20
-```
-
-**ElastiCache Redis**:
-```bash
-# Create Redis cluster
-aws elasticache create-cache-cluster \
-  --cache-cluster-id pyrate-redis \
-  --cache-node-type cache.t3.micro \
-  --engine redis \
-  --num-cache-nodes 1
-```
-
-### Google Cloud Deployment
-
-**GKE Cluster Setup**:
-```bash
-# Create GKE cluster
-gcloud container clusters create pyrate-cluster \
-  --zone us-central1-a \
-  --num-nodes 3 \
-  --machine-type e2-medium \
-  --enable-autoscaling \
-  --min-nodes 1 \
-  --max-nodes 10
-
-# Configure kubectl
-gcloud container clusters get-credentials pyrate-cluster --zone us-central1-a
-```
-
-**Cloud SQL Database**:
-```bash
-# Create Cloud SQL instance
-gcloud sql instances create pyrate-db \
-  --database-version POSTGRES_14 \
-  --tier db-f1-micro \
-  --region us-central1
-
-# Create database
-gcloud sql databases create pyrate --instance pyrate-db
-```
-
-**Memorystore Redis**:
-```bash
-# Create Redis instance
-gcloud redis instances create pyrate-redis \
-  --size 1 \
-  --region us-central1 \
-  --redis-version redis_6_x
-```
-
-### Azure Deployment
-
-**AKS Cluster Setup**:
-```bash
-# Create resource group
-az group create --name pyrate-rg --location eastus
-
-# Create AKS cluster
-az aks create \
-  --resource-group pyrate-rg \
-  --name pyrate-cluster \
-  --node-count 3 \
-  --node-vm-size Standard_B2s \
-  --enable-addons monitoring \
-  --generate-ssh-keys
-
-# Configure kubectl
-az aks get-credentials --resource-group pyrate-rg --name pyrate-cluster
-```
-
-## Security Considerations
-
-### SSL/TLS Configuration
-
-**Certificate Management**:
-- Let's Encrypt for free certificates
-- Cert-manager for automatic renewal
-- Custom CA certificates for internal deployments
-- Wildcard certificates for subdomains
-
-**HTTPS Enforcement**:
-```nginx
-server {
-    listen 80;
-    server_name pyrate.example.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name pyrate.example.com;
-    
-    ssl_certificate /etc/ssl/certs/pyrate.crt;
-    ssl_certificate_key /etc/ssl/private/pyrate.key;
-    
-    # Security headers
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Frame-Options DENY always;
-    add_header X-Content-Type-Options nosniff always;
-    
-    location / {
-        proxy_pass http://backend;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-### Network Security
-
-**Firewall Configuration**:
-- Restrict database access to application servers only
-- Use VPC/private networks for internal communication
-- Implement network segmentation
-- Configure intrusion detection systems
-
-**Access Control**:
-- Use service accounts with minimal permissions
-- Implement role-based access control (RBAC)
-- Regular security audits and penetration testing
-- Monitor and log all access attempts
-
-## Monitoring and Observability
-
-### Application Monitoring
-
-**Prometheus and Grafana**:
-```yaml
-# Prometheus configuration
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: prometheus-config
-data:
-  prometheus.yml: |
-    global:
-      scrape_interval: 15s
-    scrape_configs:
-      - job_name: 'pyrate-backend'
-        static_configs:
-          - targets: ['backend:8000']
-      - job_name: 'pyrate-frontend'
-        static_configs:
-          - targets: ['frontend:80']
-```
-
-**Health Checks**:
-```python
-# Backend health check endpoint
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow(),
-        "version": app.version
-    }
-```
-
-### Logging
-
-**Centralized Logging**:
-- ELK Stack (Elasticsearch, Logstash, Kibana)
-- Fluentd for log collection
-- Structured logging with JSON format
-- Log aggregation and analysis
-
-**Log Configuration**:
-```yaml
-# Fluentd configuration
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: fluentd-config
-data:
-  fluent.conf: |
-    <source>
-      @type tail
-      path /var/log/containers/*.log
-      pos_file /var/log/fluentd-containers.log.pos
-      tag kubernetes.*
-      format json
-    </source>
-    
-    <match kubernetes.**>
-      @type elasticsearch
-      host elasticsearch
-      port 9200
-      index_name pyrate-logs
-    </match>
-```
-
-## Backup and Recovery
-
-### Database Backups
-
-**Automated Backups**:
-```bash
-#!/bin/bash
-# Database backup script
-BACKUP_DIR="/backups/postgres"
-DATE=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="pyrate_backup_${DATE}.sql"
-
-# Create backup
-pg_dump -h postgres -U pyrate -d pyrate > "${BACKUP_DIR}/${BACKUP_FILE}"
-
-# Compress backup
-gzip "${BACKUP_DIR}/${BACKUP_FILE}"
-
-# Upload to cloud storage
-aws s3 cp "${BACKUP_DIR}/${BACKUP_FILE}.gz" s3://pyrate-backups/
-```
-
-**Recovery Procedures**:
-```bash
-# Restore from backup
-gunzip pyrate_backup_20231201_120000.sql.gz
-psql -h postgres -U pyrate -d pyrate < pyrate_backup_20231201_120000.sql
-```
-
-### Application Data Backups
-
-**Configuration Backups**:
-- Environment variables and secrets
-- Application configuration files
-- SSL certificates and keys
-- Custom scripts and automation
-
-**Media File Backups**:
-- Incremental backups for large media files
-- Cloud storage synchronization
-- Redundant storage across multiple locations
-- Regular backup integrity verification
-
-## Performance Optimization
-
-### Caching Strategies
-
-**Redis Caching**:
-```python
-# Cache configuration
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://redis:6379/1',
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        }
-    }
-}
-```
-
-**CDN Integration**:
-- CloudFlare for global content delivery
-- AWS CloudFront for static assets
-- Image optimization and compression
-- Browser caching headers
-
-### Database Optimization
-
-**Connection Pooling**:
-```python
-# SQLAlchemy connection pool
-engine = create_engine(
-    DATABASE_URL,
-    pool_size=20,
-    max_overflow=30,
-    pool_pre_ping=True,
-    pool_recycle=3600
-)
-```
-
-**Query Optimization**:
-- Database indexing strategies
-- Query performance monitoring
-- Connection pooling configuration
-- Read replica setup for scaling
-
-## Troubleshooting
-
-### Common Deployment Issues
-
-**Container Startup Problems**:
-- Check container logs: `docker logs <container_name>`
-- Verify environment variables
-- Ensure proper resource allocation
-- Check network connectivity
-
-**Database Connection Issues**:
-- Verify database credentials
-- Check network connectivity
-- Ensure database is running and accessible
-- Review connection pool settings
-
-**Performance Issues**:
-- Monitor resource usage (CPU, memory, disk)
-- Check database query performance
-- Review caching effectiveness
-- Analyze network latency
-
-### Debugging Tools
-
-**Kubernetes Debugging**:
-```bash
-# Check pod status
-kubectl get pods -n pyrate
-
-# View pod logs
-kubectl logs -f deployment/pyrate-backend
-
-# Describe pod for events
-kubectl describe pod <pod-name> -n pyrate
-
-# Execute commands in pod
-kubectl exec -it <pod-name> -n pyrate -- /bin/bash
-```
-
-**Docker Debugging**:
-```bash
-# View container logs
-docker logs -f pyrate_backend_1
-
-# Execute commands in container
-docker exec -it pyrate_backend_1 /bin/bash
-
-# Check container resource usage
-docker stats
-```
-
-## Best Practices
-
-### Deployment Best Practices
-
-1. **Infrastructure as Code**: Use Terraform, Ansible, or similar tools
-2. **Blue-Green Deployments**: Zero-downtime deployment strategy
-3. **Rolling Updates**: Gradual deployment with rollback capability
-4. **Health Checks**: Implement comprehensive health monitoring
-5. **Resource Limits**: Set appropriate CPU and memory limits
-
-### Security Best Practices
-
-1. **Principle of Least Privilege**: Minimal necessary permissions
-2. **Network Segmentation**: Isolate components and services
-3. **Regular Updates**: Keep all components updated
-4. **Secrets Management**: Secure storage of sensitive information
-5. **Audit Logging**: Comprehensive logging and monitoring
-
-### Operational Best Practices
-
-1. **Monitoring and Alerting**: Proactive issue detection
-2. **Backup and Recovery**: Regular backups and tested recovery procedures
-3. **Documentation**: Maintain up-to-date deployment documentation
-4. **Change Management**: Controlled and documented changes
-5. **Disaster Recovery**: Tested disaster recovery procedures
-
-This comprehensive deployment guide provides the foundation for successfully deploying pyrate.media in various environments, from simple single-server setups to complex, scalable cloud deployments.
+Real disaster recovery lives in `deployment/backup/`: `backup.sh`/`restore.sh` wrap `pg_dump --format=custom`/`pg_restore`, tar the config, optionally snapshot Elasticsearch (the index is rebuildable from PostgreSQL via the admin reindex endpoints), optionally tar media, and can push sets off-site via rclone or S3 with retention pruning. This is deliberately separate from the in-app settings export described in [Maintenance & Backups](../administration/maintenance.md). For first-time setup, start with [Installation](../getting-started/installation.md).

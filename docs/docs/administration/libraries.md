@@ -1,127 +1,90 @@
 # Library Management
 
-Libraries are the core of Pyrate.Media. Each library manages a specific media type and has its own settings for storage paths, downloads, and file naming.
+Libraries are the core of pyrate.media. Each library manages one media type and carries its own storage path, naming conventions, release scoring, and quality profiles. **Only one library per type can exist** — the type dropdown only offers types that do not already have an enabled library.
 
 ## Creating a Library
 
-1. Navigate to **Admin** -> **Create Library** (or click "+" in the sidebar)
-2. Select the **library type**:
-    - **Movies** (MOVIES)
-    - **Shows** (SHOWS)
-    - **Music** (MUSIC)
-    - **Games** (GAMES)
-    - **Books** (BOOKS)
-3. Enter a **name** (e.g. "My Movies")
-4. Configure the **storage path** (absolute path in the Docker container, e.g. `/data/library/movies`)
-5. Click **Create**
+1. Open **Admin → Dashboard** and use the **Add Library** quick action (route `/admin/libraries/create`)
+2. Fill in the form:
 
-!!! warning "Docker Volumes"
-    The storage path must be accessible inside the Docker container. Ensure the corresponding volume is properly mounted.
+| Field | Description |
+|-------|-------------|
+| **Library Name** | A unique name for this library |
+| **Library Type** | Movies, Shows, Music, Games, Books, or Photos |
+| **Library Plugin** | Plugin that manages this library — auto-selected when only one exists |
+| **Metadata Provider** | Optional provider for fetching metadata, filtered by media type; unconfigured providers are flagged **Not Configured** — see [Plugins](plugins.md) |
+| **Library Path** | Existing directory where files are stored, e.g. `/data/library/movies` — validated by the backend |
+| **Description** | Optional |
+| **Library Enabled** | Whether the library is active |
+
+!!! warning "Container paths"
+    The library path is resolved *inside* the backend container and must already exist. Make sure the corresponding volume is mounted in your Docker/Kubernetes deployment.
+
+After creation, each library appears in the admin sidebar under **Libraries** (Movies, Shows, Games, Music, Books) with its own settings page at `/admin/libraries/<type>`.
 
 ## Library Settings
 
-Open a library's settings from the admin sidebar or dashboard.
-
-### General Configuration
+### Library Configuration
 
 | Setting | Description | Available for |
 |---------|-------------|---------------|
 | **Enable Library** | Toggles the library on/off | All |
 | **Library Path** | Absolute path to media file storage | All |
-| **On-Demand Downloads** | Enables Smart Play - automatic download when playing | Movies, Shows, Music |
-| **Prefetch Downloads** | Automatically downloads new episodes when available | Shows only |
-| **Hide Season Zero** | Hides special episodes (Season 0) in the UI | Shows only |
-| **Allowed Languages** | Which languages to consider during release searching | Movies, Shows |
+| **Enable On-Demand Downloads** | Smart Play — pressing play on missing media triggers an automatic download | Movies, Shows, Music |
+| **Enable Prefetch Downloads** | Auto-download the next episode when playing | Shows |
+| **Hide Season 0 (Specials)** | Globally hides specials/extras | Shows |
+| **Allowed Languages** | Only releases in these languages are scored positively; empty = all languages | Movies, Shows |
+| **Allowed Platforms** | Only show games available on these platforms; empty = all | Games |
 
-### Naming Schema
+### Naming Conventions
 
-Configure how downloaded files and folders are named.
+Templates control how downloaded files and folders are named. The available template fields depend on the library type; click the help icon on any template field to open the **Available Variables** dialog with descriptions and examples (title, year, TMDB/TVDB/IMDb IDs, season/episode numbers, resolution, codecs, HDR format, source, release group, …).
 
-#### Available Variables
+=== "Movies (defaults)"
 
-**Movies:**
+    - **Folder**: `{movie_title} ({movie_year})`
+    - **File**: `{movie_title} ({movie_year})`
 
-- `{title}` - Movie title
-- `{year}` - Release year
-- `{tmdb_id}` - TMDB ID
-- `{imdb_id}` - IMDB ID
-- `{quality}` - Quality (1080p, etc.)
+=== "Shows (defaults)"
 
-**Shows:**
+    - **Series Folder**: `{series_title} ({series_year})`
+    - **Season Folder**: `Season {season_number_2}`
+    - **Episode File**: `{series_title} - S{season_number_2}E{episode_number_2} - {episode_title}`
 
-- `{title}` - Series title
-- `{year}` - Start year
-- `{season}` - Season number (use `:02` for zero-padding)
-- `{episode}` - Episode number
-- `{episode_title}` - Episode title
+Additional options: **Replace Illegal Characters** and **Colon Replacement** (space, dash with spaces, or delete). **Show Preview** renders an example folder, file, and full path before you save, and **Reset to Defaults** restores the built-in templates.
 
-#### Options
+### Download Scoring Rules
 
-- **Replace Illegal Characters**: Replaces characters not allowed in file names
-- **Colon Replacement**: What to use instead of `:` (e.g. ` - `)
+*Movies and Shows only.* Controls how releases from your [indexers](indexers.md) are scored when selecting the best download — higher scores win.
 
-#### Preview
+- **Weights** per **Resolution**, **Source**, **Video Codec**, and **Audio Codec**
+- **Bonus Points**: HDR, Dolby Vision, Remux, PROPER, REPACK, and a Trusted Group Bonus
+- **Trusted Release Groups**: groups that receive the trusted bonus
+- **Blocked Release Groups**: releases from these groups are always scored 0 and never downloaded
+- **Language Scoring**: match bonus / mismatch penalty, evaluated against the library's allowed languages
 
-Click **Preview** to see how an example filename would look with your schema. The preview shows:
+**Reset to Defaults** restores the built-in scoring configuration.
 
-- **Folder**: e.g. `The Matrix (1999)`
-- **Filename**: e.g. `The Matrix (1999).mkv`
-- **Full Path**: The combination of both
+### Quality Profile
 
-### Download Rules (Scoring)
+*Movies, Shows, Music, Books, and Games.* A Sonarr-style ordered list of allowed qualities: releases are picked by the highest allowed quality, and upgrades continue until the **cutoff** is reached. Each library has two profiles:
 
-Download rules determine which releases are preferred. The system assigns **points (score)** to each release based on configurable rules.
+- **Standard** — applies to everything
+- **Favorites** — optional override for favorited items (used with the "keep favorites" automation in [System Settings](system-configuration.md)); if unset, the standard profile applies
 
-Each rule consists of:
+The quality ladder depends on the media type — video ranges from CAM up to Bluray-2160p Remux, audio from MP3 to Lossless Hi-Res, books from Scan/OCR to Retail EPUB. Toggle **Allow upgrades to better releases** to enable quality-upgrade scans.
 
-| Field | Description |
-|-------|-------------|
-| **Label** | Descriptive name (e.g. "Prefer 1080p") |
-| **Regular Expression** | Pattern applied to the release name |
-| **Score** | Points assigned (positive = preferred, negative = avoided) |
-| **Enabled** | Whether the rule is active |
-| **Inverted** | Reverses the rule (points when pattern does NOT match) |
+### Danger Zone
 
-**Examples:**
+**Delete Library** removes the library after a confirmation dialog. This cannot be undone — all associated data is lost.
 
-- `1080p` with Score +10 -> Prefers 1080p releases
-- `CAM|TELESYNC|TS` with Score -100 -> Avoids camera rips
-- `x265|HEVC` with Score +5 -> Slight bonus for more efficient encoding
+## Scanning and Metadata Refresh
 
-### Advanced Scoring Configuration
+- **Import existing files**: `POST /api/libraries/{guid}/scan` (superuser) scans the library path with the library's plugin and imports discovered media. There is currently no scan button in the admin UI.
+- **Per-item refresh**: admins get a **Refresh Metadata** action on every media detail page.
+- **Automatic refresh**: a nightly background job re-fetches metadata for items not updated in the last 30 days (up to 100 items per run).
+- **Trending imports**: the **Trending … Refresh** tasks (movies/shows/games/music) can be triggered from **Admin → Tasks** — see [Maintenance & Backups](maintenance.md).
 
-For advanced users, the **Scoring Configuration** panel offers detailed weight settings:
+## Per-Library Access
 
-**Categories:**
-
-- **Resolution**: Weights for 2160p, 1080p, 720p, 480p
-- **Source**: Weights for BluRay, WEB-DL, HDTV, etc.
-- **Codec**: Weights for x265, x264, AV1, etc.
-- **Audio**: Weights for DTS-HD, TrueHD, FLAC, AAC, etc.
-
-**Bonuses:**
-
-- HDR bonus, Dolby Vision bonus
-- Remux bonus (movies only)
-- PROPER/REPACK bonus
-- Trusted release group bonus
-
-**Trusted Groups:** List of release groups that receive bonus points.
-
-**Blocked Groups:** List of release groups that are excluded from results.
-
-### Import Trending
-
-For each library you can **import trending content**:
-
-1. Open the library settings
-2. Click **Import Trending**
-3. The system fetches current trending data from the metadata provider:
-    - TMDB for movies and shows
-    - IGDB for games
-4. Media items are added to the library
-5. A system list is created (e.g. "Trending Movies")
-
-### Scan Library
-
-The **Scan** button searches the library path for existing media files and imports them into the database.
+Which libraries a user can see is controlled by permissions, not by the library itself: set **Library Access → Allowed Libraries** on a group, or override it per user, alongside parental controls and quality limits. See [Users & Groups](user-management.md).

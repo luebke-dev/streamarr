@@ -1,78 +1,84 @@
 # Dashboard & Home Page
 
-The home page is the central entry point into Pyrate.Media. It shows personalized content, recommendations, and quick access to all features.
+The home page is the central entry point into pyrate.media. It is assembled from configurable **sections** — rows and carousels that your administrator arranges into a page layout. The same section system also powers the library browse pages (Movies, Shows, Games, Music, Books).
 
-## The Home Page
+## Home Page Sections
 
-When you log in, you land on the home page. It is fully configurable by the administrator and consists of various **sections** that are dynamically assembled.
+Depending on how your instance is configured, the home page can contain any combination of these sections, in any order:
 
-### Typical Sections
+| Section | What it shows |
+|---------|---------------|
+| **Hero Carousel** | Full-width rotating showcase with backdrop art, title, and a play button. Fed by trending titles, a specific list, or a dynamic search. Rotates automatically and pauses while you hover over it. |
+| **Continue Watching** | Movies and episodes you started but haven't finished — with progress bars, so one click resumes playback. |
+| **Specific Genre** | A row of media from a single genre (e.g. Action, Comedy). |
+| **All Genres** | One row per genre, generated automatically from your libraries. |
+| **List** | The contents of a curated list — for example a trending list or a [smart collection](../administration/smart-collections.md). |
+| **Dynamic Search** | A row driven by a saved search query and filters (media type, genre, year range, availability, sort order, and more). |
+| **Latest Items** | The most recently added items, newest first. |
+| **Favorites** | Your [favorited media](favorites.md) as a poster row. |
+| **Platforms** | Game platforms with their logos — click one to browse its games. |
+| **Trailers** | Titles with trailers, ready to explore. |
 
-Depending on the admin's configuration, the following sections may be displayed:
+Each section can carry a custom title, and most can be limited to a maximum number of items.
 
-- **Hero Carousel**: Large, animated preview of selected media with backdrop images, titles, and quick actions (play, details)
-- **Continue Watching**: Shows movies and episodes you started but haven't finished yet — with progress bars
-- **Favorites**: Your favorited media as a poster carousel
-- **Genre Sections**: Media grouped by genre (Action, Comedy, Drama, etc.)
-- **List Sections**: Content from specific lists (e.g., trending lists)
-- **Dynamic Search**: Sections based on search terms
+!!! note "Layouts are shared"
+    Page layouts are managed by administrators and apply to everyone on the server. Sections like *Continue Watching* and *Favorites* still show **your** personal content — only the arrangement of sections is shared.
 
-### Page Layout
+### Library Page Layouts
 
-Each library (Movies, Shows, Games, etc.) can have its own page layout. The home page has a separate "Home" layout that works across all libraries.
+Every library page (Movies, Shows, Games, Music, Books) can have its own layout with its own sections. If a library has no layout of its own, it falls back to the **Home** layout.
+
+## Editing Layouts (Administrators)
+
+Administrators can rearrange any page directly in place:
+
+1. Click the **pencil icon** in the toolbar (visible to admins only) — the tooltip reads **Edit Layout**.
+2. In edit mode, every section gains a toolbar:
+    - **Move up / Move down** — reorder sections with the arrow buttons
+    - **Toggle** — temporarily disable a section without deleting it (it is marked *Disabled* and hidden for users)
+    - **Pencil** — open the configuration dialog (section type, optional title, data source, filters, max items)
+    - **Delete** — remove the section after a confirmation
+3. Use the **Add Section** buttons between sections (and at the end of the page) to insert new ones exactly where you want them.
+4. Click the pencil icon again (**Exit Edit Mode**) when you are done.
+
+If a page has no layout yet, admins see a *"No layout configured for this page. Create one?"* prompt with a **Create Layout** button. Layouts can also be managed centrally under **Admin → Page Layouts** — see [Page Layouts](../administration/page-layouts.md).
 
 ## Navigation
 
-### Main Menu (Sidebar)
+### Sidebar (Main Menu)
 
-Open the menu via the hamburger icon in the top left. The menu contains:
+Open the menu via the hamburger icon in the top left:
 
-- **Home**: Back to the home page
-- **Favorites**: All your favorited media
-- **History**: Your playback history
-- **Libraries**: Dynamically based on the libraries created by the admin (e.g., Movies, Shows, Games, Music, Books)
-- **My Lists**: All your personal lists with the option to create new lists directly
+- **Home** — back to the home page
+- **History** — your [viewing history](history.md)
+- **Libraries** — the libraries enabled on your server that you have access to (e.g. Movies, Shows, Games, Music, Books)
+- **My Lists** — your personal [lists](lists.md), with filter tabs by list type and a **+** button to create a new list
 
-### Header (Toolbar)
+### Toolbar
 
 The toolbar at the top contains:
 
-- **Menu Button**: Opens the sidebar
-- **Site Name**: The name of your Pyrate.Media instance
-- **Watch Party Button**: Shows active watch parties
-- **Remote Control**: Allows controlling other devices
-- **User Menu**: Profile, settings, admin area, log out
-- **Search**: Opens the global search
+- **Menu button** — opens the sidebar
+- **Site name** — the name of your instance
+- **Watch party button** — create or join [watch parties](watch-parties.md)
+- **Remote control** — control playback on your other signed-in [devices](devices.md)
+- **User menu** — settings, membership, friends, admin area, log out
+- **Search** — opens the global search
 
-### Global Search
-
-Click the magnifying glass icon in the toolbar or press `/` on the keyboard to open the search. The search works with live results:
-
-1. Type at least 2 characters
-2. After a 200ms typing pause, results are automatically displayed
-3. The search uses Elasticsearch for fast full-text search across all libraries
-4. Results show poster, title, and media type
-5. Press `Escape` to close the search
+!!! tip "Quick search"
+    Press `/` anywhere to jump straight into the search. Type at least two characters to get live suggestions, and press `Escape` to close it again. See [Search](search.md) for details.
 
 ### Global Banners
 
-Admins can display system-wide banners that appear at the top of every page — e.g., for maintenance announcements or news.
+Admins can display system-wide banners at the top of every page — for example for maintenance announcements or news.
 
 ## Audio Player
 
-A persistent audio player can appear at the bottom of the screen when you play music. The player remains visible while navigating between pages.
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `/` | Open global search |
-| `Escape` | Close search/modal |
-| `Space` | Video play/pause (in player) |
-| `F` | Fullscreen (in player) |
+When you play music, a persistent audio player appears at the bottom of the screen and keeps playing while you browse. See [Music](music.md).
 
 ## Next Steps
 
-- [Movies & Shows](movies.md) — Discover and play media
-- [Lists](lists.md) — Create collections
-- [Streaming](streaming.md) — How playback works
+- [Movies & Shows](movies.md) — discover and play media
+- [Search](search.md) — find anything in your libraries
+- [Lists & Collections](lists.md) — curate your own rows
+- [Streaming & Playback](streaming.md) — how playback works

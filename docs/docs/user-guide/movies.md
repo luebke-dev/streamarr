@@ -1,122 +1,78 @@
 # Movies & Shows
 
-Pyrate.Media manages movies and shows as **media libraries**. Each library is created by the admin and can have its own page layout, download rules, and storage paths.
+pyrate.media manages movies and shows as **media libraries**. Each library is created by an admin and can have its own page layout, release scoring rules, and storage paths. This page covers browsing, the media detail page, and how new content gets into your library — including Smart Play, which downloads what you press play on.
 
-## Browsing Libraries
+## Browsing a Library
 
-Select a library from the sidebar menu (e.g., "Movies" or "Shows"). You will land on the library page, which — like the home page — consists of configurable sections:
+Open a library from the **Libraries** section of the sidebar (e.g. *Movies* or *Shows*). Like the home page, a library page is built from configurable sections:
 
-- **Hero Carousel** with selected highlights
-- **Genre Overviews** (Action, Drama, Comedy, etc.)
-- **Trending Lists** with currently popular content
-- **Continue Watching** for content you've started
+- **Hero Carousel** with highlighted titles and a direct play button
+- **Genre rows** (a single genre or all genres)
+- **Latest Items**, **Continue Watching**, **Favorites**
+- **Lists**, **Platforms**, and **Dynamic Search** sections
+- **Trailers** — titles that have trailers in their metadata, with year and trailer count
 
-### Poster Cards
+Media appear as **poster cards** showing the artwork, title, an age-rating badge where set, and — in recommendation rows — which of your friends watched it. Click a card to open the detail page.
 
-Media are displayed as poster cards with:
+!!! note
+    Admins choose which sections appear and in what order (see [Page Layouts](../administration/page-layouts.md)) and can edit the layout inline right on the page. Parental controls may hide titles above your age rating.
 
-- **Poster image** from TMDB/IGDB
-- **Title** of the movie/show
-- On hover: Quick actions to play or open
+## The Media Detail Page
 
-## Media Detail Page
-
-Click on a media item to open the detail page. It shows:
-
-### Hero Section
-
-- **Backdrop image**: Large background image from TMDB
-- **Poster**: Movie poster on the left
-- **Title & Original Title**: Name in your language and original
-- **Tagline**: Movie tagline (if available)
-- **Meta chips**: Year, status, runtime, genres
+The detail page opens with a hero section: backdrop, poster, title and original title, tagline, and meta chips for year, status (e.g. released, *Returning Series*, *Ended*), runtime, age rating, and genres.
 
 ### Actions
 
-- **Play**: Starts Smart Play (see [Streaming](streaming.md))
-- **Add to List**: Opens a dialog to select your lists
-- **Favorite**: Marks the media as a favorite (heart icon)
-- **Refresh Metadata**: Admin only — fetches fresh data from TMDB/IGDB
-- **Notify**: For unavailable media, you can be notified when it becomes available
+| Button | What it does |
+|--------|--------------|
+| **Watch** | Starts Smart Play (see below) |
+| **Notify when available** | Shown instead of *Watch* when the title has no playable source yet — marks the title as *Watching* so it is tracked for you |
+| **Add to List** | Opens a dialog to pick one of your [lists](lists.md) |
+| **Favorite** | Heart icon — adds the title to your [favorites](favorites.md) |
+| **Like** / **Mark played** | Feed your recommendations and viewing state |
+| **Instant Mix** | Starts playback of a mix of similar items |
+| **Refresh Metadata** | Admin only — fetches fresh metadata from the providers |
 
-### Description
+!!! tip "Monitored favorites"
+    A favorite can be **monitored** (shown by a badge on the heart button: "Monitored — auto-downloading & upgrading"). Monitored titles are downloaded automatically when releases appear and upgraded when better-quality releases show up.
 
-Below the hero section, you will find the plot summary and additional details.
+### Below the hero
 
-## Show Hierarchy
+- **Overview** — the plot summary
+- **External Links** — buttons that open the title on external sites in a new tab
+- **Cast** — actor cards; click one to open the person page with photo, department ("known for"), and their filmography, which is imported automatically on first visit
+- **Similar to …** — a row of related movies and shows
 
-Shows have a three-level structure:
+Shows add a season/episode browser on top of this — see [Shows in Detail](shows.md).
 
-```
-Show
- +-- Season 1
- |    +-- Episode 1
- |    +-- Episode 2
- |    +-- ...
- +-- Season 2
- |    +-- Episode 1
- |    +-- ...
- +-- ...
-```
+!!! note
+    Admins additionally see a management panel with the media files (codec info, probing), scored releases, active downloads, and repair tools for subtitles and artwork. Regular users don't see this section.
 
-### Viewing a Show
+## Adding & Requesting Media
 
-On the show detail page, you will see:
+You are not limited to what is already in the library. The [search](search.md) queries the metadata providers too, so results include titles the server doesn't have yet. Opening such a result imports it — with full metadata — and takes you straight to its detail page. From there you can:
 
-- All **seasons** as poster cards with episode counts
-- Click on a season to see its episodes
+1. mark it with **Notify when available**,
+2. **favorite it** and let monitoring auto-download it, or
+3. just press **Watch** and let Smart Play get it now.
 
-### Viewing a Season
+## Smart Play
 
-The season page shows all **episodes** as cards with:
+Pressing **Watch** on something that isn't on disk yet doesn't fail — it triggers the acquisition chain:
 
-- **Thumbnail/still image** of the episode
-- **Episode number** as overlay
-- **Title** and **original air date**
-- **Runtime** (if available)
-- **Description** of the episode
-- **Play button** on hover (if file is available)
+1. **File available** → streaming starts immediately.
+2. **Download already running** → you land on a status screen with progress, speed, and remaining time.
+3. **Releases known** → the best-scored release is downloaded; if it fails, another release is tried automatically.
+4. **Nothing known** → your indexers are searched first.
 
-### Playing an Episode
+Once the download finishes and is imported, playback starts automatically. If no release can be found at all, you can retry the search manually or go back.
 
-Click on an episode or the play button to play it. The Smart Play system automatically decides:
-
-1. **File available** -> Streaming starts immediately
-2. **Releases available** -> Download is started
-3. **No releases** -> Search is initiated at indexers
-
-For shows, the system first tries to use the **resume function**: If you have already watched an episode, it will automatically continue where you left off.
-
-## People
-
-On detail pages of movies and shows, you will find links to **people** (actors, directors, etc.). Click on a person to open their page:
-
-- **Profile picture** from TMDB
-- **Name** and **Known for** (e.g., "Acting", "Directing")
-- **Filmography**: All media in your library that the person was involved in
-
-## Files & Releases
-
-### Available Files
-
-When a media item has been downloaded, the detail page shows the file information:
-
-- File name and size
-- Video and audio codec information
-- Available audio tracks and subtitles
-
-### Releases
-
-Admins additionally see a release table with:
-
-- **Release name**: Full name with quality info
-- **Size**: File size
-- **Score**: Rating based on the configured download rules
-- **Release date**
-- **Download button**: Manual download start
+!!! tip
+    Leaving the status screen does not cancel anything — the download keeps running on the server, and the title becomes playable once it is imported.
 
 ## Next Steps
 
-- [Streaming](streaming.md) — How Smart Play and the player work
-- [Lists](lists.md) — Organize media into lists
-- [Watch Parties](watch-parties.md) — Watch together
+- [Shows in Detail](shows.md) — seasons, episodes, and show resume
+- [Streaming & Playback](streaming.md) — how the player works
+- [Lists & Collections](lists.md) — organize media into lists
+- [Watch Parties](watch-parties.md) — watch together

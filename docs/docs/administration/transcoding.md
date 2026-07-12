@@ -1,100 +1,68 @@
-# Transcoding Settings
+# Transcoding
 
-Transcoding converts media files on-the-fly into a browser-compatible format (HLS) for streaming. It runs inside Docker containers using FFmpeg.
+Transcoding converts media on the fly into a stream the client can actually play, delivered as HLS. pyrate.media never runs FFmpeg inside the backend — every transcode, probe, and trickplay job runs in its own **disposable container**.
 
-## Configuration
+The runtime is auto-detected and shown as a chip next to the page title under **Admin → Transcoding**:
 
-Navigate to **Admin** -> **Transcoding** to configure streaming settings.
+=== "Docker (single host)"
 
-### General Settings
+    FFmpeg runs as a *sibling* container via the host Docker socket. Because mounts are resolved by the host Docker daemon, the `PROJECT_ROOT` variable in your `.env` must be the **absolute host path** of the installation — a container path will break the volume mounts.
 
-| Setting | Description |
-|---------|-------------|
-| **Enable Transcoding** | Master switch for the entire transcoding system. When disabled, no streaming is possible. |
-| **FFmpeg Docker Image** | The Docker image used for transcoding (e.g. `linuxserver/ffmpeg`). Must have FFmpeg installed. |
-| **Temp Path** | Directory where temporary HLS segments are stored. Needs sufficient disk space. |
+=== "Kubernetes"
 
-### Video Settings
+    FFmpeg runs as short-lived **Jobs** using a dedicated ServiceAccount (created by the Helm chart's RBAC). The chart's `transcoding.*` values control the Job namespace, TTL, node selector, tolerations, and an optional GPU request (`transcoding.gpuLimit`). See the [Deployment Overview](../deployment/overview.md).
 
-| Setting | Description |
-|---------|-------------|
-| **Allowed Video Codecs** | Which codecs can be used for output: H.264, H.265/HEVC, VP9 |
-| **Max Resolution** | Maximum output resolution: 480p, 720p, 1080p, 4K |
-| **Default Video Bitrate** | Target bitrate for video encoding. Leave empty to use CRF mode. |
-| **Default CRF** | Constant Rate Factor (0-51). Lower = better quality, larger file. Default: 23. Only used when no bitrate is set. |
+!!! tip "The bundled FFmpeg image"
+    The **FFmpeg Docker Image** setting accepts any image with `ffmpeg`/`ffprobe` on its PATH (default: `lscr.io/linuxserver/ffmpeg:latest`). pyrate.media also ships its own image based on **jellyfin-ffmpeg** (`deployment/docker/ffmpeg/Containerfile`) with VA-API, Vulkan, and OpenCL libraries plus chromaprint for audio fingerprinting.
 
-### Audio Settings
+## Direct play vs. transcoding
 
-| Setting | Description |
-|---------|-------------|
-| **Allowed Audio Codecs** | Which audio codecs can be used: AAC, Opus, MP3 |
-| **Default Audio Bitrate** | Target audio bitrate (e.g. 128k, 192k, 256k) |
-| **Default Audio Channels** | Number of audio channels (2 for stereo, 6 for 5.1 surround) |
+Transcoding is a fallback, not the default. When a user presses play:
 
-### Hardware Acceleration
+1. The client reports its capabilities — the web player detects supported codecs itself, cast targets and registered devices use a **playback profile**.
+2. The server compares them with the source file. If codecs, container, resolution, and bitrate all fit, the file is **direct-played** untouched.
+3. Otherwise an FFmpeg container is started and the player receives an HLS stream. Seeking starts a fresh transcode from the new position.
 
-| Setting | Description |
-|---------|-------------|
-| **Enable Hardware Acceleration** | Use GPU for encoding/decoding |
-| **Hardware Device** | Path to GPU device (e.g. `/dev/dri/renderD128` for Intel/AMD) |
-| **Hardware Acceleration Type** | VAAPI, NVENC (NVIDIA), QSV (Intel QuickSync) |
+Built-in playback profiles exist for `browser`, `chromecast`, and `dlna_generic`; custom profiles (codecs, containers, max resolution/bitrate, direct-play flags) can be managed via `GET`/`PUT /api/play/profiles`. Users can see whether they are transcoding — and why — in the player's **Stream Info** dialog (see [Streaming & Playback](../user-guide/streaming.md)).
 
-!!! info "Hardware Acceleration Setup"
-    For hardware acceleration to work:
+## Settings
 
-    1. The GPU device must be passed through to the Docker container
-    2. The FFmpeg image must include GPU drivers/libraries
-    3. The correct acceleration type must be selected
+Navigate to **Admin → Transcoding**.
 
-    **NVIDIA**: Requires `nvidia-docker2` and an FFmpeg image with NVENC support.
+| Section | Setting | Notes |
+|---------|---------|-------|
+| General | **Enable transcoding** | Master switch. When off, only directly compatible files can be played. |
+| General | **FFmpeg Docker Image** | Image used for transcode, probe, and trickplay containers. |
+| General | **Temporary Directory** | Where HLS segments and trickplay sprites are written. Needs disk space. |
+| Video | **Allowed Video Codecs** | H.264, H.265/HEVC, AV1, VP9. The actual codec is negotiated with the client; H.264 is the compatibility baseline. |
+| Video | **Maximum Resolution** | 480p up to 2160p (4K). |
+| Video | **Default Video Bitrate** | Fixed bitrate; leave empty for CRF mode. |
+| Video | **CRF Value** | 0–51, default 23. Recommended 18–28. Ignored when a bitrate is set. |
+| Audio | **Allowed Audio Codecs** | AAC, Opus, MP3. |
+| Audio | **Default Audio Bitrate** | 128k is fine for most content, 256k+ for music. |
+| Performance | **Enable hardware acceleration** | See below. |
+| Performance | **Threads** | 0 = FFmpeg decides. |
+| Performance | **Prefer compatible codecs for downloads** | Makes automatic release selection favor codecs your users can direct-play. |
+| Performance | **HLS Segment Duration** | 2–15 s, default 6. Shorter = faster seeking, more overhead. |
 
-    **Intel/AMD**: Requires `/dev/dri` device passthrough and an FFmpeg image with VAAPI support.
+Per-user and per-group limits — **Max Concurrent Streams**, **Max Concurrent Transcodings** (0 = no transcoding allowed), and video/audio quality caps — are set on groups, see [Users & Groups](user-management.md). A server-wide concurrent-transcode cap also exists (`transcoding.max_concurrent_transcodes`, 0 = unlimited, settings API only); when it is reached, players show "Server transcoding capacity reached".
 
-### Advanced Settings
+## Hardware acceleration
 
-| Setting | Description |
-|---------|-------------|
-| **Segment Duration** | Length of each HLS segment in seconds (default: 4) |
-| **Playlist Size** | Number of segments in the HLS playlist |
+When enabled, the backend looks for GPU render nodes (`/dev/dri/renderD128`, `/dev/dri/card0`) and passes them into each FFmpeg container, using Intel QuickSync (QSV) encoders when found. You can pin a specific device path in the **Hardware Device** field.
 
-## How Transcoding Works
+!!! warning "The GPU must be visible to the backend"
+    On Docker, `/dev/dri` has to be passed through to the backend/worker containers for detection to work, and `ENABLE_HARDWARE_ACCEL` must not be `false` in the environment. On Kubernetes, request GPUs for transcode Jobs via `transcoding.gpuLimit` and a matching device plugin.
 
-```
-Source File (MKV/MP4/AVI)
-    |
-    v
-FFmpeg in Docker Container
-    |
-    v
-HLS Playlist (.m3u8) + Segments (.ts)
-    |
-    v
-Video.js Player in Browser
-```
+## Trickplay
 
-1. User clicks Play on a media item
-2. A Docker container with FFmpeg is started
-3. FFmpeg reads the source file and outputs HLS segments
-4. Segments are written to the temp directory
-5. The browser player requests the playlist and segments
-6. When the user seeks, the old container is stopped and a new one starts from the seek position
-7. When playback stops, the container is cleaned up and temp files are deleted
+Timeline scrubbing thumbnails are generated automatically alongside every video transcode session: a second FFmpeg container extracts one frame every 10 seconds and tiles them into 10×10 WebP sprite sheets in the temp directory. The player picks them up as soon as the first sheet is ready — no library-scan job is required.
 
-## Monitoring Active Sessions
+## Monitoring sessions and logs
 
-Navigate to **Admin** -> **Active Sessions** to see currently running transcoding sessions:
+- **Admin → Active Sessions** lists running transcoding sessions (user, content, codecs, duration, progress, status) plus device sessions, with per-session **View Details** and **Terminate**, plus **Terminate All** and a **Cleanup** action for orphaned temp files and stale sessions.
+- **Admin → Logs** streams the live FFmpeg container log of any transcoding session, with selectable line count and auto-refresh.
+- Scheduled cleanup ("Clean Orphaned Temp Files", "Clean Stale Transcoding Sessions") runs from **Admin → Tasks** — see [Maintenance & Backups](maintenance.md). Stream counts and transcode storage appear on the [Dashboard](dashboard.md) and in [Monitoring](monitoring.md).
 
-- **User** who is streaming
-- **Media** being watched
-- **Video/Audio Codec** being used
-- **Resolution** of the output
-- **Duration** of the session
-- **Stop** button to kill a session
-
-## Tips
-
-- Start with CRF mode (no fixed bitrate) for automatic quality scaling
-- CRF 18-21 = high quality, CRF 23-26 = medium quality, CRF 28+ = low quality
-- Monitor your temp directory space - active streams can consume several GB
-- Hardware acceleration significantly reduces CPU usage and improves stream start time
-- If streams buffer, try reducing the max resolution or increasing the CRF value
+!!! tip
+    Start in CRF mode and only pin a bitrate if you must cap bandwidth. If streams buffer, lower the maximum resolution or raise the CRF value — and watch the temp directory, active streams can consume several GB.

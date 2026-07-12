@@ -1,90 +1,80 @@
 # Monitoring
 
-Pyrate.Media provides several monitoring tools for administrators to track system activity, debug issues, and manage resources.
+pyrate.media can be monitored on two levels: inside the app via the admin UI (dashboard, active sessions, logs, watch parties) and from the outside via Prometheus metrics, a provisioned Grafana dashboard, health probes, and Postgres query statistics.
 
-## Active Sessions
+## Monitoring in the admin UI
 
-Navigate to **Admin** -> **Active Sessions** to see all running transcoding sessions.
+- The **[Admin Dashboard](dashboard.md)** shows system health, active streams, downloads, user counts, and storage at a glance.
+- **Admin** → **Active Sessions** lists running transcoding sessions (with terminate and cleanup actions) plus connected device sessions and what they are playing. See [Transcoding](transcoding.md) for details.
+- **Admin** → **Parties** shows all active watch parties: stat cards for **Active Parties**, **Connected Users**, and **Total Members**, and a table with name, owner, media, members, guest control, created/expires times. Admins can end a party, which disconnects all members.
 
-Each session shows:
+### Logs
 
-- **User**: Who is streaming
-- **Media**: Title of the content being watched
-- **Video Codec**: Output codec (h264, h265, vp9)
-- **Audio Codec**: Output audio codec (aac, opus)
-- **Resolution**: Output resolution (1080p, 720p, etc.)
-- **Duration**: How long the session has been running
-- **Actions**: Stop session (kills the transcoding container)
+**Admin** → **Logs** combines two views:
 
-!!! tip "Resource Management"
-    Each active stream runs an FFmpeg Docker container. Monitor your server's CPU, RAM, and disk usage if you have many concurrent streams. Hardware acceleration (see [Transcoding](transcoding.md)) significantly reduces CPU load.
+**Transcoding session logs** — pick a transcoding session (each option shows title, user, and video/audio codec, with a green marker for running sessions), choose how many lines to tail (50–1000), and press **Load**. The **Auto** toggle re-fetches the log every few seconds for live monitoring.
 
-## Downloads
+**Activity Logs** — a filterable table of application events with columns **Created**, **Severity**, **Event Type**, **Entity Type**, and **Message**. Filter by event type, severity (`info` / `warning` / `error`), entity type, and date range.
 
-Navigate to **Admin** -> **Downloads** to monitor all download activity.
+!!! tip
+    Full process logs go to the container's stdout — use `docker compose logs backend-python` (or `kubectl logs`). Set `LOG_LEVEL` and `LOG_FORMAT=json` on the backend/worker for structured log shipping; every API request is logged with a request ID that is also returned in the `X-Request-ID` response header.
 
-The downloads page shows a comprehensive table of all downloads (active, completed, and failed):
+## Health endpoints
 
-| Column | Description |
-|--------|-------------|
-| **Title** | Media name |
-| **Status** | queued / downloading / importing / completed / failed |
-| **Progress** | Visual progress bar with percentage |
-| **Size** | Total file size |
-| **Speed** | Current download speed |
-| **Started by** | User who triggered the download |
-| **Downloader** | Which client is handling it |
-| **Time** | When the download started |
+The backend serves two unauthenticated probes at the application root (not under `/api`), intended for Docker healthchecks, Kubernetes probes, and load balancers:
 
-## Background Tasks
+| Endpoint | Purpose | Behavior |
+|----------|---------|----------|
+| `/healthz` | Liveness | Cheap, no external I/O — answers whether the process serves HTTP |
+| `/readyz` | Readiness | Checks PostgreSQL, Redis, and Elasticsearch; returns **503** with per-check `up`/`down` status when any dependency is down |
 
-Navigate to **Admin** -> **Tasks** to see the TaskIQ worker queue.
+## Prometheus metrics
 
-The tasks page shows:
+**Backend** — the API exposes `/metrics` on port 8000: standard HTTP metrics (request counts, latency histograms, in-progress requests) plus `pyrate_*` domain metrics such as `pyrate_media_items_total`, `pyrate_downloads_total`, `pyrate_websocket_connections`, `pyrate_service_health`, and `pyrate_storage_bytes`. Database-backed gauges are refreshed by a sampler every 30 seconds (`PYRATE_METRICS_SAMPLE_INTERVAL_SECONDS`).
 
-- **Running tasks**: Currently executing background jobs
-- **Queued tasks**: Waiting to be processed
-- **Completed tasks**: Recently finished jobs
-- **Failed tasks**: Jobs that encountered errors
+!!! warning "Metrics are fail-closed"
+    `/metrics` returns **404** until you set the `METRICS_TOKEN` environment variable on the backend, and then requires `Authorization: Bearer <token>`. The endpoint reveals route names, user counts, and latency data — keep it off the public internet even with a token.
 
-Common background tasks include:
+**Worker** — each Taskiq worker serves its own metrics on port `9100` (`WORKER_METRICS_PORT`): task throughput and failures (`pyrate_worker_task_events_total`), indexer and download counters, and a `pyrate_worker_up` gauge. This port is unauthenticated, so expose it only on the internal container network.
 
-- Metadata fetching from TMDB/IGDB
-- Release searching on indexers
-- Download monitoring and import
-- Library scanning
-- Trending list updates
+```yaml
+scrape_configs:
+  - job_name: pyrate-backend
+    metrics_path: /metrics
+    authorization:
+      credentials: <METRICS_TOKEN value>
+    static_configs:
+      - targets: ["backend-python:8000"]
+  - job_name: pyrate-worker
+    static_configs:
+      - targets: ["worker:9100"]
+```
 
-## System Logs
+!!! note
+    With multiple worker replicas behind one Compose DNS name, scrapes round-robin across replicas. Counter rates summed across the job stay correct; for per-replica accuracy use per-instance discovery (e.g. Kubernetes pod discovery).
 
-Navigate to **Admin** -> **Logs** to view system logs.
+## Grafana dashboard
 
-The log viewer provides:
+The development Compose stack ships Prometheus (port 9090) and Grafana (port 3005, default login `admin` / `pyrate`) with an auto-provisioned datasource and the **pyrate.media Overview** dashboard (22 panels). For the other [deployment models](../deployment/overview.md), point your own Prometheus at the endpoints above and import `observability/grafana/dashboards/pyrate-overview.json`.
 
-- **Log entries** with timestamps
-- **Log levels**: DEBUG, INFO, WARNING, ERROR
-- **Filtering** by log level
-- **Search** through log messages
-- **Auto-refresh** for live monitoring
+| Panel group | Panels |
+|-------------|--------|
+| API traffic | Request rate, error rate, latency percentiles, requests by status, top-10 slowest API handlers |
+| Library & users | Media items, media files, missing artwork, user/device/favorite/list signals |
+| Downloads | Active downloads, status transitions & retries, downloader client jobs, indexer searches |
+| Caches & rendering | Artwork cache files/size/events, rendered layout cache events and render p95 |
+| Workers & realtime | Worker task events by category and status, WebSocket connections |
+| Health & storage | Per-component service health, downloader client health, storage used per path |
 
-## Watch Parties
+## Postgres query statistics
 
-Navigate to **Admin** -> **Watch Parties** to see all active watch parties across the system:
+The development Compose file and the Helm chart provision PostgreSQL with `pg_stat_statements` (tracking all statements) and slow-query logging: any statement over **500 ms** is written to the Postgres log. On other deployments, add the same server flags to get identical visibility.
 
-- **Party name** and **code**
-- **Host**: Who created the party
-- **Media**: What is being watched
-- **Members**: Number of participants
-- **Status**: Active/Ended
-- **Actions**: End party (admin override)
+```sql
+SELECT calls, round(mean_exec_time) AS avg_ms, query
+FROM pg_stat_statements
+ORDER BY mean_exec_time DESC
+LIMIT 10;
+```
 
-## Lists (Admin View)
-
-Navigate to **Admin** -> **Lists** to see all lists across all users:
-
-- **System lists**: Trending lists created by the system
-- **User lists**: Personal lists created by users
-- **Visibility**: Public or Private
-- **Item count**: Number of media items
-- **Owner**: Who created the list
-- **Actions**: View, Edit, Delete (for moderation)
+For database backups and storage cleanup, see [Maintenance & Backups](maintenance.md).

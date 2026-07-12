@@ -1,137 +1,86 @@
 # Page Layouts
 
-Page Layouts control what content sections appear on the home page and each library page. This is how you customize the user experience - choosing which sections are shown, in what order, and with what configuration.
+Page layouts control which content sections appear on the home page and on the library browse pages (Movies, Shows, Games, Music, Books): which sections are shown, in what order, and with what configuration. Layouts are managed by administrators and apply to **all users** — there is no per-user layout.
 
-## Overview
+Navigate to **Admin** -> **Page Layouts** to see all configured layouts with their name, slug, active state, and section count.
 
-Navigate to **Admin** -> **Page Layouts** to see all configured layouts.
+## Layout properties
 
-Each layout has:
+| Field | Description |
+|-------|-------------|
+| **Name** | Descriptive name shown in the admin list (e.g. "Home", "Movies") |
+| **Slug** | Unique URL identifier; `home` = default layout |
+| **Library** | Optional — binds this layout to a specific library's browse page |
+| **Active** | Only active layouts are ever used; inactive ones are skipped |
 
-- **Name**: Descriptive name (e.g. "Home Page", "Movies Library")
-- **Slug**: URL identifier (e.g. `home` for the default home page)
-- **Library**: Optional - if set, this layout is used for a specific library page
-- **Active**: Whether the layout is currently in use
-- **Sections**: Number of configured sections
+## How a page picks its layout
 
-## Creating a Layout
+- The **home page** (`/`) always uses the layout with slug `home`.
+- A **browse page** (e.g. `/movies`) uses the layout whose **Library** field points to the library of that media type. If no such layout exists (or it is inactive), the page falls back to the `home` layout.
 
-1. Navigate to **Admin** -> **Page Layouts**
-2. Click **Create Layout**
-3. Fill in the details:
-    - **Name**: A descriptive name
-    - **Slug**: URL slug (use `home` for the default home page layout)
-    - **Library**: Optionally assign to a specific library
-    - **Active**: Toggle on/off
-4. Click **Save**
-5. After saving, you can add sections
+!!! warning "Bind browse-page layouts via the Library field"
+    Only the `home` slug is special. Giving a layout the slug `movies` does **not** attach it to the Movies page by itself — set the **Library** field so the layout is picked up.
 
-!!! info "The Home Layout"
-    The layout with slug `home` is the default home page layout shown to all users on the main page (`/`). Each library can have its own layout assigned.
+!!! note
+    Slugs are unique: creating a layout with a slug that is already taken is rejected with a conflict error. The `home` layout cannot be deleted from the list.
 
-## Section Types
+## Section types
 
-Each section is a content block on the page. Available types:
+Each section is one content block on the page. When adding a section you pick a **Section Type**, an optional **Title** (displayed as the section header), and type-specific settings:
 
-### Hero Carousel
+| Section type | What it shows | Configuration |
+|--------------|---------------|---------------|
+| **Hero Carousel** | Large featured carousel with backdrops at the top of the page | Data source: **Trending** (default), a **specific list**, or a **dynamic search** with filters |
+| **Continue Watching** | The user's in-progress items with resume | Content type filter (Movies, Shows, Games, Music, Books) |
+| **Favorites** | The user's favorited items | — |
+| **Specific Genre** | One poster row for a single genre | Genre (required), max items (1–50), optional filters |
+| **All Genres** | One row per genre that has items | Max items per genre (1–50), optional filters |
+| **Latest Items** | Most recently added media | Media type filter, max items |
+| **Trailers** | Browsable trailer row | Media type filter, trailer search term, max items |
+| **Platforms** | Game platforms for browsing | — |
+| **List** | Items from a curated or system list | List selection, max items; alternatively a per-user list source or a prefix that renders multiple rows (e.g. recommendation rows) |
+| **Dynamic Search** | Results of a saved search query | Filters + max items |
 
-A large, animated carousel at the top of the page showing featured media with backdrop images, titles, and quick action buttons (Play, Details).
+**Dynamic search filters** cover media type, genre, platform, availability (local files / has releases / neither), has-poster/has-description, release-year range, sort field (title, release date, date added, date updated), sort order, and a free-text query.
 
-**Configuration:**
+## Managing sections
 
-- **List**: Select a specific list to source items from, or leave empty for trending items
+1. Create the layout and click **Save** first — sections can only be added to a saved layout.
+2. **Add Section**, choose the type, set the optional title and configuration, and save.
+3. Reorder with the **up/down arrows**; the order is the display order on the page.
+4. Use the **toggle** to disable a section without deleting it (disabled sections are hidden from users), the **pencil** to edit, and the **trash icon** to delete.
 
-### Continue Watching
+## Inline edit mode
 
-Shows media the user has started but not finished, with progress bars. Users can quickly resume playback.
+Administrators do not have to use the admin area at all: on the home page and every browse page, admins see a **pencil button** in the top toolbar (**Edit Layout** / **Exit Edit Mode**). In edit mode you can add a section at any position, edit, reorder, enable/disable, and delete sections directly on the live page. If a page has no layout of its own yet, pyrate.media offers to create one on the spot.
 
-**Configuration:**
+!!! note "Admin-only"
+    The pencil only appears for administrators, and inline edits change the shared layout for everyone — it is not per-user personalization. Regular users never see edit controls; they only browse the result (see [Dashboard & Home](../user-guide/dashboard.md)).
 
-- **Content Type**: Filter by type (movies, episodes, etc.) or show all
+## What users actually see
 
-### Favorites
+- Sections that produce **no content for a user** (e.g. Continue Watching with nothing in progress, an empty Favorites row) are automatically hidden for that user.
+- Section content respects each user's **library permissions and parental controls** — two users can see different items in the same section.
+- Rendered layouts are cached; your changes take effect immediately for you, but other users may see the previous layout for a few minutes.
 
-Displays the user's favorited media as a horizontal poster carousel.
+## Example
 
-### Genre Section
+=== "Home"
 
-Shows media from a specific genre as a horizontal poster row.
+    1. **Hero Carousel** — trending items
+    2. **Continue Watching** — all media types
+    3. **Favorites**
+    4. **Latest Items** — recently added
+    5. **All Genres** — 10 items per genre
 
-**Configuration:**
+=== "Movies browse page"
 
-- **Genre**: Select which genre to display (required)
-- **Max Items**: Maximum number of items to show (1-50)
+    A layout with **Library** set to the movie library:
 
-### All Genres
+    1. **Hero Carousel** — dynamic search: recent releases
+    2. **Continue Watching** — content type: Movies
+    3. **Specific Genre** — Action
+    4. **List** — a curated list (see [Lists & Collections](../user-guide/lists.md), or feed it automatically with [Smart Collections](smart-collections.md))
+    5. **Trailers** — media type: Movies
 
-Automatically shows all genres with items, each as its own horizontal row.
-
-**Configuration:**
-
-- **Max Items per Genre**: How many items to show per genre row (1-50)
-
-### List Section
-
-Shows items from a specific list (user list or system list).
-
-**Configuration:**
-
-- **List**: Select which list to display (required)
-
-### Dynamic Search
-
-Shows results based on configurable search/filter criteria.
-
-**Configuration:**
-
-- **Media Type**: Filter by type
-- **Genre**: Filter by genre(s)
-- **Year From/To**: Filter by release year range
-- **Sort By**: How to sort results
-- **Sort Order**: Ascending or descending
-- **Query**: Optional search query
-
-## Managing Sections
-
-### Adding a Section
-
-1. Open a layout's edit page
-2. Click **Add Section**
-3. Select the **Section Type**
-4. Give it an optional **Title** (displayed as the section header)
-5. Configure type-specific settings
-6. Click **Save**
-
-### Reordering Sections
-
-Use the **up/down arrows** next to each section to change its position. The order determines the display order on the page.
-
-### Enabling/Disabling Sections
-
-Toggle the switch next to a section to show or hide it without deleting it.
-
-### Editing a Section
-
-Click the **pencil icon** to modify a section's configuration.
-
-### Deleting a Section
-
-Click the **trash icon** and confirm to permanently remove a section.
-
-## Example Layout Configuration
-
-A typical home page layout might have:
-
-1. **Hero Carousel** - Trending movies from a system list
-2. **Continue Watching** - User's in-progress media
-3. **Favorites** - User's favorited items
-4. **All Genres** - Browse by genre with 10 items each
-
-A library-specific layout (e.g. for Movies) might have:
-
-1. **Hero Carousel** - Featured movies
-2. **Continue Watching** - Filtered to movies only
-3. **Genre: Action** - Action movies
-4. **Genre: Comedy** - Comedy movies
-5. **List: Trending Movies** - System trending list
-6. **Dynamic Search** - New releases from the past year, sorted by release date
+See also [Banners](banners.md) for site-wide announcement bars, which are configured separately from page layouts.

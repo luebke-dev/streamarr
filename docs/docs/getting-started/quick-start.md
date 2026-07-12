@@ -1,248 +1,80 @@
 # Quick Start
 
-This guide helps you get up and running quickly with Pyrate.Media.
+This guide takes a freshly [installed](installation.md) pyrate.media server from an empty database to a working instance: create the first admin account, configure metadata providers, create libraries, wire up download automation, import some content, and invite your users.
 
-## First Login
+## 1. Run the setup wizard
 
-After the [Installation](installation.md):
+Open `http://<your-server>/install` in a browser. The wizard is only available while no user account exists — afterwards it reports "System already installed" and points you to the login page.
 
-1. Open your browser and navigate to your Pyrate.Media instance
-2. Log in with your credentials (or via OIDC)
-3. You will see the dashboard
+The wizard has three steps:
 
-## Initial Setup
+1. **Administrator Account** — first name, last name, email address, and a password (at least 8 characters, containing an uppercase letter, a lowercase letter, and a digit). The first account is automatically a full administrator.
+2. **System Configuration** — the site name (shown as the name of your media collection) and the default system language (English or German).
+3. **Confirmation** — review your entries and click **Complete Setup**.
 
-### 1. Activate Plugins
+You are redirected to the login page; sign in with the credentials you just created. Site name and language can be changed later under **Administration → Settings**.
 
-Before you can search for media, activate the metadata providers:
+## 2. Configure metadata providers
 
-#### TMDB (for Movies & Shows)
+Go to **Administration → Metadata**. Each provider shows whether it is **Configured**, **Not Configured**, or needs no configuration at all. Expand a provider, enter its credentials, use **Test Connection**, and save.
 
-1. Go to **Administration** → **Plugins**
-2. Find **TMDB** in the list
-3. Click **Configure**
-4. Enter your TMDB API key
-5. Click **Save**
+| Provider | Used for | Credentials |
+|----------|----------|-------------|
+| TMDB | Movies & shows | API key (Bearer token) |
+| TVDB | TV shows | API key, optional subscriber PIN |
+| IGDB | Games | Twitch Client ID + Client Secret |
+| Spotify | Music | Client ID + Client Secret |
+| MusicBrainz | Music | none required |
+| OpenLibrary | Books | none required |
 
-#### IGDB (for Games)
+!!! tip "Providers first, libraries second"
+    Configure providers **before** creating libraries — the library form auto-selects a compatible metadata provider and warns you if none is configured for the chosen type.
 
-1. Find **IGDB** in the plugin list
-2. Click **Configure**
-3. Enter Client ID and Client Secret
-4. Click **Save**
+See [Metadata Providers](../administration/plugins.md) for details.
 
-### 2. Create Libraries
+## 3. Create your libraries
 
-Create at least one library:
+Go to **Administration → Libraries → Create Library** and create one library per media type you want to serve: **Movies**, **Shows**, **Music**, **Games**, **Books**, or **Photos**.
 
-1. Go to **Administration** → **Libraries**
-2. Click **New Library**
-3. Choose the type:
-   - **Movies** - For movies
-   - **Shows** - For TV shows
-   - **Games** - For video games
-4. Enter a name
-5. Configure the storage path (e.g., `/data/library/movies`)
-6. Click **Create**
+- **Library Type** — the media type; the matching library plugin and metadata provider are selected automatically.
+- **Library Name** — a unique name.
+- **Library Path** — where files are stored. The path must be an **existing directory** visible to the backend, e.g. `/data/library/movies`.
 
-### 3. Set Up Indexers (Optional)
+!!! warning "One library per type"
+    Only one library of each type can be created.
 
-To search for and download releases:
+Per-library settings — file naming templates, download rules, and quality/release scoring — are covered in [Libraries](../administration/libraries.md).
 
-1. Go to **Administration** → **Indexers**
-2. Click **Add Indexer**
-3. Choose the type (e.g., Newznab)
-4. Configure:
-   - **Name**: A name for the indexer
-   - **URL**: The indexer URL
-   - **API-Key**: Your API key
-5. Click **Test Connection**
-6. Click **Save**
+## 4. Wire up download automation (optional)
 
-### 4. Set Up Download Client (Optional)
+Skip this section if you only stream existing files. With at least one indexer and one download client configured, **Smart Play** works: pressing play on an item you don't have yet searches your indexers, downloads the best-scored release, and starts streaming.
 
-To start downloads:
+=== "Indexers"
 
-1. Go to **Administration** → **Downloader**
-2. Click **Add Downloader**
-3. Choose the client type:
-   - **SABnzbd** - For Usenet
-   - **Deluge** - For Torrents
-4. Configure:
-   - **Name**: A name for the client
-   - **Host**: IP address or hostname
-   - **Port**: Web interface port
-   - **API-Key/Password**: Authentication
-5. Click **Test Connection**
-6. Click **Save**
+    **Administration → Indexers → Add Indexer.** Choose **Newznab** (Usenet) or **Torznab** (torrents), then enter a name, the host/URL, and your API key. The form tests the connection before saving (you can also continue without a test). Options include RSS sync and per-indexer priority. See [Indexers](../administration/indexers.md).
 
-## Adding Media
+=== "Download clients"
 
-### Add a Movie
+    **Administration → Downloaders → Add Downloader.** Choose **SABnzbd** (Usenet), **Deluge** (torrents), or **SpotDL** (Spotify music), give it a label, and fill in the connection fields for that client type, including the SSL options. See [Download Clients](../administration/downloaders.md).
 
-1. **Start a search**
-   - Navigate to **Movies** in the menu
-   - Use the search bar at the top
-   - Type in the movie title
+## 5. Import trending content (optional)
 
-2. **Select a movie**
-   - Browse the results
-   - Click on the desired movie
-   - View the details
+To fill empty libraries and the home page with popular titles, go to **Administration → Tasks** and run the trending refresh tasks in the **Metadata** category:
 
-3. **Add to library**
-   - Click **Add to Library**
-   - The movie will be added to your library
+- **Trending Movies Refresh** and **Trending Shows Refresh** (from TMDB)
+- **Trending Games Refresh** (from IGDB)
+- **Trending Music Refresh** (from Spotify Charts)
 
-### Add a Show
+Each task imports the current trending items into the matching library and keeps a trending list up to date. These tasks also run automatically on a schedule.
 
-1. **Search for a show**
-   - Navigate to **Shows**
-   - Search for the show
-   - Click on the show
+## 6. Invite your users
 
-2. **Seasons & Episodes**
-   - View the season overview
-   - Click on a season for episodes
-   - Each episode can be played individually
+Registration requires an invite by default. Go to **Administration → Invites → Create Invite**, optionally set a description, expiry date, and maximum number of uses, then copy the invite link and share it. The link opens the registration page with the invite applied.
 
-### Create a List
+Alternatively, create accounts directly under **Administration → Users → Add User**. Organize users into groups with library access, streaming limits, and parental controls — see [Users & Groups](../administration/user-management.md).
 
-1. **Create a new list**
-   - Click on **Lists** in the menu
-   - Click **New List**
-   - Enter a name (e.g., "Watchlist")
-   - Choose the visibility (Private/Public)
-   - Click **Create**
+## Next steps
 
-2. **Add media to the list**
-   - Open a movie or show
-   - Click **Add to List**
-   - Select your list
-
-## Playing Media
-
-### Smart Play
-
-Pyrate.Media uses "Smart Play" - the system automatically decides what to do:
-
-1. **File available** → Streaming starts immediately
-2. **Releases available** → Download is started
-3. **No releases** → Search is started
-
-### Play a Movie
-
-1. Open a movie
-2. Click **Play**
-3. Depending on the status:
-   - **Ready immediately**: Player opens
-   - **Download in progress**: Progress indicator
-   - **Search in progress**: Waiting screen
-
-### Play an Episode
-
-1. Open a show
-2. Select the season
-3. Click on an episode
-4. Click **Play**
-
-### In the Player
-
-- **Pause/Play**: Spacebar or click
-- **Fast forward/Rewind**: Arrow keys or slider
-- **Fullscreen**: F or double-click
-- **Volume**: Mouse wheel or volume slider
-
-## Start a Watch Party
-
-Watch together with friends:
-
-1. **Create a party**
-   - Open a media item
-   - Click **Start Watch Party**
-   - A party code is generated
-
-2. **Share the code**
-   - Share the 6-digit code with friends
-   - Friends go to **Watch Parties** → **Join**
-   - Enter the code
-
-3. **Synchronized viewing**
-   - The host controls playback
-   - All participants are synchronized
-   - Play/Pause/Seek applies to everyone
-
-## Understanding the Interface
-
-### Navigation
-
-The side menu contains:
-
-- **Dashboard**: Overview and recent activity
-- **Movies**: Movie library
-- **Shows**: Show library
-- **Games**: Game library
-- **Lists**: Your own collections
-- **Administration**: System settings (admins only)
-
-### Dashboard
-
-The dashboard shows:
-
-- **Trending**: Popular content
-- **Recently Added**: New media
-- **Lists**: Quick access to your lists
-
-### User Menu
-
-In the top right corner you will find:
-
-- **Profile**: Your settings
-- **Language Settings**: UI, audio, subtitles
-- **Log Out**: Sign out
-
-## User Settings
-
-### Language Settings
-
-1. Click on your profile picture
-2. Select **Settings**
-3. Configure:
-   - **UI Language**: German or English
-   - **Audio Language**: Preferred audio track
-   - **Subtitle Language**: Preferred subtitles
-
-### Edit Profile
-
-- **Name**: Display name
-- **Email**: Contact email
-- **Password**: Only for local accounts (not OIDC)
-
-## Tips
-
-### Use Trending
-
-1. The admin can import trending lists
-2. Go to **Administration** → **Libraries**
-3. Click **Import Trending** on a library
-4. Popular movies/shows will be added to the library
-
-### Use Search Effectively
-
-- The search looks through titles and descriptions
-- Elasticsearch enables fast full-text search
-- Filter by media type in the search results
-
-### Manage Downloads
-
-1. Go to **Administration** → **Downloads**
-2. View all active and completed downloads
-3. Downloads can be deleted
-
-## Next Steps
-
-1. **[Dashboard](../user-guide/dashboard.md)** - All dashboard features
-2. **[Movies](../user-guide/movies.md)** - Movie management in detail
-3. **[Shows](../user-guide/shows.md)** - Show management in detail
-4. **[Streaming](../user-guide/streaming.md)** - Streaming features
-5. **[Administration](../administration/overview.md)** - Advanced settings
+- [Dashboard & Home](../user-guide/dashboard.md) — the home page and its configurable sections
+- [Streaming & Playback](../user-guide/streaming.md) — direct play, transcoding, and the player
+- [Administration Overview](../administration/overview.md) — everything else in the admin area
