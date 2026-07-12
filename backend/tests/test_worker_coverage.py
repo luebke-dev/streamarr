@@ -112,51 +112,6 @@ async def _fake_session_ctx(session):
 
 
 # ---------------------------------------------------------------------------
-# retry_db_operation
-# ---------------------------------------------------------------------------
-
-
-class TestRetryDbOperation:
-    @pytest.mark.asyncio
-    async def test_success_first_try(self):
-        from pyrate.worker import retry_db_operation
-
-        op = AsyncMock(return_value="ok")
-        result = await retry_db_operation(op)
-        assert result == "ok"
-        op.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_retries_on_interface_error(self):
-        from sqlalchemy.exc import InterfaceError
-        from pyrate.worker import retry_db_operation
-
-        op = AsyncMock(side_effect=[InterfaceError("stmt", {}, Exception()), "ok"])
-        result = await retry_db_operation(op, max_retries=2, delay=0.01)
-        assert result == "ok"
-        assert op.await_count == 2
-
-    @pytest.mark.asyncio
-    async def test_raises_after_max_retries(self):
-        from sqlalchemy.exc import InterfaceError
-        from pyrate.worker import retry_db_operation
-
-        op = AsyncMock(side_effect=InterfaceError("stmt", {}, Exception()))
-        with pytest.raises(InterfaceError):
-            await retry_db_operation(op, max_retries=2, delay=0.01)
-        assert op.await_count == 2
-
-    @pytest.mark.asyncio
-    async def test_non_retryable_error_raises_immediately(self):
-        from pyrate.worker import retry_db_operation
-
-        op = AsyncMock(side_effect=ValueError("bad"))
-        with pytest.raises(ValueError):
-            await retry_db_operation(op)
-        op.assert_awaited_once()
-
-
-# ---------------------------------------------------------------------------
 # _parse_spotify_date
 # ---------------------------------------------------------------------------
 

@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
-from sqlalchemy.exc import DisconnectionError, InterfaceError
 from sqlalchemy.orm import selectinload
 
 from pyrate.config import settings
@@ -77,26 +76,6 @@ def _get_external_id(media_item: MediaItem, provider: str) -> str | None:
         if ext_id.provider == provider:
             return ext_id.external_id
     return None
-
-
-async def retry_db_operation(operation, max_retries=3, delay=1.0):
-    """Retry database operations that might fail due to connection issues."""
-    for attempt in range(max_retries):
-        try:
-            return await operation()
-        except (InterfaceError, DisconnectionError) as e:
-            if attempt == max_retries - 1:
-                logger.error("Database operation failed after %s attempts: %s", max_retries, e)
-                raise
-            logger.warning(
-                "Database operation failed (attempt %s/%s): %s",
-                attempt + 1, max_retries, e,
-            )
-            await asyncio.sleep(delay * (2**attempt))  # Exponential backoff
-        except Exception as e:
-            # Don't retry for other types of exceptions
-            logger.error("Non-retryable database error: %s", e)
-            raise
 
 
 @broker.task(schedule=[{"cron": "* * * * *"}])

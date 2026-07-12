@@ -43,6 +43,9 @@ class ListService:
     # Base filter to exclude soft-deleted lists from all queries
     _NOT_DELETED = List.deleted_at.is_(None)
 
+    # update_source key of the per-user SYSTEM list backing "liked media".
+    LIKED_MEDIA_UPDATE_SOURCE = "user:liked_media"
+
     def __init__(self, db: AsyncSession):
         """Initialize the list service.
 
@@ -1317,6 +1320,80 @@ class ListService:
         except IntegrityError:
             await self.db.rollback()
         return True
+
+    # Liked-media (per-user SYSTEM list) operations
+    async def get_or_create_likes_list(
+        self, user_guid: str | uuid.UUID
+    ) -> List:
+        """Get or create the user's per-user SYSTEM "Liked Media" list."""
+        return await self.get_or_create_system_list(
+            user_guid,
+            update_source=self.LIKED_MEDIA_UPDATE_SOURCE,
+            name="Liked Media",
+            description="Media items liked by the user",
+        )
+
+    async def get_likes_list(self, user_guid: str | uuid.UUID) -> List | None:
+        """Return the user's "Liked Media" list, or None if not yet created."""
+        result = await self.db.execute(
+            select(List).where(
+                List.owner_guid == _convert_to_uuid(user_guid),
+                List.update_source == self.LIKED_MEDIA_UPDATE_SOURCE,
+                List.list_type == ListType.SYSTEM,
+                self._NOT_DELETED,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_like_item(
+        self, user_guid: str | uuid.UUID, media_item_guid: uuid.UUID
+    ) -> ListItem | None:
+        """Return the like ListItem for a media item, or None if not liked."""
+        likes_list = await self.get_likes_list(user_guid)
+        if likes_list is None:
+            return None
+        result = await self.db.execute(
+            select(ListItem).where(
+                ListItem.list_guid == likes_list.guid,
+                ListItem.item_guid == media_item_guid,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def set_liked(
+        self,
+        *,
+        user_guid: uuid.UUID,
+        media_item: MediaItem,
+        liked: bool,
+    ) -> None:
+        """Add or remove a media item from the user's "Liked Media" list."""
+        from sqlalchemy import delete as sa_delete
+
+        from pyrate.services.favorite import MEDIA_TYPE_TO_ITEM_TYPE
+
+        existing = await self.get_like_item(user_guid, media_item.guid)
+        if liked and existing is None:
+            likes_list = await self.get_or_create_likes_list(user_guid)
+            media_type = media_item.media_type.value
+            self.db.add(
+                ListItem(
+                    list_guid=likes_list.guid,
+                    item_type=MEDIA_TYPE_TO_ITEM_TYPE.get(media_type, "MOVIE"),
+                    item_guid=media_item.guid,
+                    added_by_guid=user_guid,
+                )
+            )
+            likes_list.item_count += 1
+            await self.db.commit()
+        elif not liked and existing is not None:
+            likes_list = await self.get_likes_list(user_guid)
+            await self.db.execute(
+                sa_delete(ListItem).where(ListItem.guid == existing.guid)
+            )
+            if likes_list is not None:
+                likes_list.item_count = max(0, likes_list.item_count - 1)
+            await self.db.commit()
 
     async def get_user_liked_lists(
         self, user_guid: str, skip: int = 0, limit: int = 20
