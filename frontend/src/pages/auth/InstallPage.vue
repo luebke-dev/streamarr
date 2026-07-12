@@ -286,7 +286,7 @@
 import { defineComponent, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { api } from 'src/boot/axios'
+import { getInstallStatus, setupInstall } from 'src/services/authService'
 import { logger } from 'src/utils/logger'
 import { useBackgroundRotation } from 'src/composables/useBackgroundRotation'
 import PasswordPairField from 'src/components/PasswordPairField.vue'
@@ -343,8 +343,8 @@ export default defineComponent({
     const checkInstallStatus = async () => {
       try {
         checkingStatus.value = true
-        const response = await api.get('/api/install/status')
-        alreadyInstalled.value = response.data.installed
+        const data = await getInstallStatus()
+        alreadyInstalled.value = data.installed
       } catch (err) {
         logger.error('Error checking install status:', err)
         alreadyInstalled.value = false
@@ -358,7 +358,7 @@ export default defineComponent({
         loading.value = true
         error.value = ''
 
-        const response = await api.post('/api/install/setup', {
+        const data = await setupInstall({
           email: form.value.email,
           password: form.value.password,
           first_name: form.value.first_name,
@@ -367,7 +367,7 @@ export default defineComponent({
           locale: form.value.locale,
         })
 
-        if (response.data.success) {
+        if (data.success) {
           router.push('/auth/login')
         }
       } catch (err) {

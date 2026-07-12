@@ -273,7 +273,18 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
+import {
+  getSystemSettings,
+  getStorageOverview,
+  listUsers,
+  getOnlineUsers,
+  getMedia,
+  listSessions,
+  listDownloads,
+  listIndexers,
+  listDownloaders,
+  listLibraries,
+} from 'src/services/acquisitionAdminService'
 import { logger } from 'src/utils/logger'
 import { formatFileSize, formatTime } from 'src/composables/useMediaFormatters'
 import { downloadStatusColor, downloadStatusIcon } from './downloadStatus'
@@ -401,7 +412,7 @@ const loadAll = () =>
 
 const loadHealth = async () => {
   try {
-    await api.get('/api/settings/system')
+    await getSystemSettings()
     systemHealth.value = 'healthy'
   } catch (e) {
     logger.warn('System health probe failed', e)
@@ -412,24 +423,22 @@ const loadHealth = async () => {
 const loadStats = async () => {
   try {
     const mediaTypes = ['MOVIES', 'SHOWS', 'SONGS', 'GAMES', 'BOOKS']
-    const [usersRes, totalRes, ...mediaRes] = await Promise.all([
-      api.get('/api/users'),
-      api.get('/api/media', { params: { per_page: 1 } }),
-      ...mediaTypes.map((media_type) =>
-        api.get('/api/media', { params: { media_type, per_page: 1 } }),
-      ),
+    const [users, total, ...mediaRes] = await Promise.all([
+      listUsers(),
+      getMedia({ per_page: 1 }),
+      ...mediaTypes.map((media_type) => getMedia({ media_type, per_page: 1 })),
     ])
-    stats.totalUsers = (usersRes.data || []).length
+    stats.totalUsers = (users || []).length
     try {
-      const onlineRes = await api.get('/api/users/online')
-      stats.activeUsers = onlineRes.data?.count ?? 0
+      const online = await getOnlineUsers()
+      stats.activeUsers = online?.count ?? 0
     } catch (err) {
       logger.warn('Failed to load online user count:', err)
       stats.activeUsers = 0
     }
-    stats.totalLibraryItems = totalRes?.data?.total || 0
+    stats.totalLibraryItems = total?.total || 0
     ;[stats.movieCount, stats.showCount, stats.musicCount, stats.gameCount, stats.bookCount] =
-      mediaRes.map((r) => r?.data?.total || 0)
+      mediaRes.map((r) => r?.total || 0)
   } catch (error) {
     logger.error('Error loading stats:', error)
   }
@@ -437,9 +446,9 @@ const loadStats = async () => {
 
 const loadSessions = async () => {
   try {
-    const res = await api.get('/api/sessions')
-    sessions.value = res.data.sessions || []
-    stats.activeStreams = res.data.active_count || 0
+    const res = await listSessions()
+    sessions.value = res.sessions || []
+    stats.activeStreams = res.active_count || 0
   } catch (error) {
     logger.error('Error loading sessions:', error)
   }
@@ -447,7 +456,7 @@ const loadSessions = async () => {
 
 const loadDownloads = async () => {
   try {
-    const all = (await api.get('/api/downloads')).data || []
+    const all = (await listDownloads()) || []
     stats.activeDownloads = all.filter(
       (d) => d.status === 'downloading' || d.status === 'in_progress' || d.status === 'queued',
     ).length
@@ -462,13 +471,13 @@ const loadDownloads = async () => {
 const loadSystemInfo = async () => {
   try {
     const [i, d, l] = await Promise.all([
-      api.get('/api/indexers'),
-      api.get('/api/downloaders'),
-      api.get('/api/libraries', { params: { include_disabled: true } }),
+      listIndexers(),
+      listDownloaders(),
+      listLibraries({ include_disabled: true }),
     ])
-    systemInfo.activeIndexers = i.data?.length || 0
-    systemInfo.activeDownloaders = d.data?.length || 0
-    systemInfo.libraryCount = l.data?.length || 0
+    systemInfo.activeIndexers = i?.length || 0
+    systemInfo.activeDownloaders = d?.length || 0
+    systemInfo.libraryCount = l?.length || 0
   } catch (error) {
     logger.error('Error loading system info:', error)
   }
@@ -477,7 +486,7 @@ const loadSystemInfo = async () => {
 const loadStorage = async () => {
   storageLoading.value = true
   try {
-    storageData.value = (await api.get('/api/settings/storage/overview')).data
+    storageData.value = await getStorageOverview()
   } catch (error) {
     logger.error('Error loading storage:', error)
   } finally {

@@ -327,8 +327,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import { getGroup, createGroup, updateGroup } from 'src/services/accessAdminService'
 import {
   LIBRARY_OPTIONS,
   VIDEO_QUALITY_OPTIONS,
@@ -380,8 +380,7 @@ const loadGroup = async () => {
   if (isCreateMode.value) return
 
   try {
-    const response = await api.get(`/api/groups/${groupId.value}`)
-    const group = response.data
+    const group = await getGroup(groupId.value)
 
     formData.value = {
       name: group.name,
@@ -418,9 +417,9 @@ const saveGroup = async () => {
     const payload = { ...formData.value }
 
     if (isCreateMode.value) {
-      await api.post('/api/groups', payload)
+      await createGroup(payload)
     } else {
-      await api.patch(`/api/groups/${groupId.value}`, payload)
+      await updateGroup(groupId.value, payload)
     }
 
     router.push('/admin/groups')

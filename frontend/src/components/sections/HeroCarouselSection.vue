@@ -20,8 +20,8 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { cachedApiGet, cachedApiPost } from 'src/composables/useApiResponseCache'
+import { getShowResume } from 'src/services/mediaComponentsService'
 import { useMediaHelpers } from 'src/composables/useMediaHelpers'
 import HeroCarousel from 'src/components/HeroCarousel.vue'
 import { logger } from 'src/utils/logger'
@@ -104,10 +104,10 @@ async function fetchShowResumeInfo() {
   for (const show of shows) {
     if (showResumeInfo.value[show.guid]) continue
     try {
-      const res = await api.get(`/api/media/shows/${show.guid}/resume`)
+      const res = await getShowResume(show.guid)
       showResumeInfo.value[show.guid] = {
-        season: res.data?.season_number || 1,
-        episode: res.data?.episode_number || 1,
+        season: res?.season_number || 1,
+        episode: res?.episode_number || 1,
       }
     } catch (e) {
       // Resume position unavailable; fall back to S01E01

@@ -129,7 +129,11 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
+import {
+  getShowResume,
+  fetchPageLayoutViaApi,
+  searchGamesIgdb,
+} from 'src/services/userMediaService'
 import { cachedApiGet } from 'src/composables/useApiResponseCache'
 import { MediaTypes, getMediaItemChildren } from 'src/composables/useUnifiedMedia'
 import { useAuthStore } from 'src/stores/auth'
@@ -198,9 +202,9 @@ async function playItem(item) {
 
   if (type === 'show') {
     try {
-      const resumeRes = await api.get(`/api/media/shows/${item.guid}/resume`)
-      if (resumeRes.data?.episode?.guid) {
-        router.push(`/play/${resumeRes.data.episode.guid}?type=episode`)
+      const resumeData = await getShowResume(item.guid)
+      if (resumeData?.episode?.guid) {
+        router.push(`/play/${resumeData.episode.guid}?type=episode`)
         return
       }
     } catch {
@@ -246,7 +250,7 @@ async function loadLayout() {
   editor.editMode.value = false
   try {
     let response
-    const fetchLayout = authStore.isAdmin ? api.get : cachedApiGet
+    const fetchLayout = authStore.isAdmin ? fetchPageLayoutViaApi : cachedApiGet
     const renderedSuffix = authStore.isAdmin ? '' : '/rendered'
     if (mediaType.value) {
       response = await fetchLayout(
@@ -405,7 +409,7 @@ async function searchIgdb() {
   if (!igdbSearchQuery.value.trim()) return
   searchingIgdb.value = true
   try {
-    await api.post('/api/games/search-igdb', { query: igdbSearchQuery.value })
+    await searchGamesIgdb(igdbSearchQuery.value)
     showIgdbSearch.value = false
     igdbSearchQuery.value = ''
     if (igdbRefreshTimer) clearTimeout(igdbRefreshTimer)

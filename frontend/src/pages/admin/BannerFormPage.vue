@@ -108,8 +108,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import { getBanner, createBanner, updateBanner } from 'src/services/contentAdminService'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -166,8 +166,7 @@ const loadBanner = async () => {
   if (!bannerGuid.value) return
   loadingBanner.value = true
   try {
-    const res = await api.get(`/api/banners/${bannerGuid.value}`)
-    const banner = res.data
+    const banner = await getBanner(bannerGuid.value)
     form.value = {
       title: banner.title,
       message: banner.message,
@@ -194,9 +193,9 @@ const saveBanner = async () => {
     }
 
     if (isEditing.value) {
-      await api.put(`/api/banners/${bannerGuid.value}`, data)
+      await updateBanner(bannerGuid.value, data)
     } else {
-      await api.post('/api/banners', data)
+      await createBanner(data)
     }
     router.push('/admin/banners')
   } catch (error) {

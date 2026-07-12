@@ -7,7 +7,7 @@ import {
 } from 'vue-router'
 import routes from './routes'
 import { useAuthStore } from 'src/stores/auth'
-import { api } from 'src/boot/axios'
+import { getInstallStatus } from 'src/services/authService'
 import { logger } from 'src/utils/logger'
 
 // Install status is checked at most once per app load and cached. We default to
@@ -20,8 +20,8 @@ let isInstalled = true
 async function ensureInstalled() {
   if (installStatusChecked) return isInstalled
   try {
-    const response = await api.get('/api/install/status')
-    isInstalled = response.data?.installed !== false
+    const data = await getInstallStatus()
+    isInstalled = data?.installed !== false
   } catch (error) {
     logger.error('Install status check failed:', error?.response?.status)
     isInstalled = true

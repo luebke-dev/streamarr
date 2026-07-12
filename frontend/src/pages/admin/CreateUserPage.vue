@@ -84,9 +84,9 @@
 
 <script>
 import { ref } from 'vue'
-import { api } from 'boot/axios'
 import { useRouter } from 'vue-router'
 import { logger } from 'src/utils/logger'
+import { createUser } from 'src/services/accessAdminService'
 
 export default {
   setup() {
@@ -117,7 +117,7 @@ export default {
           userData.password = userForm.value.password
         }
 
-        await api.post('/api/users', userData)
+        await createUser(userData)
 
         router.push('/admin/users')
       } catch (error) {

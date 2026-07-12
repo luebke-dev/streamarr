@@ -110,10 +110,10 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from 'boot/axios'
 import { useI18n } from 'vue-i18n'
 import { logger } from 'src/utils/logger'
 import { formatDate } from 'src/composables/useMediaFormatters'
+import { getBanners, updateBanner, deleteBanner as deleteBannerRequest } from 'src/services/contentAdminService'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -158,11 +158,12 @@ const getTypeColor = (type) => {
 const loadBanners = async () => {
   loading.value = true
   try {
-    const response = await api.get('/api/banners', {
-      params: { page: pagination.value.page, per_page: pagination.value.rowsPerPage },
+    const data = await getBanners({
+      page: pagination.value.page,
+      per_page: pagination.value.rowsPerPage,
     })
-    banners.value = response.data.items
-    pagination.value.rowsNumber = response.data.total
+    banners.value = data.items
+    pagination.value.rowsNumber = data.total
   } catch (error) {
     logger.error('Error loading banners:', error)
   } finally {
@@ -177,7 +178,7 @@ const onRequest = (props) => {
 
 const toggleActive = async (banner, value) => {
   try {
-    await api.put(`/api/banners/${banner.guid}`, { is_active: value })
+    await updateBanner(banner.guid, { is_active: value })
     banner.is_active = value
   } catch (error) {
     logger.error('Error updating banner:', error)
@@ -193,7 +194,7 @@ const deleteBanner = async () => {
   if (!bannerToDelete.value) return
   deleting.value = true
   try {
-    await api.delete(`/api/banners/${bannerToDelete.value.guid}`)
+    await deleteBannerRequest(bannerToDelete.value.guid)
     await loadBanners()
     showDeleteDialog.value = false
     bannerToDelete.value = null

@@ -144,8 +144,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import { getAdminParties, endAdminParty } from 'src/services/systemAdminService'
 import { formatDate } from 'src/composables/useMediaFormatters'
 
 const { t } = useI18n()
@@ -222,8 +222,8 @@ const columns = computed(() => [
 async function loadParties() {
   loading.value = true
   try {
-    const response = await api.get('/api/parties/admin/all')
-    parties.value = response.data
+    const data = await getAdminParties()
+    parties.value = data
   } catch (error) {
     logger.error('Error loading watch parties:', error)
   } finally {
@@ -239,7 +239,7 @@ function confirmEnd(party) {
 async function endParty() {
   ending.value = true
   try {
-    await api.delete(`/api/parties/admin/${partyToEnd.value.guid}`)
+    await endAdminParty(partyToEnd.value.guid)
     showEndDialog.value = false
     partyToEnd.value = null
     await loadParties()

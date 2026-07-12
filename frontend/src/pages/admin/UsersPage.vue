@@ -132,19 +132,18 @@
 <script setup>
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { useRouter } from 'vue-router'
 import { useAdminCrudList } from 'src/composables/useAdminCrudList'
 import { useCachedClientPagination } from 'src/composables/useCachedClientPagination'
 import ConfirmDeleteDialog from 'src/components/ConfirmDeleteDialog.vue'
+import { getUsers, deleteUser as deleteUserRequest } from 'src/services/accessAdminService'
 
 const { t } = useI18n()
 const router = useRouter()
 
 const { paginate: paginateUsers, invalidate: invalidateUsersCache } = useCachedClientPagination({
   loadAll: async () => {
-    const response = await api.get('/api/users')
-    return response.data
+    return await getUsers()
   },
   matchFilter: (row, needle) =>
     (row.first_name && row.first_name.toLowerCase().includes(needle)) ||
@@ -167,7 +166,7 @@ const {
 } = useAdminCrudList({
   fetchPage: paginateUsers,
   deleteItem: async (user) => {
-    await api.delete(`/api/users/${user.guid}`)
+    await deleteUserRequest(user.guid)
     invalidateUsersCache()
   },
   errorContext: 'users',

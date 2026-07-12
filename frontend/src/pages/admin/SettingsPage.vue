@@ -657,8 +657,21 @@ import { computed, ref, onMounted } from 'vue'
 import { useQuasar } from 'quasar'
 import { useSettingsStore } from 'stores/settings'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import {
+  getFavoritesSettings,
+  saveFavoritesSettings,
+  getAutomationSettings,
+  saveAutomationSettings,
+  getOidcSettings,
+  saveOidcSettings as saveOidcSettingsApi,
+  getPermissionDefaults,
+  savePermissionDefaults as savePermissionDefaultsApi,
+  getSettingsBackup,
+  getDatabaseBackup,
+  restoreDatabaseBackup as restoreDatabaseBackupApi,
+  restoreSettingsBackup as restoreSettingsBackupApi,
+} from 'src/services/systemAdminService'
 import {
   LIBRARY_OPTIONS,
   VIDEO_QUALITY_OPTIONS,
@@ -779,24 +792,24 @@ const loadSettings = async () => {
     friendsEnabled.value = settingsStore.friendsEnabled
 
     try {
-      const favResp = await api.get('/api/settings/favorites')
-      favoritesPermanent.value = favResp.data.favorites_permanent
+      const favData = await getFavoritesSettings()
+      favoritesPermanent.value = favData.favorites_permanent
     } catch (error) {
       logger.error('Failed to load favorites settings:', error)
     }
 
     try {
-      const autoResp = await api.get('/api/settings/automation')
-      automation.value = { ...automation.value, ...autoResp.data }
+      const autoData = await getAutomationSettings()
+      automation.value = { ...automation.value, ...autoData }
     } catch (error) {
       logger.error('Failed to load automation settings:', error)
     }
 
     try {
-      const oidcResp = await api.get('/api/settings/oidc')
+      const oidcData = await getOidcSettings()
       oidcSettings.value = {
         ...oidcSettings.value,
-        ...oidcResp.data,
+        ...oidcData,
         client_secret: '',
       }
     } catch (error) {
@@ -807,8 +820,8 @@ const loadSettings = async () => {
   }
 
   try {
-    const response = await api.get('/api/settings/permissions')
-    permDefaults.value = response.data
+    const data = await getPermissionDefaults()
+    permDefaults.value = data
   } catch (error) {
     logger.error('Failed to load permission defaults:', error)
   }
@@ -817,7 +830,7 @@ const loadSettings = async () => {
 const updateFavoritesSettings = async () => {
   saving.value = true
   try {
-    await api.put('/api/settings/favorites', {
+    await saveFavoritesSettings({
       favorites_permanent: favoritesPermanent.value,
     })
   } catch (error) {
@@ -866,8 +879,8 @@ const updateAutomationSettings = async () => {
   }
   savingAutomation.value = true
   try {
-    const resp = await api.put('/api/settings/automation', automation.value)
-    automation.value = { ...automation.value, ...resp.data }
+    const data = await saveAutomationSettings(automation.value)
+    automation.value = { ...automation.value, ...data }
   } catch (error) {
     logger.error('Failed to update automation settings:', error)
     $q.notify({
@@ -881,8 +894,8 @@ const updateAutomationSettings = async () => {
 
 const reloadAutomationSettings = async () => {
   try {
-    const autoResp = await api.get('/api/settings/automation')
-    automation.value = { ...automation.value, ...autoResp.data }
+    const autoData = await getAutomationSettings()
+    automation.value = { ...automation.value, ...autoData }
   } catch (error) {
     logger.error('Failed to reload automation settings:', error)
   }
@@ -896,10 +909,10 @@ const saveOidcSettings = async () => {
     if (!payload.client_secret) {
       delete payload.client_secret
     }
-    const response = await api.put('/api/settings/oidc', payload)
+    const data = await saveOidcSettingsApi(payload)
     oidcSettings.value = {
       ...oidcSettings.value,
-      ...response.data,
+      ...data,
       client_secret: '',
     }
   } catch (error) {
@@ -924,8 +937,8 @@ const updateFriendsSettings = async () => {
 const savePermissionDefaults = async () => {
   saving.value = true
   try {
-    const response = await api.put('/api/settings/permissions', permDefaults.value)
-    permDefaults.value = response.data
+    const data = await savePermissionDefaultsApi(permDefaults.value)
+    permDefaults.value = data
   } catch (error) {
     logger.error('Failed to save permission defaults:', error)
   } finally {
@@ -975,8 +988,8 @@ const updateInviteSettings = async () => {
 const exportSettingsBackup = async () => {
   backupLoading.value = 'settings'
   try {
-    const response = await api.get('/api/backups/settings')
-    backupPayloadText.value = formatBackupPayload(response.data)
+    const data = await getSettingsBackup()
+    backupPayloadText.value = formatBackupPayload(data)
   } catch (error) {
     logger.error('Failed to export settings backup:', error)
   } finally {
@@ -987,8 +1000,8 @@ const exportSettingsBackup = async () => {
 const exportDatabaseBackup = async () => {
   backupLoading.value = 'database'
   try {
-    const response = await api.get('/api/backups/database')
-    backupPayloadText.value = formatBackupPayload(response.data)
+    const data = await getDatabaseBackup()
+    backupPayloadText.value = formatBackupPayload(data)
   } catch (error) {
     logger.error('Failed to export database backup:', error)
   } finally {
@@ -1002,7 +1015,7 @@ const restoreDatabaseBackup = async () => {
   restoreError.value = ''
   try {
     const payload = parseRestorePayload()
-    const response = await api.post('/api/backups/database/restore', {
+    const data = await restoreDatabaseBackupApi({
       tables: payload.tables || payload,
       dry_run: restoreDryRun.value,
       skip_redacted: restoreSkipRedacted.value,
@@ -1010,7 +1023,7 @@ const restoreDatabaseBackup = async () => {
       delete_missing_tables: restoreDeleteMissingRows.value ? restoreDeleteMissingTables() : [],
       destructive_confirmation: restoreConfirmation.value || null,
     })
-    restoreResult.value = response.data
+    restoreResult.value = data
   } catch (error) {
     logger.error('Failed to restore database backup:', error)
     restoreError.value = error.response?.data?.detail || error.message
@@ -1025,11 +1038,11 @@ const restoreSettingsBackup = async () => {
   restoreError.value = ''
   try {
     const payload = parseRestorePayload()
-    const response = await api.post('/api/backups/settings/restore', {
+    const data = await restoreSettingsBackupApi({
       settings: payload.settings || payload,
       skip_redacted: restoreSkipRedacted.value,
     })
-    restoreResult.value = response.data
+    restoreResult.value = data
     await loadSettings()
   } catch (error) {
     logger.error('Failed to restore settings backup:', error)

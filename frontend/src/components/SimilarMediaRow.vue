@@ -28,8 +28,8 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import { getSimilarMedia } from 'src/services/mediaComponentsService'
 import { useMediaSection } from 'src/composables/useMediaSection'
 import PosterCard from 'src/components/PosterCard.vue'
 
@@ -54,11 +54,8 @@ async function load() {
 
   loading.value = true
   try {
-    const resp = await api.get(`/api/media/${props.itemGuid}/similar`, {
-      params: { limit: props.limit },
-      signal,
-    })
-    items.value = (resp.data || []).filter((i) => getPosterUrl(i))
+    const data = await getSimilarMedia(props.itemGuid, props.limit, signal)
+    items.value = (data || []).filter((i) => getPosterUrl(i))
   } catch (error) {
     if (error.code === 'ERR_CANCELED' || error.name === 'CanceledError') return
     logger.error('Error loading similar items:', error)

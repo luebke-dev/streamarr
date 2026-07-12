@@ -378,7 +378,12 @@
 
 <script>
 import { ref, computed, onMounted } from 'vue'
-import { api } from 'boot/axios'
+import {
+  fetchIndexerCaps,
+  getIndexer,
+  createIndexer,
+  updateIndexer,
+} from 'src/services/acquisitionAdminService'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
@@ -535,14 +540,13 @@ export default {
     }
 
     const fetchCaps = async () => {
-      const resp = await api.post('/api/indexers/caps', {
+      return await fetchIndexerCaps({
         host: indexerForm.value.host,
         api_key: indexerForm.value.api_key,
         ssl: indexerForm.value.ssl,
         verify_ssl: indexerForm.value.verify_ssl,
         plugin_type: indexerForm.value.type,
       })
-      return resp.data
     }
 
     const testConnection = async () => {
@@ -604,8 +608,7 @@ export default {
     const loadIndexer = async () => {
       try {
         const indexerGuid = route.params.guid
-        const response = await api.get(`/api/indexers/${indexerGuid}`)
-        const indexer = response.data
+        const indexer = await getIndexer(indexerGuid)
 
         // api_key is never returned from the server; only the "configured" flag.
         apiKeyConfigured.value = !!indexer.api_key_configured
@@ -670,10 +673,10 @@ export default {
           if (indexerForm.value.api_key && indexerForm.value.api_key.length > 0) {
             payload.api_key = indexerForm.value.api_key
           }
-          await api.put(`/api/indexers/${route.params.guid}`, payload)
+          await updateIndexer(route.params.guid, payload)
         } else {
           payload.api_key = indexerForm.value.api_key
-          await api.post('/api/indexers/', payload)
+          await createIndexer(payload)
         }
 
         router.push('/admin/indexers')

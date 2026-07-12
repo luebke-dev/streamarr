@@ -211,7 +211,11 @@
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from 'boot/axios'
+import {
+  getPerson,
+  getPersonCredits,
+  importPersonFilmography,
+} from 'src/services/userMediaService'
 import { getTmdbImageUrl, formatAirDate } from 'src/composables/useMediaFormatters'
 import { posterUrl } from 'src/utils/posters'
 import { safeExternalHref } from 'src/composables/useExternalLinks'
@@ -288,11 +292,11 @@ async function loadPerson() {
 
   try {
     // Load person details (auto-triggers filmography import on backend if needed)
-    const personRes = await api.get(`/api/persons/${guid}`)
+    const personData = await getPerson(guid)
     // Bail if the user navigated to a different person while this was in flight,
     // so a slower response can't overwrite the newer person's state.
     if (route.params.guid !== guid) return
-    person.value = personRes.data
+    person.value = personData
 
     // Load credits (includes media_item data now - no N+1)
     await loadCredits(guid)
@@ -314,9 +318,9 @@ async function loadPerson() {
 async function loadCredits(guid) {
   creditsLoading.value = true
   try {
-    const creditsRes = await api.get(`/api/persons/${guid}/credits`)
+    const creditsData = await getPersonCredits(guid)
     if (route.params.guid !== guid) return
-    credits.value = creditsRes.data
+    credits.value = creditsData
   } catch (err) {
     logger.error('Failed to load credits:', err)
   } finally {
@@ -338,21 +342,20 @@ function startPolling(guid) {
 
     try {
       // Re-check person status
-      const personRes = await api.get(`/api/persons/${guid}`)
+      const personData = await getPerson(guid)
       // Stop applying poll results once the user has navigated away.
       if (route.params.guid !== guid) {
         stopPolling()
         return
       }
-      person.value = personRes.data
+      person.value = personData
 
       // Reload credits to pick up newly imported media
-      const creditsRes = await api.get(`/api/persons/${guid}/credits`)
+      const newCredits = await getPersonCredits(guid)
       if (route.params.guid !== guid) {
         stopPolling()
         return
       }
-      const newCredits = creditsRes.data
 
       if (newCredits.length > credits.value.length) {
         credits.value = newCredits
@@ -367,9 +370,9 @@ function startPolling(guid) {
         finalReloadTimer = setTimeout(async () => {
           finalReloadTimer = null
           try {
-            const finalRes = await api.get(`/api/persons/${guid}/credits`)
+            const finalCredits = await getPersonCredits(guid)
             if (route.params.guid !== guid) return
-            credits.value = finalRes.data
+            credits.value = finalCredits
           } catch {
             // Ignore final reload errors
           }
@@ -396,7 +399,7 @@ async function refreshFilmography() {
   if (!person.value?.guid) return
   refreshing.value = true
   try {
-    await api.post(`/api/persons/${person.value.guid}/import-filmography?force=true`)
+    await importPersonFilmography(person.value.guid)
     startPolling(person.value.guid)
   } catch (err) {
     logger.error('Failed to trigger filmography import:', err)

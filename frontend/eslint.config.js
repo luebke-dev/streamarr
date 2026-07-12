@@ -69,7 +69,7 @@ export default [
             {
               group: ['boot/axios', 'src/boot/axios'],
               message:
-                'Do not import boot/axios directly. Use useUnifiedMedia / useSectionData / useApiResponseCache or a service in src/services instead.',
+                'Do not import boot/axios directly from a page or component. Use a service in src/services (or a data-layer composable/store) instead.',
             },
           ],
         },
@@ -78,14 +78,11 @@ export default [
   },
 
   {
-    // Data-layer / boot files are allowed to import boot/axios directly.
-    files: [
-      'src/services/**',
-      'src/composables/useUnifiedMedia.js',
-      'src/composables/useSectionData.js',
-      'src/composables/useApiResponseCache.js',
-      'src/boot/**',
-    ],
+    // The data/state layer is allowed to talk to the HTTP client directly:
+    // services own the API surface, and stores/composables are the data-layer
+    // abstractions that pages and components consume. Pages and components must
+    // not import boot/axios themselves — they go through this layer.
+    files: ['src/services/**', 'src/stores/**', 'src/composables/**', 'src/boot/**'],
     rules: {
       'no-restricted-imports': 'off',
     },

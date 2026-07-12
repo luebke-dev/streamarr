@@ -51,7 +51,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
+import { getPlatforms, getGamesLibraryConfig } from 'src/services/mediaComponentsService'
 import { logger } from 'src/utils/logger'
 
 const props = defineProps({
@@ -78,11 +78,11 @@ async function loadPlatforms() {
   loading.value = true
   try {
     const [platformRes, configRes] = await Promise.all([
-      api.get('/api/platforms'),
-      api.get('/api/libraries/games/config').catch(() => ({ data: {} })),
+      getPlatforms(),
+      getGamesLibraryConfig().catch(() => ({})),
     ])
-    const allPlatforms = platformRes.data || []
-    const allowed = configRes.data?.allowed_platforms
+    const allPlatforms = platformRes || []
+    const allowed = configRes?.allowed_platforms
 
     // Filter to allowed platforms if configured
     if (allowed && allowed.length > 0) {

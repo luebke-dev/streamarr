@@ -113,8 +113,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import { getPageLayouts, deletePageLayout } from 'src/services/contentAdminService'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -148,9 +148,9 @@ const columns = computed(() => [
 async function onRequest() {
   loading.value = true
   try {
-    const response = await api.get('/api/page-layouts')
-    layouts.value = response.data
-    pagination.value.rowsNumber = response.data.length
+    const data = await getPageLayouts()
+    layouts.value = data
+    pagination.value.rowsNumber = data.length
   } catch (error) {
     logger.error('Error loading layouts:', error)
   } finally {
@@ -171,7 +171,7 @@ async function deleteLayout() {
   if (!layoutToDelete.value) return
   deleting.value = true
   try {
-    await api.delete(`/api/page-layouts/${layoutToDelete.value.guid}`)
+    await deletePageLayout(layoutToDelete.value.guid)
     showDeleteDialog.value = false
     tableRef.value.requestServerInteraction()
   } catch (error) {

@@ -319,9 +319,19 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
 import ConfirmDeleteDialog from 'src/components/ConfirmDeleteDialog.vue'
+import {
+  getPackages,
+  getGroups,
+  getStripeConfig,
+  getPluginRuntimePolicy,
+  getPluginRepositories,
+  getInstalledPlugins,
+  getPluginValidation,
+  syncPluginRepository,
+  deletePackage as deletePackageApi,
+} from 'src/services/systemAdminService'
 
 const { t } = useI18n()
 const $q = useQuasar()
@@ -448,13 +458,13 @@ async function loadPackages() {
   try {
     // active_only=false so admin can see deactivated ones too
     const [pkgRes, grpRes, cfgRes] = await Promise.all([
-      api.get('/api/subscriptions/packages', { params: { active_only: false } }),
-      api.get('/api/groups'),
-      api.get('/api/subscriptions/stripe-config').catch(() => ({ data: { publishable_key: null } })),
+      getPackages({ active_only: false }),
+      getGroups(),
+      getStripeConfig().catch(() => ({ publishable_key: null })),
     ])
-    packages.value = pkgRes.data || []
-    groups.value = grpRes.data || []
-    stripeConfigured.value = !!cfgRes.data?.publishable_key
+    packages.value = pkgRes || []
+    groups.value = grpRes || []
+    stripeConfigured.value = !!cfgRes?.publishable_key
   } catch (err) {
     logger.error('Failed to load packages:', err)
     $q.notify({ type: 'negative', message: t('adminPackages.loadError') })
@@ -467,15 +477,15 @@ async function loadPluginMetadata() {
   pluginLoading.value = true
   try {
     const [runtimeRes, repositoriesRes, installedRes, validationRes] = await Promise.all([
-      api.get('/api/plugins/runtime-policy'),
-      api.get('/api/plugins/repositories'),
-      api.get('/api/plugins/installed'),
-      api.get('/api/plugins/validation'),
+      getPluginRuntimePolicy(),
+      getPluginRepositories(),
+      getInstalledPlugins(),
+      getPluginValidation(),
     ])
-    pluginRuntime.value = runtimeRes.data
-    pluginRepositories.value = repositoriesRes.data || []
-    installedPlugins.value = installedRes.data || []
-    pluginValidation.value = validationRes.data
+    pluginRuntime.value = runtimeRes
+    pluginRepositories.value = repositoriesRes || []
+    installedPlugins.value = installedRes || []
+    pluginValidation.value = validationRes
   } catch (err) {
     logger.error('Failed to load plugin metadata:', err)
     $q.notify({ type: 'negative', message: t('adminPackages.pluginLoadError') })
@@ -487,10 +497,10 @@ async function loadPluginMetadata() {
 async function syncRepository(repository) {
   syncLoading.value = repository.id
   try {
-    const response = await api.post(`/api/plugins/repositories/${repository.id}/sync`)
+    const data = await syncPluginRepository(repository.id)
     syncResults.value = {
       ...syncResults.value,
-      [repository.id]: response.data,
+      [repository.id]: data,
     }
   } catch (err) {
     logger.error('Failed to sync plugin repository:', err)
@@ -509,7 +519,7 @@ async function deletePackage() {
   if (!selectedPackage.value) return
   deleting.value = true
   try {
-    await api.delete(`/api/subscriptions/packages/${selectedPackage.value.guid}`)
+    await deletePackageApi(selectedPackage.value.guid)
     showDeleteDialog.value = false
     selectedPackage.value = null
     await loadPackages()

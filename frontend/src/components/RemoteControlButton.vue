@@ -327,7 +327,7 @@ import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from 'stores/auth'
 import { useRemoteControlStore } from 'stores/remoteControl'
-import { api } from 'boot/axios'
+import { getMyDevices, discoverCastTargets } from 'src/services/mediaComponentsService'
 import { logger } from 'src/utils/logger'
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -421,16 +421,16 @@ async function loadDevices() {
   devicesLoading.value = true
   try {
     const [devicesResult, castResult] = await Promise.allSettled([
-      api.get('/api/devices/me', { params: { page_size: 50 } }),
-      api.get('/api/cast/discover', { params: { native: true } }),
+      getMyDevices({ page_size: 50 }),
+      discoverCastTargets({ native: true }),
     ])
     if (devicesResult.status === 'fulfilled') {
-      userDevices.value = devicesResult.value.data.items || []
+      userDevices.value = devicesResult.value.items || []
     } else {
       logger.error('Failed to load devices:', devicesResult.reason)
     }
     if (castResult.status === 'fulfilled') {
-      castTargets.value = (castResult.value.data.items || [])
+      castTargets.value = (castResult.value.items || [])
         .filter((target) => target.enabled && target.protocol !== 'pyrate')
         .map((target) => ({
           ...target,

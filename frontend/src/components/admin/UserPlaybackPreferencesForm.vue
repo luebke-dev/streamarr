@@ -65,8 +65,11 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuasar } from 'quasar'
-import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import {
+  getUserPlaybackPreferences,
+  updateUserPlaybackPreferences,
+} from 'src/services/accessAdminService'
 
 const props = defineProps({
   userGuid: {
@@ -93,8 +96,7 @@ const skipModeOptions = [
 
 const loadPlaybackPreferences = async () => {
   try {
-    const response = await api.get(`/api/users/${props.userGuid}/playback-preferences`)
-    playbackPrefs.value = response.data
+    playbackPrefs.value = await getUserPlaybackPreferences(props.userGuid)
   } catch (error) {
     logger.error('Error loading playback preferences:', error)
   }
@@ -103,7 +105,7 @@ const loadPlaybackPreferences = async () => {
 const savePlaybackPreferences = async () => {
   try {
     loading.value = true
-    await api.put(`/api/users/${props.userGuid}/playback-preferences`, playbackPrefs.value)
+    await updateUserPlaybackPreferences(props.userGuid, playbackPrefs.value)
     $q.notify({ type: 'positive', message: t('editUser.playbackPreferencesSaved') })
   } catch (error) {
     logger.error('Error saving playback preferences:', error)

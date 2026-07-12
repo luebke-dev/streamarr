@@ -336,7 +336,11 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
+import {
+  getTranscodingSettings,
+  saveTranscodingSettings,
+  getComputingStatus,
+} from 'src/services/libraryAdminService'
 import { logger } from 'src/utils/logger'
 useI18n()
 
@@ -421,9 +425,9 @@ const applyData = (data, target) => {
 const loadSettings = async () => {
   loading.value = true
   try {
-    const response = await api.get('/api/settings/transcoding')
-    applyData(response.data, settings)
-    applyData(response.data, originalSettings)
+    const data = await getTranscodingSettings()
+    applyData(data, settings)
+    applyData(data, originalSettings)
   } catch (error) {
     logger.error('Failed to load transcoding settings:', error)
   } finally {
@@ -439,8 +443,8 @@ const saveSettings = async () => {
       payload[key] = settings[key]
     })
 
-    const response = await api.put('/api/settings/transcoding', payload)
-    applyData(response.data, originalSettings)
+    const data = await saveTranscodingSettings(payload)
+    applyData(data, originalSettings)
   } catch (error) {
     logger.error('Failed to save transcoding settings:', error)
   } finally {
@@ -454,8 +458,8 @@ const resetSettings = () => {
 
 const loadComputingStatus = async () => {
   try {
-    const response = await api.get('/api/computing/status')
-    computingProvider.value = response.data.provider
+    const data = await getComputingStatus()
+    computingProvider.value = data.provider
   } catch (error) {
     logger.error('Failed to load computing status:', error)
   }

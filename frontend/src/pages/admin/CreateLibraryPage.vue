@@ -154,7 +154,12 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { useI18n } from 'vue-i18n'
-import { api } from 'boot/axios'
+import {
+  getLibraryTypes,
+  getLibraryPlugins,
+  getLibraryMetadataProviders,
+  createLibrary as createLibraryRequest,
+} from 'src/services/libraryAdminService'
 import { logger } from 'src/utils/logger'
 
 const router = useRouter()
@@ -217,10 +222,7 @@ watch(
 async function loadPlugins(type) {
   loadingPlugins.value = true
   try {
-    const response = await api.get('/api/libraries/plugins', {
-      params: { library_type: type },
-    })
-    plugins.value = response.data
+    plugins.value = await getLibraryPlugins(type)
 
     // Auto-select if only one plugin available
     if (plugins.value.length === 1) {
@@ -236,10 +238,8 @@ async function loadPlugins(type) {
 async function loadMetadataProviders(type) {
   loadingMetadataProviders.value = true
   try {
-    const response = await api.get('/api/libraries/metadata-providers', {
-      params: { library_type: type },
-    })
-    metadataProviders.value = response.data.metadata_providers || []
+    const data = await getLibraryMetadataProviders(type)
+    metadataProviders.value = data.metadata_providers || []
 
     // Auto-select if only one provider available and configured
     const configuredProviders = metadataProviders.value.filter((p) => p.configured)
@@ -260,8 +260,8 @@ const loadingLibraryTypes = ref(false)
 async function loadLibraryTypes() {
   loadingLibraryTypes.value = true
   try {
-    const response = await api.get('/api/libraries/types')
-    libraryTypes.value = response.data.map((type) => ({
+    const data = await getLibraryTypes()
+    libraryTypes.value = data.map((type) => ({
       label: type.label,
       value: type.type,
       description: type.description,
@@ -297,7 +297,7 @@ function showPathInfo() {
 async function createLibrary() {
   saving.value = true
   try {
-    await api.post('/api/libraries', library.value)
+    await createLibraryRequest(library.value)
 
     // Redirect to library settings page (convert type to lowercase for URL)
     router.push(`/admin/libraries/${library.value.type.toLowerCase()}`)
