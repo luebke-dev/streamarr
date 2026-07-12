@@ -15,6 +15,7 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { logger } from 'src/utils/logger'
+import { buildSearchPayload as buildSearchPayloadCore } from 'src/utils/searchPayload'
 
 const toGetter = (value) => (typeof value === 'function' ? value : () => value)
 const isSet = (value) => value !== undefined && value !== null
@@ -82,8 +83,11 @@ export function useSectionData({
 
 /**
  * Build the POST /api/search/ payload from a section's `filters` object.
- * Single definition shared with {@link buildSearchQueryParams} so the fetched
- * items and the "see all" link can never drift apart.
+ * Thin wrapper over the shared {@link buildSearchPayloadCore} that pins the
+ * section-specific contract (per_page 10, search_type derived from media_type,
+ * the `genres` array, no search-page-only *_ids / exclude_* filters). Shares a
+ * single definition with {@link buildSearchQueryParams} so the fetched items
+ * and the "see all" link can never drift apart.
  *
  * @param {Object} filters               config.filters
  * @param {Object} [opts]
@@ -92,39 +96,14 @@ export function useSectionData({
  * @param {number} [opts.page=1]
  */
 export function buildSearchPayload(filters, { mediaType = null, perPage = 10, page = 1 } = {}) {
-  const f = filters || {}
-  const payload = {
-    per_page: perPage,
+  return buildSearchPayloadCore(filters, {
+    mediaType,
+    perPage,
     page,
-    search_type: f.media_type ? f.media_type.toLowerCase() : 'all',
-  }
-
-  if (f.query) payload.query = f.query
-  if (f.media_type) payload.media_type = f.media_type
-  if (f.genre_id) payload.genre_id = f.genre_id
-  if (f.platform_id) payload.platform_id = f.platform_id
-  if (f.genres && f.genres.length) payload.genres = f.genres
-  if (f.year_from) payload.year_from = f.year_from
-  if (f.year_to) payload.year_to = f.year_to
-  if (f.sort_by) payload.sort_by = f.sort_by
-  if (f.sort_order) payload.sort_order = f.sort_order
-  if (f.availability) payload.availability = f.availability
-  if (f.studio_name) payload.studio_name = f.studio_name
-  if (f.container) payload.container = f.container
-  if (f.content_rating) payload.content_rating = f.content_rating
-  if (isSet(f.has_poster)) payload.has_poster = f.has_poster
-  if (isSet(f.has_backdrop)) payload.has_backdrop = f.has_backdrop
-  if (isSet(f.has_description)) payload.has_description = f.has_description
-  if (isSet(f.is_favorite)) payload.is_favorite = f.is_favorite
-  if (isSet(f.is_played)) payload.is_played = f.is_played
-
-  // Page-level media type as fallback when the filter doesn't pin one.
-  if (!payload.media_type && mediaType) {
-    payload.media_type = mediaType
-    payload.search_type = mediaType.toLowerCase()
-  }
-
-  return payload
+    deriveSearchType: true,
+    extendedFilters: false,
+    genresFilter: true,
+  })
 }
 
 /**

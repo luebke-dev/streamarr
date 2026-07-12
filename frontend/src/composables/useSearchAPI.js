@@ -5,64 +5,10 @@ import { useI18n } from 'vue-i18n'
 import { logger } from 'src/utils/logger'
 import { useWebSocket } from 'src/composables/useWebSocket'
 import { useMediaTypeMapping } from 'src/composables/useMediaTypeMapping'
+import { buildSearchPayload } from 'src/utils/searchPayload'
 
-function numericList(value) {
-  return (Array.isArray(value) ? value : value == null ? [] : [value])
-    .map((item) => Number(item))
-    .filter((item) => Number.isFinite(item))
-}
-
-function stringList(value) {
-  return (Array.isArray(value) ? value : value == null ? [] : [value])
-    .map((item) => String(item).trim())
-    .filter(Boolean)
-}
-
-export function buildSearchPayload(query, filters = {}) {
-  const payload = { search_type: 'all', per_page: 50, page: 1 }
-
-  if (query?.trim()) payload.query = query.trim()
-  if (filters.genre_id) payload.genre_id = Number(filters.genre_id)
-  const genreIds = numericList(filters.genre_ids)
-  if (genreIds.length) payload.genre_ids = genreIds
-  const excludeGenreIds = numericList(filters.exclude_genre_ids)
-  if (excludeGenreIds.length) payload.exclude_genre_ids = excludeGenreIds
-  if (filters.platform_id) payload.platform_id = Number(filters.platform_id)
-  const platformIds = numericList(filters.platform_ids)
-  if (platformIds.length) payload.platform_ids = platformIds
-  const excludePlatformIds = numericList(filters.exclude_platform_ids)
-  if (excludePlatformIds.length) payload.exclude_platform_ids = excludePlatformIds
-  if (filters.media_type) payload.media_type = filters.media_type
-  if (filters.availability) payload.availability = filters.availability
-  if (filters.has_poster != null) payload.has_poster = filters.has_poster === 'true'
-  if (filters.has_backdrop != null) payload.has_backdrop = filters.has_backdrop === 'true'
-  if (filters.has_description != null) {
-    payload.has_description = filters.has_description === 'true'
-  }
-  if (filters.is_favorite != null) payload.is_favorite = filters.is_favorite === 'true'
-  if (filters.is_played != null) payload.is_played = filters.is_played === 'true'
-  if (filters.person_guid) payload.person_guid = filters.person_guid
-  if (filters.exclude_person_guid) payload.exclude_person_guid = filters.exclude_person_guid
-  if (filters.studio_name) payload.studio_name = filters.studio_name
-  if (filters.container) payload.container = filters.container
-  const excludeContainers = stringList(filters.exclude_containers)
-  if (excludeContainers.length) payload.exclude_containers = excludeContainers
-  if (filters.content_rating) payload.content_rating = filters.content_rating
-  const excludeContentRatings = stringList(filters.exclude_content_ratings)
-  if (excludeContentRatings.length) {
-    payload.exclude_content_ratings = excludeContentRatings
-  }
-  const years = numericList(filters.years)
-  if (years.length) payload.years = years
-  const excludeYears = numericList(filters.exclude_years)
-  if (excludeYears.length) payload.exclude_years = excludeYears
-  if (filters.year_from) payload.year_from = Number(filters.year_from)
-  if (filters.year_to) payload.year_to = Number(filters.year_to)
-  if (filters.sort_by) payload.sort_by = filters.sort_by
-  if (filters.sort_order) payload.sort_order = filters.sort_order
-
-  return payload
-}
+// Re-exported for backward compatibility with existing importers.
+export { buildSearchPayload }
 
 /**
  * Composable that owns the search-results data layer:
@@ -121,7 +67,9 @@ export function useSearchAPI(router) {
 
     loading.value = true
     try {
-      const payload = buildSearchPayload(query, filters)
+      // The search page keeps the URL-derived contract: string/array filters,
+      // per_page 50, search_type always 'all', and the trimmed text query.
+      const payload = buildSearchPayload({ ...filters, query: query?.trim() })
 
       const response = await api.post('/api/search/', payload, { signal })
       if (response.data?.hits) {

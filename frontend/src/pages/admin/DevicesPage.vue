@@ -357,6 +357,7 @@ import { useI18n } from 'vue-i18n'
 import { api } from 'boot/axios'
 import { useAdminCrudList } from 'src/composables/useAdminCrudList'
 import { logger } from 'src/utils/logger'
+import { formatTime } from 'src/composables/useMediaFormatters'
 import ConfirmDeleteDialog from 'src/components/ConfirmDeleteDialog.vue'
 
 const { t } = useI18n()
@@ -626,14 +627,11 @@ function formatRelativeTime(dateString) {
 }
 
 function formatPlaybackTime(seconds) {
+  // Guard non-positive values to '0:00' (matches prior behavior), then delegate
+  // the h:mm:ss / m:ss breakdown to the canonical formatter. For seconds > 0 the
+  // shared formatTime is byte-identical to the previous local implementation.
   if (!seconds || seconds <= 0) return '0:00'
-  const hrs = Math.floor(seconds / 3600)
-  const mins = Math.floor((seconds % 3600) / 60)
-  const secs = Math.floor(seconds % 60)
-  if (hrs > 0) {
-    return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-  }
-  return `${mins}:${secs.toString().padStart(2, '0')}`
+  return formatTime(seconds)
 }
 
 function formatMediaType(mediaType) {
