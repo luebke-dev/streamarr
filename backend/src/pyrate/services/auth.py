@@ -491,7 +491,7 @@ class AuthService:
         ui_language: str | None = None,
         audio_languages: list[str] | None = None,
         subtitle_language: str | None = None,
-    ) -> tuple[User, str, str, int]:
+    ) -> User:
         """
         Register a new user with an invite token.
         Returns (user, access_token, refresh_token, expires_in).
@@ -514,15 +514,18 @@ class AuthService:
 
         await self._link_invite_and_befriend(invite, invite_result, new_user)
 
-        access_token, refresh_token, expires_in = self._create_token_pair(new_user)
-        logger.info("New user registered: %s (invited by %s)", email, invite.created_by_user_id)
+        logger.info(
+            "New user registered (pending email verification): %s (invited by %s)",
+            email, invite.created_by_user_id,
+        )
 
-        # Send welcome & verification emails (non-blocking)
+        # No tokens are issued until the email is verified (hard gate). Send the
+        # welcome & verification emails so the user can confirm their address.
         app_name = await self._get_site_name()
         await self._send_welcome_email(new_user, app_name=app_name)
         await self._send_verification_email(new_user, app_name=app_name)
 
-        return new_user, access_token, refresh_token, expires_in
+        return new_user
 
     async def register_open(
         self,
@@ -534,7 +537,7 @@ class AuthService:
         ui_language: str | None = None,
         audio_languages: list[str] | None = None,
         subtitle_language: str | None = None,
-    ) -> tuple[User, str, str, int]:
+    ) -> User:
         """
         Register a new user without an invite (open registration).
         Returns (user, access_token, refresh_token, expires_in).
@@ -559,15 +562,14 @@ class AuthService:
             preferred_username, ui_language, audio_languages, subtitle_language,
         )
 
-        access_token, refresh_token, expires_in = self._create_token_pair(new_user)
-        logger.info("New user registered (open): %s", email)
+        logger.info("New user registered (open, pending email verification): %s", email)
 
-        # Send welcome & verification emails (non-blocking)
+        # No tokens are issued until the email is verified (hard gate).
         app_name = await self._get_site_name()
         await self._send_welcome_email(new_user, app_name=app_name)
         await self._send_verification_email(new_user, app_name=app_name)
 
-        return new_user, access_token, refresh_token, expires_in
+        return new_user
 
     # ── Email Verification ───────────────────────────────────────────────
 
@@ -623,6 +625,26 @@ class AuthService:
             raise ValueError("send_failed")
 
         return {"message": "Verification email sent"}
+
+    async def resend_verification_by_email(self, email: str) -> dict[str, str]:
+        """Public resend keyed by email (unverified users hold no token yet).
+
+        Always returns the same message regardless of whether the account
+        exists or is already verified, so it can't be used to enumerate users.
+        """
+        generic = {
+            "message": "If an unverified account with that email exists, a new "
+            "verification link has been sent."
+        }
+        if not email:
+            return generic
+        stmt = select(User).where(func.lower(User.email) == email.strip().lower())
+        result = await self.db.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user and not user.email_verified:
+            app_name = await self._get_site_name()
+            await self._send_verification_email(user, app_name=app_name)
+        return generic
 
     # ── Password Reset ───────────────────────────────────────────────────
 
@@ -707,10 +729,14 @@ class AuthService:
         validate_password_strength(new_password)
 
         user.hashed_password = jwt_handler.get_password_hash(new_password)
+        # Instant revocation of every outstanding session: any access OR refresh
+        # token issued before now is rejected (see dependencies token_valid_after
+        # check), so a leaked token cannot survive the reset — not even for the
+        # short access-token window.
+        user.token_valid_after = datetime.now(UTC)
         await self.db.commit()
 
-        # Invalidate outstanding refresh tokens so a session opened with the old
-        # credentials (or a leaked refresh token) can't survive the reset.
+        # Also drop the refresh-token allowlist entries in Redis.
         from pyrate.auth.token_revocation import revoke_user_refresh_tokens
 
         await revoke_user_refresh_tokens(user.guid)

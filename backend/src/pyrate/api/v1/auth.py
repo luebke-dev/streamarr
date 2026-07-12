@@ -5,12 +5,18 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...api.rate_limit import rate_limit
+from ...auth.cookies import (
+    clear_refresh_cookie,
+    client_wants_cookie,
+    set_refresh_cookie,
+)
 from ...auth.dependencies import (
     get_current_user,
     get_current_user_optional,
@@ -30,11 +36,11 @@ from ...schemas.auth import (
     AuthStatus,
     BackgroundImageResponse,
     ForgotPasswordRequest,
+    RegistrationResult,
     ResetPasswordRequest,
     TokenResponse,
     UserInfo,
 )
-from ...api.rate_limit import rate_limit
 from ...schemas.invite import InviteUse
 from ...schemas.user import LocalLoginRequest
 from ...services.auth import AuthService
@@ -91,6 +97,27 @@ def _raise_for_value_error(e: ValueError) -> None:
     code = str(e)
     status_code, detail = _ERROR_MAP.get(code, (status.HTTP_400_BAD_REQUEST, code))
     raise HTTPException(status_code=status_code, detail=detail)
+
+
+def _token_response(
+    request: Request,
+    response: Response,
+    access_token: str,
+    refresh_token: str,
+    expires_in: int,
+) -> TokenResponse:
+    """Deliver the refresh token as an httpOnly cookie for web clients, or in
+    the response body for native/API clients."""
+    if client_wants_cookie(request):
+        set_refresh_cookie(response, refresh_token)
+        return TokenResponse(
+            access_token=access_token, refresh_token=None, expires_in=expires_in
+        )
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=expires_in,
+    )
 
 
 def _safe_return_to(value: str | None) -> str:
@@ -238,11 +265,17 @@ async def auth_callback(
 
         access_token, refresh_token, _ = auth_service._create_token_pair(user)
 
+        # The OIDC callback is a browser redirect (web flow): deliver the
+        # long-lived refresh token as an httpOnly cookie instead of in the URL
+        # fragment (which lands in history / referrers). Only the short-lived
+        # access token travels in the fragment for the SPA to pick up.
         redirect_url = (
             f"{callback_url}?return_to={quote(return_to, safe='/')}"
-            f"#access_token={access_token}&refresh_token={refresh_token}"
+            f"#access_token={access_token}"
         )
-        return RedirectResponse(url=redirect_url)
+        redirect = RedirectResponse(url=redirect_url)
+        set_refresh_cookie(redirect, refresh_token)
+        return redirect
 
     except HTTPException:
         raise
@@ -253,7 +286,11 @@ async def auth_callback(
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(user_and_jti: tuple[User, str] = Depends(verify_refresh_token)):
+async def refresh_token(
+    request: Request,
+    response: Response,
+    user_and_jti: tuple[User, str] = Depends(verify_refresh_token),
+):
     """Erneuert einen Access Token mit einem Refresh Token"""
     user, jti = user_and_jti
 
@@ -265,20 +302,28 @@ async def refresh_token(user_and_jti: tuple[User, str] = Depends(verify_refresh_
     access_token = jwt_handler.create_access_token(token_data)
     new_refresh_token = jwt_handler.create_refresh_token(token_data)
 
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=new_refresh_token,
-        expires_in=settings.oidc.jwt_access_token_expire_minutes * 60,
+    return _token_response(
+        request,
+        response,
+        access_token,
+        new_refresh_token,
+        settings.oidc.jwt_access_token_expire_minutes * 60,
     )
 
 
 @router.post("/logout")
-async def logout(request: Request, current_user: User = Depends(get_current_user)):
+async def logout(
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+):
     """Loggt den Benutzer aus"""
     # Revoke the user's outstanding refresh tokens server-side so a leaked one
-    # can't keep minting access tokens after logout. Access tokens already held
-    # remain valid until their short natural expiry.
+    # can't keep minting access tokens after logout, and drop the httpOnly
+    # refresh cookie. Access tokens already held remain valid until their short
+    # natural expiry.
     await revoke_user_refresh_tokens(current_user.guid)
+    clear_refresh_cookie(response)
 
     if oidc_client.is_enabled():
         logout_url = await oidc_client.get_logout_url()
@@ -294,6 +339,7 @@ async def logout(request: Request, current_user: User = Depends(get_current_user
 )
 async def local_login(
     request: Request,
+    response: Response,
     login_data: LocalLoginRequest,
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -310,25 +356,24 @@ async def local_login(
     except ValueError as e:
         _raise_for_value_error(e)
 
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_in=expires_in,
-    )
+    return _token_response(request, response, access_token, refresh_token, expires_in)
 
 
 @router.post(
     "/register",
-    response_model=TokenResponse,
+    response_model=RegistrationResult,
     dependencies=[Depends(_auth_rate_limit)],
 )
 async def register_with_invite(
     registration_data: InviteUse, session: AsyncSession = Depends(get_db_session)
 ):
-    """Register a new user with an invite token."""
+    """Register a new user with an invite token.
+
+    No tokens are issued: the user must verify their email before signing in.
+    """
     auth_service = AuthService(session)
     try:
-        user, access_token, refresh_token, expires_in = await auth_service.register_with_invite(
+        user = await auth_service.register_with_invite(
             email=registration_data.email,
             password=registration_data.password,
             first_name=registration_data.first_name,
@@ -342,11 +387,7 @@ async def register_with_invite(
     except ValueError as e:
         _raise_for_value_error(e)
 
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_in=expires_in,
-    )
+    return RegistrationResult(email=user.email)
 
 
 class OpenRegistration(BaseModel):
@@ -362,16 +403,19 @@ class OpenRegistration(BaseModel):
 
 @router.post(
     "/register/open",
-    response_model=TokenResponse,
+    response_model=RegistrationResult,
     dependencies=[Depends(_auth_rate_limit)],
 )
 async def register_open(
     data: OpenRegistration, session: AsyncSession = Depends(get_db_session)
 ):
-    """Register a new user without an invite (open registration)."""
+    """Register a new user without an invite (open registration).
+
+    No tokens are issued: the user must verify their email before signing in.
+    """
     auth_service = AuthService(session)
     try:
-        user, access_token, refresh_token, expires_in = await auth_service.register_open(
+        user = await auth_service.register_open(
             email=data.email,
             password=data.password,
             first_name=data.first_name,
@@ -384,11 +428,7 @@ async def register_open(
     except ValueError as e:
         _raise_for_value_error(e)
 
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_in=expires_in,
-    )
+    return RegistrationResult(email=user.email)
 
 
 @router.get("/verify-email")
@@ -404,17 +444,20 @@ async def verify_email(
         _raise_for_value_error(e)
 
 
-@router.post("/resend-verification")
+class ResendVerification(BaseModel):
+    email: str
+
+
+@router.post("/resend-verification", dependencies=[Depends(_reset_rate_limit)])
 async def resend_verification_email(
-    current_user: User = Depends(get_current_user),
+    body: ResendVerification,
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Resend the email verification link to the current user."""
+    """Resend the verification link. Public and enumeration-safe, because an
+    unverified user holds no access token yet. Rate-limited against email floods.
+    """
     auth_service = AuthService(session)
-    try:
-        return await auth_service.resend_verification_email(current_user)
-    except ValueError as e:
-        _raise_for_value_error(e)
+    return await auth_service.resend_verification_by_email(body.email)
 
 
 @router.post("/forgot-password", dependencies=[Depends(_reset_rate_limit)])

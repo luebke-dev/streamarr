@@ -17,6 +17,7 @@ from ..models.api_key import ApiKey
 from ..models.user import User
 from ..services.permission import PermissionService
 from .api_key_utils import API_KEY_PREFIX, hash_api_key
+from .cookies import REFRESH_COOKIE_NAME
 from .jwt_handler import jwt_handler
 from .oidc_client import oidc_client
 from .token_revocation import assert_refresh_usable
@@ -51,6 +52,18 @@ async def _resolve_user_from_token(
     user = await session.get(User, user_id)
     if not user or not user.is_active:
         return None, None
+
+    # Instant revocation: reject tokens issued before a password-reset cutoff.
+    if user.token_valid_after is not None:
+        iat = payload.get("iat")
+        if iat is None:
+            return None, None
+        iat_dt = datetime.fromtimestamp(iat, tz=UTC)
+        cutoff = user.token_valid_after
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=UTC)
+        if iat_dt < cutoff:
+            return None, None
 
     return user, payload
 
@@ -227,17 +240,22 @@ async def verify_refresh_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     session: AsyncSession = Depends(get_db_session),
 ) -> tuple[User, str]:
-    """Verify a refresh token and return (User, JTI)."""
-    if not credentials:
+    """Verify a refresh token and return (User, JTI).
+
+    The token comes from the httpOnly ``pyrate_refresh`` cookie (web clients)
+    or the Authorization header (native clients / API scripts).
+    """
+    token = request.cookies.get(REFRESH_COOKIE_NAME) if request else None
+    if not token and credentials:
+        token = credentials.credentials
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user, payload = await _resolve_user_from_token(
-        credentials.credentials, "refresh", session
-    )
+    user, payload = await _resolve_user_from_token(token, "refresh", session)
 
     if not user or not payload:
         raise HTTPException(

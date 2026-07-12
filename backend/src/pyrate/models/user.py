@@ -31,6 +31,11 @@ class User(Base):
     is_superuser: Mapped[bool] = mapped_column(default=False)
     email_verified: Mapped[bool] = mapped_column(default=False)
 
+    # Access/refresh tokens issued before this instant are rejected. Bumped on
+    # logout and password reset so those actions revoke outstanding sessions
+    # immediately, not just when the short access token naturally expires.
+    token_valid_after: Mapped[datetime | None] = mapped_column()
+
     # OIDC-spezifische Felder
     oidc_sub: Mapped[str | None] = mapped_column(
         index=True, unique=True
