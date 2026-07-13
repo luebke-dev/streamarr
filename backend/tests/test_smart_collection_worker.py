@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pyrate.models.smart_collection import SmartCollectionRunStatus
-from pyrate.workers import smart_collection_worker as worker
+from streamarr.models.smart_collection import SmartCollectionRunStatus
+from streamarr.workers import smart_collection_worker as worker
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ class TestTick:
             patch.object(worker.sessionmanager, "session") as session_cm,
             patch.object(worker, "SettingsService", return_value=fake_settings),
             patch(
-                "pyrate.worker.run_smart_collection_rule",
+                "streamarr.worker.run_smart_collection_rule",
                 fake_task,
                 create=True,
             ),

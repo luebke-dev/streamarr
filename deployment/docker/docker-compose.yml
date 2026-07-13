@@ -1,4 +1,4 @@
-# pyrate.media – Docker Compose deployment
+# streamarr.media – Docker Compose deployment
 # Copy .env.example to .env and adjust before starting.
 
 services:
@@ -10,12 +10,12 @@ services:
   # migrations never race across multiple app containers.
   # ---------------------------------------------------------------------------
   migrate:
-    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/backend:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-registry.gitlab.com/streamarr.media}/backend:${IMAGE_TAG:-latest}
     command: ["uv", "run", "alembic", "upgrade", "head"]
     restart: "no"
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-streamarr}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-streamarr}
       - SECRET_KEY=${SECRET_KEY}
     depends_on:
       db:
@@ -25,13 +25,13 @@ services:
   # Backend API
   # ---------------------------------------------------------------------------
   backend:
-    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/backend:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-registry.gitlab.com/streamarr.media}/backend:${IMAGE_TAG:-latest}
     command:
       [
         "uv",
         "run",
         "uvicorn",
-        "pyrate.web:app",
+        "streamarr.web:app",
         "--host",
         "0.0.0.0",
         "--port",
@@ -43,7 +43,7 @@ services:
     privileged: true
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-streamarr}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-streamarr}
       - REDIS_URL=redis://redis:6379/0
       - ELASTICSEARCH_HOST=elasticsearch
       - ELASTICSEARCH_PORT=9200
@@ -83,13 +83,13 @@ services:
   # Background Worker (TaskIQ)
   # ---------------------------------------------------------------------------
   worker:
-    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/backend:${IMAGE_TAG:-latest}
-    command: ["uv", "run", "taskiq", "worker", "pyrate.worker:broker"]
+    image: ${REGISTRY:-registry.gitlab.com/streamarr.media}/backend:${IMAGE_TAG:-latest}
+    command: ["uv", "run", "taskiq", "worker", "streamarr.worker:broker"]
     restart: unless-stopped
     privileged: true
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-streamarr}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-streamarr}
       - REDIS_URL=redis://redis:6379/0
       - ELASTICSEARCH_HOST=elasticsearch
       - ELASTICSEARCH_PORT=9200
@@ -122,12 +122,12 @@ services:
   # Task Scheduler (TaskIQ)
   # ---------------------------------------------------------------------------
   scheduler:
-    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/backend:${IMAGE_TAG:-latest}
-    command: ["uv", "run", "taskiq", "scheduler", "pyrate.worker:scheduler"]
+    image: ${REGISTRY:-registry.gitlab.com/streamarr.media}/backend:${IMAGE_TAG:-latest}
+    command: ["uv", "run", "taskiq", "scheduler", "streamarr.worker:scheduler"]
     restart: unless-stopped
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-streamarr}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-streamarr}
       - REDIS_URL=redis://redis:6379/0
       - ELASTICSEARCH_HOST=elasticsearch
       - ELASTICSEARCH_PORT=9200
@@ -145,7 +145,7 @@ services:
   # Frontend (Quasar SPA served by nginx/Caddy)
   # ---------------------------------------------------------------------------
   frontend:
-    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/frontend:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-registry.gitlab.com/streamarr.media}/frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
@@ -154,7 +154,7 @@ services:
   # Lightrays (WebRTC / streaming relay, Rust)
   # ---------------------------------------------------------------------------
   lightrays:
-    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/lightrays:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-registry.gitlab.com/streamarr.media}/lightrays:${IMAGE_TAG:-latest}
     restart: unless-stopped
     privileged: true
     # Host networking required for WebRTC UDP media streams
@@ -206,7 +206,7 @@ services:
   # spotdl (Spotify track downloader via librespot)
   # ---------------------------------------------------------------------------
   spotdl:
-    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/downloaders/spotify:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-registry.gitlab.com/streamarr.media}/downloaders/spotify:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       WEBHOOK_URL: http://backend:8000/api/webhooks/spotdl
@@ -219,7 +219,7 @@ services:
       - "${SPOTDL_OAUTH_PORT:-8898}:8898"
 
   torrent-downloader:
-    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/downloaders/torrent:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-registry.gitlab.com/streamarr.media}/downloaders/torrent:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       WEBHOOK_URL: http://backend:8000/api/webhooks/torrent
@@ -233,7 +233,7 @@ services:
       - "${TORRENT_DHT_PORT:-6881}:6881/udp"
 
   usenet-downloader:
-    image: ${REGISTRY:-registry.gitlab.com/pyrate.media}/downloaders/usenet:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:-registry.gitlab.com/streamarr.media}/downloaders/usenet:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       WEBHOOK_URL: http://backend:8000/api/webhooks/usenet
@@ -264,9 +264,9 @@ services:
     image: postgres:16
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-pyrate}
+      - POSTGRES_USER=${POSTGRES_USER:-streamarr}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB:-pyrate}
+      - POSTGRES_DB=${POSTGRES_DB:-streamarr}
     command: postgres -c max_connections=200
     volumes:
       - ${DATA_DIR:-./data}/postgres:/var/lib/postgresql/data:rw,z
@@ -276,7 +276,7 @@ services:
       # via the docker network and don't need this published.
       - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pyrate}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-streamarr}"]
       interval: 10s
       timeout: 5s
       retries: 5

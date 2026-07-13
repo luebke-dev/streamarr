@@ -1,6 +1,6 @@
 """Tests for Newznab plugin - size extraction from API responses."""
 
-from pyrate.indexers.newznab import Newznab
+from streamarr.indexers.newznab import Newznab
 
 
 class TestExtractSize:

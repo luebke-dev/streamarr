@@ -8,10 +8,10 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.list import List, ListItem
-from pyrate.models.media import AvailabilityStatus, MediaItem, MediaType
-from pyrate.models.user import User
-from pyrate.models.viewing_history import ViewingHistory
+from streamarr.models.list import List, ListItem
+from streamarr.models.media import AvailabilityStatus, MediaItem, MediaType
+from streamarr.models.user import User
+from streamarr.models.viewing_history import ViewingHistory
 
 
 async def _create_media_item(db: AsyncSession, **overrides) -> MediaItem:

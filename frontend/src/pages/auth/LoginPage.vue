@@ -40,7 +40,7 @@
                         ]
                       : []
                   "
-                  placeholder="https://pyrate.example.com"
+                  placeholder="https://streamarr.example.com"
                 >
                   <template v-slot:prepend>
                     <q-icon name="mdi-server" />
@@ -320,12 +320,12 @@ export default defineComponent({
       probeCurrentOrigin()
 
       // ── 2. Claims polling (QR-code path) ────────────────────────────────
-      // Polls api.pyrate.media to discover the server URL after a QR scan on
+      // Polls api.streamarr.media to discover the server URL after a QR scan on
       // an already-authenticated device. Always runs in parallel and can
       // override the origin-probe result (explicit user action via QR).
       const pollClaims = async () => {
         try {
-          const res = await axios.get(`https://api.pyrate.media/v1/claims/${deviceId.value}`)
+          const res = await axios.get(`https://api.streamarr.media/v1/claims/${deviceId.value}`)
           const claimedUrl = res.data?.server_url
           if (claimedUrl) {
             // The claims service is an external, untrusted source: only adopt a

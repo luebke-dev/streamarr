@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.services.download import DownloadService
+from streamarr.services.download import DownloadService
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ class TestHandleCompletedDownload:
              patch.object(svc, "mark_as_failed", new_callable=AsyncMock), \
              patch.object(svc, "blacklist_download", new_callable=AsyncMock), \
              patch.object(svc, "get_media_item_guid_for_download", new_callable=AsyncMock, return_value=uuid.uuid4()), \
-             patch("pyrate.services.download.Path") as MockPath:
+             patch("streamarr.services.download.Path") as MockPath:
             MockPath.return_value.exists.return_value = False
             result = await svc.handle_completed_download("ext-123", "/nonexistent/path")
 
@@ -192,7 +192,7 @@ class TestHandleCompletedDownload:
              patch.object(db_session, "refresh", side_effect=mock_refresh), \
              patch.object(svc, "mark_as_failed", new_callable=AsyncMock), \
              patch.object(svc, "blacklist_download", new_callable=AsyncMock), \
-             patch("pyrate.services.download.Path", return_value=mock_folder):
+             patch("streamarr.services.download.Path", return_value=mock_folder):
             result = await svc.handle_completed_download("ext-123", "/downloads/test")
 
         assert result["success"] is False
@@ -250,8 +250,8 @@ class TestHandleCompletedDownload:
              patch.object(db_session, "refresh", side_effect=mock_refresh), \
              patch.object(svc, "mark_as_imported", new_callable=AsyncMock), \
              patch.object(svc, "is_valid_media_file", return_value=True), \
-             patch("pyrate.services.download.Path", side_effect=mock_path), \
-             patch("pyrate.services.download.get_plugin_instance", return_value=mock_plugin):
+             patch("streamarr.services.download.Path", side_effect=mock_path), \
+             patch("streamarr.services.download.get_plugin_instance", return_value=mock_plugin):
             result = await svc.handle_completed_download("ext-123", "/downloads/test")
 
         assert result["success"] is True
@@ -303,8 +303,8 @@ class TestHandleCompletedDownload:
              patch.object(svc, "blacklist_download", new_callable=AsyncMock), \
              patch.object(svc, "get_media_item_guid_for_download", new_callable=AsyncMock, return_value=uuid.uuid4()), \
              patch.object(svc, "is_valid_media_file", return_value=True), \
-             patch("pyrate.services.download.Path", return_value=mock_folder), \
-             patch("pyrate.services.download.get_plugin_instance", return_value=mock_plugin):
+             patch("streamarr.services.download.Path", return_value=mock_folder), \
+             patch("streamarr.services.download.get_plugin_instance", return_value=mock_plugin):
             result = await svc.handle_completed_download("ext-123", "/downloads/test")
 
         assert result["success"] is False
@@ -357,7 +357,7 @@ class TestIsValidMediaFile:
         svc = DownloadService(db_session)
         f = tmp_path / "track.flac"
         f.write_bytes(b"data")
-        with patch("pyrate.services.download.get_library_type_for_media_item_type", return_value="MUSIC"):
+        with patch("streamarr.services.download.get_library_type_for_media_item_type", return_value="MUSIC"):
             assert svc.is_valid_media_file(f, "SONGS") is True
 
     def test_is_valid_media_file_video(self, db_session: AsyncSession, tmp_path: Path):
@@ -365,5 +365,5 @@ class TestIsValidMediaFile:
         svc = DownloadService(db_session)
         f = tmp_path / "movie.mkv"
         f.write_bytes(b"data")
-        with patch("pyrate.services.download.get_library_type_for_media_item_type", return_value="MOVIES"):
+        with patch("streamarr.services.download.get_library_type_for_media_item_type", return_value="MOVIES"):
             assert svc.is_valid_media_file(f, "MOVIES") is True

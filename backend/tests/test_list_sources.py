@@ -1,27 +1,27 @@
-"""Tests for the list-source adapters under pyrate.metadata.list_sources."""
+"""Tests for the list-source adapters under streamarr.metadata.list_sources."""
 
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
-from pyrate.metadata.list_sources import (
+from streamarr.metadata.list_sources import (
     ExternalRef,
     ListSourceError,
     ListSourceMediaType,
     build_source,
     list_source_slugs,
 )
-from pyrate.metadata.list_sources.imdb import (
+from streamarr.metadata.list_sources.imdb import (
     ImdbListSource,
     _walk_for_tt_ids,
 )
-from pyrate.metadata.list_sources.letterboxd import (
+from streamarr.metadata.list_sources.letterboxd import (
     LetterboxdListSource,
     _SLUG_RE,
     _TMDB_RE,
 )
-from pyrate.metadata.list_sources.tmdb_list import TmdbListSource
+from streamarr.metadata.list_sources.tmdb_list import TmdbListSource
 
 
 def _resp(json_data, status_code=200, headers=None):

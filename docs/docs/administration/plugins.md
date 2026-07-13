@@ -1,12 +1,12 @@
 # Plugins & Metadata Providers
 
-"Plugins" in pyrate.media covers two things today:
+"Plugins" in streamarr.media covers two things today:
 
 1. **Metadata providers** — external services (TMDB, TheTVDB, IGDB, Spotify, MusicBrainz, Shazam) that supply titles, artwork, descriptions, and identification. These are configured in the admin UI.
 2. **The plugin package registry** — a metadata-only record of plugin repositories and package lifecycle state, managed via the API and displayed read-only in the admin UI.
 
 !!! warning "No executable plugins"
-    pyrate.media does **not** download or execute plugin code. The plugin registry stores repository, lifecycle, capability, and notification metadata only. Library types (movies, shows, music, games, books, photos) are built into the server and cannot be installed or removed.
+    streamarr.media does **not** download or execute plugin code. The plugin registry stores repository, lifecycle, capability, and notification metadata only. Library types (movies, shows, music, games, books, photos) are built into the server and cannot be installed or removed.
 
 ## Metadata Providers
 

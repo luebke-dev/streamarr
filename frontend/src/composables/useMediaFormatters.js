@@ -28,7 +28,7 @@ const ARTWORK_PROXY_HOSTS = new Set([
 function artworkCacheEnabled() {
   const override =
     typeof localStorage !== 'undefined'
-      ? localStorage.getItem('pyrate_artwork_cache_enabled')
+      ? localStorage.getItem('streamarr_artwork_cache_enabled')
       : null
   if (override != null) return ['1', 'true', 'yes', 'on'].includes(override.toLowerCase())
   return ['1', 'true', 'yes', 'on'].includes(
@@ -53,7 +53,7 @@ function getArtworkProxyUrl(url) {
 
 /**
  * Build a display URL for artwork from local paths, remote URLs or provider paths.
- * Remote provider URLs are routed through the optional pyrate artwork cache when enabled.
+ * Remote provider URLs are routed through the optional streamarr artwork cache when enabled.
  *
  * @param {string} source - Local URL, remote URL, or provider image path.
  * @param {Object} options

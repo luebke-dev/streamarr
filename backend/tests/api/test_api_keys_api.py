@@ -5,8 +5,8 @@ import uuid
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.auth.dependencies import _resolve_user_from_api_key
-from pyrate.models.user import User
+from streamarr.auth.dependencies import _resolve_user_from_api_key
+from streamarr.models.user import User
 
 
 class TestApiKeys:

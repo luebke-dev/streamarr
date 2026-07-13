@@ -1,9 +1,9 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Pyrate",
-  "mainBinaryName": "Pyrate",
+  "productName": "Streamarr",
+  "mainBinaryName": "Streamarr",
   "version": "2026.2.1",
-  "identifier": "media.pyrate.desktop",
+  "identifier": "media.streamarr.desktop",
   "build": {
     "beforeDevCommand": "yarn dev",
     "beforeBuildCommand": "yarn build",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Pyrate",
+        "title": "Streamarr",
         "width": 1400,
         "height": 900,
         "minWidth": 900,
@@ -34,7 +34,7 @@
     "targets": ["appimage", "deb", "dmg", "nsis"],
     "category": "Video",
     "publisher": "Sebastian Lübke",
-    "homepage": "https://pyrate.media",
+    "homepage": "https://streamarr.media",
     "shortDescription": "A streaming media center.",
     "longDescription": "A streaming media center.",
     "icon": [

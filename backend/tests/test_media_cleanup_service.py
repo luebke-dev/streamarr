@@ -12,7 +12,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.services.media import MediaService, cleanup_stream_on_stop
+from streamarr.services.media import MediaService, cleanup_stream_on_stop
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ class TestCleanupTempFiles:
 
         svc = _make_service(db_session)
         with patch(
-            "pyrate.services.media.glob.glob",
+            "streamarr.services.media.glob.glob",
             side_effect=lambda pattern: (
                 [str(m3u8)] if ".m3u8" in pattern else []
             ),
@@ -67,7 +67,7 @@ class TestCleanupTempFiles:
 
         svc = _make_service(db_session)
         with patch(
-            "pyrate.services.media.glob.glob",
+            "streamarr.services.media.glob.glob",
             side_effect=lambda pattern: (
                 [] if ".m3u8" in pattern else [str(s) for s in segments]
             ),
@@ -84,7 +84,7 @@ class TestCleanupTempFiles:
         """cleanup_temp_files returns zero counts when no files match."""
         svc = _make_service(db_session)
         with patch(
-            "pyrate.services.media.glob.glob", return_value=[]
+            "streamarr.services.media.glob.glob", return_value=[]
         ):
             result = await svc.cleanup_temp_files("sess-empty")
 
@@ -96,7 +96,7 @@ class TestCleanupTempFiles:
     async def test_cleanup_result_has_correct_keys(self, db_session: AsyncSession):
         """Return dict always contains the expected keys."""
         svc = _make_service(db_session)
-        with patch("pyrate.services.media.glob.glob", return_value=[]):
+        with patch("streamarr.services.media.glob.glob", return_value=[]):
             result = await svc.cleanup_temp_files("any-session")
 
         assert "temp_files_deleted" in result
@@ -115,7 +115,7 @@ class TestCleanupTempFiles:
         svc = _make_service(db_session)
         with (
             patch(
-                "pyrate.services.media.glob.glob",
+                "streamarr.services.media.glob.glob",
                 side_effect=lambda pattern: (
                     [str(bad_file)] if ".m3u8" in pattern else []
                 ),
@@ -210,7 +210,7 @@ class TestCleanupOrphanedTempFiles:
 
         svc = _make_service(db_session)
         with patch(
-            "pyrate.services.media.glob.glob",
+            "streamarr.services.media.glob.glob",
             return_value=[str(old_file)],
         ):
             result = await svc.cleanup_orphaned_temp_files(max_age_hours=2)
@@ -229,7 +229,7 @@ class TestCleanupOrphanedTempFiles:
 
         svc = _make_service(db_session)
         with patch(
-            "pyrate.services.media.glob.glob",
+            "streamarr.services.media.glob.glob",
             return_value=[str(recent_file)],
         ):
             result = await svc.cleanup_orphaned_temp_files(max_age_hours=2)
@@ -242,7 +242,7 @@ class TestCleanupOrphanedTempFiles:
         """When no temp files exist, all counts are zero."""
         svc = _make_service(db_session)
         with patch(
-            "pyrate.services.media.glob.glob", return_value=[]
+            "streamarr.services.media.glob.glob", return_value=[]
         ):
             result = await svc.cleanup_orphaned_temp_files()
 
@@ -264,7 +264,7 @@ class TestCleanupOrphanedTempFiles:
         # Return all 5 files on the first call (.ts), empty on the second (.m3u8)
         call_results = [[str(f) for f in files], []]
         with patch(
-            "pyrate.services.media.glob.glob",
+            "streamarr.services.media.glob.glob",
             side_effect=call_results,
         ):
             result = await svc.cleanup_orphaned_temp_files(max_age_hours=0)
@@ -275,7 +275,7 @@ class TestCleanupOrphanedTempFiles:
     async def test_result_has_expected_keys(self, db_session: AsyncSession):
         """Return dict always has files_scanned, files_deleted, errors."""
         svc = _make_service(db_session)
-        with patch("pyrate.services.media.glob.glob", return_value=[]):
+        with patch("streamarr.services.media.glob.glob", return_value=[]):
             result = await svc.cleanup_orphaned_temp_files()
 
         assert "files_scanned" in result
@@ -296,7 +296,7 @@ class TestCleanupStreamOnStop:
         self, db_session: AsyncSession, tmp_path: Path
     ):
         """cleanup_stream_on_stop returns a dict with session_id, temp_cleanup, library_cleanup."""
-        with patch("pyrate.services.media.glob.glob", return_value=[]):
+        with patch("streamarr.services.media.glob.glob", return_value=[]):
             result = await cleanup_stream_on_stop(
                 db=db_session,
                 session_id="test-session-999",
@@ -318,7 +318,7 @@ class TestCleanupStreamOnStop:
         m3u8.write_text("playlist")
 
         with patch(
-            "pyrate.services.media.glob.glob",
+            "streamarr.services.media.glob.glob",
             side_effect=lambda pattern: (
                 [str(m3u8)] if ".m3u8" in pattern else []
             ),

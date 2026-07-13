@@ -29,7 +29,7 @@ docker run -d \
   -e USENET_HOST=news.example.com \
   -e USENET_USERNAME=user \
   -e USENET_PASSWORD=pass \
-  registry.gitlab.com/pyrate.media/usenet-downloader:latest
+  registry.gitlab.com/streamarr.media/usenet-downloader:latest
 ```
 
 ## API

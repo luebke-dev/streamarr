@@ -5,7 +5,7 @@ test_library_service.py, test_payment_service.py).
 """
 
 # Ensure the 'emails' third-party library is mockable even when not installed.
-# Must happen before any pyrate.services.email import.
+# Must happen before any streamarr.services.email import.
 import sys
 from unittest.mock import MagicMock as _MagicMock
 
@@ -22,9 +22,9 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.downloader import Downloader
-from pyrate.models.downloads import Download
-from pyrate.models.media import (
+from streamarr.models.downloader import Downloader
+from streamarr.models.downloads import Download
+from streamarr.models.media import (
     AvailabilityStatus,
     MediaFile,
     MediaItem,
@@ -32,9 +32,9 @@ from pyrate.models.media import (
     MediaReleaseLink,
     MediaType,
 )
-from pyrate.models.user import User
-from pyrate.services.media import MediaService
-from pyrate.services.download import DownloadService
+from streamarr.models.user import User
+from streamarr.services.media import MediaService
+from streamarr.services.download import DownloadService
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +206,7 @@ class TestSelectBestRelease:
             media_item_guid=media_item.guid,
             title="Release B",
         )
-        with patch("pyrate.services.media.get_plugin_instance", return_value=None):
+        with patch("streamarr.services.media.get_plugin_instance", return_value=None):
             result = await svc.select_best_release(media_item, [r1, r2])
         assert result is r1
 
@@ -240,8 +240,8 @@ class TestSelectBestRelease:
         mock_settings_cls.return_value.get = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.services.media.get_plugin_instance", return_value=mock_plugin),
-            patch("pyrate.services.settings.SettingsService", mock_settings_cls),
+            patch("streamarr.services.media.get_plugin_instance", return_value=mock_plugin),
+            patch("streamarr.services.settings.SettingsService", mock_settings_cls),
         ):
             result = await svc.select_best_release(media_item, [r_low, r_high])
 
@@ -269,8 +269,8 @@ class TestSelectBestRelease:
         mock_settings_cls.return_value.get = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.services.media.get_plugin_instance", return_value=mock_plugin),
-            patch("pyrate.services.settings.SettingsService", mock_settings_cls),
+            patch("streamarr.services.media.get_plugin_instance", return_value=mock_plugin),
+            patch("streamarr.services.settings.SettingsService", mock_settings_cls),
         ):
             result = await svc.select_best_release(media_item, [r1])
 
@@ -303,8 +303,8 @@ class TestSelectBestRelease:
         mock_settings_cls.return_value.get = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.services.media.get_plugin_instance", return_value=mock_plugin),
-            patch("pyrate.services.settings.SettingsService", mock_settings_cls),
+            patch("streamarr.services.media.get_plugin_instance", return_value=mock_plugin),
+            patch("streamarr.services.settings.SettingsService", mock_settings_cls),
         ):
             await svc.select_best_release(
                 media_item,
@@ -343,8 +343,8 @@ class TestSelectBestRelease:
         mock_settings_cls.return_value.get = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.services.media.get_plugin_instance", return_value=mock_plugin),
-            patch("pyrate.services.settings.SettingsService", mock_settings_cls),
+            patch("streamarr.services.media.get_plugin_instance", return_value=mock_plugin),
+            patch("streamarr.services.settings.SettingsService", mock_settings_cls),
         ):
             await svc.select_best_release(
                 media_item,
@@ -710,7 +710,7 @@ class TestGetDownloaderClient:
         mock_downloader = MagicMock(spec=Downloader)
 
         with patch(
-            "pyrate.services.downloader.DownloaderService"
+            "streamarr.services.downloader.DownloaderService"
         ) as MockDlSvc:
             MockDlSvc.get_client.return_value = MagicMock()
             client = svc.get_downloader_client(mock_downloader)
@@ -1023,7 +1023,7 @@ class TestDownloadFileValidation:
         f.write_bytes(b"data")
 
         with patch(
-            "pyrate.services.download.get_library_type_for_media_item_type",
+            "streamarr.services.download.get_library_type_for_media_item_type",
             return_value="MUSIC",
         ):
             assert svc.is_valid_media_file(f, "SONGS") is True
@@ -1034,7 +1034,7 @@ class TestDownloadFileValidation:
         f.write_bytes(b"data")
 
         with patch(
-            "pyrate.services.download.get_library_type_for_media_item_type",
+            "streamarr.services.download.get_library_type_for_media_item_type",
             return_value="SHOWS",
         ):
             assert svc.is_valid_media_file(f, "EPISODES") is True
@@ -1243,7 +1243,7 @@ class TestHandleCompletedDownload:
 class TestEmailService:
     def _make_service(self):
         """Create an EmailService with patched settings to avoid real config."""
-        from pyrate.services.email import EmailService
+        from streamarr.services.email import EmailService
 
         return EmailService()
 
@@ -1298,7 +1298,7 @@ class TestEmailService:
         mock_response = MagicMock()
         mock_response.status_code = 250
 
-        with patch("pyrate.services.email.emails.Message") as MockMsg:
+        with patch("streamarr.services.email.emails.Message") as MockMsg:
             mock_msg_inst = MagicMock()
             mock_msg_inst.send.return_value = mock_response
             MockMsg.return_value = mock_msg_inst
@@ -1332,7 +1332,7 @@ class TestEmailService:
         mock_response.status_code = 550
         mock_response.error = "rejected"
 
-        with patch("pyrate.services.email.emails.Message") as MockMsg:
+        with patch("streamarr.services.email.emails.Message") as MockMsg:
             mock_msg_inst = MagicMock()
             mock_msg_inst.send.return_value = mock_response
             MockMsg.return_value = mock_msg_inst
@@ -1361,7 +1361,7 @@ class TestEmailService:
         svc.config.smtp_user = None
         svc.config.smtp_password = None
 
-        with patch("pyrate.services.email.emails.Message") as MockMsg:
+        with patch("streamarr.services.email.emails.Message") as MockMsg:
             MockMsg.side_effect = ConnectionRefusedError("SMTP down")
             result = await svc.send_email(
                 to_email="recipient@example.com",
@@ -1396,7 +1396,7 @@ class TestEmailService:
                 "render_template",
                 return_value=("<h1>Hello</h1>", "Hello"),
             ) as mock_render,
-            patch("pyrate.services.email.emails.Message") as MockMsg,
+            patch("streamarr.services.email.emails.Message") as MockMsg,
         ):
             mock_msg_inst = MagicMock()
             mock_msg_inst.send.return_value = mock_response
@@ -1434,7 +1434,7 @@ class TestEmailService:
         mock_response = MagicMock()
         mock_response.status_code = 250
 
-        with patch("pyrate.services.email.emails.Message") as MockMsg:
+        with patch("streamarr.services.email.emails.Message") as MockMsg:
             mock_msg_inst = MagicMock()
             mock_msg_inst.send.return_value = mock_response
             MockMsg.return_value = mock_msg_inst
@@ -1458,7 +1458,7 @@ class TestEmailService:
         with patch.object(
             svc, "send_email", new_callable=AsyncMock, return_value=True
         ) as mock_send:
-            with patch("pyrate.services.email.get_app_url", return_value="https://example.com"):
+            with patch("streamarr.services.email.get_app_url", return_value="https://example.com"):
                 result = await svc.send_notification_email(
                     to_email="user@example.com",
                     subject="Alert",
@@ -1482,7 +1482,7 @@ class TestEmailService:
             svc, "send_email", new_callable=AsyncMock, return_value=True
         ) as mock_send:
             with patch(
-                "pyrate.services.email.get_app_url",
+                "streamarr.services.email.get_app_url",
                 return_value="http://localhost:8080",
             ):
                 await svc.send_notification_email(
@@ -1505,7 +1505,7 @@ class TestPaymentServiceSyncSubscription:
     async def sub_for_sync(
         self, db_session: AsyncSession, test_user: User
     ) -> "UserSubscription":
-        from pyrate.models.subscription import UserSubscription
+        from streamarr.models.subscription import UserSubscription
 
         sub = UserSubscription(
             user_id=test_user.guid,
@@ -1526,8 +1526,8 @@ class TestPaymentServiceSyncSubscription:
         db_session: AsyncSession,
         sub_for_sync,
     ):
-        from pyrate.models.subscription import SubscriptionStatus
-        from pyrate.services.payment import PaymentService
+        from streamarr.models.subscription import SubscriptionStatus
+        from streamarr.services.payment import PaymentService
 
         provider = AsyncMock()
         now_ts = int(datetime.now(UTC).timestamp())
@@ -1550,8 +1550,8 @@ class TestPaymentServiceSyncSubscription:
         db_session: AsyncSession,
         sub_for_sync,
     ):
-        from pyrate.models.subscription import SubscriptionStatus
-        from pyrate.services.payment import PaymentService
+        from streamarr.models.subscription import SubscriptionStatus
+        from streamarr.services.payment import PaymentService
 
         provider = AsyncMock()
         provider.get_subscription_status = AsyncMock(
@@ -1569,8 +1569,8 @@ class TestPaymentServiceSyncSubscription:
         db_session: AsyncSession,
         sub_for_sync,
     ):
-        from pyrate.models.subscription import SubscriptionStatus
-        from pyrate.services.payment import PaymentService
+        from streamarr.models.subscription import SubscriptionStatus
+        from streamarr.services.payment import PaymentService
 
         provider = AsyncMock()
         provider.get_subscription_status = AsyncMock(
@@ -1587,8 +1587,8 @@ class TestPaymentServiceSyncSubscription:
         db_session: AsyncSession,
         sub_for_sync,
     ):
-        from pyrate.models.subscription import SubscriptionStatus
-        from pyrate.services.payment import PaymentService
+        from streamarr.models.subscription import SubscriptionStatus
+        from streamarr.services.payment import PaymentService
 
         provider = AsyncMock()
         provider.get_subscription_status = AsyncMock(
@@ -1605,7 +1605,7 @@ class TestPaymentServiceSyncSubscription:
         db_session: AsyncSession,
         sub_for_sync,
     ):
-        from pyrate.services.payment import PaymentService
+        from streamarr.services.payment import PaymentService
 
         provider = AsyncMock()
         provider.get_subscription_status = AsyncMock(
@@ -1623,8 +1623,8 @@ class TestPaymentServiceSyncSubscription:
         sub_for_sync,
     ):
         """If cancelled_at is already set, sync does not overwrite it."""
-        from pyrate.models.subscription import SubscriptionStatus
-        from pyrate.services.payment import PaymentService
+        from streamarr.models.subscription import SubscriptionStatus
+        from streamarr.services.payment import PaymentService
 
         # Use a naive datetime since SQLite stores naive datetimes
         original_time = datetime(2025, 1, 1, 0, 0)
@@ -1654,11 +1654,11 @@ class TestPaymentWebhookUnpaid:
     async def test_handle_subscription_updated_unpaid(
         self, db_session: AsyncSession, test_user: User
     ):
-        from pyrate.models.subscription import (
+        from streamarr.models.subscription import (
             SubscriptionStatus,
             UserSubscription,
         )
-        from pyrate.services.payment import PaymentService
+        from streamarr.services.payment import PaymentService
 
         sub = UserSubscription(
             user_id=test_user.guid,
@@ -1686,7 +1686,7 @@ class TestPaymentWebhookUnpaid:
         self, db_session: AsyncSession
     ):
         """Returns early without error when no subscription ID in event."""
-        from pyrate.services.payment import PaymentService
+        from streamarr.services.payment import PaymentService
 
         provider = AsyncMock()
         svc = PaymentService(db=db_session, payment_provider=provider)
@@ -1697,7 +1697,7 @@ class TestPaymentWebhookUnpaid:
         self, db_session: AsyncSession
     ):
         """Returns early when subscription not found in DB."""
-        from pyrate.services.payment import PaymentService
+        from streamarr.services.payment import PaymentService
 
         provider = AsyncMock()
         svc = PaymentService(db=db_session, payment_provider=provider)

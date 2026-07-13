@@ -1,6 +1,6 @@
 # Music
 
-pyrate.media includes a full music library alongside movies, shows, games, and books. Music is organized in a hierarchy of **artists → albums → songs**, with metadata pulled from **Spotify** and **MusicBrainz** (including cover art), and plays in a persistent audio player that keeps running while you browse the rest of the app.
+streamarr.media includes a full music library alongside movies, shows, games, and books. Music is organized in a hierarchy of **artists → albums → songs**, with metadata pulled from **Spotify** and **MusicBrainz** (including cover art), and plays in a persistent audio player that keeps running while you browse the rest of the app.
 
 ## Browsing the Music Library
 

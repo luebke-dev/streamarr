@@ -27,7 +27,7 @@ docker run -d \
   --name spotify-downloader \
   --network host \
   -v spotify-data:/data \
-  registry.gitlab.com/pyrate.media/spotify-downloader:latest
+  registry.gitlab.com/streamarr.media/spotify-downloader:latest
 ```
 
 On first start, the Spotify OAuth URL is printed to the logs:

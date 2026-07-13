@@ -6,7 +6,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.downloader import Downloader
+from streamarr.models.downloader import Downloader
 
 
 # ---------------------------------------------------------------------------

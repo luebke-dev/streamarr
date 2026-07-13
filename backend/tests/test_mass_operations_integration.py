@@ -9,13 +9,13 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from pyrate.models.genre import Genre
-from pyrate.models.mass_operation import (
+from streamarr.models.genre import Genre
+from streamarr.models.mass_operation import (
     MassOperationRule,
     MassOperationRunStatus,
 )
-from pyrate.models.media import MediaItem
-from pyrate.services.mass_operation import MassOperationService
+from streamarr.models.media import MediaItem
+from streamarr.services.mass_operation import MassOperationService
 
 
 @pytest.mark.asyncio

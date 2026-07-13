@@ -1,4 +1,4 @@
-"""Tests for the Reindex API module (pyrate.api.v1.reindex)."""
+"""Tests for the Reindex API module (streamarr.api.v1.reindex)."""
 
 import uuid
 
@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from pyrate.api.v1.reindex import (
+from streamarr.api.v1.reindex import (
     reindex_movies_task,
     reindex_shows_task,
     reindex_all_task,
@@ -26,8 +26,8 @@ class TestReindexMoviesTask:
         movies = [MagicMock() for _ in range(10)]
 
         with (
-            patch("pyrate.api.v1.reindex.MediaService") as MockMediaService,
-            patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es,
+            patch("streamarr.api.v1.reindex.MediaService") as MockMediaService,
+            patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es,
         ):
             svc = AsyncMock()
             svc.list_by_type = AsyncMock(side_effect=[movies, []])
@@ -49,8 +49,8 @@ class TestReindexMoviesTask:
         mock_db = AsyncMock()
 
         with (
-            patch("pyrate.api.v1.reindex.MediaService") as MockMediaService,
-            patch("pyrate.api.v1.reindex.elasticsearch_service"),
+            patch("streamarr.api.v1.reindex.MediaService") as MockMediaService,
+            patch("streamarr.api.v1.reindex.elasticsearch_service"),
         ):
             svc = AsyncMock()
             svc.list_by_type = AsyncMock(return_value=[])
@@ -68,8 +68,8 @@ class TestReindexMoviesTask:
         partial = [MagicMock() for _ in range(100)]
 
         with (
-            patch("pyrate.api.v1.reindex.MediaService") as MockMediaService,
-            patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es,
+            patch("streamarr.api.v1.reindex.MediaService") as MockMediaService,
+            patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es,
         ):
             svc = AsyncMock()
             svc.list_by_type = AsyncMock(side_effect=[full_batch, partial])
@@ -88,8 +88,8 @@ class TestReindexMoviesTask:
         mock_db = AsyncMock()
 
         with (
-            patch("pyrate.api.v1.reindex.MediaService") as MockMediaService,
-            patch("pyrate.api.v1.reindex.elasticsearch_service"),
+            patch("streamarr.api.v1.reindex.MediaService") as MockMediaService,
+            patch("streamarr.api.v1.reindex.elasticsearch_service"),
         ):
             svc = AsyncMock()
             svc.list_by_type = AsyncMock(side_effect=RuntimeError("db error"))
@@ -113,8 +113,8 @@ class TestReindexShowsTask:
         shows = [MagicMock() for _ in range(5)]
 
         with (
-            patch("pyrate.api.v1.reindex.MediaService") as MockMediaService,
-            patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es,
+            patch("streamarr.api.v1.reindex.MediaService") as MockMediaService,
+            patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es,
         ):
             svc = AsyncMock()
             svc.list_by_type = AsyncMock(side_effect=[shows, []])
@@ -134,8 +134,8 @@ class TestReindexShowsTask:
         mock_db = AsyncMock()
 
         with (
-            patch("pyrate.api.v1.reindex.MediaService") as MockMediaService,
-            patch("pyrate.api.v1.reindex.elasticsearch_service"),
+            patch("streamarr.api.v1.reindex.MediaService") as MockMediaService,
+            patch("streamarr.api.v1.reindex.elasticsearch_service"),
         ):
             svc = AsyncMock()
             svc.list_by_type = AsyncMock(return_value=[])
@@ -150,8 +150,8 @@ class TestReindexShowsTask:
         mock_db = AsyncMock()
 
         with (
-            patch("pyrate.api.v1.reindex.MediaService") as MockMediaService,
-            patch("pyrate.api.v1.reindex.elasticsearch_service"),
+            patch("streamarr.api.v1.reindex.MediaService") as MockMediaService,
+            patch("streamarr.api.v1.reindex.elasticsearch_service"),
         ):
             svc = AsyncMock()
             svc.list_by_type = AsyncMock(side_effect=RuntimeError("fail"))
@@ -176,8 +176,8 @@ class TestReindexAllTask:
         shows = [MagicMock() for _ in range(2)]
 
         with (
-            patch("pyrate.api.v1.reindex.MediaService") as MockMediaService,
-            patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es,
+            patch("streamarr.api.v1.reindex.MediaService") as MockMediaService,
+            patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es,
         ):
             svc = AsyncMock()
             # First call for movies, second empty (end movies loop),
@@ -202,8 +202,8 @@ class TestReindexAllTask:
         mock_db = AsyncMock()
 
         with (
-            patch("pyrate.api.v1.reindex.MediaService") as MockMediaService,
-            patch("pyrate.api.v1.reindex.elasticsearch_service"),
+            patch("streamarr.api.v1.reindex.MediaService") as MockMediaService,
+            patch("streamarr.api.v1.reindex.elasticsearch_service"),
         ):
             svc = AsyncMock()
             svc.list_by_type = AsyncMock(return_value=[])
@@ -219,8 +219,8 @@ class TestReindexAllTask:
         mock_db = AsyncMock()
 
         with (
-            patch("pyrate.api.v1.reindex.MediaService") as MockMediaService,
-            patch("pyrate.api.v1.reindex.elasticsearch_service"),
+            patch("streamarr.api.v1.reindex.MediaService") as MockMediaService,
+            patch("streamarr.api.v1.reindex.elasticsearch_service"),
         ):
             svc = AsyncMock()
             svc.list_by_type = AsyncMock(side_effect=RuntimeError("boom"))
@@ -242,13 +242,13 @@ class TestReindexMoviesEndpoint:
     @pytest.mark.asyncio
     async def test_es_unavailable(self):
         """Returns 500 wrapping 503 when ES client is not available even after init."""
-        from pyrate.api.v1.reindex import reindex_movies
+        from streamarr.api.v1.reindex import reindex_movies
 
         bg = MagicMock()
         mock_db = AsyncMock()
         mock_user = MagicMock()
 
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = None
             mock_es.initialize = AsyncMock()
 
@@ -260,13 +260,13 @@ class TestReindexMoviesEndpoint:
     @pytest.mark.asyncio
     async def test_success(self):
         """Returns queued when ES is available."""
-        from pyrate.api.v1.reindex import reindex_movies
+        from streamarr.api.v1.reindex import reindex_movies
 
         bg = MagicMock()
         mock_db = AsyncMock()
         mock_user = MagicMock()
 
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = MagicMock()  # truthy
 
             result = await reindex_movies(bg, mock_db, mock_user)
@@ -278,13 +278,13 @@ class TestReindexMoviesEndpoint:
     @pytest.mark.asyncio
     async def test_exception(self):
         """Returns 500 on unexpected exception."""
-        from pyrate.api.v1.reindex import reindex_movies
+        from streamarr.api.v1.reindex import reindex_movies
 
         bg = MagicMock()
         mock_db = AsyncMock()
         mock_user = MagicMock()
 
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = None
             mock_es.initialize = AsyncMock(side_effect=RuntimeError("init fail"))
 
@@ -296,10 +296,10 @@ class TestReindexMoviesEndpoint:
 class TestReindexShowsEndpoint:
     @pytest.mark.asyncio
     async def test_es_unavailable(self):
-        from pyrate.api.v1.reindex import reindex_shows
+        from streamarr.api.v1.reindex import reindex_shows
 
         bg = MagicMock()
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = None
             mock_es.initialize = AsyncMock()
 
@@ -310,10 +310,10 @@ class TestReindexShowsEndpoint:
 
     @pytest.mark.asyncio
     async def test_success(self):
-        from pyrate.api.v1.reindex import reindex_shows
+        from streamarr.api.v1.reindex import reindex_shows
 
         bg = MagicMock()
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = MagicMock()
 
             result = await reindex_shows(bg, AsyncMock(), MagicMock())
@@ -323,10 +323,10 @@ class TestReindexShowsEndpoint:
 
     @pytest.mark.asyncio
     async def test_exception(self):
-        from pyrate.api.v1.reindex import reindex_shows
+        from streamarr.api.v1.reindex import reindex_shows
 
         bg = MagicMock()
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = None
             mock_es.initialize = AsyncMock(side_effect=RuntimeError("fail"))
 
@@ -338,10 +338,10 @@ class TestReindexShowsEndpoint:
 class TestReindexAllEndpoint:
     @pytest.mark.asyncio
     async def test_es_unavailable(self):
-        from pyrate.api.v1.reindex import reindex_all
+        from streamarr.api.v1.reindex import reindex_all
 
         bg = MagicMock()
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = None
             mock_es.initialize = AsyncMock()
 
@@ -352,10 +352,10 @@ class TestReindexAllEndpoint:
 
     @pytest.mark.asyncio
     async def test_success(self):
-        from pyrate.api.v1.reindex import reindex_all
+        from streamarr.api.v1.reindex import reindex_all
 
         bg = MagicMock()
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = MagicMock()
 
             result = await reindex_all(bg, AsyncMock(), MagicMock())
@@ -365,10 +365,10 @@ class TestReindexAllEndpoint:
 
     @pytest.mark.asyncio
     async def test_exception(self):
-        from pyrate.api.v1.reindex import reindex_all
+        from streamarr.api.v1.reindex import reindex_all
 
         bg = MagicMock()
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = None
             mock_es.initialize = AsyncMock(side_effect=RuntimeError("fail"))
 
@@ -385,10 +385,10 @@ class TestReindexAllEndpoint:
 class TestReindexStatusEndpoint:
     @pytest.mark.asyncio
     async def test_es_available(self):
-        from pyrate.api.v1.reindex import get_reindex_status
+        from streamarr.api.v1.reindex import get_reindex_status
 
         mock_user = MagicMock()
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = MagicMock()
             mock_es.client.cluster.health = AsyncMock(
                 return_value={
@@ -407,9 +407,9 @@ class TestReindexStatusEndpoint:
 
     @pytest.mark.asyncio
     async def test_es_unavailable(self):
-        from pyrate.api.v1.reindex import get_reindex_status
+        from streamarr.api.v1.reindex import get_reindex_status
 
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = None
             mock_es.initialize = AsyncMock()
 
@@ -420,9 +420,9 @@ class TestReindexStatusEndpoint:
 
     @pytest.mark.asyncio
     async def test_es_exception(self):
-        from pyrate.api.v1.reindex import get_reindex_status
+        from streamarr.api.v1.reindex import get_reindex_status
 
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = MagicMock()
             mock_es.client.cluster.health = AsyncMock(
                 side_effect=RuntimeError("connection refused")
@@ -437,11 +437,11 @@ class TestReindexStatusEndpoint:
     @pytest.mark.asyncio
     async def test_es_init_then_available(self):
         """ES client is None initially, init makes it available."""
-        from pyrate.api.v1.reindex import get_reindex_status
+        from streamarr.api.v1.reindex import get_reindex_status
 
         call_count = 0
 
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             # First access returns None, after init returns a client
             def client_getter():
                 nonlocal call_count
@@ -460,7 +460,7 @@ class TestReindexStatusEndpoint:
             # by just having client always truthy after init
 
         # Simpler approach: test with client already set
-        with patch("pyrate.api.v1.reindex.elasticsearch_service") as mock_es:
+        with patch("streamarr.api.v1.reindex.elasticsearch_service") as mock_es:
             mock_es.client = MagicMock()
             mock_es.client.cluster.health = AsyncMock(
                 return_value={"status": "yellow", "number_of_nodes": 1, "active_shards": 5}

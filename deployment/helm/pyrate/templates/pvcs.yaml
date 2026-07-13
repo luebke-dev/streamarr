@@ -12,9 +12,9 @@ CephFS, Longhorn-RWX, etc.).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "pyrate.fullname" $ }}-{{ $key }}
+  name: {{ include "streamarr.fullname" $ }}-{{ $key }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" $ "component" (printf "shared-%s" $key)) | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" $ "component" (printf "shared-%s" $key)) | nindent 4 }}
 spec:
   accessModes:
     - {{ default "ReadWriteMany" $cfg.accessMode }}

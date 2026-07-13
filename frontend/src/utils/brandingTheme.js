@@ -1,7 +1,7 @@
 import { Dark, setCssVar } from 'quasar'
 
-const STYLE_ID = 'pyrate-branding-css'
-const THEME_CLASS_PREFIX = 'pyrate-theme-'
+const STYLE_ID = 'streamarr-branding-css'
+const THEME_CLASS_PREFIX = 'streamarr-theme-'
 
 function safeToken(value) {
   return String(value || '')
@@ -39,14 +39,14 @@ function applyThemeVariables(theme) {
 
   for (const [name, value] of Object.entries(theme?.variables || {})) {
     if (!name || value == null) continue
-    const cssVariable = String(name).startsWith('--') ? String(name) : `--pyrate-${safeToken(name)}`
+    const cssVariable = String(name).startsWith('--') ? String(name) : `--streamarr-${safeToken(name)}`
     rootStyle.setProperty(cssVariable, String(value))
   }
 }
 
 export function applyBranding(configuration, theme) {
   clearThemeClasses()
-  document.body.classList.add(theme?.id ? `${THEME_CLASS_PREFIX}${safeToken(theme.id)}` : 'pyrate-theme-default')
+  document.body.classList.add(theme?.id ? `${THEME_CLASS_PREFIX}${safeToken(theme.id)}` : 'streamarr-theme-default')
 
   if (typeof theme?.dark === 'boolean') {
     Dark.set(theme.dark)

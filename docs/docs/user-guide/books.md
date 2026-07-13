@@ -1,6 +1,6 @@
 # Books
 
-pyrate.media includes a books library with metadata from **Open Library** and a built-in reader — you can read EPUBs right in your browser, with your reading position synced across all your devices.
+streamarr.media includes a books library with metadata from **Open Library** and a built-in reader — you can read EPUBs right in your browser, with your reading position synced across all your devices.
 
 ## The Books Library
 
@@ -24,12 +24,12 @@ Open a book's detail page and press **Read**. What happens next depends on the f
 
 | Format | How it opens |
 |--------|--------------|
-| **EPUB** | pyrate.media's built-in reader |
+| **EPUB** | streamarr.media's built-in reader |
 | **PDF** | Your browser's built-in PDF viewer |
 | Anything else (MOBI, AZW3, comic archives, …) | A **Download** button — save the file and open it in your favorite reading app |
 
 !!! note "Book not on the server yet?"
-    Just like movies and episodes, pressing **Read** on a book that has no file yet lets pyrate.media search the server's indexers and download it — you'll see the familiar waiting screen, and the book opens automatically once the download finishes. This depends on your administrator having download automation set up. See [Streaming & Playback](streaming.md) for how this works.
+    Just like movies and episodes, pressing **Read** on a book that has no file yet lets streamarr.media search the server's indexers and download it — you'll see the familiar waiting screen, and the book opens automatically once the download finishes. This depends on your administrator having download automation set up. See [Streaming & Playback](streaming.md) for how this works.
 
 ### The EPUB reader
 

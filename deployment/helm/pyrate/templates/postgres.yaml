@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "pyrate.postgresHost" . }}
+  name: {{ include "streamarr.postgresHost" . }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "postgres") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "postgres") | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
@@ -12,29 +12,29 @@ spec:
       port: {{ .Values.postgres.service.port }}
       targetPort: postgres
   selector:
-    {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "postgres") | nindent 4 }}
+    {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "postgres") | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "pyrate.postgresHost" . }}
+  name: {{ include "streamarr.postgresHost" . }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "postgres") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "postgres") | nindent 4 }}
 spec:
-  serviceName: {{ include "pyrate.postgresHost" . }}
+  serviceName: {{ include "streamarr.postgresHost" . }}
   replicas: 1
   selector:
     matchLabels:
-      {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "postgres") | nindent 6 }}
+      {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "postgres") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "postgres") | nindent 8 }}
+        {{- include "streamarr.componentLabels" (dict "ctx" . "component" "postgres") | nindent 8 }}
     spec:
-      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      {{- include "streamarr.imagePullSecrets" . | nindent 6 }}
       containers:
         - name: postgres
-          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.postgres.image) }}
+          image: {{ include "streamarr.image" (dict "ctx" . "img" .Values.postgres.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           args:
             - postgres
@@ -59,7 +59,7 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "pyrate.secretName" . }}
+                  name: {{ include "streamarr.secretName" . }}
                   key: postgres-password
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata

@@ -4,9 +4,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.genre import Genre
-from pyrate.models.media import MediaItem, MediaType
-from pyrate.models.user import User
+from streamarr.models.genre import Genre
+from streamarr.models.media import MediaItem, MediaType
+from streamarr.models.user import User
 
 
 # ---------------------------------------------------------------------------

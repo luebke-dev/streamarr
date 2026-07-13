@@ -33,7 +33,7 @@ export const useSettingsStore = defineStore('settings', {
       { value: 'de-DE', label: 'Deutsch', flag: '🇩🇪' },
     ],
     // System settings
-    siteName: 'pyrate.media',
+    siteName: 'Streamarr',
     siteNameLoaded: false,
     siteNameError: null,
     // Library settings
@@ -139,7 +139,7 @@ export const useSettingsStore = defineStore('settings', {
       this.siteNameError = null
       try {
         const response = await api.get('/api/settings/system')
-        this.siteName = response.data.site_name || 'pyrate.media'
+        this.siteName = response.data.site_name || 'Streamarr'
         this.siteNameLoaded = true
       } catch (error) {
         this.siteNameError = error
@@ -153,7 +153,7 @@ export const useSettingsStore = defineStore('settings', {
         const response = await api.put('/api/settings/system', {
           site_name: name,
         })
-        this.siteName = response.data.site_name || 'pyrate.media'
+        this.siteName = response.data.site_name || 'Streamarr'
         return true
       } catch (error) {
         logger.error('Failed to update site name:', error)

@@ -8,9 +8,9 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.friendship import Friendship, FriendshipStatus
-from pyrate.models.media import MediaItem, MediaType
-from pyrate.models.user import User
+from streamarr.models.friendship import Friendship, FriendshipStatus
+from streamarr.models.media import MediaItem, MediaType
+from streamarr.models.user import User
 
 from .conftest import auth_headers
 
@@ -144,7 +144,7 @@ class TestAdminWatchParties:
 @pytest_asyncio.fixture
 async def test_user2(db_session: AsyncSession) -> User:
     """Second test user for multi-user scenarios."""
-    from pyrate.auth.jwt_handler import jwt_handler
+    from streamarr.auth.jwt_handler import jwt_handler
 
     user = User(
         guid=uuid.uuid4(),
@@ -421,7 +421,7 @@ class TestSyncPlayback:
 
 
 class TestKickMember:
-    @patch("pyrate.api.v1.parties.get_websocket_manager")
+    @patch("streamarr.api.v1.parties.get_websocket_manager")
     async def test_kick(
         self, mock_ws, client: AsyncClient, test_user: User, user_headers, movie, test_user2
     ):
@@ -454,7 +454,7 @@ class TestKickMember:
         )
         assert resp.status_code == 204
 
-    @patch("pyrate.api.v1.parties.get_websocket_manager")
+    @patch("streamarr.api.v1.parties.get_websocket_manager")
     async def test_kick_not_host(
         self, mock_ws, client: AsyncClient, test_user: User, user_headers, movie, test_user2
     ):
@@ -650,7 +650,7 @@ class TestAdminWatchPartiesExtended:
 
 
 class TestKickMemberEdgeCases:
-    @patch("pyrate.api.v1.parties.get_websocket_manager")
+    @patch("streamarr.api.v1.parties.get_websocket_manager")
     async def test_kick_nonexistent_member(
         self,
         mock_ws,
@@ -683,7 +683,7 @@ class TestKickMemberEdgeCases:
         # Should return 404 or 400 since the user is not a member
         assert resp.status_code in (400, 404)
 
-    @patch("pyrate.api.v1.parties.get_websocket_manager")
+    @patch("streamarr.api.v1.parties.get_websocket_manager")
     async def test_kick_broadcasts_websocket(
         self,
         mock_ws,

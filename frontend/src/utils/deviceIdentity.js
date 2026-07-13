@@ -1,6 +1,6 @@
 import { setLocalStorageItem } from 'src/utils/storageQuota'
 
-export const DEVICE_ID_KEY = 'pyrate_device_id'
+export const DEVICE_ID_KEY = 'streamarr_device_id'
 
 export function generateDeviceId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {

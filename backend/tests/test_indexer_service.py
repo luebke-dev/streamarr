@@ -7,8 +7,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.indexer import Indexer, IndexerCategory
-from pyrate.services.indexer import IndexerService
+from streamarr.models.indexer import Indexer, IndexerCategory
+from streamarr.services.indexer import IndexerService
 
 
 # ---------------------------------------------------------------------------

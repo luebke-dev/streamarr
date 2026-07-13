@@ -7,7 +7,7 @@ describe('branding boot helpers', () => {
   afterEach(() => {
     document.body.className = ''
     document.documentElement.removeAttribute('style')
-    document.getElementById('pyrate-branding-css')?.remove()
+    document.getElementById('streamarr-branding-css')?.remove()
   })
 
   it('applies active theme classes, variables, colors, dark mode and custom css', () => {
@@ -24,14 +24,14 @@ describe('branding boot helpers', () => {
       },
     )
 
-    expect(document.body.classList.contains('pyrate-theme-teal-theme')).toBe(true)
-    expect(document.documentElement.style.getPropertyValue('--pyrate-radius')).toBe('4px')
+    expect(document.body.classList.contains('streamarr-theme-teal-theme')).toBe(true)
+    expect(document.documentElement.style.getPropertyValue('--streamarr-radius')).toBe('4px')
     expect(document.documentElement.style.getPropertyValue('--app-density')).toBe('compact')
     expect(document.documentElement.style.getPropertyValue('--q-primary')).toBe('#00aaff')
-    expect(document.getElementById('pyrate-branding-css')?.textContent).toContain(
+    expect(document.getElementById('streamarr-branding-css')?.textContent).toContain(
       '.login { color: red; }',
     )
-    expect(document.getElementById('pyrate-branding-css')?.textContent).toContain(
+    expect(document.getElementById('streamarr-branding-css')?.textContent).toContain(
       '.shell { color: blue; }',
     )
     expect(darkSpy).toHaveBeenCalledWith(true)
@@ -40,11 +40,11 @@ describe('branding boot helpers', () => {
   })
 
   it('replaces previous theme classes and falls back to default theme class', () => {
-    document.body.classList.add('pyrate-theme-old')
+    document.body.classList.add('streamarr-theme-old')
 
     applyBranding({ custom_css: '' }, null)
 
-    expect(document.body.classList.contains('pyrate-theme-old')).toBe(false)
-    expect(document.body.classList.contains('pyrate-theme-default')).toBe(true)
+    expect(document.body.classList.contains('streamarr-theme-old')).toBe(false)
+    expect(document.body.classList.contains('streamarr-theme-default')).toBe(true)
   })
 })

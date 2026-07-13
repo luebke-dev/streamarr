@@ -9,9 +9,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.library import Library
-from pyrate.models.media import MediaItem, MediaType
-from pyrate.models.user import User
+from streamarr.models.library import Library
+from streamarr.models.media import MediaItem, MediaType
+from streamarr.models.user import User
 
 
 @pytest.fixture
@@ -82,7 +82,7 @@ class TestLightraysLaunch:
         game_media: MediaItem,
     ):
         with patch(
-            "pyrate.api.v1.lightrays.launch_session",
+            "streamarr.api.v1.lightrays.launch_session",
             new_callable=AsyncMock,
             return_value={
                 "session_id": "sess-123",
@@ -119,7 +119,7 @@ class TestLightraysLaunch:
                 "ice_servers": [],
             }
         )
-        with patch("pyrate.api.v1.lightrays.launch_session", launch_mock):
+        with patch("streamarr.api.v1.lightrays.launch_session", launch_mock):
             resp = await client.post(
                 f"/api/lightrays/launch/{game_media.guid}",
                 json={"width": 1920, "height": 1080, "fps": 60, "bitrate_kbps": 10000},
@@ -152,7 +152,7 @@ class TestLightraysLaunch:
                 "ice_servers": [],
             }
         )
-        with patch("pyrate.api.v1.lightrays.launch_session", launch_mock):
+        with patch("streamarr.api.v1.lightrays.launch_session", launch_mock):
             resp = await client.post(
                 f"/api/lightrays/launch/{game_media.guid}",
                 json={"width": 1920, "height": 1080, "fps": 60, "bitrate_kbps": 10000},
@@ -180,7 +180,7 @@ class TestLightraysLaunch:
         await db_session.refresh(game_media)
 
         with patch(
-            "pyrate.api.v1.lightrays.launch_session", new_callable=AsyncMock
+            "streamarr.api.v1.lightrays.launch_session", new_callable=AsyncMock
         ) as launch_mock:
             resp = await client.post(
                 f"/api/lightrays/launch/{game_media.guid}",
@@ -265,7 +265,7 @@ class TestLightraysLaunch:
         game_media: MediaItem,
     ):
         with patch(
-            "pyrate.api.v1.lightrays.launch_session",
+            "streamarr.api.v1.lightrays.launch_session",
             new_callable=AsyncMock,
             side_effect=RuntimeError("Container failed"),
         ):
@@ -303,11 +303,11 @@ class TestLightraysStop:
         self, client: AsyncClient, test_user: User, user_headers
     ):
         with patch(
-            "pyrate.api.v1.lightrays.stop_session",
+            "streamarr.api.v1.lightrays.stop_session",
             new_callable=AsyncMock,
             return_value={"status": "stopped"},
         ), patch(
-            "pyrate.api.v1.lightrays.get_session_record",
+            "streamarr.api.v1.lightrays.get_session_record",
             new_callable=AsyncMock,
             return_value={"user_id": str(test_user.guid), "media_id": str(uuid.uuid4())},
         ):
@@ -322,11 +322,11 @@ class TestLightraysStop:
         self, client: AsyncClient, test_user: User, user_headers
     ):
         with patch(
-            "pyrate.api.v1.lightrays.stop_session",
+            "streamarr.api.v1.lightrays.stop_session",
             new_callable=AsyncMock,
             side_effect=RuntimeError("Stop failed"),
         ), patch(
-            "pyrate.api.v1.lightrays.get_session_record",
+            "streamarr.api.v1.lightrays.get_session_record",
             new_callable=AsyncMock,
             return_value={"user_id": str(test_user.guid), "media_id": str(uuid.uuid4())},
         ):
@@ -348,7 +348,7 @@ class TestLightraysStop:
         self, client: AsyncClient, test_user: User, user_headers
     ):
         with patch(
-            "pyrate.api.v1.lightrays.get_session_record",
+            "streamarr.api.v1.lightrays.get_session_record",
             new_callable=AsyncMock,
             return_value={"user_id": str(uuid.uuid4()), "media_id": str(uuid.uuid4())},
         ):
@@ -364,11 +364,11 @@ class TestLightraysStop:
     ):
         """No Redis record => unknown session => 404, never proxied on."""
         with patch(
-            "pyrate.api.v1.lightrays.get_session_record",
+            "streamarr.api.v1.lightrays.get_session_record",
             new_callable=AsyncMock,
             return_value=None,
         ), patch(
-            "pyrate.api.v1.lightrays.stop_session", new_callable=AsyncMock
+            "streamarr.api.v1.lightrays.stop_session", new_callable=AsyncMock
         ) as stop_mock:
             resp = await client.post(
                 "/api/lightrays/stop",
@@ -387,11 +387,11 @@ class TestLightraysStats:
         self, client: AsyncClient, test_user: User, user_headers
     ):
         with patch(
-            "pyrate.api.v1.lightrays.get_stats",
+            "streamarr.api.v1.lightrays.get_stats",
             new_callable=AsyncMock,
             return_value={"cpu": 50.0, "memory": 1024},
         ), patch(
-            "pyrate.api.v1.lightrays.get_session_record",
+            "streamarr.api.v1.lightrays.get_session_record",
             new_callable=AsyncMock,
             return_value={"user_id": str(test_user.guid), "media_id": str(uuid.uuid4())},
         ):
@@ -407,11 +407,11 @@ class TestLightraysStats:
         self, client: AsyncClient, test_user: User, user_headers
     ):
         with patch(
-            "pyrate.api.v1.lightrays.get_stats",
+            "streamarr.api.v1.lightrays.get_stats",
             new_callable=AsyncMock,
             side_effect=RuntimeError("Stats failed"),
         ), patch(
-            "pyrate.api.v1.lightrays.get_session_record",
+            "streamarr.api.v1.lightrays.get_session_record",
             new_callable=AsyncMock,
             return_value={"user_id": str(test_user.guid), "media_id": str(uuid.uuid4())},
         ):
@@ -429,7 +429,7 @@ class TestLightraysStats:
         self, client: AsyncClient, test_user: User, user_headers
     ):
         with patch(
-            "pyrate.api.v1.lightrays.get_session_record",
+            "streamarr.api.v1.lightrays.get_session_record",
             new_callable=AsyncMock,
             return_value={"user_id": str(uuid.uuid4()), "media_id": str(uuid.uuid4())},
         ):
@@ -444,11 +444,11 @@ class TestLightraysStats:
     ):
         """No Redis record => unknown session => 404, never proxied on."""
         with patch(
-            "pyrate.api.v1.lightrays.get_session_record",
+            "streamarr.api.v1.lightrays.get_session_record",
             new_callable=AsyncMock,
             return_value=None,
         ), patch(
-            "pyrate.api.v1.lightrays.get_stats", new_callable=AsyncMock
+            "streamarr.api.v1.lightrays.get_stats", new_callable=AsyncMock
         ) as stats_mock:
             resp = await client.get(
                 "/api/lightrays/stats/sess-unknown",
@@ -467,11 +467,11 @@ class TestLightraysSteamImport:
     ):
         """Missing Steam state dir => clear 409, import never called."""
         with patch(
-            "pyrate.api.v1.lightrays._steam_dir_exists", return_value=False
+            "streamarr.api.v1.lightrays._steam_dir_exists", return_value=False
         ), patch(
-            "pyrate.api.v1.lightrays.import_steam_games", new_callable=AsyncMock
+            "streamarr.api.v1.lightrays.import_steam_games", new_callable=AsyncMock
         ) as import_mock, patch(
-            "pyrate.api.v1.lightrays.read_steam_library"
+            "streamarr.api.v1.lightrays.read_steam_library"
         ) as read_mock:
             resp = await client.post(
                 "/api/lightrays/steam/import", headers=user_headers
@@ -500,10 +500,10 @@ class TestLightraysSteamImport:
             }
         )
         with patch(
-            "pyrate.api.v1.lightrays._steam_dir_exists", return_value=True
+            "streamarr.api.v1.lightrays._steam_dir_exists", return_value=True
         ), patch(
-            "pyrate.api.v1.lightrays.read_steam_library", return_value=games
-        ), patch("pyrate.api.v1.lightrays.import_steam_games", import_mock):
+            "streamarr.api.v1.lightrays.read_steam_library", return_value=games
+        ), patch("streamarr.api.v1.lightrays.import_steam_games", import_mock):
             resp = await client.post(
                 "/api/lightrays/steam/import", headers=user_headers
             )
@@ -524,11 +524,11 @@ class TestLightraysSteamImport:
     ):
         """Dir present but nothing readable => 4xx, import never called."""
         with patch(
-            "pyrate.api.v1.lightrays._steam_dir_exists", return_value=True
+            "streamarr.api.v1.lightrays._steam_dir_exists", return_value=True
         ), patch(
-            "pyrate.api.v1.lightrays.read_steam_library", return_value=[]
+            "streamarr.api.v1.lightrays.read_steam_library", return_value=[]
         ), patch(
-            "pyrate.api.v1.lightrays.import_steam_games", new_callable=AsyncMock
+            "streamarr.api.v1.lightrays.import_steam_games", new_callable=AsyncMock
         ) as import_mock:
             resp = await client.post(
                 "/api/lightrays/steam/import", headers=user_headers
@@ -542,12 +542,12 @@ class TestLightraysSteamImport:
     ):
         """A read/parse blowup degrades to a 4xx, never a 500."""
         with patch(
-            "pyrate.api.v1.lightrays._steam_dir_exists", return_value=True
+            "streamarr.api.v1.lightrays._steam_dir_exists", return_value=True
         ), patch(
-            "pyrate.api.v1.lightrays.read_steam_library",
+            "streamarr.api.v1.lightrays.read_steam_library",
             side_effect=RuntimeError("corrupt vdf"),
         ), patch(
-            "pyrate.api.v1.lightrays.import_steam_games", new_callable=AsyncMock
+            "streamarr.api.v1.lightrays.import_steam_games", new_callable=AsyncMock
         ) as import_mock:
             resp = await client.post(
                 "/api/lightrays/steam/import", headers=user_headers
@@ -565,7 +565,7 @@ class TestLightraysSteamStatus:
     async def test_status_not_linked(
         self, client: AsyncClient, test_user: User, user_headers
     ):
-        with patch("pyrate.api.v1.lightrays._steam_dir_exists", return_value=False):
+        with patch("streamarr.api.v1.lightrays._steam_dir_exists", return_value=False):
             resp = await client.get(
                 "/api/lightrays/steam/status", headers=user_headers
             )
@@ -583,8 +583,8 @@ class TestLightraysSteamStatus:
             {"app_id": "620", "name": "Portal 2", "installed": True},
         ]
         with patch(
-            "pyrate.api.v1.lightrays._steam_dir_exists", return_value=True
-        ), patch("pyrate.api.v1.lightrays.read_steam_library", return_value=games):
+            "streamarr.api.v1.lightrays._steam_dir_exists", return_value=True
+        ), patch("streamarr.api.v1.lightrays.read_steam_library", return_value=games):
             resp = await client.get(
                 "/api/lightrays/steam/status", headers=user_headers
             )

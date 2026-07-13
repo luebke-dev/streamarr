@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
-from pyrate.services.redis_event import RedisEventService, CHANNEL_PREFIX
+from streamarr.services.redis_event import RedisEventService, CHANNEL_PREFIX
 
 
 # ---------------------------------------------------------------------------

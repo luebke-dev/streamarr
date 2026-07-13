@@ -7,7 +7,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.user import User
+from streamarr.models.user import User
 
 from .conftest import auth_headers
 
@@ -1045,7 +1045,7 @@ class TestGetListItemsWithData:
         user_headers,
     ):
         """GET /lists/{list_id}/items - covers enrichment with actual media (line 190)."""
-        from pyrate.models.media import MediaItem, MediaType
+        from streamarr.models.media import MediaItem, MediaType
 
         # Create a media item
         media_guid = uuid.uuid4()
@@ -1099,7 +1099,7 @@ class TestOptimizedEndpointWithMedia:
         user_headers,
     ):
         """GET /lists/{list_id}/items/optimized - with actual media (lines 257-311)."""
-        from pyrate.models.media import MediaItem, MediaType
+        from streamarr.models.media import MediaItem, MediaType
 
         # Create a media item
         media_guid = uuid.uuid4()
@@ -1148,8 +1148,8 @@ class TestOptimizedEndpointWithMedia:
         user_headers,
     ):
         """GET /lists/{list_id}/items/optimized - with genres (lines 276-278)."""
-        from pyrate.models.genre import Genre
-        from pyrate.models.media import MediaItem, MediaType, media_genre_table
+        from streamarr.models.genre import Genre
+        from streamarr.models.media import MediaItem, MediaType, media_genre_table
 
         # Create genre
         genre = Genre(id=28, name="Action")

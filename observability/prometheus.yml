@@ -3,7 +3,7 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: pyrate-backend
+  - job_name: streamarr-backend
     metrics_path: /metrics
     static_configs:
       - targets:
@@ -16,7 +16,7 @@ scrape_configs:
   # for counters (rate() over the sum), but for per-replica accuracy use a
   # discovery mechanism that scrapes each replica individually (e.g. Kubernetes
   # pod discovery) in production.
-  - job_name: pyrate-worker
+  - job_name: streamarr-worker
     metrics_path: /metrics
     static_configs:
       - targets:

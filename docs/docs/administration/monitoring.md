@@ -1,6 +1,6 @@
 # Monitoring
 
-pyrate.media can be monitored on two levels: inside the app via the admin UI (dashboard, active sessions, logs, watch parties) and from the outside via Prometheus metrics, a provisioned Grafana dashboard, health probes, and Postgres query statistics.
+streamarr.media can be monitored on two levels: inside the app via the admin UI (dashboard, active sessions, logs, watch parties) and from the outside via Prometheus metrics, a provisioned Grafana dashboard, health probes, and Postgres query statistics.
 
 ## Monitoring in the admin UI
 
@@ -30,22 +30,22 @@ The backend serves two unauthenticated probes at the application root (not under
 
 ## Prometheus metrics
 
-**Backend** — the API exposes `/metrics` on port 8000: standard HTTP metrics (request counts, latency histograms, in-progress requests) plus `pyrate_*` domain metrics such as `pyrate_media_items_total`, `pyrate_downloads_total`, `pyrate_websocket_connections`, `pyrate_service_health`, and `pyrate_storage_bytes`. Database-backed gauges are refreshed by a sampler every 30 seconds (`PYRATE_METRICS_SAMPLE_INTERVAL_SECONDS`).
+**Backend** — the API exposes `/metrics` on port 8000: standard HTTP metrics (request counts, latency histograms, in-progress requests) plus `streamarr_*` domain metrics such as `streamarr_media_items_total`, `streamarr_downloads_total`, `streamarr_websocket_connections`, `streamarr_service_health`, and `streamarr_storage_bytes`. Database-backed gauges are refreshed by a sampler every 30 seconds (`STREAMARR_METRICS_SAMPLE_INTERVAL_SECONDS`).
 
 !!! warning "Metrics are fail-closed"
     `/metrics` returns **404** until you set the `METRICS_TOKEN` environment variable on the backend, and then requires `Authorization: Bearer <token>`. The endpoint reveals route names, user counts, and latency data — keep it off the public internet even with a token.
 
-**Worker** — each Taskiq worker serves its own metrics on port `9100` (`WORKER_METRICS_PORT`): task throughput and failures (`pyrate_worker_task_events_total`), indexer and download counters, and a `pyrate_worker_up` gauge. This port is unauthenticated, so expose it only on the internal container network.
+**Worker** — each Taskiq worker serves its own metrics on port `9100` (`WORKER_METRICS_PORT`): task throughput and failures (`streamarr_worker_task_events_total`), indexer and download counters, and a `streamarr_worker_up` gauge. This port is unauthenticated, so expose it only on the internal container network.
 
 ```yaml
 scrape_configs:
-  - job_name: pyrate-backend
+  - job_name: streamarr-backend
     metrics_path: /metrics
     authorization:
       credentials: <METRICS_TOKEN value>
     static_configs:
       - targets: ["backend-python:8000"]
-  - job_name: pyrate-worker
+  - job_name: streamarr-worker
     static_configs:
       - targets: ["worker:9100"]
 ```
@@ -55,7 +55,7 @@ scrape_configs:
 
 ## Grafana dashboard
 
-The development Compose stack ships Prometheus (port 9090) and Grafana (port 3005, default login `admin` / `pyrate`) with an auto-provisioned datasource and the **pyrate.media Overview** dashboard (22 panels). For the other [deployment models](../deployment/overview.md), point your own Prometheus at the endpoints above and import `observability/grafana/dashboards/pyrate-overview.json`.
+The development Compose stack ships Prometheus (port 9090) and Grafana (port 3005, default login `admin` / `streamarr`) with an auto-provisioned datasource and the **streamarr.media Overview** dashboard (22 panels). For the other [deployment models](../deployment/overview.md), point your own Prometheus at the endpoints above and import `observability/grafana/dashboards/streamarr-overview.json`.
 
 | Panel group | Panels |
 |-------------|--------|

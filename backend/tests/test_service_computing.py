@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.services.computing import ComputingService, detect_hardware_acceleration
+from streamarr.services.computing import ComputingService, detect_hardware_acceleration
 
 
 # ---------------------------------------------------------------------------
@@ -76,8 +76,8 @@ class TestStartTranscoding:
         mock_session_svc = MagicMock()
         mock_session_svc.create_session = AsyncMock()
 
-        with patch("pyrate.services.system_settings.SystemSettingsService", return_value=mock_settings_svc), \
-             patch("pyrate.services.transcoding_session.get_transcoding_session_service", return_value=mock_session_svc), \
+        with patch("streamarr.services.system_settings.SystemSettingsService", return_value=mock_settings_svc), \
+             patch("streamarr.services.transcoding_session.get_transcoding_session_service", return_value=mock_session_svc), \
              patch("os.path.exists", return_value=False), \
              patch("os.makedirs"), \
              patch("os.chmod"):
@@ -129,9 +129,9 @@ class TestStartTranscoding:
         mock_session_svc = MagicMock()
         mock_session_svc.create_session = AsyncMock()
 
-        with patch("pyrate.services.system_settings.SystemSettingsService", return_value=mock_settings_svc), \
-             patch("pyrate.services.transcoding_session.get_transcoding_session_service", return_value=mock_session_svc), \
-             patch("pyrate.services.computing.detect_hardware_acceleration", return_value={
+        with patch("streamarr.services.system_settings.SystemSettingsService", return_value=mock_settings_svc), \
+             patch("streamarr.services.transcoding_session.get_transcoding_session_service", return_value=mock_session_svc), \
+             patch("streamarr.services.computing.detect_hardware_acceleration", return_value={
                  "type": "qsv",
                  "devices": ["/dev/dri/renderD128"],
                  "encoder_suffix": "_qsv",
@@ -188,12 +188,12 @@ class TestStartTranscoding:
         def mock_exists(path):
             return path == "/.dockerenv"
 
-        with patch("pyrate.services.system_settings.SystemSettingsService", return_value=mock_settings_svc), \
-             patch("pyrate.services.transcoding_session.get_transcoding_session_service", return_value=mock_session_svc), \
+        with patch("streamarr.services.system_settings.SystemSettingsService", return_value=mock_settings_svc), \
+             patch("streamarr.services.transcoding_session.get_transcoding_session_service", return_value=mock_session_svc), \
              patch("os.path.exists", side_effect=mock_exists), \
              patch("os.makedirs"), \
              patch("os.chmod"), \
-             patch.dict(os.environ, {"PROJECT_ROOT": "/root/pyrate.media/data/"}):
+             patch.dict(os.environ, {"PROJECT_ROOT": "/root/streamarr.media/data/"}):
             task_id = await service.start_transcoding(
                 input_path="/library/movies/test.mkv",
                 rel_output="/temp/session.m3u8",
@@ -240,8 +240,8 @@ class TestStartTranscoding:
         mock_session_svc = MagicMock()
         mock_session_svc.create_session = AsyncMock(side_effect=Exception("Redis down"))
 
-        with patch("pyrate.services.system_settings.SystemSettingsService", return_value=mock_settings_svc), \
-             patch("pyrate.services.transcoding_session.get_transcoding_session_service", return_value=mock_session_svc), \
+        with patch("streamarr.services.system_settings.SystemSettingsService", return_value=mock_settings_svc), \
+             patch("streamarr.services.transcoding_session.get_transcoding_session_service", return_value=mock_session_svc), \
              patch("os.path.exists", return_value=False), \
              patch("os.makedirs"), \
              patch("os.chmod"):
@@ -291,8 +291,8 @@ class TestStartTranscoding:
         mock_session_svc = MagicMock()
         mock_session_svc.create_session = AsyncMock()
 
-        with patch("pyrate.services.system_settings.SystemSettingsService", return_value=mock_settings_svc), \
-             patch("pyrate.services.transcoding_session.get_transcoding_session_service", return_value=mock_session_svc), \
+        with patch("streamarr.services.system_settings.SystemSettingsService", return_value=mock_settings_svc), \
+             patch("streamarr.services.transcoding_session.get_transcoding_session_service", return_value=mock_session_svc), \
              patch("os.path.exists", return_value=False), \
              patch("os.makedirs"), \
              patch("os.chmod"):

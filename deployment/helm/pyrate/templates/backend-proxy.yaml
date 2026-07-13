@@ -7,13 +7,13 @@ loading backend/proxy/nginx.conf via:
 When unset we render a minimal default that forwards everything to
 backend-python.
 */}}
-{{- $proxyName := printf "%s-backend" (include "pyrate.fullname" .) -}}
+{{- $proxyName := printf "%s-backend" (include "streamarr.fullname" .) -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ $proxyName }}-config
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "backend-proxy") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "backend-proxy") | nindent 4 }}
 data:
   nginx.conf: |-
 {{- if .Values.backend.proxy.nginxConfig }}
@@ -36,7 +36,7 @@ data:
         listen 8000;
 
         location /api/lightrays-ws/ {
-          proxy_pass http://{{ include "pyrate.lightraysHost" . }}:{{ .Values.lightrays.service.apiPort }};
+          proxy_pass http://{{ include "streamarr.lightraysHost" . }}:{{ .Values.lightrays.service.apiPort }};
           proxy_http_version 1.1;
           proxy_set_header Host $host;
           proxy_set_header X-Real-IP $remote_addr;
@@ -74,7 +74,7 @@ kind: Service
 metadata:
   name: {{ $proxyName }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "backend-proxy") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "backend-proxy") | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
@@ -82,31 +82,31 @@ spec:
       port: {{ .Values.backend.proxy.service.port }}
       targetPort: http
   selector:
-    {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "backend-proxy") | nindent 4 }}
+    {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "backend-proxy") | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ $proxyName }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "backend-proxy") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "backend-proxy") | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "backend-proxy") | nindent 6 }}
+      {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "backend-proxy") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "backend-proxy") | nindent 8 }}
+        {{- include "streamarr.componentLabels" (dict "ctx" . "component" "backend-proxy") | nindent 8 }}
       annotations:
         # Roll the deployment whenever the rendered nginx config changes.
         checksum/config: {{ .Values.backend.proxy.nginxConfig | default "default-proxy" | sha256sum }}
     spec:
-      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      {{- include "streamarr.imagePullSecrets" . | nindent 6 }}
       containers:
         - name: nginx
-          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.backend.proxy.image) }}
+          image: {{ include "streamarr.image" (dict "ctx" . "img" .Values.backend.proxy.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           ports:
             - name: http

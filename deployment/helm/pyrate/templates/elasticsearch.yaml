@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "pyrate.elasticsearchHost" . }}
+  name: {{ include "streamarr.elasticsearchHost" . }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "elasticsearch") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "elasticsearch") | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
@@ -12,26 +12,26 @@ spec:
       port: {{ .Values.elasticsearch.service.port }}
       targetPort: http
   selector:
-    {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "elasticsearch") | nindent 4 }}
+    {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "elasticsearch") | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "pyrate.elasticsearchHost" . }}
+  name: {{ include "streamarr.elasticsearchHost" . }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "elasticsearch") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "elasticsearch") | nindent 4 }}
 spec:
-  serviceName: {{ include "pyrate.elasticsearchHost" . }}
+  serviceName: {{ include "streamarr.elasticsearchHost" . }}
   replicas: 1
   selector:
     matchLabels:
-      {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "elasticsearch") | nindent 6 }}
+      {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "elasticsearch") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "elasticsearch") | nindent 8 }}
+        {{- include "streamarr.componentLabels" (dict "ctx" . "component" "elasticsearch") | nindent 8 }}
     spec:
-      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      {{- include "streamarr.imagePullSecrets" . | nindent 6 }}
       securityContext:
         fsGroup: 1000
       # ES needs vm.max_map_count >= 262144 on the node. Either pre-tune the
@@ -51,7 +51,7 @@ spec:
       {{- end }}
       containers:
         - name: elasticsearch
-          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.elasticsearch.image) }}
+          image: {{ include "streamarr.image" (dict "ctx" . "img" .Values.elasticsearch.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           env:
             - name: discovery.type

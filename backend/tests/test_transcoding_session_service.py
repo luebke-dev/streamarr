@@ -9,8 +9,8 @@ import fakeredis.aioredis
 import pytest
 import pytest_asyncio
 
-from pyrate.schemas.transcoding import TranscodingSession, TranscodingSessionCreate
-from pyrate.services.transcoding_session import TranscodingSessionService
+from streamarr.schemas.transcoding import TranscodingSession, TranscodingSessionCreate
+from streamarr.services.transcoding_session import TranscodingSessionService
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@ class TestSessionLogs:
 
         with patch.dict(
             "sys.modules",
-            {"pyrate.services.kubernetes": mock_module},
+            {"streamarr.services.kubernetes": mock_module},
         ):
             logs = await service.get_session_logs(session, tail_lines=25)
 
@@ -275,7 +275,7 @@ class TestSessionLogs:
         mock_docker.__aenter__ = AsyncMock(return_value=mock_docker)
         mock_docker.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcoding_session.Docker", return_value=mock_docker):
+        with patch("streamarr.services.transcoding_session.Docker", return_value=mock_docker):
             logs = await service.get_session_logs(session, tail_lines=10)
 
         assert logs == "line1\nline2\n"
@@ -303,7 +303,7 @@ class TestSessionLogs:
         mock_docker.__aenter__ = AsyncMock(return_value=mock_docker)
         mock_docker.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcoding_session.Docker", return_value=mock_docker):
+        with patch("streamarr.services.transcoding_session.Docker", return_value=mock_docker):
             logs = await service.get_session_logs(session)
 
         assert logs == "No container found for this session"
@@ -334,7 +334,7 @@ class TestSessionRuntimeStatus:
 
         with patch.dict(
             "sys.modules",
-            {"pyrate.services.kubernetes": mock_module},
+            {"streamarr.services.kubernetes": mock_module},
         ):
             status = await service.get_session_runtime_status(session)
 
@@ -375,7 +375,7 @@ class TestSessionRuntimeStatus:
         mock_docker.__aenter__ = AsyncMock(return_value=mock_docker)
         mock_docker.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcoding_session.Docker", return_value=mock_docker):
+        with patch("streamarr.services.transcoding_session.Docker", return_value=mock_docker):
             status = await service.get_session_runtime_status(session)
 
         assert status == {

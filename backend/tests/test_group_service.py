@@ -5,10 +5,10 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.group import Group, UserGroupLink
-from pyrate.models.user import User
-from pyrate.schemas.group import GroupCreate, GroupUpdate
-from pyrate.services.group import GroupService
+from streamarr.models.group import Group, UserGroupLink
+from streamarr.models.user import User
+from streamarr.schemas.group import GroupCreate, GroupUpdate
+from streamarr.services.group import GroupService
 
 
 class TestGroupCRUD:

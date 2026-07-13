@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pyrate.schemas.search import SearchRequest, SearchType
-from pyrate.services.search import SearchService, IMPORT_LOCK_PREFIX, IMPORT_LOCK_TTL_SECONDS
+from streamarr.schemas.search import SearchRequest, SearchType
+from streamarr.services.search import SearchService, IMPORT_LOCK_PREFIX, IMPORT_LOCK_TTL_SECONDS
 
 
 def _make_file(**overrides):
@@ -62,7 +62,7 @@ class TestDetectHardwareAcceleration:
     """Test detect_hardware_acceleration."""
 
     def test_hw_accel_disabled(self):
-        from pyrate.services.computing import detect_hardware_acceleration
+        from streamarr.services.computing import detect_hardware_acceleration
         with patch.dict(os.environ, {"ENABLE_HARDWARE_ACCEL": "false"}):
             result = detect_hardware_acceleration()
             assert result["type"] is None
@@ -70,7 +70,7 @@ class TestDetectHardwareAcceleration:
             assert result["encoder_suffix"] == ""
 
     def test_hw_accel_with_dri_devices(self):
-        from pyrate.services.computing import detect_hardware_acceleration
+        from streamarr.services.computing import detect_hardware_acceleration
         with (
             patch.dict(os.environ, {"ENABLE_HARDWARE_ACCEL": "true"}, clear=False),
             patch("os.path.exists") as mock_exists,
@@ -83,7 +83,7 @@ class TestDetectHardwareAcceleration:
             assert result["encoder_suffix"] == "_qsv"
 
     def test_hw_accel_no_devices(self):
-        from pyrate.services.computing import detect_hardware_acceleration
+        from streamarr.services.computing import detect_hardware_acceleration
         with (
             patch.dict(os.environ, {"ENABLE_HARDWARE_ACCEL": "true"}, clear=False),
             patch("os.path.exists", return_value=False),
@@ -103,7 +103,7 @@ class TestComputingServiceExtras:
 
     @pytest.mark.asyncio
     async def test_close_with_error(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         db = MagicMock()
         svc = ComputingService(db)
         mock_provider = AsyncMock()
@@ -116,7 +116,7 @@ class TestComputingServiceExtras:
 
     @pytest.mark.asyncio
     async def test_terminate_task_success(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         db = MagicMock()
         svc = ComputingService(db)
         mock_provider = AsyncMock()
@@ -128,7 +128,7 @@ class TestComputingServiceExtras:
 
     @pytest.mark.asyncio
     async def test_terminate_task_failure(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         db = MagicMock()
         svc = ComputingService(db)
         mock_provider = AsyncMock()
@@ -139,7 +139,7 @@ class TestComputingServiceExtras:
 
     @pytest.mark.asyncio
     async def test_get_tasks_by_label(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         db = MagicMock()
         svc = ComputingService(db)
         mock_provider = AsyncMock()
@@ -151,13 +151,13 @@ class TestComputingServiceExtras:
 
     @pytest.mark.asyncio
     async def test_context_manager(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         db = MagicMock()
         async with ComputingService(db) as svc:
             assert svc is not None
 
     def test_build_ffmpeg_command_audio_only(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -181,7 +181,7 @@ class TestComputingServiceExtras:
         assert "-c:v" not in cmd
 
     def test_build_ffmpeg_command_audio_only_default_stream(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -203,7 +203,7 @@ class TestComputingServiceExtras:
         assert "0:a:0" in cmd
 
     def test_build_ffmpeg_command_vp9(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -224,7 +224,7 @@ class TestComputingServiceExtras:
         assert "-b:v" in cmd
 
     def test_build_ffmpeg_command_vp9_no_bitrate(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -245,7 +245,7 @@ class TestComputingServiceExtras:
         assert "31" in cmd
 
     def test_build_ffmpeg_command_av1(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -265,7 +265,7 @@ class TestComputingServiceExtras:
         assert "libsvtav1" in cmd
 
     def test_build_ffmpeg_command_av1_with_bitrate(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -286,7 +286,7 @@ class TestComputingServiceExtras:
         assert "3000k" in cmd
 
     def test_build_ffmpeg_command_mp3_audio(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -306,7 +306,7 @@ class TestComputingServiceExtras:
         assert "libmp3lame" in cmd
 
     def test_build_ffmpeg_command_copy_audio(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -327,7 +327,7 @@ class TestComputingServiceExtras:
         assert cmd[ca_idx + 1] == "copy"
 
     def test_build_ffmpeg_command_thread_count(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -349,7 +349,7 @@ class TestComputingServiceExtras:
         assert "4" in cmd
 
     def test_build_ffmpeg_command_h265_no_bitrate(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -370,7 +370,7 @@ class TestComputingServiceExtras:
         assert "28" in cmd
 
     def test_build_ffmpeg_command_hevc_alias(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -390,7 +390,7 @@ class TestComputingServiceExtras:
         assert "libx265" in cmd
 
     def test_build_ffmpeg_command_h264_no_bitrate(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -411,7 +411,7 @@ class TestComputingServiceExtras:
         assert "23" in cmd
 
     def test_build_ffmpeg_command_negative_subtitle_index(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         cmd = svc._build_ffmpeg_command(
             input_path="/test.mkv",
@@ -432,7 +432,7 @@ class TestComputingServiceExtras:
         assert "subtitles" not in " ".join(cmd)
 
     def test_build_ffmpeg_command_qsv_with_resolution(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         hw_accel = {"type": "qsv", "devices": ["/dev/dri/renderD128"], "encoder_suffix": "_qsv"}
         cmd = svc._build_ffmpeg_command(
@@ -459,7 +459,7 @@ class TestComputingServiceExtras:
         assert "hwupload" in vf_val
 
     def test_build_ffmpeg_command_qsv_with_subtitles(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         hw_accel = {"type": "qsv", "devices": ["/dev/dri/renderD128"], "encoder_suffix": "_qsv"}
         cmd = svc._build_ffmpeg_command(
@@ -485,7 +485,7 @@ class TestComputingServiceExtras:
         assert "hwupload" in vf_val
 
     def test_build_ffmpeg_command_vaapi(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         svc = ComputingService.__new__(ComputingService)
         hw_accel = {"type": "vaapi", "devices": ["/dev/dri/renderD128"], "encoder_suffix": ""}
         cmd = svc._build_ffmpeg_command(
@@ -517,7 +517,7 @@ class TestExtractSourceInfoEdgeCases:
     """Test extract_source_info uncovered paths."""
 
     def test_legacy_flat_dict(self):
-        from pyrate.services.play import extract_source_info
+        from streamarr.services.play import extract_source_info
         probe_data = {
             "video_codec": "h264",
             "audio_codec": "AAC",
@@ -530,7 +530,7 @@ class TestExtractSourceInfoEdgeCases:
         assert info["width"] == 1920
 
     def test_legacy_flat_dict_with_hdr(self):
-        from pyrate.services.play import extract_source_info
+        from streamarr.services.play import extract_source_info
         probe_data = {
             "video_codec": "hevc",
             "hdr_format": "HDR10",
@@ -539,7 +539,7 @@ class TestExtractSourceInfoEdgeCases:
         assert info["bit_depth"] == 10
 
     def test_raw_streams_array(self):
-        from pyrate.services.play import extract_source_info
+        from streamarr.services.play import extract_source_info
         probe_data = {
             "streams": [
                 {"codec_type": "video", "codec_name": "hevc", "pix_fmt": "yuv420p10le", "width": 3840, "height": 2160},
@@ -553,7 +553,7 @@ class TestExtractSourceInfoEdgeCases:
         assert info["width"] == 3840
 
     def test_raw_streams_12bit(self):
-        from pyrate.services.play import extract_source_info
+        from streamarr.services.play import extract_source_info
         probe_data = {
             "streams": [
                 {"codec_type": "video", "codec_name": "hevc", "pix_fmt": "yuv420p12le"},
@@ -563,18 +563,18 @@ class TestExtractSourceInfoEdgeCases:
         assert info["bit_depth"] == 12
 
     def test_no_probe_data_with_file(self):
-        from pyrate.services.play import extract_source_info
+        from streamarr.services.play import extract_source_info
         f = _make_file(codec="hevc")
         info = extract_source_info(None, file=f)
         assert info["video_codec"] == "hevc"
 
     def test_no_probe_data_no_file(self):
-        from pyrate.services.play import extract_source_info
+        from streamarr.services.play import extract_source_info
         info = extract_source_info(None, file=None)
         assert info["video_codec"] is None
 
     def test_structured_format_audio_only(self):
-        from pyrate.services.play import extract_source_info
+        from streamarr.services.play import extract_source_info
         probe_data = {
             "video_streams": [],
             "audio_streams": [{"codec_name": "flac"}],
@@ -584,7 +584,7 @@ class TestExtractSourceInfoEdgeCases:
         assert info["audio_codec"] == "flac"
 
     def test_structured_format_with_p010_pix_fmt(self):
-        from pyrate.services.play import extract_source_info
+        from streamarr.services.play import extract_source_info
         probe_data = {
             "video_streams": [{"codec_name": "hevc", "pix_fmt": "p010le", "width": 3840, "height": 2160}],
             "audio_streams": [],
@@ -593,7 +593,7 @@ class TestExtractSourceInfoEdgeCases:
         assert info["bit_depth"] == 10
 
     def test_fallback_to_file_codec(self):
-        from pyrate.services.play import extract_source_info
+        from streamarr.services.play import extract_source_info
         # Empty streams arrays -> falls back to file.codec
         probe_data = {
             "video_streams": [],
@@ -614,10 +614,10 @@ class TestBuildStreamInfo:
     """Test build_stream_info uncovered paths."""
 
     def test_audio_only_transcoding_reason(self):
-        from pyrate.services.play import build_stream_info
+        from streamarr.services.play import build_stream_info
         f = _make_file()
         probe = {"video_streams": [{"codec_name": "h264", "width": 1920, "height": 1080, "pix_fmt": "yuv420p"}], "audio_streams": [{"codec_name": "dts"}]}
-        with patch("pyrate.services.computing.detect_hardware_acceleration", return_value={"type": None}):
+        with patch("streamarr.services.computing.detect_hardware_acceleration", return_value={"type": None}):
             result = build_stream_info(
                 file=f, probe_data=probe,
                 effective_video_codec="copy",
@@ -632,10 +632,10 @@ class TestBuildStreamInfo:
         assert any("dts" in r for r in result["transcoding_reasons"])
 
     def test_no_source_audio_codec_reason(self):
-        from pyrate.services.play import build_stream_info
+        from streamarr.services.play import build_stream_info
         f = _make_file()
         probe = {"video_streams": [{"codec_name": "h264", "width": 1920, "height": 1080, "pix_fmt": "yuv420p"}], "audio_streams": []}
-        with patch("pyrate.services.computing.detect_hardware_acceleration", return_value={"type": None}):
+        with patch("streamarr.services.computing.detect_hardware_acceleration", return_value={"type": None}):
             result = build_stream_info(
                 file=f, probe_data=probe,
                 effective_video_codec="copy",
@@ -649,10 +649,10 @@ class TestBuildStreamInfo:
         assert any("Audio transcoding" in r for r in result["transcoding_reasons"])
 
     def test_video_transcode_fallback_reason(self):
-        from pyrate.services.play import build_stream_info
+        from streamarr.services.play import build_stream_info
         f = _make_file()
         probe = {"video_streams": [{"codec_name": "h264", "width": 1920, "height": 1080, "pix_fmt": "yuv420p"}], "audio_streams": [{"codec_name": "aac"}]}
-        with patch("pyrate.services.computing.detect_hardware_acceleration", return_value={"type": None}):
+        with patch("streamarr.services.computing.detect_hardware_acceleration", return_value={"type": None}):
             result = build_stream_info(
                 file=f, probe_data=probe,
                 effective_video_codec="h264",
@@ -667,10 +667,10 @@ class TestBuildStreamInfo:
         assert any("h264" in r for r in result["transcoding_reasons"])
 
     def test_hw_accel_detection_exception(self):
-        from pyrate.services.play import build_stream_info
+        from streamarr.services.play import build_stream_info
         f = _make_file()
         probe = {"video_streams": [{"codec_name": "h264", "width": 1920, "height": 1080, "pix_fmt": "yuv420p"}], "audio_streams": [{"codec_name": "aac"}]}
-        with patch("pyrate.services.computing.detect_hardware_acceleration", side_effect=Exception("err")):
+        with patch("streamarr.services.computing.detect_hardware_acceleration", side_effect=Exception("err")):
             result = build_stream_info(
                 file=f, probe_data=probe,
                 effective_video_codec="copy",
@@ -693,29 +693,29 @@ class TestMatchLanguage:
     """Test _match_language."""
 
     def test_direct_match(self):
-        from pyrate.services.play import _match_language
+        from streamarr.services.play import _match_language
         assert _match_language("en", "en") is True
 
     def test_prefix_match(self):
-        from pyrate.services.play import _match_language
+        from streamarr.services.play import _match_language
         assert _match_language("eng", "en") is True
 
     def test_iso_map_match(self):
-        from pyrate.services.play import _match_language
+        from streamarr.services.play import _match_language
         assert _match_language("ger", "de") is True
         assert _match_language("deu", "de") is True
         assert _match_language("jpn", "ja") is True
 
     def test_reverse_iso_map(self):
-        from pyrate.services.play import _match_language
+        from streamarr.services.play import _match_language
         assert _match_language("de", "ger") is True
 
     def test_no_match(self):
-        from pyrate.services.play import _match_language
+        from streamarr.services.play import _match_language
         assert _match_language("spa", "de") is False
 
     def test_empty_strings(self):
-        from pyrate.services.play import _match_language
+        from streamarr.services.play import _match_language
         assert _match_language("", "en") is False
         assert _match_language("en", "") is False
         assert _match_language(None, "en") is False
@@ -730,13 +730,13 @@ class TestSelectStreamsForUser:
     """Test select_streams_for_user."""
 
     def test_no_probe_data(self):
-        from pyrate.services.play import select_streams_for_user
+        from streamarr.services.play import select_streams_for_user
         result = select_streams_for_user(None)
         assert result["audio_stream"] == 0
         assert result["subtitle_stream"] is None
 
     def test_preferred_audio_found(self):
-        from pyrate.services.play import select_streams_for_user
+        from streamarr.services.play import select_streams_for_user
         probe = {
             "audio_streams": [
                 {"language": "eng", "default": True},
@@ -748,7 +748,7 @@ class TestSelectStreamsForUser:
         assert result["audio_stream"] == 1
 
     def test_preferred_audio_not_found_uses_default(self):
-        from pyrate.services.play import select_streams_for_user
+        from streamarr.services.play import select_streams_for_user
         probe = {
             "audio_streams": [
                 {"language": "eng", "default": False},
@@ -760,7 +760,7 @@ class TestSelectStreamsForUser:
         assert result["audio_stream"] == 1  # default stream
 
     def test_subtitle_selection(self):
-        from pyrate.services.play import select_streams_for_user
+        from streamarr.services.play import select_streams_for_user
         probe = {
             "audio_streams": [{"language": "eng"}],
             "subtitle_streams": [
@@ -772,7 +772,7 @@ class TestSelectStreamsForUser:
         assert result["subtitle_stream"] == 1
 
     def test_subtitle_forced_fallback(self):
-        from pyrate.services.play import select_streams_for_user
+        from streamarr.services.play import select_streams_for_user
         probe = {
             "audio_streams": [{"language": "eng"}],
             "subtitle_streams": [
@@ -784,7 +784,7 @@ class TestSelectStreamsForUser:
         assert result["subtitle_stream"] == 0
 
     def test_no_subtitle_preference(self):
-        from pyrate.services.play import select_streams_for_user
+        from streamarr.services.play import select_streams_for_user
         probe = {
             "audio_streams": [{"language": "eng"}],
             "subtitle_streams": [
@@ -804,7 +804,7 @@ class TestNegotiateCodecsExtraCases:
     """Test negotiate_codecs extra uncovered paths."""
 
     def test_audio_only_file(self):
-        from pyrate.services.play import negotiate_codecs
+        from streamarr.services.play import negotiate_codecs
         source_info = {"video_codec": None, "audio_codec": "flac"}
         probe = {"audio_streams": [{"codec_name": "flac"}]}
         f = _make_file(codec=None, width=0, height=0)
@@ -818,7 +818,7 @@ class TestNegotiateCodecsExtraCases:
         assert result.audio_codec == "flac"
 
     def test_audio_only_no_supported_audio(self):
-        from pyrate.services.play import negotiate_codecs
+        from streamarr.services.play import negotiate_codecs
         source_info = {"video_codec": None, "audio_codec": "opus"}
         f = _make_file(codec=None, width=0, height=0)
         result = negotiate_codecs(
@@ -829,7 +829,7 @@ class TestNegotiateCodecsExtraCases:
         assert result.video_codec is None
 
     def test_resolution_limit_not_copy(self):
-        from pyrate.services.play import negotiate_codecs
+        from streamarr.services.play import negotiate_codecs
         source_info = {"video_codec": "h264", "audio_codec": "aac", "height": 720}
         f = _make_file()
         result = negotiate_codecs(
@@ -840,7 +840,7 @@ class TestNegotiateCodecsExtraCases:
         assert result.resolution == "1280x720"
 
     def test_source_needs_resolution_downscale(self):
-        from pyrate.services.play import negotiate_codecs
+        from streamarr.services.play import negotiate_codecs
         source_info = {"video_codec": "h264", "audio_codec": "aac", "height": 2160}
         f = _make_file(height=2160)
         result = negotiate_codecs(
@@ -852,7 +852,7 @@ class TestNegotiateCodecsExtraCases:
         assert result.resolution == "1920x1080"
 
     def test_codec_priority_fallback(self):
-        from pyrate.services.play import negotiate_codecs
+        from streamarr.services.play import negotiate_codecs
         source_info = {"video_codec": "mpeg2", "audio_codec": "aac", "height": 1080}
         f = _make_file()
         result = negotiate_codecs(
@@ -863,7 +863,7 @@ class TestNegotiateCodecsExtraCases:
         assert result.video_codec == "vp9"
 
     def test_audio_copy_for_native_codec(self):
-        from pyrate.services.play import negotiate_codecs
+        from streamarr.services.play import negotiate_codecs
         source_info = {"video_codec": "h264", "audio_codec": "aac", "height": 1080}
         f = _make_file()
         result = negotiate_codecs(
@@ -874,7 +874,7 @@ class TestNegotiateCodecsExtraCases:
         assert result.audio_codec == "copy"
 
     def test_audio_transcode_surround(self):
-        from pyrate.services.play import negotiate_codecs
+        from streamarr.services.play import negotiate_codecs
         source_info = {"video_codec": "h264", "audio_codec": "dts", "height": 1080}
         f = _make_file()
         result = negotiate_codecs(
@@ -894,7 +894,7 @@ class TestDownloadServiceHelpers:
     """Test DownloadService helper methods."""
 
     def test_is_valid_video_file_sample(self, tmp_path):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         sample = tmp_path / "Sample.mkv"
@@ -902,7 +902,7 @@ class TestDownloadServiceHelpers:
         assert svc.is_valid_video_file(sample) is False
 
     def test_is_valid_video_file_wrong_ext(self, tmp_path):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         f = tmp_path / "file.txt"
@@ -910,13 +910,13 @@ class TestDownloadServiceHelpers:
         assert svc.is_valid_video_file(f) is False
 
     def test_is_valid_video_file_not_exists(self):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         assert svc.is_valid_video_file(Path("/nonexistent/file.mkv")) is False
 
     def test_is_valid_video_file_valid(self, tmp_path):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         f = tmp_path / "movie.mkv"
@@ -924,7 +924,7 @@ class TestDownloadServiceHelpers:
         assert svc.is_valid_video_file(f) is True
 
     def test_is_valid_audio_file(self, tmp_path):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         f = tmp_path / "song.mp3"
@@ -932,7 +932,7 @@ class TestDownloadServiceHelpers:
         assert svc.is_valid_audio_file(f) is True
 
     def test_is_valid_audio_file_not_audio(self, tmp_path):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         f = tmp_path / "file.mkv"
@@ -940,26 +940,26 @@ class TestDownloadServiceHelpers:
         assert svc.is_valid_audio_file(f) is False
 
     def test_is_valid_media_file_music(self, tmp_path):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         f = tmp_path / "song.mp3"
         f.touch()
-        with patch("pyrate.services.download.get_library_type_for_media_item_type", return_value="MUSIC"):
+        with patch("streamarr.services.download.get_library_type_for_media_item_type", return_value="MUSIC"):
             assert svc.is_valid_media_file(f, "SONGS") is True
 
     def test_is_valid_media_file_video(self, tmp_path):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         f = tmp_path / "movie.mkv"
         f.touch()
-        with patch("pyrate.services.download.get_library_type_for_media_item_type", return_value="MOVIES"):
+        with patch("streamarr.services.download.get_library_type_for_media_item_type", return_value="MOVIES"):
             assert svc.is_valid_media_file(f, "MOVIES") is True
 
     @pytest.mark.asyncio
     async def test_extract_external_id_deluge(self):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         downloader = MagicMock()
@@ -969,7 +969,7 @@ class TestDownloadServiceHelpers:
 
     @pytest.mark.asyncio
     async def test_extract_external_id_deluge_missing(self):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         downloader = MagicMock()
@@ -979,7 +979,7 @@ class TestDownloadServiceHelpers:
 
     @pytest.mark.asyncio
     async def test_extract_external_id_spotdl(self):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         downloader = MagicMock()
@@ -989,7 +989,7 @@ class TestDownloadServiceHelpers:
 
     @pytest.mark.asyncio
     async def test_extract_external_id_spotdl_missing(self):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         downloader = MagicMock()
@@ -999,7 +999,7 @@ class TestDownloadServiceHelpers:
 
     @pytest.mark.asyncio
     async def test_extract_external_id_sabnzbd(self):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         downloader = MagicMock()
@@ -1009,7 +1009,7 @@ class TestDownloadServiceHelpers:
 
     @pytest.mark.asyncio
     async def test_extract_external_id_sabnzbd_empty(self):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
         db = MagicMock()
         svc = DownloadService(db)
         downloader = MagicMock()
@@ -1027,25 +1027,25 @@ class TestMediaServiceStaticHelpers:
     """Test MediaService static helpers."""
 
     def test_is_valid_video_file_valid(self, tmp_path):
-        from pyrate.services.media import MediaService
+        from streamarr.services.media import MediaService
         f = tmp_path / "movie.mp4"
         f.touch()
         assert MediaService.is_valid_video_file(f) is True
 
     def test_is_valid_video_file_sample(self, tmp_path):
-        from pyrate.services.media import MediaService
+        from streamarr.services.media import MediaService
         f = tmp_path / "sample.mkv"
         f.touch()
         assert MediaService.is_valid_video_file(f) is False
 
     def test_is_valid_video_file_wrong_ext(self, tmp_path):
-        from pyrate.services.media import MediaService
+        from streamarr.services.media import MediaService
         f = tmp_path / "readme.txt"
         f.touch()
         assert MediaService.is_valid_video_file(f) is False
 
     def test_nav_response(self):
-        from pyrate.services.media import MediaService
+        from streamarr.services.media import MediaService
         item = MagicMock()
         item.guid = uuid.uuid4()
         item.title = "Test"
@@ -1061,7 +1061,7 @@ class TestMediaServiceCleanup:
     """Test cleanup helper methods."""
 
     def test_cleanup_empty_dirs(self, tmp_path):
-        from pyrate.services.media import MediaService
+        from streamarr.services.media import MediaService
         db = MagicMock()
         svc = MediaService(db)
         # Create nested empty dirs
@@ -1072,7 +1072,7 @@ class TestMediaServiceCleanup:
         assert not (tmp_path / "a" / "b" / "c").exists()
 
     def test_cleanup_empty_dirs_not_empty(self, tmp_path):
-        from pyrate.services.media import MediaService
+        from streamarr.services.media import MediaService
         db = MagicMock()
         svc = MediaService(db)
         nested = tmp_path / "a" / "b"
@@ -1092,26 +1092,26 @@ class TestLibraryServiceGetPlugin:
     """Test LibraryService.get_plugin."""
 
     def test_get_plugin_not_found(self):
-        from pyrate.services.library import LibraryService
+        from streamarr.services.library import LibraryService
         db = MagicMock()
-        with patch("pyrate.services.library.get_registered_plugins", return_value={}):
+        with patch("streamarr.services.library.get_registered_plugins", return_value={}):
             svc = LibraryService(db)
             assert svc.get_plugin("NONEXISTENT") is None
 
     def test_get_plugin_found(self):
-        from pyrate.services.library import LibraryService
+        from streamarr.services.library import LibraryService
         db = MagicMock()
         mock_cls = MagicMock()
-        with patch("pyrate.services.library.get_registered_plugins", return_value={"MOVIES": mock_cls}):
+        with patch("streamarr.services.library.get_registered_plugins", return_value={"MOVIES": mock_cls}):
             svc = LibraryService(db)
             result = svc.get_plugin("MOVIES")
             mock_cls.assert_called_once_with()
 
     def test_get_plugin_with_config(self):
-        from pyrate.services.library import LibraryService
+        from streamarr.services.library import LibraryService
         db = MagicMock()
         mock_cls = MagicMock()
-        with patch("pyrate.services.library.get_registered_plugins", return_value={"MOVIES": mock_cls}):
+        with patch("streamarr.services.library.get_registered_plugins", return_value={"MOVIES": mock_cls}):
             svc = LibraryService(db)
             result = svc.get_plugin("MOVIES", config={"key": "val"})
             mock_cls.assert_called_once_with()
@@ -1208,7 +1208,7 @@ class TestQueueImports:
         svc._redis = AsyncMock()
         svc._redis.set = AsyncMock(return_value=True)
 
-        with patch("pyrate.services.search.select") as mock_select:
+        with patch("streamarr.services.search.select") as mock_select:
             # Mock DB to say item doesn't exist
             mock_result = MagicMock()
             mock_result.scalar_one_or_none.return_value = None
@@ -1675,7 +1675,7 @@ class TestGetOrImportItem:
         mock_result2.scalar_one_or_none.return_value = lib_guid
         db.execute = AsyncMock(side_effect=[mock_result1, mock_result2])
 
-        with patch("pyrate.services.search.MediaService") as MockMediaService:
+        with patch("streamarr.services.search.MediaService") as MockMediaService:
             mock_media_svc = AsyncMock()
             mock_item = MagicMock()
             mock_item.guid = uuid.uuid4()
@@ -1716,9 +1716,9 @@ class TestGetOrImportItem:
         db.execute = AsyncMock(side_effect=[mock_result1, mock_result2])
 
         with (
-            patch("pyrate.services.search.MediaService") as MockMediaService,
+            patch("streamarr.services.search.MediaService") as MockMediaService,
             patch(
-                "pyrate.services.search.SearchService._queue_show_import",
+                "streamarr.services.search.SearchService._queue_show_import",
                 new_callable=AsyncMock,
             ),
         ):
@@ -1756,7 +1756,7 @@ class TestGetOrImportItem:
         mock_result2.scalar_one_or_none.return_value = lib_guid
         db.execute = AsyncMock(side_effect=[mock_result1, mock_result2])
 
-        with patch("pyrate.services.search.MediaService") as MockMediaService:
+        with patch("streamarr.services.search.MediaService") as MockMediaService:
             mock_media_svc = AsyncMock()
             mock_item = MagicMock()
             mock_item.guid = uuid.uuid4()
@@ -1792,7 +1792,7 @@ class TestGetOrImportItem:
         mock_result2.scalar_one_or_none.return_value = lib_guid
         db.execute = AsyncMock(side_effect=[mock_result1, mock_result2])
 
-        with patch("pyrate.services.search.MediaService") as MockMediaService:
+        with patch("streamarr.services.search.MediaService") as MockMediaService:
             mock_media_svc = AsyncMock()
             mock_item = MagicMock()
             mock_item.guid = uuid.uuid4()
@@ -1828,7 +1828,7 @@ class TestGetOrImportItem:
             mock_result2.scalar_one_or_none.return_value = lib_guid
             db.execute = AsyncMock(side_effect=[mock_result1, mock_result2])
 
-            with patch("pyrate.services.search.MediaService") as MockMediaService:
+            with patch("streamarr.services.search.MediaService") as MockMediaService:
                 mock_media_svc = AsyncMock()
                 mock_item = MagicMock()
                 mock_item.guid = uuid.uuid4()
@@ -1863,8 +1863,8 @@ class TestGetOrImportItem:
         db.execute = AsyncMock(side_effect=[mock_result1, mock_result2])
 
         with (
-            patch("pyrate.services.search.MediaService") as MockMediaService,
-            patch("pyrate.services.search.SearchService._get_spotify_client", new_callable=AsyncMock, return_value=mock_spotify),
+            patch("streamarr.services.search.MediaService") as MockMediaService,
+            patch("streamarr.services.search.SearchService._get_spotify_client", new_callable=AsyncMock, return_value=mock_spotify),
         ):
             mock_media_svc = AsyncMock()
             mock_item = MagicMock()
@@ -1916,7 +1916,7 @@ class TestGetOrImportItem:
         mock_result2.scalar_one_or_none.return_value = lib_guid
         db.execute = AsyncMock(side_effect=[mock_result1, mock_result2])
 
-        with patch("pyrate.services.search.MediaService") as MockMediaService:
+        with patch("streamarr.services.search.MediaService") as MockMediaService:
             mock_media_svc = AsyncMock()
             mock_item = MagicMock()
             mock_item.guid = uuid.uuid4()

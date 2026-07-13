@@ -1,10 +1,10 @@
-site_name: Pyrate.Media Documentation
-site_url: https://docs.pyrate.luebke.dev
+site_name: Streamarr Documentation
+site_url: https://docs.streamarr.luebke.dev
 site_description: All-in-One Media Management and Automation
-site_author: Pyrate.Media Team
+site_author: Streamarr Team
 
-repo_name: pyrate-media
-repo_url: https://github.com/luebke-dev/pyrate-media
+repo_name: streamarr
+repo_url: https://github.com/luebke-dev/streamarr
 
 theme:
   name: material
@@ -115,6 +115,6 @@ nav:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/luebke-dev/pyrate-media
+      link: https://github.com/luebke-dev/streamarr
 
-copyright: Copyright &copy; 2024&ndash;2026 Pyrate.Media Team
+copyright: Copyright &copy; 2024&ndash;2026 Streamarr Team

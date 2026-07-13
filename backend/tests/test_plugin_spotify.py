@@ -14,7 +14,7 @@ def mock_client():
 
 @pytest.fixture
 def spotify(mock_client):
-    from pyrate.metadata.spotify import Spotify, _response_cache
+    from streamarr.metadata.spotify import Spotify, _response_cache
 
     _response_cache.clear()
 
@@ -577,7 +577,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.spotify.httpx.AsyncClient")
+    @patch("streamarr.metadata.spotify.httpx.AsyncClient")
     async def test_validate_config_success(self, mock_client_cls, spotify):
         mock_instance = AsyncMock()
         mock_instance.post.return_value = _mock_response({})
@@ -589,7 +589,7 @@ class TestValidateConfig:
         assert result["valid"] is True
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.spotify.httpx.AsyncClient")
+    @patch("streamarr.metadata.spotify.httpx.AsyncClient")
     async def test_validate_config_unauthorized(self, mock_client_cls, spotify):
         mock_instance = AsyncMock()
         resp = MagicMock()
@@ -604,7 +604,7 @@ class TestValidateConfig:
         assert any("Invalid" in e for e in result["errors"])
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.spotify.httpx.AsyncClient")
+    @patch("streamarr.metadata.spotify.httpx.AsyncClient")
     async def test_validate_config_other_status(self, mock_client_cls, spotify):
         mock_instance = AsyncMock()
         resp = MagicMock()
@@ -618,7 +618,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.spotify.httpx.AsyncClient")
+    @patch("streamarr.metadata.spotify.httpx.AsyncClient")
     async def test_validate_config_timeout(self, mock_client_cls, spotify):
         mock_instance = AsyncMock()
         mock_instance.post.side_effect = httpx.TimeoutException("timeout")
@@ -631,7 +631,7 @@ class TestValidateConfig:
         assert any("timed out" in e for e in result["errors"])
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.spotify.httpx.AsyncClient")
+    @patch("streamarr.metadata.spotify.httpx.AsyncClient")
     async def test_validate_config_http_error(self, mock_client_cls, spotify):
         mock_instance = AsyncMock()
         mock_instance.post.side_effect = httpx.HTTPError("connection error")
@@ -643,7 +643,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.spotify.httpx.AsyncClient")
+    @patch("streamarr.metadata.spotify.httpx.AsyncClient")
     async def test_validate_config_unexpected_error(self, mock_client_cls, spotify):
         mock_instance = AsyncMock()
         mock_instance.post.side_effect = RuntimeError("unexpected")
@@ -667,21 +667,21 @@ class TestCloseAndSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_success(self):
-        from pyrate.metadata.spotify import async_setup
+        from streamarr.metadata.spotify import async_setup
 
         result = await async_setup({"client_id": "id", "client_secret": "secret"})
         assert result is True
 
     @pytest.mark.asyncio
     async def test_async_setup_missing_field(self):
-        from pyrate.metadata.spotify import async_setup
+        from streamarr.metadata.spotify import async_setup
 
         result = await async_setup({"client_id": "id"})
         assert result is False
 
     @pytest.mark.asyncio
     async def test_async_setup_empty(self):
-        from pyrate.metadata.spotify import async_setup
+        from streamarr.metadata.spotify import async_setup
 
         result = await async_setup({})
         assert result is False

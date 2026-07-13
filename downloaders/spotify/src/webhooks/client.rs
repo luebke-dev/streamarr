@@ -11,7 +11,7 @@ use uuid::Uuid;
 /// The row is kept (never silently dropped) and logged so it can be inspected.
 const MAX_OUTBOX_ATTEMPTS: i64 = 24;
 
-/// Unified terminal webhook payload shared by all pyrate downloaders
+/// Unified terminal webhook payload shared by all streamarr downloaders
 /// (torrent/usenet/spotify). The backend normalizes on `{id, status, path,
 /// files}`; the remaining fields are informational.
 #[derive(Debug, Serialize)]

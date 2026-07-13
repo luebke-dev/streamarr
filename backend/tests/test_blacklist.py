@@ -7,15 +7,15 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.downloader import Downloader
-from pyrate.models.downloads import Download
-from pyrate.models.media import (
+from streamarr.models.downloader import Downloader
+from streamarr.models.downloads import Download
+from streamarr.models.media import (
     MediaItem,
     MediaRelease,
     MediaReleaseLink,
     MediaType,
 )
-from pyrate.services.download import DownloadService
+from streamarr.services.download import DownloadService
 
 
 # ---------------------------------------------------------------------------

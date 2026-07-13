@@ -11,8 +11,8 @@ import fakeredis.aioredis
 import pytest
 import pytest_asyncio
 
-from pyrate.schemas.transcoding import TranscodingSession, TranscodingSessionCreate
-from pyrate.services.play import (
+from streamarr.schemas.transcoding import TranscodingSession, TranscodingSessionCreate
+from streamarr.services.play import (
     CodecNegotiationResult,
     PlayAction,
     build_stream_info,
@@ -464,7 +464,7 @@ class TestExtractSourceInfo:
 # ===========================================================================
 
 class TestBuildStreamInfo:
-    @patch("pyrate.services.computing.detect_hardware_acceleration", return_value={"type": "qsv"})
+    @patch("streamarr.services.computing.detect_hardware_acceleration", return_value={"type": "qsv"})
     def test_basic_build(self, _mock_hw):
         file = _make_file()
         result = build_stream_info(
@@ -488,7 +488,7 @@ class TestBuildStreamInfo:
         assert result["transcoding"]["hw_accel"] == "QSV"
         assert result["client_capabilities"]["supported_video_codecs"] == "h264"
 
-    @patch("pyrate.services.computing.detect_hardware_acceleration", return_value={"type": ""})
+    @patch("streamarr.services.computing.detect_hardware_acceleration", return_value={"type": ""})
     def test_hw_accel_empty_type(self, _mock_hw):
         file = _make_file()
         result = build_stream_info(
@@ -506,7 +506,7 @@ class TestBuildStreamInfo:
 
         assert result["transcoding"]["hw_accel"] is None
 
-    @patch("pyrate.services.computing.detect_hardware_acceleration", side_effect=ImportError)
+    @patch("streamarr.services.computing.detect_hardware_acceleration", side_effect=ImportError)
     def test_hw_accel_exception(self, _mock_hw):
         file = _make_file()
         result = build_stream_info(
@@ -524,7 +524,7 @@ class TestBuildStreamInfo:
 
         assert result["transcoding"]["hw_accel"] is None
 
-    @patch("pyrate.services.computing.detect_hardware_acceleration", return_value={"type": ""})
+    @patch("streamarr.services.computing.detect_hardware_acceleration", return_value={"type": ""})
     def test_transcoding_reasons_codec_unsupported(self, _mock_hw):
         file = _make_file(codec="hevc")
         result = build_stream_info(
@@ -548,7 +548,7 @@ class TestBuildStreamInfo:
         assert any("720" in r for r in reasons)
         assert any("ac3" in r for r in reasons)
 
-    @patch("pyrate.services.computing.detect_hardware_acceleration", return_value={"type": ""})
+    @patch("streamarr.services.computing.detect_hardware_acceleration", return_value={"type": ""})
     def test_transcoding_reasons_10bit(self, _mock_hw):
         file = _make_file()
         result = build_stream_info(
@@ -570,7 +570,7 @@ class TestBuildStreamInfo:
         reasons = result["transcoding_reasons"]
         assert any("10-bit" in r for r in reasons)
 
-    @patch("pyrate.services.computing.detect_hardware_acceleration", return_value={"type": ""})
+    @patch("streamarr.services.computing.detect_hardware_acceleration", return_value={"type": ""})
     def test_transcoding_reasons_audio_no_source(self, _mock_hw):
         """Audio transcoding reason when source_audio_codec is None."""
         file = _make_file()
@@ -590,7 +590,7 @@ class TestBuildStreamInfo:
         reasons = result["transcoding_reasons"]
         assert any("Audio transcoding" in r for r in reasons)
 
-    @patch("pyrate.services.computing.detect_hardware_acceleration", return_value={"type": ""})
+    @patch("streamarr.services.computing.detect_hardware_acceleration", return_value={"type": ""})
     def test_transcoding_reasons_fallback_video(self, _mock_hw):
         """Video transcoding reason fallback when no specific reason applies."""
         file = _make_file()
@@ -724,7 +724,7 @@ class TestGetActiveTranscodeContainer:
         mock_computing.__aenter__ = AsyncMock(return_value=mock_computing)
         mock_computing.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
+        with patch("streamarr.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
             result = await get_active_transcode_container(content_id)
 
         assert result == "container-xyz"
@@ -739,7 +739,7 @@ class TestGetActiveTranscodeContainer:
         mock_computing.__aenter__ = AsyncMock(return_value=mock_computing)
         mock_computing.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
+        with patch("streamarr.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
             result = await get_active_transcode_container("nonexistent-id")
 
         assert result is None
@@ -747,7 +747,7 @@ class TestGetActiveTranscodeContainer:
     @pytest.mark.asyncio
     async def test_returns_none_on_exception(self):
         with patch(
-            "pyrate.services.transcode_lifecycle.ComputingService",
+            "streamarr.services.transcode_lifecycle.ComputingService",
             side_effect=Exception("provider not available"),
         ):
             result = await get_active_transcode_container("any-id")
@@ -770,7 +770,7 @@ class TestGetActiveTranscodeContainer:
         mock_computing.__aenter__ = AsyncMock(return_value=mock_computing)
         mock_computing.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
+        with patch("streamarr.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
             result = await get_active_transcode_container("abc-123")
 
         assert result is None
@@ -801,9 +801,9 @@ class TestProbeVideoFull:
         mock_settings = AsyncMock()
         mock_settings.get.return_value = "/data"
 
-        with patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing), \
-             patch("pyrate.services.settings.SettingsService", return_value=mock_settings), \
-             patch("pyrate.services.transcode_lifecycle._structure_probe_data", return_value={"video_streams": []}) as mock_struct:
+        with patch("streamarr.services.transcode_lifecycle.ComputingService", return_value=mock_computing), \
+             patch("streamarr.services.settings.SettingsService", return_value=mock_settings), \
+             patch("streamarr.services.transcode_lifecycle._structure_probe_data", return_value={"video_streams": []}) as mock_struct:
             result = await probe_video_full("/library/movies/test.mkv", db=AsyncMock())
 
         assert result is not None
@@ -823,8 +823,8 @@ class TestProbeVideoFull:
         mock_settings = AsyncMock()
         mock_settings.get.return_value = "/data"
 
-        with patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing), \
-             patch("pyrate.services.settings.SettingsService", return_value=mock_settings):
+        with patch("streamarr.services.transcode_lifecycle.ComputingService", return_value=mock_computing), \
+             patch("streamarr.services.settings.SettingsService", return_value=mock_settings):
             result = await probe_video_full("/library/movies/test.mkv", db=AsyncMock())
 
         assert result is None
@@ -843,16 +843,16 @@ class TestProbeVideoFull:
         mock_settings = AsyncMock()
         mock_settings.get.return_value = "/data"
 
-        with patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing), \
-             patch("pyrate.services.settings.SettingsService", return_value=mock_settings):
+        with patch("streamarr.services.transcode_lifecycle.ComputingService", return_value=mock_computing), \
+             patch("streamarr.services.settings.SettingsService", return_value=mock_settings):
             result = await probe_video_full("/library/movies/test.mkv", db=AsyncMock())
 
         assert result is None
 
     @pytest.mark.asyncio
     async def test_probe_exception_returns_none(self):
-        with patch("pyrate.services.transcode_lifecycle.ComputingService", side_effect=Exception("fail")), \
-             patch("pyrate.services.settings.SettingsService", return_value=AsyncMock(get=AsyncMock(return_value="/data"))):
+        with patch("streamarr.services.transcode_lifecycle.ComputingService", side_effect=Exception("fail")), \
+             patch("streamarr.services.settings.SettingsService", return_value=AsyncMock(get=AsyncMock(return_value="/data"))):
             result = await _probe_video_with_computing_service("/test.mkv", db=AsyncMock())
 
         assert result is None
@@ -870,7 +870,7 @@ class TestProbeVideoMetadata:
             "video_streams": [{"codec_name": "h264", "width": 1920, "height": 1080}],
         }
 
-        with patch("pyrate.services.transcode_lifecycle.probe_video_full", new_callable=AsyncMock, return_value=probe_data):
+        with patch("streamarr.services.transcode_lifecycle.probe_video_full", new_callable=AsyncMock, return_value=probe_data):
             result = await probe_video_metadata("/test.mkv", db=AsyncMock())
 
         assert result["duration"] == 120.5
@@ -881,7 +881,7 @@ class TestProbeVideoMetadata:
 
     @pytest.mark.asyncio
     async def test_returns_defaults_when_probe_fails(self):
-        with patch("pyrate.services.transcode_lifecycle.probe_video_full", new_callable=AsyncMock, return_value=None):
+        with patch("streamarr.services.transcode_lifecycle.probe_video_full", new_callable=AsyncMock, return_value=None):
             result = await probe_video_metadata("/test.mkv", db=AsyncMock())
 
         assert result["duration"] is None
@@ -889,7 +889,7 @@ class TestProbeVideoMetadata:
 
     @pytest.mark.asyncio
     async def test_returns_defaults_on_exception(self):
-        with patch("pyrate.services.transcode_lifecycle.probe_video_full", new_callable=AsyncMock, side_effect=Exception("fail")):
+        with patch("streamarr.services.transcode_lifecycle.probe_video_full", new_callable=AsyncMock, side_effect=Exception("fail")):
             result = await probe_video_metadata("/test.mkv", db=AsyncMock())
 
         assert result["duration"] is None
@@ -905,7 +905,7 @@ class TestGetBaseLibraryPath:
         mock_settings = AsyncMock()
         mock_settings.get.return_value = "/mnt/media"
 
-        with patch("pyrate.services.settings.SettingsService", return_value=mock_settings):
+        with patch("streamarr.services.settings.SettingsService", return_value=mock_settings):
             result = await _get_base_library_path(db=AsyncMock())
 
         assert result == "/mnt/media"
@@ -926,8 +926,8 @@ class TestStartTranscodeContainer:
         mock_settings = AsyncMock()
         mock_settings.get.return_value = "/data"
 
-        with patch("pyrate.services.computing.ComputingService", return_value=mock_computing), \
-             patch("pyrate.services.settings.SettingsService", return_value=mock_settings):
+        with patch("streamarr.services.computing.ComputingService", return_value=mock_computing), \
+             patch("streamarr.services.settings.SettingsService", return_value=mock_settings):
             result = await start_transcode_container(
                 db=AsyncMock(),
                 input_path="/library/movies/test.mkv",
@@ -952,8 +952,8 @@ class TestStartTranscodeContainer:
         mock_settings = AsyncMock()
         mock_settings.get.return_value = "/data"
 
-        with patch("pyrate.services.computing.ComputingService", return_value=mock_computing), \
-             patch("pyrate.services.settings.SettingsService", return_value=mock_settings):
+        with patch("streamarr.services.computing.ComputingService", return_value=mock_computing), \
+             patch("streamarr.services.settings.SettingsService", return_value=mock_settings):
             await start_transcode_container(
                 db=AsyncMock(),
                 input_path="/test.mkv",
@@ -973,7 +973,7 @@ class TestStartTranscodeContainer:
 
 class TestDetectHardwareAcceleration:
     def test_disabled_via_env(self):
-        from pyrate.services.computing import detect_hardware_acceleration
+        from streamarr.services.computing import detect_hardware_acceleration
 
         with patch.dict("os.environ", {"ENABLE_HARDWARE_ACCEL": "false"}):
             result = detect_hardware_acceleration()
@@ -983,7 +983,7 @@ class TestDetectHardwareAcceleration:
         assert result["encoder_suffix"] == ""
 
     def test_no_dri_devices(self):
-        from pyrate.services.computing import detect_hardware_acceleration
+        from streamarr.services.computing import detect_hardware_acceleration
 
         with patch.dict("os.environ", {"ENABLE_HARDWARE_ACCEL": "true"}), \
              patch("os.path.exists", return_value=False):
@@ -993,7 +993,7 @@ class TestDetectHardwareAcceleration:
         assert result["devices"] == []
 
     def test_intel_gpu_detected(self):
-        from pyrate.services.computing import detect_hardware_acceleration
+        from streamarr.services.computing import detect_hardware_acceleration
 
         def mock_exists(path):
             return path in ("/dev/dri", "/dev/dri/renderD128", "/dev/dri/card0")
@@ -1008,7 +1008,7 @@ class TestDetectHardwareAcceleration:
         assert result["encoder_suffix"] == "_qsv"
 
     def test_only_renderD128(self):
-        from pyrate.services.computing import detect_hardware_acceleration
+        from streamarr.services.computing import detect_hardware_acceleration
 
         def mock_exists(path):
             return path in ("/dev/dri", "/dev/dri/renderD128")
@@ -1028,7 +1028,7 @@ class TestDetectHardwareAcceleration:
 class TestComputingService:
     @pytest.mark.asyncio
     async def test_context_manager(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         db = AsyncMock()
         svc = ComputingService(db)
@@ -1044,7 +1044,7 @@ class TestComputingService:
 
     @pytest.mark.asyncio
     async def test_close_without_provider(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         db = AsyncMock()
         svc = ComputingService(db)
@@ -1052,7 +1052,7 @@ class TestComputingService:
 
     @pytest.mark.asyncio
     async def test_close_with_error(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         db = AsyncMock()
         svc = ComputingService(db)
@@ -1065,7 +1065,7 @@ class TestComputingService:
 
     @pytest.mark.asyncio
     async def test_get_provider_cached(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         db = AsyncMock()
         svc = ComputingService(db)
@@ -1077,15 +1077,15 @@ class TestComputingService:
 
     @pytest.mark.asyncio
     async def test_get_provider_loads_docker(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         db = AsyncMock()
         svc = ComputingService(db)
 
         mock_instance = AsyncMock()
 
-        with patch("pyrate.services.computing.get_computing_provider_domain", return_value="docker"), \
-             patch("pyrate.services.computing.DockerComputingProvider", return_value=mock_instance):
+        with patch("streamarr.services.computing.get_computing_provider_domain", return_value="docker"), \
+             patch("streamarr.services.computing.DockerComputingProvider", return_value=mock_instance):
             provider = await svc.get_provider()
 
         assert provider is mock_instance
@@ -1099,7 +1099,7 @@ class TestComputingService:
 class TestComputingServiceTasks:
     @pytest.mark.asyncio
     async def test_start_task(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         mock_provider = AsyncMock()
         mock_provider.start_task.return_value = "task-1"
@@ -1113,7 +1113,7 @@ class TestComputingServiceTasks:
 
     @pytest.mark.asyncio
     async def test_get_task_status(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         mock_provider = AsyncMock()
         mock_provider.get_task_status.return_value = "running"
@@ -1127,7 +1127,7 @@ class TestComputingServiceTasks:
 
     @pytest.mark.asyncio
     async def test_get_task_logs(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         mock_provider = AsyncMock()
         mock_provider.get_task_logs.return_value = "log output"
@@ -1141,7 +1141,7 @@ class TestComputingServiceTasks:
 
     @pytest.mark.asyncio
     async def test_stop_task(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         mock_provider = AsyncMock()
         db = AsyncMock()
@@ -1153,7 +1153,7 @@ class TestComputingServiceTasks:
 
     @pytest.mark.asyncio
     async def test_delete_task(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         mock_provider = AsyncMock()
         db = AsyncMock()
@@ -1165,7 +1165,7 @@ class TestComputingServiceTasks:
 
     @pytest.mark.asyncio
     async def test_list_tasks(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         mock_provider = AsyncMock()
         mock_provider.list_tasks.return_value = [{"id": "task-1"}]
@@ -1179,7 +1179,7 @@ class TestComputingServiceTasks:
 
     @pytest.mark.asyncio
     async def test_get_tasks_by_label(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         mock_provider = AsyncMock()
         mock_provider.list_tasks.return_value = [{"id": "task-1"}]
@@ -1194,7 +1194,7 @@ class TestComputingServiceTasks:
 
     @pytest.mark.asyncio
     async def test_terminate_task_success(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         mock_provider = AsyncMock()
         db = AsyncMock()
@@ -1208,7 +1208,7 @@ class TestComputingServiceTasks:
 
     @pytest.mark.asyncio
     async def test_terminate_task_failure(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         mock_provider = AsyncMock()
         mock_provider.stop_task.side_effect = Exception("fail")
@@ -1228,7 +1228,7 @@ class TestComputingServiceTasks:
 class TestComputingServiceFFmpegTasks:
     @pytest.mark.asyncio
     async def test_start_ffmpeg_task(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         mock_provider = AsyncMock()
         mock_provider.start_task.return_value = "ffmpeg-task-1"
@@ -1246,11 +1246,11 @@ class TestComputingServiceFFmpegTasks:
         assert result == "ffmpeg-task-1"
         call_kwargs = mock_provider.start_task.call_args.kwargs
         assert call_kwargs["command"] == ["ffmpeg", "-i", "/input.mkv", "-c:v", "libx264", "/output.mp4"]
-        assert call_kwargs["labels"]["pyrate.task_type"] == "transcode"
+        assert call_kwargs["labels"]["streamarr.task_type"] == "transcode"
 
     @pytest.mark.asyncio
     async def test_start_ffmpeg_task_with_gpu(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         mock_provider = AsyncMock()
         mock_provider.start_task.return_value = "gpu-task-1"
@@ -1271,7 +1271,7 @@ class TestComputingServiceFFmpegTasks:
 
     @pytest.mark.asyncio
     async def test_start_ffprobe_task(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
 
         mock_provider = AsyncMock()
         mock_provider.start_task.return_value = "probe-task-1"
@@ -1286,7 +1286,7 @@ class TestComputingServiceFFmpegTasks:
         call_kwargs = mock_provider.start_task.call_args.kwargs
         assert "ffprobe" in call_kwargs["command"]
         assert "/video.mkv" in call_kwargs["command"]
-        assert call_kwargs["labels"]["pyrate.task_type"] == "probe"
+        assert call_kwargs["labels"]["streamarr.task_type"] == "probe"
 
 
 # ===========================================================================
@@ -1295,7 +1295,7 @@ class TestComputingServiceFFmpegTasks:
 
 class TestBuildFfmpegCommand:
     def _make_service(self):
-        from pyrate.services.computing import ComputingService
+        from streamarr.services.computing import ComputingService
         return ComputingService(db=AsyncMock())
 
     def _default_kwargs(self, **overrides):
@@ -1538,7 +1538,7 @@ class TestTranscodingSessionTerminateWithContainer:
 
     @pytest_asyncio.fixture
     async def service(self):
-        from pyrate.services.transcoding_session import TranscodingSessionService
+        from streamarr.services.transcoding_session import TranscodingSessionService
         svc = TranscodingSessionService()
         svc._redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
         return svc
@@ -1569,7 +1569,7 @@ class TestTranscodingSessionTerminateWithContainer:
         mock_docker.__aenter__ = AsyncMock(return_value=mock_docker)
         mock_docker.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcoding_session.Docker", return_value=mock_docker):
+        with patch("streamarr.services.transcoding_session.Docker", return_value=mock_docker):
             result = await service.terminate_session("sess_001")
 
         assert result["success"] is True
@@ -1589,7 +1589,7 @@ class TestTranscodingSessionTerminateWithContainer:
         mock_docker.__aenter__ = AsyncMock(return_value=mock_docker)
         mock_docker.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcoding_session.Docker", return_value=mock_docker):
+        with patch("streamarr.services.transcoding_session.Docker", return_value=mock_docker):
             result = await service.terminate_session("sess_001")
 
         assert result["success"] is True
@@ -1625,7 +1625,7 @@ class TestTranscodingSessionTerminateWithContainer:
             call_count += 1
             return mock_docker_1 if call_count == 1 else mock_docker_2
 
-        with patch("pyrate.services.transcoding_session.Docker", side_effect=make_docker):
+        with patch("streamarr.services.transcoding_session.Docker", side_effect=make_docker):
             result = await service.terminate_session("sess_001")
 
         assert result["success"] is True
@@ -1638,7 +1638,7 @@ class TestTranscodingSessionCleanupStale:
 
     @pytest_asyncio.fixture
     async def service(self):
-        from pyrate.services.transcoding_session import TranscodingSessionService
+        from streamarr.services.transcoding_session import TranscodingSessionService
         svc = TranscodingSessionService()
         svc._redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
         return svc
@@ -1672,7 +1672,7 @@ class TestTranscodingSessionCleanupStale:
         mock_docker.__aenter__ = AsyncMock(return_value=mock_docker)
         mock_docker.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcoding_session.Docker", return_value=mock_docker):
+        with patch("streamarr.services.transcoding_session.Docker", return_value=mock_docker):
             cleaned = await service.cleanup_stale_sessions()
 
         assert cleaned == 1
@@ -1700,7 +1700,7 @@ class TestTranscodingSessionCleanupStale:
         mock_docker.__aenter__ = AsyncMock(return_value=mock_docker)
         mock_docker.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcoding_session.Docker", return_value=mock_docker):
+        with patch("streamarr.services.transcoding_session.Docker", return_value=mock_docker):
             cleaned = await service.cleanup_stale_sessions()
 
         assert cleaned == 0
@@ -1740,7 +1740,7 @@ class TestTranscodingSessionCleanupStale:
         mock_docker.__aenter__ = AsyncMock(return_value=mock_docker)
         mock_docker.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcoding_session.Docker", return_value=mock_docker):
+        with patch("streamarr.services.transcoding_session.Docker", return_value=mock_docker):
             cleaned = await service.cleanup_stale_sessions()
 
         assert cleaned == 0
@@ -1779,7 +1779,7 @@ class TestTranscodingSessionCleanupStale:
         mock_docker.__aenter__ = AsyncMock(return_value=mock_docker)
         mock_docker.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcoding_session.Docker", return_value=mock_docker):
+        with patch("streamarr.services.transcoding_session.Docker", return_value=mock_docker):
             cleaned = await service.cleanup_stale_sessions()
 
         assert cleaned == 0
@@ -1805,7 +1805,7 @@ class TestTranscodingSessionCleanupStale:
         mock_docker.__aenter__ = AsyncMock(return_value=mock_docker)
         mock_docker.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("pyrate.services.transcoding_session.Docker", return_value=mock_docker):
+        with patch("streamarr.services.transcoding_session.Docker", return_value=mock_docker):
             cleaned = await service.cleanup_stale_sessions()
 
         assert cleaned == 0
@@ -1816,7 +1816,7 @@ class TestGetSessionsResponse:
 
     @pytest_asyncio.fixture
     async def service(self):
-        from pyrate.services.transcoding_session import TranscodingSessionService
+        from streamarr.services.transcoding_session import TranscodingSessionService
         svc = TranscodingSessionService()
         svc._redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
         return svc
@@ -1922,7 +1922,7 @@ class TestWebSocketRemoteControl:
 
     @pytest.mark.asyncio
     async def test_remote_control_success(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -1963,7 +1963,7 @@ class TestWebSocketRemoteControl:
 
     @pytest.mark.asyncio
     async def test_remote_control_missing_target(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -1986,7 +1986,7 @@ class TestWebSocketRemoteControl:
 
     @pytest.mark.asyncio
     async def test_remote_control_missing_command(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -2009,7 +2009,7 @@ class TestWebSocketRemoteControl:
 
     @pytest.mark.asyncio
     async def test_remote_control_invalid_command(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -2033,7 +2033,7 @@ class TestWebSocketRemoteControl:
 
     @pytest.mark.asyncio
     async def test_remote_control_target_not_found(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -2058,13 +2058,13 @@ class TestWebSocketRemoteControl:
     @pytest.mark.asyncio
     async def test_remote_control_target_send_failure(self):
         """When target send fails, sender gets remote_control_error."""
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
             mock_redis.return_value = mock_svc
 
-            from pyrate.services.websocket import WebSocketManager
+            from streamarr.services.websocket import WebSocketManager
 
             mgr = WebSocketManager()
             ws_sender = _make_ws()
@@ -2096,7 +2096,7 @@ class TestWebSocketWatchParty:
 
     @pytest.mark.asyncio
     async def test_watch_party_sync(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -2128,7 +2128,7 @@ class TestWebSocketWatchParty:
 
     @pytest.mark.asyncio
     async def test_watch_party_sync_missing_fields(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -2152,7 +2152,7 @@ class TestWebSocketWatchParty:
 
     @pytest.mark.asyncio
     async def test_watch_party_member_update(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -2183,7 +2183,7 @@ class TestWebSocketWatchParty:
 
     @pytest.mark.asyncio
     async def test_watch_party_member_update_missing_party_id(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -2209,7 +2209,7 @@ class TestWebSocketUnsubscribeMessage:
 
     @pytest.mark.asyncio
     async def test_unsubscribe_via_message(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -2237,7 +2237,7 @@ class TestWebSocketUnsubscribeMessage:
 
     @pytest.mark.asyncio
     async def test_unsubscribe_missing_fields(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -2262,7 +2262,7 @@ class TestWebSocketUnsubscribeMessage:
 # 5. redis_event.py – subscribe/unsubscribe/_start_subscriber/_subscriber_loop/stop
 # ===========================================================================
 
-from pyrate.services.websocket import WebSocketConnection, WebSocketManager
+from streamarr.services.websocket import WebSocketConnection, WebSocketManager
 
 
 class TestRedisEventServiceSubscribe:
@@ -2293,7 +2293,7 @@ class TestRedisEventServiceSubscribe:
 
     @pytest.mark.asyncio
     async def test_subscribe_creates_pubsub_and_starts_loop(self):
-        from pyrate.services.redis_event import RedisEventService
+        from streamarr.services.redis_event import RedisEventService
 
         svc = RedisEventService()
         mock_redis, mock_pubsub = self._make_mocks()
@@ -2304,16 +2304,16 @@ class TestRedisEventServiceSubscribe:
         await svc.subscribe("test:channel", handler)
 
         assert svc._running is True
-        assert "pyrate:events:test:channel" in svc._handlers
-        assert handler in svc._handlers["pyrate:events:test:channel"]
-        mock_pubsub.subscribe.assert_awaited_once_with("pyrate:events:test:channel")
+        assert "streamarr:events:test:channel" in svc._handlers
+        assert handler in svc._handlers["streamarr:events:test:channel"]
+        mock_pubsub.subscribe.assert_awaited_once_with("streamarr:events:test:channel")
 
         # Clean up
         await svc.stop()
 
     @pytest.mark.asyncio
     async def test_subscribe_second_handler_same_channel(self):
-        from pyrate.services.redis_event import RedisEventService
+        from streamarr.services.redis_event import RedisEventService
 
         svc = RedisEventService()
         mock_redis, mock_pubsub = self._make_mocks()
@@ -2327,13 +2327,13 @@ class TestRedisEventServiceSubscribe:
 
         # Only one Redis subscribe call per channel
         assert mock_pubsub.subscribe.await_count == 1
-        assert len(svc._handlers["pyrate:events:test:ch"]) == 2
+        assert len(svc._handlers["streamarr:events:test:ch"]) == 2
 
         await svc.stop()
 
     @pytest.mark.asyncio
     async def test_unsubscribe_removes_handler(self):
-        from pyrate.services.redis_event import RedisEventService
+        from streamarr.services.redis_event import RedisEventService
 
         svc = RedisEventService()
         mock_redis, mock_pubsub = self._make_mocks()
@@ -2343,14 +2343,14 @@ class TestRedisEventServiceSubscribe:
         await svc.subscribe("test:ch", handler)
         await svc.unsubscribe("test:ch", handler)
 
-        assert "pyrate:events:test:ch" not in svc._handlers
-        mock_pubsub.unsubscribe.assert_awaited_once_with("pyrate:events:test:ch")
+        assert "streamarr:events:test:ch" not in svc._handlers
+        mock_pubsub.unsubscribe.assert_awaited_once_with("streamarr:events:test:ch")
 
         await svc.stop()
 
     @pytest.mark.asyncio
     async def test_unsubscribe_keeps_other_handlers(self):
-        from pyrate.services.redis_event import RedisEventService
+        from streamarr.services.redis_event import RedisEventService
 
         svc = RedisEventService()
         mock_redis, mock_pubsub = self._make_mocks()
@@ -2363,8 +2363,8 @@ class TestRedisEventServiceSubscribe:
 
         await svc.unsubscribe("test:ch", handler1)
 
-        assert "pyrate:events:test:ch" in svc._handlers
-        assert handler2 in svc._handlers["pyrate:events:test:ch"]
+        assert "streamarr:events:test:ch" in svc._handlers
+        assert handler2 in svc._handlers["streamarr:events:test:ch"]
         # Should NOT unsubscribe from Redis since handler2 still listening
         mock_pubsub.unsubscribe.assert_not_awaited()
 
@@ -2372,7 +2372,7 @@ class TestRedisEventServiceSubscribe:
 
     @pytest.mark.asyncio
     async def test_unsubscribe_nonexistent_handler(self):
-        from pyrate.services.redis_event import RedisEventService
+        from streamarr.services.redis_event import RedisEventService
 
         svc = RedisEventService()
         mock_redis, mock_pubsub = self._make_mocks()
@@ -2385,7 +2385,7 @@ class TestRedisEventServiceSubscribe:
         # Unsubscribing a handler that was never subscribed should not raise
         await svc.unsubscribe("test:ch", handler2)
 
-        assert handler1 in svc._handlers["pyrate:events:test:ch"]
+        assert handler1 in svc._handlers["streamarr:events:test:ch"]
 
         await svc.stop()
 
@@ -2405,14 +2405,14 @@ class TestRedisEventServiceSubscriberLoop:
 
     @pytest.mark.asyncio
     async def test_subscriber_loop_dispatches_messages(self):
-        from pyrate.services.redis_event import RedisEventService
+        from streamarr.services.redis_event import RedisEventService
 
         svc = RedisEventService()
         mock_redis, mock_pubsub = self._make_mocks()
         svc._redis = mock_redis
 
         handler = AsyncMock()
-        channel = "pyrate:events:test:ch"
+        channel = "streamarr:events:test:ch"
 
         # Simulate message then None to break after one iteration
         call_count = 0
@@ -2446,14 +2446,14 @@ class TestRedisEventServiceSubscriberLoop:
 
     @pytest.mark.asyncio
     async def test_subscriber_loop_handles_invalid_json(self):
-        from pyrate.services.redis_event import RedisEventService
+        from streamarr.services.redis_event import RedisEventService
 
         svc = RedisEventService()
         mock_redis, mock_pubsub = self._make_mocks()
         svc._redis = mock_redis
 
         handler = AsyncMock()
-        channel = "pyrate:events:test:ch"
+        channel = "streamarr:events:test:ch"
 
         call_count = 0
 
@@ -2481,7 +2481,7 @@ class TestRedisEventServiceSubscriberLoop:
 
     @pytest.mark.asyncio
     async def test_subscriber_loop_skips_non_message_types(self):
-        from pyrate.services.redis_event import RedisEventService
+        from streamarr.services.redis_event import RedisEventService
 
         svc = RedisEventService()
         mock_redis, mock_pubsub = self._make_mocks()
@@ -2510,14 +2510,14 @@ class TestRedisEventServiceSubscriberLoop:
 
     @pytest.mark.asyncio
     async def test_subscriber_loop_handler_error_continues(self):
-        from pyrate.services.redis_event import RedisEventService
+        from streamarr.services.redis_event import RedisEventService
 
         svc = RedisEventService()
         mock_redis, mock_pubsub = self._make_mocks()
         svc._redis = mock_redis
 
         handler = AsyncMock(side_effect=ValueError("handler error"))
-        channel = "pyrate:events:test:ch"
+        channel = "streamarr:events:test:ch"
 
         call_count = 0
 
@@ -2547,7 +2547,7 @@ class TestRedisEventServiceSubscriberLoop:
 class TestRedisEventServiceStop:
     @pytest.mark.asyncio
     async def test_stop_cleans_up(self):
-        from pyrate.services.redis_event import RedisEventService
+        from streamarr.services.redis_event import RedisEventService
 
         svc = RedisEventService()
         mock_pubsub = MagicMock()
@@ -2574,7 +2574,7 @@ class TestRedisEventServiceStop:
 
     @pytest.mark.asyncio
     async def test_stop_without_start(self):
-        from pyrate.services.redis_event import RedisEventService
+        from streamarr.services.redis_event import RedisEventService
 
         svc = RedisEventService()
         await svc.stop()  # should not raise
@@ -2584,7 +2584,7 @@ class TestRedisEventServiceStop:
 class TestRedisEventServicePublish:
     @pytest.mark.asyncio
     async def test_publish(self):
-        from pyrate.services.redis_event import RedisEventService
+        from streamarr.services.redis_event import RedisEventService
 
         svc = RedisEventService()
         mock_redis = AsyncMock()
@@ -2596,7 +2596,7 @@ class TestRedisEventServicePublish:
         assert count == 2
         mock_redis.publish.assert_awaited_once()
         call_args = mock_redis.publish.call_args
-        assert call_args[0][0] == "pyrate:events:test:ch"
+        assert call_args[0][0] == "streamarr:events:test:ch"
         payload = json.loads(call_args[0][1])
         assert payload["event"] == "my_event"
         assert payload["data"] == {"key": "val"}

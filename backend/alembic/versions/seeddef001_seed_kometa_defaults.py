@@ -9,7 +9,7 @@ rows as ``is_system=True, enabled=False`` so a fresh install ships
 useful out-of-the-box defaults without immediately hammering external
 APIs. Admins flip the ones they want in the admin UI.
 
-The actual content lives in :mod:`pyrate.smart_collections.defaults`
+The actual content lives in :mod:`streamarr.smart_collections.defaults`
 so it can be tested independently and re-used by the bulk-enable
 helper in the worker module.
 
@@ -71,7 +71,7 @@ _OVERLAYS_INSERT = sa.text(
 def upgrade() -> None:
     # Import lazily so the migration module stays importable even when
     # the application package has changed shape between revisions.
-    from pyrate.smart_collections.defaults import (
+    from streamarr.smart_collections.defaults import (
         OVERLAY_DEFAULTS,
         SMART_COLLECTION_DEFAULTS,
     )
@@ -114,7 +114,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    from pyrate.smart_collections.defaults import (
+    from streamarr.smart_collections.defaults import (
         OVERLAY_DEFAULTS,
         SMART_COLLECTION_DEFAULTS,
     )

@@ -1,11 +1,11 @@
 {{- if .Values.ingress.enabled -}}
-{{- $fullname := include "pyrate.fullname" . -}}
+{{- $fullname := include "streamarr.fullname" . -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ $fullname }}
   labels:
-    {{- include "pyrate.labels" . | nindent 4 }}
+    {{- include "streamarr.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}

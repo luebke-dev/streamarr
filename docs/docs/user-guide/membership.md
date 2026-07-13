@@ -1,6 +1,6 @@
 # Membership
 
-pyrate.media can optionally offer paid subscription plans. Payments are processed through **Stripe**; membership can also be granted with **voucher codes**.
+streamarr.media can optionally offer paid subscription plans. Payments are processed through **Stripe**; membership can also be granted with **voucher codes**.
 
 !!! info "Optional feature"
     Memberships are a per-instance feature that the administrator must enable and configure. If you do not see a **Membership** entry in your user menu, the feature is not available on your server. See [Membership & Vouchers](../administration/membership.md) for the admin side.

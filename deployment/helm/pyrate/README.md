@@ -1,6 +1,6 @@
-# pyrate Helm chart
+# streamarr Helm chart
 
-In-tree Helm chart for the pyrate.media stack. Mirrors the services from
+In-tree Helm chart for the streamarr.media stack. Mirrors the services from
 `docker-compose.yml` (minus the off-cluster usenet downloader and the
 in-flight rust backend).
 
@@ -10,9 +10,9 @@ The chart is published as an OCI artifact alongside the container
 images:
 
 ```bash
-helm install pyrate oci://registry.gitlab.com/pyrate.media/deployment/pyrate \
+helm install streamarr oci://registry.gitlab.com/streamarr.media/deployment/streamarr \
   --version 0.1.0 \
-  --namespace pyrate --create-namespace \
+  --namespace streamarr --create-namespace \
   --set secrets.postgresPassword=$(openssl rand -hex 32) \
   --set secrets.secretKey=$(openssl rand -hex 32) \
   --set secrets.lightraysJwtSecret=$(openssl rand -hex 32) \
@@ -22,8 +22,8 @@ helm install pyrate oci://registry.gitlab.com/pyrate.media/deployment/pyrate \
 Or install from a local checkout:
 
 ```bash
-helm install pyrate ./deployment/helm/pyrate \
-  --namespace pyrate --create-namespace \
+helm install streamarr ./deployment/helm/streamarr \
+  --namespace streamarr --create-namespace \
   --set secrets.postgresPassword=$(openssl rand -hex 32) \
   --set secrets.secretKey=$(openssl rand -hex 32) \
   --set secrets.lightraysJwtSecret=$(openssl rand -hex 32) \
@@ -33,7 +33,7 @@ helm install pyrate ./deployment/helm/pyrate \
 To use the production nginx routing config from this repo:
 
 ```bash
-helm install pyrate ./deployment/helm/pyrate \
+helm install streamarr ./deployment/helm/streamarr \
   ... \
   --set-file backend.proxy.nginxConfig=backend/proxy/nginx.conf
 ```
@@ -47,11 +47,11 @@ Skip the chart's in-tree Postgres and point at a CloudNativePG cluster:
 postgres:
   enabled: false
   external:
-    host: pyrate-cluster-rw
-    user: pyrate
-    database: pyrate
+    host: streamarr-cluster-rw
+    user: streamarr
+    database: streamarr
     existingSecret:
-      name: pyrate-cluster-app   # CloudNativePG default
+      name: streamarr-cluster-app   # CloudNativePG default
       passwordKey: password
 
 # Mount data directly off the node FS so the Kubernetes computing provider
@@ -59,45 +59,45 @@ postgres:
 persistence:
   mode: hostPath
   hostPath:
-    base: /var/lib/pyrate          # must exist on every transcode node
+    base: /var/lib/streamarr          # must exist on every transcode node
 
-# Pin pyrate workloads to the transcode pool.
+# Pin streamarr workloads to the transcode pool.
 worker:
   replicas: 2
   nodeSelector:
-    pyrate.media/role: transcode
+    streamarr.media/role: transcode
 backend:
   python:
     nodeSelector:
-      pyrate.media/role: transcode
+      streamarr.media/role: transcode
 
 # Where the per-task FFmpeg Job pods land.
 transcoding:
   nodeSelector:
-    pyrate.media/role: transcode
+    streamarr.media/role: transcode
   jobTtlSeconds: 3600
   gpuLimit: 0   # bump when nvidia/intel device plugin is in place
 
 lightrays:
   enabled: true
   nodeSelector:
-    pyrate.media/role: gaming
+    streamarr.media/role: gaming
   gpu:
     enabled: true
 
 ingress:
   enabled: true
   className: nginx
-  host: pyrate.example.com
+  host: streamarr.example.com
   tls:
-    secretName: pyrate-tls
+    secretName: streamarr-tls
 ```
 
 ## Computing provider — FFmpeg & chromaprint Jobs
 
 The backend's computing service auto-detects Kubernetes when it sees a
 ServiceAccount token at `/var/run/secrets/kubernetes.io/serviceaccount`
-and uses `KubernetesComputingProvider` (`backend/src/pyrate/computing/kubernetes.py`)
+and uses `KubernetesComputingProvider` (`backend/src/streamarr/computing/kubernetes.py`)
 to create one Job per task. The chart wires this up with:
 
 * a `ServiceAccount` (`<release>-compute` by default) bound to a `Role`
@@ -143,8 +143,8 @@ so the worker pod and the spawned Job pods see the same files.
 
 | Mode       | What it does                                              | When to use                                                                                  |
 |------------|-----------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| `pvc`      | Creates RWX PVCs and mounts them into pyrate pods         | Default. OK when transcoding doesn't need to spawn separate pods (e.g. small dev clusters)   |
-| `hostPath` | Mounts `<hostPath.base>/data/{key}` directly on each pod  | Required for FFmpeg Job pods to see the same files. Pin pyrate pods + transcode Jobs to the same node pool |
+| `pvc`      | Creates RWX PVCs and mounts them into streamarr pods         | Default. OK when transcoding doesn't need to spawn separate pods (e.g. small dev clusters)   |
+| `hostPath` | Mounts `<hostPath.base>/data/{key}` directly on each pod  | Required for FFmpeg Job pods to see the same files. Pin streamarr pods + transcode Jobs to the same node pool |
 
 ## Caveats
 

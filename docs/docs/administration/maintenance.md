@@ -61,7 +61,7 @@ Navigate to **Admin** → **Logs**. The page has two parts:
 - **Transcoding session logs** — pick a running or stopped transcoding session, choose how many lines to tail, and **Load** the FFmpeg container output; an **Auto** toggle refreshes continuously. Useful when debugging playback, together with [Transcoding](transcoding.md) and [Monitoring](monitoring.md).
 - **Activity Logs** — a filterable audit table of server events (task runs, backup exports/restores, and other admin actions) with **Event Type**, **Severity**, **Entity Type**, and date-range filters.
 
-Signed-in client apps can also push their own log messages to the server (`POST /api/client-logs`). These entries are written into the backend's log stream (logger `pyrate.client`), so they show up in your container logs (e.g. `docker compose logs backend`), not in the admin UI.
+Signed-in client apps can also push their own log messages to the server (`POST /api/client-logs`). These entries are written into the backend's log stream (logger `streamarr.client`), so they show up in your container logs (e.g. `docker compose logs backend`), not in the admin UI.
 
 ## Storage Cleanup
 

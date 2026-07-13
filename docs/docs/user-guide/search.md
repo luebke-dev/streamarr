@@ -1,6 +1,6 @@
 # Search
 
-pyrate.media has one search for everything: your movies, shows, music, games, books, and lists — and, for text searches, media that is not in your library yet.
+streamarr.media has one search for everything: your movies, shows, music, games, books, and lists — and, for text searches, media that is not in your library yet.
 
 ## Opening the Search
 

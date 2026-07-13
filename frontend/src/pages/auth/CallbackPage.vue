@@ -78,7 +78,7 @@ export default defineComponent({
         // Compatibility path: older OIDC provider configs may still redirect
         // directly to the frontend /auth/callback with code/state. Hand that
         // authorization response to the backend callback, which verifies state
-        // and exchanges the code for pyrate tokens.
+        // and exchanges the code for streamarr tokens.
         if (route.query.code && route.query.state && !window.location.hash.includes('access_token')) {
           const { url: callbackUrl, toHref } = buildServerUrl('/api/auth/callback')
           callbackUrl.search = window.location.search

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.services.play import (
+from streamarr.services.play import (
     CodecNegotiationResult,
     PlayAction,
     _match_language,
@@ -283,7 +283,7 @@ class TestResolvePlayAction:
         mock_worker.search_media_item_releases.kiq = AsyncMock()
 
         with patch.object(db_session, "execute", side_effect=mock_execute), \
-             patch.dict("sys.modules", {"pyrate.worker": mock_worker}):
+             patch.dict("sys.modules", {"streamarr.worker": mock_worker}):
             result = await resolve_play_action(db_session, media_item, media_id)
 
         assert result.status == "downloading"
@@ -323,7 +323,7 @@ class TestResolvePlayAction:
         mock_worker.search_media_item_releases.kiq = AsyncMock()
 
         with patch.object(db_session, "execute", side_effect=mock_execute), \
-             patch.dict("sys.modules", {"pyrate.worker": mock_worker}):
+             patch.dict("sys.modules", {"streamarr.worker": mock_worker}):
             result = await resolve_play_action(db_session, media_item, media_id)
 
         assert result.status == "downloading"
@@ -366,7 +366,7 @@ class TestResolvePlayAction:
         mock_worker.search_media_item_releases.kiq = AsyncMock()
 
         with patch.object(db_session, "execute", side_effect=mock_execute), \
-             patch.dict("sys.modules", {"pyrate.worker": mock_worker}):
+             patch.dict("sys.modules", {"streamarr.worker": mock_worker}):
             result = await resolve_play_action(db_session, media_item, media_id, user_guid=uuid.uuid4())
 
         assert result.status == "downloading"
@@ -409,7 +409,7 @@ class TestResolvePlayAction:
         mock_worker.search_media_item_releases.kiq = AsyncMock()
 
         with patch.object(db_session, "execute", side_effect=mock_execute), \
-             patch.dict("sys.modules", {"pyrate.worker": mock_worker}):
+             patch.dict("sys.modules", {"streamarr.worker": mock_worker}):
             result = await resolve_play_action(db_session, media_item, media_id)
 
         assert result.status == "searching"
@@ -448,7 +448,7 @@ class TestResolvePlayAction:
         mock_worker.search_media_item_releases.kiq = AsyncMock()
 
         with patch.object(db_session, "execute", side_effect=mock_execute), \
-             patch.dict("sys.modules", {"pyrate.worker": mock_worker}):
+             patch.dict("sys.modules", {"streamarr.worker": mock_worker}):
             result = await resolve_play_action(db_session, media_item, media_id)
 
         assert result.status == "searching"
@@ -463,7 +463,7 @@ class TestProbeVideoWithComputingService:
     @pytest.mark.asyncio
     async def test_probe_timeout(self, db_session: AsyncSession):
         """Probe times out after max_wait."""
-        from pyrate.services.play import _probe_video_with_computing_service
+        from streamarr.services.play import _probe_video_with_computing_service
         import asyncio
 
         mock_computing = MagicMock()
@@ -474,8 +474,8 @@ class TestProbeVideoWithComputingService:
         mock_computing.stop_task = AsyncMock()
         mock_computing.delete_task = AsyncMock()
 
-        with patch("pyrate.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
-             patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing), \
+        with patch("streamarr.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
+             patch("streamarr.services.transcode_lifecycle.ComputingService", return_value=mock_computing), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             result = await _probe_video_with_computing_service("/library/movies/test.mkv", db_session)
 
@@ -484,7 +484,7 @@ class TestProbeVideoWithComputingService:
     @pytest.mark.asyncio
     async def test_probe_failed_task(self, db_session: AsyncSession):
         """Probe returns None when task fails."""
-        from pyrate.services.play import _probe_video_with_computing_service
+        from streamarr.services.play import _probe_video_with_computing_service
 
         mock_computing = MagicMock()
         mock_computing.__aenter__ = AsyncMock(return_value=mock_computing)
@@ -494,8 +494,8 @@ class TestProbeVideoWithComputingService:
         mock_computing.get_task_logs = AsyncMock(return_value="error: file not found")
         mock_computing.delete_task = AsyncMock()
 
-        with patch("pyrate.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
-             patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
+        with patch("streamarr.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
+             patch("streamarr.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
             result = await _probe_video_with_computing_service("/library/movies/test.mkv", db_session)
 
         assert result is None
@@ -503,7 +503,7 @@ class TestProbeVideoWithComputingService:
     @pytest.mark.asyncio
     async def test_probe_json_decode_error(self, db_session: AsyncSession):
         """Probe returns None on JSON decode error (line 597-598)."""
-        from pyrate.services.play import _probe_video_with_computing_service
+        from streamarr.services.play import _probe_video_with_computing_service
 
         mock_computing = MagicMock()
         mock_computing.__aenter__ = AsyncMock(return_value=mock_computing)
@@ -513,8 +513,8 @@ class TestProbeVideoWithComputingService:
         mock_computing.get_task_logs = AsyncMock(return_value="not valid json{{{")
         mock_computing.delete_task = AsyncMock()
 
-        with patch("pyrate.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
-             patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
+        with patch("streamarr.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
+             patch("streamarr.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
             result = await _probe_video_with_computing_service("/library/movies/test.mkv", db_session)
 
         assert result is None
@@ -522,7 +522,7 @@ class TestProbeVideoWithComputingService:
     @pytest.mark.asyncio
     async def test_probe_empty_output(self, db_session: AsyncSession):
         """Probe returns None when output is empty."""
-        from pyrate.services.play import _probe_video_with_computing_service
+        from streamarr.services.play import _probe_video_with_computing_service
 
         mock_computing = MagicMock()
         mock_computing.__aenter__ = AsyncMock(return_value=mock_computing)
@@ -532,8 +532,8 @@ class TestProbeVideoWithComputingService:
         mock_computing.get_task_logs = AsyncMock(return_value="   ")
         mock_computing.delete_task = AsyncMock()
 
-        with patch("pyrate.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
-             patch("pyrate.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
+        with patch("streamarr.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, return_value="/data"), \
+             patch("streamarr.services.transcode_lifecycle.ComputingService", return_value=mock_computing):
             result = await _probe_video_with_computing_service("/library/movies/test.mkv", db_session)
 
         assert result is None
@@ -541,9 +541,9 @@ class TestProbeVideoWithComputingService:
     @pytest.mark.asyncio
     async def test_probe_general_exception(self, db_session: AsyncSession):
         """Probe returns None on general exception (line 600)."""
-        from pyrate.services.play import _probe_video_with_computing_service
+        from streamarr.services.play import _probe_video_with_computing_service
 
-        with patch("pyrate.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, side_effect=Exception("boom")):
+        with patch("streamarr.services.transcode_lifecycle._get_base_library_path", new_callable=AsyncMock, side_effect=Exception("boom")):
             result = await _probe_video_with_computing_service("/library/movies/test.mkv", db_session)
 
         assert result is None
@@ -563,7 +563,7 @@ class TestStructureProbeData:
             "subtitle_streams": [],
         }
 
-        with patch("pyrate.libraries.base.structure_probe_data", return_value=mock_structured):
+        with patch("streamarr.libraries.base.structure_probe_data", return_value=mock_structured):
             result = _structure_probe_data({"streams": []}, "/test.mkv")
 
         assert result["video_streams"] == [{"codec_name": "h264"}]
@@ -602,7 +602,7 @@ class TestPrefetchNextEpisode:
         mock_svc = MagicMock()
         mock_svc.get_by_id = AsyncMock(return_value=None)
 
-        with patch("pyrate.services.media.MediaService", return_value=mock_svc):
+        with patch("streamarr.services.media.MediaService", return_value=mock_svc):
             # Should not raise
             await prefetch_next_episode(db_session, uuid.uuid4())
 
@@ -612,7 +612,7 @@ class TestPrefetchNextEpisode:
         mock_svc = MagicMock()
         mock_svc.get_by_id = AsyncMock(side_effect=Exception("db error"))
 
-        with patch("pyrate.services.media.MediaService", return_value=mock_svc):
+        with patch("streamarr.services.media.MediaService", return_value=mock_svc):
             # Should not raise
             await prefetch_next_episode(db_session, uuid.uuid4())
 

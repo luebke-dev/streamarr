@@ -7,10 +7,10 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.library import Library
-from pyrate.models.media import MediaItem, MediaType
-from pyrate.models.person import MediaCast, Person
-from pyrate.models.user import User
+from streamarr.models.library import Library
+from streamarr.models.media import MediaItem, MediaType
+from streamarr.models.person import MediaCast, Person
+from streamarr.models.user import User
 
 from .conftest import auth_headers
 

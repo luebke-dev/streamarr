@@ -1,6 +1,6 @@
 # Download Clients
 
-Download clients fetch the releases found by your [indexers](indexers.md). pyrate.media speaks to two well-known external clients — **SABnzbd** (Usenet) and **Deluge** (BitTorrent) — and ships **three built-in Rust downloader services** for torrents, Usenet, and Spotify music.
+Download clients fetch the releases found by your [indexers](indexers.md). streamarr.media speaks to two well-known external clients — **SABnzbd** (Usenet) and **Deluge** (BitTorrent) — and ships **three built-in Rust downloader services** for torrents, Usenet, and Spotify music.
 
 ## Supported client types
 

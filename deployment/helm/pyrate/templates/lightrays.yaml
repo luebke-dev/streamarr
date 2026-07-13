@@ -1,11 +1,11 @@
 {{- if .Values.lightrays.enabled -}}
-{{- $name := printf "%s-lightrays" (include "pyrate.fullname" .) -}}
+{{- $name := printf "%s-lightrays" (include "streamarr.fullname" .) -}}
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
@@ -16,27 +16,27 @@ spec:
       port: {{ .Values.lightrays.service.streamingPort }}
       targetPort: streaming
   selector:
-    {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+    {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
 spec:
   replicas: {{ .Values.lightrays.replicas }}
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "lightrays") | nindent 6 }}
+      {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "lightrays") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 8 }}
+        {{- include "streamarr.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 8 }}
     spec:
-      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      {{- include "streamarr.imagePullSecrets" . | nindent 6 }}
       {{- if eq .Values.lightrays.runtime "kubernetes" }}
       serviceAccountName: {{ $name }}
       {{- end }}
@@ -50,7 +50,7 @@ spec:
       {{- end }}
       containers:
         - name: lightrays
-          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.lightrays.image) }}
+          image: {{ include "streamarr.image" (dict "ctx" . "img" .Values.lightrays.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           # Lightrays drops every Linux capability, blocks privilege
           # escalation, and pins seccomp to RuntimeDefault. The session
@@ -76,7 +76,7 @@ spec:
             {{- end }}
           env:
             - name: LIGHTRAYS_HOSTNAME
-              value: {{ include "pyrate.lightraysHost" . | quote }}
+              value: {{ include "streamarr.lightraysHost" . | quote }}
             - name: LIGHTRAYS_API_PORT
               value: {{ .Values.lightrays.service.apiPort | quote }}
             - name: LIGHTRAYS_STREAMING_PORT
@@ -84,7 +84,7 @@ spec:
             - name: LIGHTRAYS_JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "pyrate.secretName" . }}
+                  name: {{ include "streamarr.secretName" . }}
                   key: lightrays-jwt-secret
             - name: LIGHTRAYS_STUN_SERVER
               value: {{ .Values.lightrays.stunServer | quote }}

@@ -12,7 +12,7 @@ import pytest_asyncio
 # ---------------------------------------------------------------------------
 # Force-exit after pytest completes.
 #
-# Background: importing pyrate.worker creates a taskiq RedisStreamBroker that
+# Background: importing streamarr.worker creates a taskiq RedisStreamBroker that
 # opens persistent Redis connections with non-daemon threads.  These threads
 # prevent the Python interpreter from exiting after pytest finishes.  We
 # capture the exit code and call os._exit() in pytest_unconfigure which runs
@@ -33,7 +33,7 @@ def pytest_unconfigure(config):
     os._exit(_pytest_exit_code)
 
 
-# Set test environment variables BEFORE any pyrate imports
+# Set test environment variables BEFORE any streamarr imports
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 _redis_url = os.environ.get("PYTEST_REDIS_URL") or os.environ.get(
     "REDIS_URL",
@@ -61,14 +61,14 @@ async def _clear_test_redis():
 def _clear_settings_cache():
     """Reset the process-global settings cache between tests.
 
-    ``pyrate.services.settings`` keeps a ``_cache: dict[str, Any]`` at
+    ``streamarr.services.settings`` keeps a ``_cache: dict[str, Any]`` at
     module scope so production hot-path reads don't hit Postgres on every
     call. In tests this is observable as values bleeding across cases
     (e.g. ``tmdb_api_key`` from one test still resolving in the next).
     Each test starts with an empty cache; production behaviour is
     unaffected because every running process has its own dict.
     """
-    from pyrate.services import settings as _settings_module
+    from streamarr.services import settings as _settings_module
 
     _settings_module._cache.clear()
     yield
@@ -116,17 +116,17 @@ _taskiq_redis_mod.RedisStreamBroker.return_value = _FakeBroker()
 _taskiq_redis_mod.RedisAsyncResultBackend.return_value = MagicMock()
 sys.modules["taskiq_redis"] = _taskiq_redis_mod
 
-# Now we can import pyrate modules safely
+# Now we can import streamarr modules safely
 from sqlalchemy import event  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 from sqlmodel import SQLModel  # noqa: E402
 
-from pyrate.database import Base  # noqa: E402
+from streamarr.database import Base  # noqa: E402
 
 # Import all models to ensure they are registered with SQLModel/SQLAlchemy
 # This must be done before creating tables
-from pyrate.models import (  # noqa: E402, F401
+from streamarr.models import (  # noqa: E402, F401
     ActivityLog,
     ApiKey,
     Device,
@@ -141,22 +141,22 @@ from pyrate.models import (  # noqa: E402, F401
     User,
     UserListInteraction,
 )
-from pyrate.models.downloads import Download  # noqa: E402, F401
-from pyrate.models.genre import Genre  # noqa: E402, F401
-from pyrate.models.group import Group, UserGroupLink  # noqa: E402, F401
-from pyrate.models.indexer import Indexer, IndexerCategory  # noqa: E402, F401
-from pyrate.models.subscription import (  # noqa: E402, F401
+from streamarr.models.downloads import Download  # noqa: E402, F401
+from streamarr.models.genre import Genre  # noqa: E402, F401
+from streamarr.models.group import Group, UserGroupLink  # noqa: E402, F401
+from streamarr.models.indexer import Indexer, IndexerCategory  # noqa: E402, F401
+from streamarr.models.subscription import (  # noqa: E402, F401
     PaymentHistory,
     SubscriptionPackage,
     UserSession,
     UserSubscription,
 )
-from pyrate.models.viewing_history import ViewingHistory  # noqa: E402, F401
-from pyrate.models.party import WatchParty, WatchPartyMember  # noqa: E402, F401
-from pyrate.models.friendship import Friendship  # noqa: E402, F401
-from pyrate.models.media import MediaFile, MediaItem  # noqa: E402, F401
-from pyrate.models.library import Library  # noqa: E402, F401
-from pyrate.models.page_layout import PageLayout, PageSection, SectionType  # noqa: E402, F401
+from streamarr.models.viewing_history import ViewingHistory  # noqa: E402, F401
+from streamarr.models.party import WatchParty, WatchPartyMember  # noqa: E402, F401
+from streamarr.models.friendship import Friendship  # noqa: E402, F401
+from streamarr.models.media import MediaFile, MediaItem  # noqa: E402, F401
+from streamarr.models.library import Library  # noqa: E402, F401
+from streamarr.models.page_layout import PageLayout, PageSection, SectionType  # noqa: E402, F401
 
 
 # Configure pytest-asyncio

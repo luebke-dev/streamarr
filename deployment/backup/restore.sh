@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# pyrate.media disaster-recovery restore.
+# streamarr.media disaster-recovery restore.
 #
 # Restores a PostgreSQL custom-format dump produced by backup.sh, then prints
 # the follow-up steps for Elasticsearch and media (which are intentionally NOT
@@ -43,9 +43,9 @@ if [[ -z "${POSTGRES_PASSWORD:-}" && -f "${REPO_ROOT}/.env" ]]; then
   set -a; source <(grep -E '^POSTGRES_' "${REPO_ROOT}/.env" || true); set +a
 fi
 
-PG_CONTAINER="${PG_CONTAINER:-pyratemedia-db-1}"
-POSTGRES_USER="${POSTGRES_USER:-pyrate}"
-POSTGRES_DB="${POSTGRES_DB:-pyrate}"
+PG_CONTAINER="${PG_CONTAINER:-streamarr-db-1}"
+POSTGRES_USER="${POSTGRES_USER:-streamarr}"
+POSTGRES_DB="${POSTGRES_DB:-streamarr}"
 PGHOST="${PGHOST:-127.0.0.1}"
 PGPORT="${PGPORT:-5432}"
 [[ -n "${POSTGRES_PASSWORD:-}" ]] || die "POSTGRES_PASSWORD is not set"

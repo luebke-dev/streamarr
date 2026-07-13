@@ -2,7 +2,7 @@
 
 from httpx import AsyncClient
 
-from pyrate.models.user import User
+from streamarr.models.user import User
 
 
 class TestSystemHealth:
@@ -10,7 +10,7 @@ class TestSystemHealth:
         resp = await client.get("/api/system/ping")
 
         assert resp.status_code == 200
-        assert resp.json() == "pyrate.media"
+        assert resp.json() == "streamarr.media"
 
     async def test_endpoint_does_not_require_auth(self, client: AsyncClient):
         resp = await client.get(
@@ -41,9 +41,9 @@ class TestPublicSystemInfo:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["product_name"] == "pyrate.media"
+        assert data["product_name"] == "streamarr.media"
         assert "version" in data
-        assert data["site_name"] == "pyrate.media"
+        assert data["site_name"] == "streamarr.media"
         assert data["locale"]
         assert "database_configured" not in data
         assert "redis_configured" not in data
@@ -66,7 +66,7 @@ class TestSystemInfo:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["product_name"] == "pyrate.media"
+        assert data["product_name"] == "streamarr.media"
         assert data["authenticated_as"] == str(test_superuser.guid)
         assert data["database_configured"] is True
         assert data["redis_configured"] is True
@@ -83,7 +83,7 @@ class TestSystemInfo:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["product_name"] == "pyrate.media"
+        assert data["product_name"] == "streamarr.media"
         assert data["authenticated_as"] == str(test_superuser.guid)
         assert "generated_at" in data
         assert "database_configured" in data

@@ -9,13 +9,13 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.subscription import (
+from streamarr.models.subscription import (
     PaymentHistory,
     SubscriptionStatus,
     UserSubscription,
 )
-from pyrate.models.user import User
-from pyrate.services.payment import PaymentService
+from streamarr.models.user import User
+from streamarr.services.payment import PaymentService
 
 
 # ---------------------------------------------------------------------------

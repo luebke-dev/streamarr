@@ -7,9 +7,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.media import MediaExternalId, MediaItem, MediaType
-from pyrate.services.media import MediaService
-from pyrate.services.metadata_refresh import MetadataService
+from streamarr.models.media import MediaExternalId, MediaItem, MediaType
+from streamarr.services.media import MediaService
+from streamarr.services.metadata_refresh import MetadataService
 
 
 @pytest.mark.asyncio
@@ -105,7 +105,7 @@ async def _session_context(session):
 
 @pytest.mark.asyncio
 async def test_worker_refreshes_season_with_parent_show_tmdb_id():
-    from pyrate.worker import refresh_media_item_metadata
+    from streamarr.worker import refresh_media_item_metadata
 
     season_guid = uuid.uuid4()
     show_guid = uuid.uuid4()
@@ -144,11 +144,11 @@ async def test_worker_refreshes_season_with_parent_show_tmdb_id():
     metadata_service = AsyncMock()
 
     with (
-        patch("pyrate.worker.sessionmanager") as sessionmanager_mock,
-        patch("pyrate.worker.get_tmdb_api_key", AsyncMock(return_value="key")),
-        patch("pyrate.worker.TMDB", return_value=tmdb_plugin),
+        patch("streamarr.worker.sessionmanager") as sessionmanager_mock,
+        patch("streamarr.worker.get_tmdb_api_key", AsyncMock(return_value="key")),
+        patch("streamarr.worker.TMDB", return_value=tmdb_plugin),
         patch(
-            "pyrate.services.metadata_refresh.MetadataService",
+            "streamarr.services.metadata_refresh.MetadataService",
             return_value=metadata_service,
         ),
     ):

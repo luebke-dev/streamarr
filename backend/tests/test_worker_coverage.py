@@ -1,5 +1,5 @@
 """
-Tests for pyrate/worker.py to increase coverage.
+Tests for streamarr/worker.py to increase coverage.
 
 Covers the main worker task functions by mocking external services
 and database sessions. Each test targets the happy path to maximize
@@ -23,7 +23,7 @@ pytestmark = pytest.mark.skip(
     )
 )
 
-from pyrate.models.media import (
+from streamarr.models.media import (
     AvailabilityStatus,
     MediaExternalId,
     MediaFile,
@@ -118,23 +118,23 @@ async def _fake_session_ctx(session):
 
 class TestParseSpotifyDate:
     def test_yyyy(self):
-        from pyrate.worker import _parse_spotify_date
+        from streamarr.worker import _parse_spotify_date
         assert _parse_spotify_date("2024") == date(2024, 1, 1)
 
     def test_yyyy_mm(self):
-        from pyrate.worker import _parse_spotify_date
+        from streamarr.worker import _parse_spotify_date
         assert _parse_spotify_date("2024-06") == date(2024, 6, 1)
 
     def test_yyyy_mm_dd(self):
-        from pyrate.worker import _parse_spotify_date
+        from streamarr.worker import _parse_spotify_date
         assert _parse_spotify_date("2024-06-15") == date(2024, 6, 15)
 
     def test_none(self):
-        from pyrate.worker import _parse_spotify_date
+        from streamarr.worker import _parse_spotify_date
         assert _parse_spotify_date(None) is None
 
     def test_invalid(self):
-        from pyrate.worker import _parse_spotify_date
+        from streamarr.worker import _parse_spotify_date
         assert _parse_spotify_date("not-a-date") is None
 
 
@@ -146,7 +146,7 @@ class TestParseSpotifyDate:
 class TestRefreshDownloads:
     @pytest.mark.asyncio
     async def test_happy_path(self):
-        from pyrate.worker import refresh_downloads
+        from streamarr.worker import refresh_downloads
 
         mock_downloader = MagicMock()
         mock_downloader.guid = uuid.uuid4()
@@ -157,10 +157,10 @@ class TestRefreshDownloads:
         session = _mock_session()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.DownloaderService", return_value=mock_dl_service),
-            patch("pyrate.worker.refresh_downloader") as mock_refresh,
-            patch("pyrate.worker.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.DownloaderService", return_value=mock_dl_service),
+            patch("streamarr.worker.refresh_downloader") as mock_refresh,
+            patch("streamarr.worker.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_refresh.kiq = AsyncMock()
@@ -174,16 +174,16 @@ class TestRefreshDownloads:
 
     @pytest.mark.asyncio
     async def test_error_handling(self):
-        from pyrate.worker import refresh_downloads
+        from streamarr.worker import refresh_downloads
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(AsyncMock(side_effect=Exception("db fail")))
             # The session itself raises inside __aenter__, but actually
             # we need the context manager to work, so let's make DownloaderService fail
             session = _mock_session()
             sm.session.return_value = _fake_session_ctx(session)
 
-            with patch("pyrate.worker.DownloaderService", side_effect=Exception("svc fail")):
+            with patch("streamarr.worker.DownloaderService", side_effect=Exception("svc fail")):
                 with pytest.raises(Exception, match="svc fail"):
                     await refresh_downloads()
 
@@ -196,7 +196,7 @@ class TestRefreshDownloads:
 class TestImportMovie:
     @pytest.mark.asyncio
     async def test_happy_path(self):
-        from pyrate.worker import import_movie
+        from streamarr.worker import import_movie
 
         session = _mock_session()
         # First execute: check existing - return None
@@ -234,12 +234,12 @@ class TestImportMovie:
         mock_tmdb.get_movie_details = AsyncMock(return_value=movie_details)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_svc_cls,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="fake-key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.services.person.PersonService", new=lambda db: mock_person_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_svc_cls,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="fake-key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.services.person.PersonService", new=lambda db: mock_person_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_svc_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -254,7 +254,7 @@ class TestImportMovie:
 
     @pytest.mark.asyncio
     async def test_already_exists(self):
-        from pyrate.worker import import_movie
+        from streamarr.worker import import_movie
 
         session = _mock_session()
         existing_item = _make_media_item(title="Existing Movie")
@@ -262,13 +262,13 @@ class TestImportMovie:
         result_existing.scalar_one_or_none.return_value = existing_item
         session.execute = AsyncMock(return_value=result_existing)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await import_movie(12345)  # Should return early
 
     @pytest.mark.asyncio
     async def test_no_library(self):
-        from pyrate.worker import import_movie
+        from streamarr.worker import import_movie
 
         session = _mock_session()
         result_none = MagicMock()
@@ -276,8 +276,8 @@ class TestImportMovie:
         session.execute = AsyncMock(return_value=result_none)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=None)
@@ -285,7 +285,7 @@ class TestImportMovie:
 
     @pytest.mark.asyncio
     async def test_no_api_key(self):
-        from pyrate.worker import import_movie
+        from streamarr.worker import import_movie
 
         session = _mock_session()
         result_none = MagicMock()
@@ -296,9 +296,9 @@ class TestImportMovie:
         mock_library.guid = uuid.uuid4()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.get_tmdb_api_key", return_value=None),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.get_tmdb_api_key", return_value=None),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -306,7 +306,7 @@ class TestImportMovie:
 
     @pytest.mark.asyncio
     async def test_no_movie_details(self):
-        from pyrate.worker import import_movie
+        from streamarr.worker import import_movie
 
         session = _mock_session()
         result_none = MagicMock()
@@ -320,10 +320,10 @@ class TestImportMovie:
         mock_tmdb.get_movie_details = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="fake-key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="fake-key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -332,7 +332,7 @@ class TestImportMovie:
     @pytest.mark.asyncio
     async def test_bad_release_date(self):
         """Test import_movie with invalid release_date string."""
-        from pyrate.worker import import_movie
+        from streamarr.worker import import_movie
 
         session = _mock_session()
         result_none = MagicMock()
@@ -363,11 +363,11 @@ class TestImportMovie:
         mock_tmdb.get_movie_details = AsyncMock(return_value=movie_details)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="fake-key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="fake-key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -382,7 +382,7 @@ class TestImportMovie:
 class TestImportShow:
     @pytest.mark.asyncio
     async def test_happy_path_with_seasons_and_episodes(self):
-        from pyrate.worker import import_show
+        from streamarr.worker import import_show
 
         session = _mock_session()
         # All db.execute calls return nothing existing
@@ -448,12 +448,12 @@ class TestImportShow:
         mock_tmdb.get_show_season = AsyncMock(return_value=season_details)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="fake-key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.services.person.PersonService", new=lambda db: mock_person_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="fake-key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.services.person.PersonService", new=lambda db: mock_person_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -468,7 +468,7 @@ class TestImportShow:
 
     @pytest.mark.asyncio
     async def test_already_exists(self):
-        from pyrate.worker import import_show
+        from streamarr.worker import import_show
 
         session = _mock_session()
         existing_show = _make_media_item(title="Existing Show")
@@ -476,13 +476,13 @@ class TestImportShow:
         result_existing.scalar_one_or_none.return_value = existing_show
         session.execute = AsyncMock(return_value=result_existing)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await import_show(67890)
 
     @pytest.mark.asyncio
     async def test_no_library(self):
-        from pyrate.worker import import_show
+        from streamarr.worker import import_show
 
         session = _mock_session()
         result_none = MagicMock()
@@ -490,8 +490,8 @@ class TestImportShow:
         session.execute = AsyncMock(return_value=result_none)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=None)
@@ -499,7 +499,7 @@ class TestImportShow:
 
     @pytest.mark.asyncio
     async def test_no_tmdb_key(self):
-        from pyrate.worker import import_show
+        from streamarr.worker import import_show
 
         session = _mock_session()
         result_none = MagicMock()
@@ -510,9 +510,9 @@ class TestImportShow:
         mock_library.guid = uuid.uuid4()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.get_tmdb_api_key", return_value=None),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.get_tmdb_api_key", return_value=None),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -521,7 +521,7 @@ class TestImportShow:
     @pytest.mark.asyncio
     async def test_season_details_none(self):
         """Season details fetching returns None."""
-        from pyrate.worker import import_show
+        from streamarr.worker import import_show
 
         session = _mock_session()
         result_none = MagicMock()
@@ -555,11 +555,11 @@ class TestImportShow:
         mock_tmdb.get_show_season = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="fake-key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="fake-key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -568,7 +568,7 @@ class TestImportShow:
     @pytest.mark.asyncio
     async def test_existing_season_and_episode(self):
         """Test code path where season and episode already exist."""
-        from pyrate.worker import import_show
+        from streamarr.worker import import_show
 
         session = _mock_session()
         result_none = MagicMock()
@@ -618,11 +618,11 @@ class TestImportShow:
         mock_tmdb.get_show_season = AsyncMock(return_value=season_details)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="fake-key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="fake-key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -637,7 +637,7 @@ class TestImportShow:
 class TestImportGame:
     @pytest.mark.asyncio
     async def test_happy_path(self):
-        from pyrate.worker import import_game
+        from streamarr.worker import import_game
 
         session = _mock_session()
         result_none = MagicMock()
@@ -670,11 +670,11 @@ class TestImportGame:
         mock_igdb.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.metadata.igdb.IGDB", return_value=mock_igdb),
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.metadata.igdb.IGDB", return_value=mock_igdb),
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -688,7 +688,7 @@ class TestImportGame:
 
     @pytest.mark.asyncio
     async def test_already_exists(self):
-        from pyrate.worker import import_game
+        from streamarr.worker import import_game
 
         session = _mock_session()
         existing = _make_media_item(title="Existing Game")
@@ -696,13 +696,13 @@ class TestImportGame:
         result_existing.scalar_one_or_none.return_value = existing
         session.execute = AsyncMock(return_value=result_existing)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await import_game(11111)
 
     @pytest.mark.asyncio
     async def test_no_library(self):
-        from pyrate.worker import import_game
+        from streamarr.worker import import_game
 
         session = _mock_session()
         result_none = MagicMock()
@@ -710,8 +710,8 @@ class TestImportGame:
         session.execute = AsyncMock(return_value=result_none)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=None)
@@ -719,7 +719,7 @@ class TestImportGame:
 
     @pytest.mark.asyncio
     async def test_no_credentials(self):
-        from pyrate.worker import import_game
+        from streamarr.worker import import_game
 
         session = _mock_session()
         result_none = MagicMock()
@@ -733,9 +733,9 @@ class TestImportGame:
         mock_settings.get_igdb_credentials = AsyncMock(return_value=(None, None))
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -743,7 +743,7 @@ class TestImportGame:
 
     @pytest.mark.asyncio
     async def test_no_game_details(self):
-        from pyrate.worker import import_game
+        from streamarr.worker import import_game
 
         session = _mock_session()
         result_none = MagicMock()
@@ -761,11 +761,11 @@ class TestImportGame:
         mock_igdb.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.metadata.igdb.IGDB", return_value=mock_igdb),
-            patch("pyrate.worker.MediaService") as ms_cls,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.metadata.igdb.IGDB", return_value=mock_igdb),
+            patch("streamarr.worker.MediaService") as ms_cls,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -774,7 +774,7 @@ class TestImportGame:
     @pytest.mark.asyncio
     async def test_bad_release_date(self):
         """Game with invalid timestamp for first_release_date."""
-        from pyrate.worker import import_game
+        from streamarr.worker import import_game
 
         session = _mock_session()
         result_none = MagicMock()
@@ -807,11 +807,11 @@ class TestImportGame:
         mock_igdb.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.metadata.igdb.IGDB", return_value=mock_igdb),
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.metadata.igdb.IGDB", return_value=mock_igdb),
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -826,7 +826,7 @@ class TestImportGame:
 class TestImportArtist:
     @pytest.mark.asyncio
     async def test_happy_path(self):
-        from pyrate.worker import import_artist
+        from streamarr.worker import import_artist
 
         session = _mock_session()
 
@@ -857,12 +857,12 @@ class TestImportArtist:
         mock_spotify.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.metadata.spotify.Spotify", return_value=mock_spotify),
-            patch("pyrate.worker.import_album") as mock_import_album,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.metadata.spotify.Spotify", return_value=mock_spotify),
+            patch("streamarr.worker.import_album") as mock_import_album,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -877,7 +877,7 @@ class TestImportArtist:
 
     @pytest.mark.asyncio
     async def test_already_exists(self):
-        from pyrate.worker import import_artist
+        from streamarr.worker import import_artist
 
         session = _mock_session()
 
@@ -886,15 +886,15 @@ class TestImportArtist:
         mock_media_service.get_by_external_id = AsyncMock(return_value=existing)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await import_artist("spotify123")
 
     @pytest.mark.asyncio
     async def test_no_library(self):
-        from pyrate.worker import import_artist
+        from streamarr.worker import import_artist
 
         session = _mock_session()
 
@@ -902,9 +902,9 @@ class TestImportArtist:
         mock_media_service.get_by_external_id = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.LibraryService") as lib_cls,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=None)
@@ -912,7 +912,7 @@ class TestImportArtist:
 
     @pytest.mark.asyncio
     async def test_no_spotify_credentials(self):
-        from pyrate.worker import import_artist
+        from streamarr.worker import import_artist
 
         session = _mock_session()
         mock_media_service = AsyncMock()
@@ -925,10 +925,10 @@ class TestImportArtist:
         mock_settings.get_spotify_credentials = AsyncMock(return_value=(None, None))
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -943,7 +943,7 @@ class TestImportArtist:
 class TestImportAlbum:
     @pytest.mark.asyncio
     async def test_happy_path(self):
-        from pyrate.worker import import_album
+        from streamarr.worker import import_album
 
         session = _mock_session()
 
@@ -998,11 +998,11 @@ class TestImportAlbum:
         mock_spotify.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.metadata.spotify.Spotify", return_value=mock_spotify),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.metadata.spotify.Spotify", return_value=mock_spotify),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -1017,7 +1017,7 @@ class TestImportAlbum:
 
     @pytest.mark.asyncio
     async def test_already_exists(self):
-        from pyrate.worker import import_album
+        from streamarr.worker import import_album
 
         session = _mock_session()
         mock_media_service = AsyncMock()
@@ -1025,24 +1025,24 @@ class TestImportAlbum:
         mock_media_service.get_by_external_id = AsyncMock(return_value=existing)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await import_album("album_spotify_id")
 
     @pytest.mark.asyncio
     async def test_no_library(self):
-        from pyrate.worker import import_album
+        from streamarr.worker import import_album
 
         session = _mock_session()
         mock_media_service = AsyncMock()
         mock_media_service.get_by_external_id = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.LibraryService") as lib_cls,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=None)
@@ -1050,7 +1050,7 @@ class TestImportAlbum:
 
     @pytest.mark.asyncio
     async def test_no_credentials(self):
-        from pyrate.worker import import_album
+        from streamarr.worker import import_album
 
         session = _mock_session()
         mock_media_service = AsyncMock()
@@ -1063,10 +1063,10 @@ class TestImportAlbum:
         mock_settings.get_spotify_credentials = AsyncMock(return_value=(None, None))
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -1075,7 +1075,7 @@ class TestImportAlbum:
     @pytest.mark.asyncio
     async def test_existing_artist_reuse(self):
         """When the artist already exists, it should be reused (not re-created)."""
-        from pyrate.worker import import_album
+        from streamarr.worker import import_album
 
         session = _mock_session()
 
@@ -1120,11 +1120,11 @@ class TestImportAlbum:
         mock_spotify.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.metadata.spotify.Spotify", return_value=mock_spotify),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.metadata.spotify.Spotify", return_value=mock_spotify),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -1143,7 +1143,7 @@ class TestImportAlbum:
 class TestSearchMediaItemReleases:
     @pytest.mark.asyncio
     async def test_movie_happy_path(self):
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -1182,15 +1182,15 @@ class TestSearchMediaItemReleases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[(releases_data[0], mock_matcher_result)],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=mock_plugin),
-            patch("pyrate.worker.auto_download_media_item") as mock_auto_dl,
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=mock_plugin),
+            patch("streamarr.worker.auto_download_media_item") as mock_auto_dl,
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_auto_dl.kiq = AsyncMock()
@@ -1203,20 +1203,20 @@ class TestSearchMediaItemReleases:
 
     @pytest.mark.asyncio
     async def test_media_item_not_found(self):
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
         result_mock = MagicMock()
         result_mock.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=result_mock)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(uuid.uuid4()))
 
     @pytest.mark.asyncio
     async def test_already_has_releases_with_links(self):
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -1229,13 +1229,13 @@ class TestSearchMediaItemReleases:
         result_mock.scalar_one_or_none.return_value = media_item
         session.execute = AsyncMock(return_value=result_mock)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(media_item.guid))
 
     @pytest.mark.asyncio
     async def test_unsupported_media_type(self):
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
         media_item = _make_media_item(media_type=MediaType.GAMES)
@@ -1246,14 +1246,14 @@ class TestSearchMediaItemReleases:
         result_mock.scalar_one_or_none.return_value = media_item
         session.execute = AsyncMock(return_value=result_mock)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(media_item.guid))
 
     @pytest.mark.asyncio
     async def test_show_root_skipped(self):
         """Root show (no parent) should be skipped."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
         media_item = _make_media_item(
@@ -1267,13 +1267,13 @@ class TestSearchMediaItemReleases:
         result_mock.scalar_one_or_none.return_value = media_item
         session.execute = AsyncMock(return_value=result_mock)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(media_item.guid))
 
     @pytest.mark.asyncio
     async def test_no_tmdb_id_for_movie(self):
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
         media_item = _make_media_item(media_type=MediaType.MOVIES)
@@ -1284,14 +1284,14 @@ class TestSearchMediaItemReleases:
         result_mock.scalar_one_or_none.return_value = media_item
         session.execute = AsyncMock(return_value=result_mock)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(media_item.guid))
 
     @pytest.mark.asyncio
     async def test_episode_search(self):
         """Test search for a show episode (with parent chain)."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -1379,15 +1379,15 @@ class TestSearchMediaItemReleases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[(releases_data[0], mock_matcher_result)],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=mock_plugin),
-            patch("pyrate.worker.auto_download_media_item") as mock_auto_dl,
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=mock_plugin),
+            patch("streamarr.worker.auto_download_media_item") as mock_auto_dl,
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_auto_dl.kiq = AsyncMock()
@@ -1399,7 +1399,7 @@ class TestSearchMediaItemReleases:
     @pytest.mark.asyncio
     async def test_song_search(self):
         """Test search for a song (spotify-based)."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -1431,11 +1431,11 @@ class TestSearchMediaItemReleases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
-            patch("pyrate.worker.get_plugin_instance", return_value=None),
-            patch("pyrate.worker.auto_download_media_item") as mock_auto_dl,
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=None),
+            patch("streamarr.worker.auto_download_media_item") as mock_auto_dl,
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_auto_dl.kiq = AsyncMock()
@@ -1446,7 +1446,7 @@ class TestSearchMediaItemReleases:
 
     @pytest.mark.asyncio
     async def test_no_spotify_id_for_song(self):
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
         song = _make_media_item(media_type=MediaType.SONGS)
@@ -1457,14 +1457,14 @@ class TestSearchMediaItemReleases:
         result_mock.scalar_one_or_none.return_value = song
         session.execute = AsyncMock(return_value=result_mock)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(song.guid))
 
     @pytest.mark.asyncio
     async def test_release_with_links_array(self):
         """Test release data that has 'links' array instead of single 'link'."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -1502,15 +1502,15 @@ class TestSearchMediaItemReleases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[(releases_data[0], mock_matcher_result)],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=mock_plugin),
-            patch("pyrate.worker.auto_download_media_item") as mock_auto_dl,
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=mock_plugin),
+            patch("streamarr.worker.auto_download_media_item") as mock_auto_dl,
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_auto_dl.kiq = AsyncMock()
@@ -1520,7 +1520,7 @@ class TestSearchMediaItemReleases:
     @pytest.mark.asyncio
     async def test_category_hints(self):
         """Test language and resolution hints from category."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -1563,16 +1563,16 @@ class TestSearchMediaItemReleases:
         mock_pattern.search.return_value = None
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[(releases_data[0], mock_matcher_result)],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=mock_plugin),
-            patch("pyrate.worker.auto_download_media_item") as mock_auto_dl,
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
-            patch("pyrate.parsers.release_parser.ReleaseParser.LANGUAGE_PATTERN", mock_pattern),
+            patch("streamarr.worker.get_plugin_instance", return_value=mock_plugin),
+            patch("streamarr.worker.auto_download_media_item") as mock_auto_dl,
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.parsers.release_parser.ReleaseParser.LANGUAGE_PATTERN", mock_pattern),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_auto_dl.kiq = AsyncMock()
@@ -1588,7 +1588,7 @@ class TestSearchMediaItemReleases:
 class TestAutoDownloadMediaItem:
     @pytest.mark.asyncio
     async def test_happy_path_movie(self):
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -1658,11 +1658,11 @@ class TestAutoDownloadMediaItem:
         user_guid = str(uuid.uuid4())
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.worker.DownloaderService") as dl_svc_cls,
-            patch("pyrate.worker.add_download") as mock_add_dl,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.DownloaderService") as dl_svc_cls,
+            patch("streamarr.worker.add_download") as mock_add_dl,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             dl_svc_cls.return_value.get_all = AsyncMock(return_value=[mock_downloader])
@@ -1675,20 +1675,20 @@ class TestAutoDownloadMediaItem:
 
     @pytest.mark.asyncio
     async def test_not_found(self):
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
         result_mock = MagicMock()
         result_mock.scalar_one_or_none.return_value = None
         session.execute = AsyncMock(return_value=result_mock)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await auto_download_media_item(str(uuid.uuid4()))
 
     @pytest.mark.asyncio
     async def test_already_has_file(self):
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -1710,13 +1710,13 @@ class TestAutoDownloadMediaItem:
 
         session.execute = AsyncMock(side_effect=mock_execute)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await auto_download_media_item(str(media_item.guid))
 
     @pytest.mark.asyncio
     async def test_download_in_progress(self):
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -1740,13 +1740,13 @@ class TestAutoDownloadMediaItem:
 
         session.execute = AsyncMock(side_effect=mock_execute)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await auto_download_media_item(str(media_item.guid))
 
     @pytest.mark.asyncio
     async def test_no_releases(self):
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
         media_item = _make_media_item(media_type=MediaType.MOVIES)
@@ -1765,13 +1765,13 @@ class TestAutoDownloadMediaItem:
 
         session.execute = AsyncMock(side_effect=mock_execute)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await auto_download_media_item(str(media_item.guid))
 
     @pytest.mark.asyncio
     async def test_all_blacklisted(self):
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -1792,13 +1792,13 @@ class TestAutoDownloadMediaItem:
 
         session.execute = AsyncMock(side_effect=mock_execute)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await auto_download_media_item(str(media_item.guid))
 
     @pytest.mark.asyncio
     async def test_no_best_release(self):
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -1827,16 +1827,16 @@ class TestAutoDownloadMediaItem:
         mock_settings.get = AsyncMock(return_value=[])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await auto_download_media_item(str(media_item.guid))
 
     @pytest.mark.asyncio
     async def test_no_links_on_best_release(self):
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -1873,16 +1873,16 @@ class TestAutoDownloadMediaItem:
         mock_settings.get = AsyncMock(return_value=[])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await auto_download_media_item(str(media_item.guid))
 
     @pytest.mark.asyncio
     async def test_no_downloaders(self):
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -1917,10 +1917,10 @@ class TestAutoDownloadMediaItem:
         mock_settings.get = AsyncMock(return_value=[])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.worker.DownloaderService") as dl_svc_cls,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.DownloaderService") as dl_svc_cls,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             dl_svc_cls.return_value.get_all = AsyncMock(return_value=[])
@@ -1929,7 +1929,7 @@ class TestAutoDownloadMediaItem:
     @pytest.mark.asyncio
     async def test_song_download(self):
         """Test auto-download for a song (should use spotdl downloader)."""
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -1971,11 +1971,11 @@ class TestAutoDownloadMediaItem:
         mock_settings.get = AsyncMock(return_value=[])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.worker.DownloaderService") as dl_svc_cls,
-            patch("pyrate.worker.add_music_download") as mock_add_music,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.DownloaderService") as dl_svc_cls,
+            patch("streamarr.worker.add_music_download") as mock_add_music,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             dl_svc_cls.return_value.get_all = AsyncMock(return_value=[spotdl_downloader])
@@ -1987,7 +1987,7 @@ class TestAutoDownloadMediaItem:
     @pytest.mark.asyncio
     async def test_show_download(self):
         """Test auto-download for a show episode."""
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -2029,11 +2029,11 @@ class TestAutoDownloadMediaItem:
         mock_settings.get = AsyncMock(return_value=[])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.worker.DownloaderService") as dl_svc_cls,
-            patch("pyrate.worker.add_show_download") as mock_add_show,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.DownloaderService") as dl_svc_cls,
+            patch("streamarr.worker.add_show_download") as mock_add_show,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             dl_svc_cls.return_value.get_all = AsyncMock(return_value=[downloader])
@@ -2045,7 +2045,7 @@ class TestAutoDownloadMediaItem:
     @pytest.mark.asyncio
     async def test_song_no_spotdl_downloader(self):
         """Song download with no spotdl downloader configured."""
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -2084,10 +2084,10 @@ class TestAutoDownloadMediaItem:
         mock_settings.get = AsyncMock(return_value=[])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.worker.DownloaderService") as dl_svc_cls,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.DownloaderService") as dl_svc_cls,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             dl_svc_cls.return_value.get_all = AsyncMock(return_value=[downloader])
@@ -2102,7 +2102,7 @@ class TestAutoDownloadMediaItem:
 class TestRefreshMediaItemMetadata:
     @pytest.mark.asyncio
     async def test_movie_happy_path(self):
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
 
@@ -2153,10 +2153,10 @@ class TestRefreshMediaItemMetadata:
         mock_person_service.import_cast_from_tmdb = AsyncMock(return_value=["c1", "c2"])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="fake-key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.services.person.PersonService", new=lambda db: mock_person_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="fake-key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.services.person.PersonService", new=lambda db: mock_person_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
 
@@ -2167,20 +2167,20 @@ class TestRefreshMediaItemMetadata:
 
     @pytest.mark.asyncio
     async def test_not_found(self):
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
         result_mock = MagicMock()
         result_mock.scalars.return_value.first.return_value = None
         session.execute = AsyncMock(return_value=result_mock)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await refresh_media_item_metadata(str(uuid.uuid4()))
 
     @pytest.mark.asyncio
     async def test_no_metadata_plugin(self):
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
         media_item = _make_media_item(media_type=MediaType.MOVIES)
@@ -2191,8 +2191,8 @@ class TestRefreshMediaItemMetadata:
         session.execute = AsyncMock(return_value=result_mock)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value=None),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value=None),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await refresh_media_item_metadata(str(media_item.guid))
@@ -2200,7 +2200,7 @@ class TestRefreshMediaItemMetadata:
     @pytest.mark.asyncio
     async def test_show_with_seasons(self):
         """Test refreshing a show with season/episode updates."""
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
 
@@ -2298,11 +2298,11 @@ class TestRefreshMediaItemMetadata:
         mock_person_service.import_cast_from_tmdb = AsyncMock(return_value=[])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="fake-key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.services.person.PersonService", new=lambda db: mock_person_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="fake-key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.services.person.PersonService", new=lambda db: mock_person_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
 
@@ -2314,7 +2314,7 @@ class TestRefreshMediaItemMetadata:
     @pytest.mark.asyncio
     async def test_game_metadata(self):
         """Test refreshing a game's metadata (IGDB path)."""
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
 
@@ -2341,9 +2341,9 @@ class TestRefreshMediaItemMetadata:
         mock_games_plugin.metadata_plugin = mock_metadata_plugin
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value=None),
-            patch("pyrate.worker.get_plugin_instance", return_value=mock_games_plugin),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value=None),
+            patch("streamarr.worker.get_plugin_instance", return_value=mock_games_plugin),
         ):
             sm.session.return_value = _fake_session_ctx(session)
 
@@ -2354,7 +2354,7 @@ class TestRefreshMediaItemMetadata:
 
     @pytest.mark.asyncio
     async def test_no_metadata_returned(self):
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
 
@@ -2370,9 +2370,9 @@ class TestRefreshMediaItemMetadata:
         mock_tmdb.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="fake-key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="fake-key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await refresh_media_item_metadata(str(media_item.guid))
@@ -2380,7 +2380,7 @@ class TestRefreshMediaItemMetadata:
     @pytest.mark.asyncio
     async def test_show_new_season_and_episode(self):
         """Test creating new seasons and episodes during refresh."""
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
 
@@ -2453,10 +2453,10 @@ class TestRefreshMediaItemMetadata:
         mock_tmdb.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="fake-key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="fake-key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
 
@@ -2474,7 +2474,7 @@ class TestRefreshMediaItemMetadata:
 class TestAddDownload:
     @pytest.mark.asyncio
     async def test_success(self):
-        from pyrate.worker import add_download
+        from streamarr.worker import add_download
 
         session = _mock_session()
         mock_dl_service = AsyncMock()
@@ -2486,16 +2486,16 @@ class TestAddDownload:
         mock_dlr_service.get_all = AsyncMock(return_value=[MagicMock()])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.DownloadService", return_value=mock_dl_service),
-            patch("pyrate.worker.DownloaderService", return_value=mock_dlr_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.DownloadService", return_value=mock_dl_service),
+            patch("streamarr.worker.DownloaderService", return_value=mock_dlr_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await add_download("release-guid", str(uuid.uuid4()))
 
     @pytest.mark.asyncio
     async def test_failure(self):
-        from pyrate.worker import add_download
+        from streamarr.worker import add_download
 
         session = _mock_session()
         mock_dl_service = AsyncMock()
@@ -2505,9 +2505,9 @@ class TestAddDownload:
         mock_dlr_service.get_all = AsyncMock(return_value=[])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.DownloadService", return_value=mock_dl_service),
-            patch("pyrate.worker.DownloaderService", return_value=mock_dlr_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.DownloadService", return_value=mock_dl_service),
+            patch("streamarr.worker.DownloaderService", return_value=mock_dlr_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await add_download("release-guid")
@@ -2516,7 +2516,7 @@ class TestAddDownload:
 class TestAddShowDownload:
     @pytest.mark.asyncio
     async def test_success(self):
-        from pyrate.worker import add_show_download
+        from streamarr.worker import add_show_download
 
         session = _mock_session()
         mock_dl_service = AsyncMock()
@@ -2528,9 +2528,9 @@ class TestAddShowDownload:
         mock_dlr_service.get_all = AsyncMock(return_value=[MagicMock()])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.DownloadService", return_value=mock_dl_service),
-            patch("pyrate.worker.DownloaderService", return_value=mock_dlr_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.DownloadService", return_value=mock_dl_service),
+            patch("streamarr.worker.DownloaderService", return_value=mock_dlr_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await add_show_download("release-guid", str(uuid.uuid4()))
@@ -2539,7 +2539,7 @@ class TestAddShowDownload:
 class TestAddMusicDownload:
     @pytest.mark.asyncio
     async def test_success(self):
-        from pyrate.worker import add_music_download
+        from streamarr.worker import add_music_download
 
         session = _mock_session()
         mock_dl_service = AsyncMock()
@@ -2551,9 +2551,9 @@ class TestAddMusicDownload:
         mock_dlr_service.get_all = AsyncMock(return_value=[MagicMock()])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.DownloadService", return_value=mock_dl_service),
-            patch("pyrate.worker.DownloaderService", return_value=mock_dlr_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.DownloadService", return_value=mock_dl_service),
+            patch("streamarr.worker.DownloaderService", return_value=mock_dlr_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await add_music_download("release-guid", str(uuid.uuid4()))
@@ -2562,7 +2562,7 @@ class TestAddMusicDownload:
 class TestHandleCompletedDownload:
     @pytest.mark.asyncio
     async def test_success(self):
-        from pyrate.worker import handle_completed_download
+        from streamarr.worker import handle_completed_download
 
         session = _mock_session()
         mock_dl_service = AsyncMock()
@@ -2571,15 +2571,15 @@ class TestHandleCompletedDownload:
         )
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.DownloadService", return_value=mock_dl_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.DownloadService", return_value=mock_dl_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await handle_completed_download("ext-123", "/path/to/file")
 
     @pytest.mark.asyncio
     async def test_failure_with_blacklist(self):
-        from pyrate.worker import handle_completed_download
+        from streamarr.worker import handle_completed_download
 
         session = _mock_session()
         mock_dl_service = AsyncMock()
@@ -2596,9 +2596,9 @@ class TestHandleCompletedDownload:
         mock_dl_service.get_by_external_id = AsyncMock(return_value=mock_download)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.DownloadService", return_value=mock_dl_service),
-            patch("pyrate.worker.auto_download_media_item") as mock_auto_dl,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.DownloadService", return_value=mock_dl_service),
+            patch("streamarr.worker.auto_download_media_item") as mock_auto_dl,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_auto_dl.kiq = AsyncMock()
@@ -2607,13 +2607,13 @@ class TestHandleCompletedDownload:
 
     @pytest.mark.asyncio
     async def test_exception(self):
-        from pyrate.worker import handle_completed_download
+        from streamarr.worker import handle_completed_download
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             session = _mock_session()
             sm.session.return_value = _fake_session_ctx(session)
             with (
-                patch("pyrate.worker.DownloadService", side_effect=Exception("boom")),
+                patch("streamarr.worker.DownloadService", side_effect=Exception("boom")),
             ):
                 with pytest.raises(Exception, match="boom"):
                     await handle_completed_download("ext-123", "/path")
@@ -2622,7 +2622,7 @@ class TestHandleCompletedDownload:
 class TestProbeMediaFile:
     @pytest.mark.asyncio
     async def test_happy_path(self):
-        from pyrate.worker import probe_media_file
+        from streamarr.worker import probe_media_file
 
         session = _mock_session()
 
@@ -2647,8 +2647,8 @@ class TestProbeMediaFile:
         }
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.play.probe_video_full", return_value=probe_data),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.play.probe_video_full", return_value=probe_data),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             result = await probe_media_file("some-guid")
@@ -2657,19 +2657,19 @@ class TestProbeMediaFile:
 
     @pytest.mark.asyncio
     async def test_file_not_found(self):
-        from pyrate.worker import probe_media_file
+        from streamarr.worker import probe_media_file
 
         session = _mock_session()
         session.get = AsyncMock(return_value=None)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             result = await probe_media_file("missing-guid")
             assert result["success"] is False
 
     @pytest.mark.asyncio
     async def test_probe_failed(self):
-        from pyrate.worker import probe_media_file
+        from streamarr.worker import probe_media_file
 
         session = _mock_session()
         mock_file = MagicMock(spec=MediaFile)
@@ -2677,8 +2677,8 @@ class TestProbeMediaFile:
         session.get = AsyncMock(return_value=mock_file)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.play.probe_video_full", return_value=None),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.play.probe_video_full", return_value=None),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             result = await probe_media_file("some-guid")
@@ -2688,7 +2688,7 @@ class TestProbeMediaFile:
 class TestSendNotificationEmail:
     @pytest.mark.asyncio
     async def test_success(self):
-        from pyrate.worker import send_notification_email
+        from streamarr.worker import send_notification_email
 
         session = _mock_session()
 
@@ -2709,9 +2709,9 @@ class TestSendNotificationEmail:
         session.get = AsyncMock(return_value=mock_user)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.NotificationService", return_value=mock_notif_service),
-            patch("pyrate.worker.email_service") as mock_email,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.NotificationService", return_value=mock_notif_service),
+            patch("streamarr.worker.email_service") as mock_email,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_email.send_notification_email = AsyncMock(return_value=True)
@@ -2720,22 +2720,22 @@ class TestSendNotificationEmail:
 
     @pytest.mark.asyncio
     async def test_not_found(self):
-        from pyrate.worker import send_notification_email
+        from streamarr.worker import send_notification_email
 
         session = _mock_session()
         mock_notif_service = AsyncMock()
         mock_notif_service.get_by_id = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.NotificationService", return_value=mock_notif_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.NotificationService", return_value=mock_notif_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await send_notification_email("notif-id")
 
     @pytest.mark.asyncio
     async def test_send_email_false(self):
-        from pyrate.worker import send_notification_email
+        from streamarr.worker import send_notification_email
 
         session = _mock_session()
         mock_notification = MagicMock()
@@ -2745,15 +2745,15 @@ class TestSendNotificationEmail:
         mock_notif_service.get_by_id = AsyncMock(return_value=mock_notification)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.NotificationService", return_value=mock_notif_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.NotificationService", return_value=mock_notif_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await send_notification_email("notif-id")
 
     @pytest.mark.asyncio
     async def test_user_not_found(self):
-        from pyrate.worker import send_notification_email
+        from streamarr.worker import send_notification_email
 
         session = _mock_session()
         mock_notification = MagicMock()
@@ -2767,8 +2767,8 @@ class TestSendNotificationEmail:
         session.get = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.NotificationService", return_value=mock_notif_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.NotificationService", return_value=mock_notif_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await send_notification_email("notif-id")
@@ -2776,7 +2776,7 @@ class TestSendNotificationEmail:
 
     @pytest.mark.asyncio
     async def test_email_send_failed(self):
-        from pyrate.worker import send_notification_email
+        from streamarr.worker import send_notification_email
 
         session = _mock_session()
         mock_notification = MagicMock()
@@ -2795,9 +2795,9 @@ class TestSendNotificationEmail:
         session.get = AsyncMock(return_value=mock_user)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.NotificationService", return_value=mock_notif_service),
-            patch("pyrate.worker.email_service") as mock_email,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.NotificationService", return_value=mock_notif_service),
+            patch("streamarr.worker.email_service") as mock_email,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_email.send_notification_email = AsyncMock(return_value=False)
@@ -2812,7 +2812,7 @@ class TestSendNotificationEmail:
 class TestTrendingTasks:
     @pytest.mark.asyncio
     async def test_import_trending_movies(self):
-        from pyrate.worker import import_trending_movies
+        from streamarr.worker import import_trending_movies
 
         session = _mock_session()
         mock_service = AsyncMock()
@@ -2820,10 +2820,10 @@ class TestTrendingTasks:
         mock_service.update_trending_movies_list = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.TrendingService", return_value=mock_service),
-            patch("pyrate.worker.import_movie") as mock_import,
-            patch("pyrate.worker.asyncio.sleep", new_callable=AsyncMock),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.TrendingService", return_value=mock_service),
+            patch("streamarr.worker.import_movie") as mock_import,
+            patch("streamarr.worker.asyncio.sleep", new_callable=AsyncMock),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_import.kiq = AsyncMock()
@@ -2832,7 +2832,7 @@ class TestTrendingTasks:
 
     @pytest.mark.asyncio
     async def test_import_trending_shows(self):
-        from pyrate.worker import import_trending_shows
+        from streamarr.worker import import_trending_shows
 
         session = _mock_session()
         mock_service = AsyncMock()
@@ -2840,10 +2840,10 @@ class TestTrendingTasks:
         mock_service.update_trending_shows_list = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.TrendingService", return_value=mock_service),
-            patch("pyrate.worker.import_show") as mock_import,
-            patch("pyrate.worker.asyncio.sleep", new_callable=AsyncMock),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.TrendingService", return_value=mock_service),
+            patch("streamarr.worker.import_show") as mock_import,
+            patch("streamarr.worker.asyncio.sleep", new_callable=AsyncMock),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_import.kiq = AsyncMock()
@@ -2851,7 +2851,7 @@ class TestTrendingTasks:
 
     @pytest.mark.asyncio
     async def test_import_trending_games(self):
-        from pyrate.worker import import_trending_games
+        from streamarr.worker import import_trending_games
 
         session = _mock_session()
         mock_service = AsyncMock()
@@ -2859,10 +2859,10 @@ class TestTrendingTasks:
         mock_service.update_trending_games_list = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.TrendingService", return_value=mock_service),
-            patch("pyrate.worker.import_game") as mock_import,
-            patch("pyrate.worker.asyncio.sleep", new_callable=AsyncMock),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.TrendingService", return_value=mock_service),
+            patch("streamarr.worker.import_game") as mock_import,
+            patch("streamarr.worker.asyncio.sleep", new_callable=AsyncMock),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_import.kiq = AsyncMock()
@@ -2877,7 +2877,7 @@ class TestTrendingTasks:
 class TestRefreshDownloader:
     @pytest.mark.asyncio
     async def test_happy_path_with_completed_and_failed(self):
-        from pyrate.worker import refresh_downloader
+        from streamarr.worker import refresh_downloader
 
         session = _mock_session()
 
@@ -2922,11 +2922,11 @@ class TestRefreshDownloader:
         mock_dl_service.get_media_item_guid_for_download = AsyncMock(return_value=str(uuid.uuid4()))
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.DownloaderService", return_value=mock_dlr_service),
-            patch("pyrate.worker.DownloadService", return_value=mock_dl_service),
-            patch("pyrate.worker.handle_completed_download") as mock_handle,
-            patch("pyrate.worker.auto_download_media_item") as mock_auto_dl,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.DownloaderService", return_value=mock_dlr_service),
+            patch("streamarr.worker.DownloadService", return_value=mock_dl_service),
+            patch("streamarr.worker.handle_completed_download") as mock_handle,
+            patch("streamarr.worker.auto_download_media_item") as mock_auto_dl,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_handle.kiq = AsyncMock()
@@ -2945,7 +2945,7 @@ class TestRefreshDownloader:
 class TestImportMovieMetadata:
     @pytest.mark.asyncio
     async def test_happy_path(self):
-        from pyrate.worker import import_movie_metadata
+        from streamarr.worker import import_movie_metadata
 
         session = _mock_session()
 
@@ -2955,10 +2955,10 @@ class TestImportMovieMetadata:
         )
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="fake-key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.worker.import_movie") as mock_import,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="fake-key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.import_movie") as mock_import,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_import.kiq = AsyncMock()
@@ -2969,7 +2969,7 @@ class TestImportMovieMetadata:
 
     @pytest.mark.asyncio
     async def test_no_results(self):
-        from pyrate.worker import import_movie_metadata
+        from streamarr.worker import import_movie_metadata
 
         session = _mock_session()
 
@@ -2977,9 +2977,9 @@ class TestImportMovieMetadata:
         mock_tmdb.search_movies = AsyncMock(return_value={"results": []})
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="fake-key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="fake-key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await import_movie_metadata("Unknown Movie", 2099)
@@ -2993,7 +2993,7 @@ class TestImportMovieMetadata:
 class TestCleanupTasks:
     @pytest.mark.asyncio
     async def test_cleanup_orphaned_temp_files(self):
-        from pyrate.worker import cleanup_orphaned_temp_files
+        from streamarr.worker import cleanup_orphaned_temp_files
 
         session = _mock_session()
         mock_service = AsyncMock()
@@ -3002,8 +3002,8 @@ class TestCleanupTasks:
         )
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.media.MediaService", return_value=mock_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.media.MediaService", return_value=mock_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             result = await cleanup_orphaned_temp_files()
@@ -3011,13 +3011,13 @@ class TestCleanupTasks:
 
     @pytest.mark.asyncio
     async def test_cleanup_stale_sessions(self):
-        from pyrate.worker import cleanup_stale_transcoding_sessions
+        from streamarr.worker import cleanup_stale_transcoding_sessions
 
         mock_session_service = AsyncMock()
         mock_session_service.cleanup_stale_sessions = AsyncMock(return_value=3)
 
         with patch(
-            "pyrate.services.transcoding_session.get_transcoding_session_service",
+            "streamarr.services.transcoding_session.get_transcoding_session_service",
             return_value=mock_session_service,
         ):
             result = await cleanup_stale_transcoding_sessions()
@@ -3025,7 +3025,7 @@ class TestCleanupTasks:
 
     @pytest.mark.asyncio
     async def test_cleanup_storage(self):
-        from pyrate.worker import cleanup_storage
+        from streamarr.worker import cleanup_storage
 
         session = _mock_session()
 
@@ -3053,9 +3053,9 @@ class TestCleanupTasks:
         )
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.settings.SettingsService", return_value=mock_settings),
-            patch("pyrate.services.storage_cleanup.StorageCleanupService", return_value=mock_cleanup),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.settings.SettingsService", return_value=mock_settings),
+            patch("streamarr.services.storage_cleanup.StorageCleanupService", return_value=mock_cleanup),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             # Note: cleanup_storage has a logging format bug ("%s%," in the
@@ -3076,7 +3076,7 @@ class TestRefreshDownloaderNoPath:
     @pytest.mark.asyncio
     async def test_completed_download_no_path_job_detail_fallback(self):
         """When completed download has no path, try get_job for path."""
-        from pyrate.worker import refresh_downloader
+        from streamarr.worker import refresh_downloader
 
         session = _mock_session()
 
@@ -3106,10 +3106,10 @@ class TestRefreshDownloaderNoPath:
         mock_dl_service.get_by_external_id = AsyncMock(return_value=completed_download)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.DownloaderService", return_value=mock_dlr_service),
-            patch("pyrate.worker.DownloadService", return_value=mock_dl_service),
-            patch("pyrate.worker.handle_completed_download") as mock_handle,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.DownloaderService", return_value=mock_dlr_service),
+            patch("streamarr.worker.DownloadService", return_value=mock_dl_service),
+            patch("streamarr.worker.handle_completed_download") as mock_handle,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_handle.kiq = AsyncMock()
@@ -3120,7 +3120,7 @@ class TestRefreshDownloaderNoPath:
     @pytest.mark.asyncio
     async def test_completed_download_no_path_job_detail_exception(self):
         """Cover line 220-221: get_job raises exception (silently caught)."""
-        from pyrate.worker import refresh_downloader
+        from streamarr.worker import refresh_downloader
 
         session = _mock_session()
 
@@ -3149,10 +3149,10 @@ class TestRefreshDownloaderNoPath:
         mock_dl_service.get_by_external_id = AsyncMock(return_value=completed_download)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.DownloaderService", return_value=mock_dlr_service),
-            patch("pyrate.worker.DownloadService", return_value=mock_dl_service),
-            patch("pyrate.worker.handle_completed_download") as mock_handle,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.DownloaderService", return_value=mock_dlr_service),
+            patch("streamarr.worker.DownloadService", return_value=mock_dl_service),
+            patch("streamarr.worker.handle_completed_download") as mock_handle,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_handle.kiq = AsyncMock()
@@ -3164,7 +3164,7 @@ class TestRefreshDownloaderNoPath:
     @pytest.mark.asyncio
     async def test_failed_download_remove_old_exception(self):
         """Cover lines 260-261: remove_old raises exception."""
-        from pyrate.worker import refresh_downloader
+        from streamarr.worker import refresh_downloader
 
         session = _mock_session()
 
@@ -3197,9 +3197,9 @@ class TestRefreshDownloaderNoPath:
         mock_dl_service.get_media_item_guid_for_download = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.DownloaderService", return_value=mock_dlr_service),
-            patch("pyrate.worker.DownloadService", return_value=mock_dl_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.DownloaderService", return_value=mock_dlr_service),
+            patch("streamarr.worker.DownloadService", return_value=mock_dl_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             # Should not raise despite remove_old exception
@@ -3212,34 +3212,34 @@ class TestImportTrendingErrors:
 
     @pytest.mark.asyncio
     async def test_import_trending_movies_error(self):
-        from pyrate.worker import import_trending_movies
+        from streamarr.worker import import_trending_movies
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             session = _mock_session()
             sm.session.return_value = _fake_session_ctx(session)
-            with patch("pyrate.worker.TrendingService", side_effect=Exception("trending fail")):
+            with patch("streamarr.worker.TrendingService", side_effect=Exception("trending fail")):
                 with pytest.raises(Exception, match="trending fail"):
                     await import_trending_movies()
 
     @pytest.mark.asyncio
     async def test_import_trending_shows_error(self):
-        from pyrate.worker import import_trending_shows
+        from streamarr.worker import import_trending_shows
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             session = _mock_session()
             sm.session.return_value = _fake_session_ctx(session)
-            with patch("pyrate.worker.TrendingService", side_effect=Exception("shows fail")):
+            with patch("streamarr.worker.TrendingService", side_effect=Exception("shows fail")):
                 with pytest.raises(Exception, match="shows fail"):
                     await import_trending_shows()
 
     @pytest.mark.asyncio
     async def test_import_trending_games_error(self):
-        from pyrate.worker import import_trending_games
+        from streamarr.worker import import_trending_games
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             session = _mock_session()
             sm.session.return_value = _fake_session_ctx(session)
-            with patch("pyrate.worker.TrendingService", side_effect=Exception("games fail")):
+            with patch("streamarr.worker.TrendingService", side_effect=Exception("games fail")):
                 with pytest.raises(Exception, match="games fail"):
                     await import_trending_games()
 
@@ -3249,28 +3249,28 @@ class TestImportMovieMetadataErrors:
 
     @pytest.mark.asyncio
     async def test_no_tmdb_id_in_result(self):
-        from pyrate.worker import import_movie_metadata
+        from streamarr.worker import import_movie_metadata
 
         session = _mock_session()
         mock_tmdb = AsyncMock()
         mock_tmdb.search_movies = AsyncMock(return_value={"results": [{"title": "No ID"}]})
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await import_movie_metadata("Test", 2024)
 
     @pytest.mark.asyncio
     async def test_exception(self):
-        from pyrate.worker import import_movie_metadata
+        from streamarr.worker import import_movie_metadata
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             session = _mock_session()
             sm.session.return_value = _fake_session_ctx(session)
-            with patch("pyrate.worker.get_tmdb_api_key", side_effect=Exception("key fail")):
+            with patch("streamarr.worker.get_tmdb_api_key", side_effect=Exception("key fail")):
                 with pytest.raises(Exception, match="key fail"):
                     await import_movie_metadata("Test", 2024)
 
@@ -3280,7 +3280,7 @@ class TestImportMovieException:
 
     @pytest.mark.asyncio
     async def test_exception(self):
-        from pyrate.worker import import_movie
+        from streamarr.worker import import_movie
 
         session = _mock_session()
         result_none = MagicMock()
@@ -3294,10 +3294,10 @@ class TestImportMovieException:
         mock_tmdb.get_movie_details = AsyncMock(side_effect=Exception("tmdb fail"))
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -3310,7 +3310,7 @@ class TestImportShowNoDetails:
 
     @pytest.mark.asyncio
     async def test_no_show_details(self):
-        from pyrate.worker import import_show
+        from streamarr.worker import import_show
 
         session = _mock_session()
         result_none = MagicMock()
@@ -3324,10 +3324,10 @@ class TestImportShowNoDetails:
         mock_tmdb.get_show_details = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -3339,7 +3339,7 @@ class TestImportShowBadDates:
 
     @pytest.mark.asyncio
     async def test_bad_first_air_date(self):
-        from pyrate.worker import import_show
+        from streamarr.worker import import_show
 
         session = _mock_session()
         result_none = MagicMock()
@@ -3392,11 +3392,11 @@ class TestImportShowBadDates:
         mock_tmdb.get_show_season = AsyncMock(return_value=season_details)
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -3408,7 +3408,7 @@ class TestImportShowException:
 
     @pytest.mark.asyncio
     async def test_exception(self):
-        from pyrate.worker import import_show
+        from streamarr.worker import import_show
 
         session = _mock_session()
         result_none = MagicMock()
@@ -3422,10 +3422,10 @@ class TestImportShowException:
         mock_tmdb.get_show_details = AsyncMock(side_effect=Exception("show fail"))
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -3438,7 +3438,7 @@ class TestImportGameException:
 
     @pytest.mark.asyncio
     async def test_exception(self):
-        from pyrate.worker import import_game
+        from streamarr.worker import import_game
 
         session = _mock_session()
         result_none = MagicMock()
@@ -3452,9 +3452,9 @@ class TestImportGameException:
         mock_settings.get_igdb_credentials = AsyncMock(side_effect=Exception("igdb fail"))
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -3467,7 +3467,7 @@ class TestImportArtistNoDetails:
 
     @pytest.mark.asyncio
     async def test_no_details(self):
-        from pyrate.worker import import_artist
+        from streamarr.worker import import_artist
 
         session = _mock_session()
         mock_media_service = AsyncMock()
@@ -3484,11 +3484,11 @@ class TestImportArtistNoDetails:
         mock_spotify.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.metadata.spotify.Spotify", return_value=mock_spotify),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.metadata.spotify.Spotify", return_value=mock_spotify),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -3501,15 +3501,15 @@ class TestImportArtistException:
 
     @pytest.mark.asyncio
     async def test_exception(self):
-        from pyrate.worker import import_artist
+        from streamarr.worker import import_artist
 
         session = _mock_session()
         mock_media_service = AsyncMock()
         mock_media_service.get_by_external_id = AsyncMock(side_effect=Exception("artist fail"))
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             with pytest.raises(Exception, match="artist fail"):
@@ -3521,7 +3521,7 @@ class TestImportAlbumNoDetails:
 
     @pytest.mark.asyncio
     async def test_no_album_details(self):
-        from pyrate.worker import import_album
+        from streamarr.worker import import_album
 
         session = _mock_session()
         mock_media_service = AsyncMock()
@@ -3538,11 +3538,11 @@ class TestImportAlbumNoDetails:
         mock_spotify.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.metadata.spotify.Spotify", return_value=mock_spotify),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.metadata.spotify.Spotify", return_value=mock_spotify),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -3555,7 +3555,7 @@ class TestImportAlbumSkipTrack:
 
     @pytest.mark.asyncio
     async def test_skip_artist_no_id_and_existing_track(self):
-        from pyrate.worker import import_album
+        from streamarr.worker import import_album
 
         session = _mock_session()
         mock_library = MagicMock()
@@ -3597,11 +3597,11 @@ class TestImportAlbumSkipTrack:
         mock_spotify.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.LibraryService") as lib_cls,
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.metadata.spotify.Spotify", return_value=mock_spotify),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.LibraryService") as lib_cls,
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.metadata.spotify.Spotify", return_value=mock_spotify),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             lib_cls.return_value.get_library_by_type = AsyncMock(return_value=mock_library)
@@ -3613,15 +3613,15 @@ class TestImportAlbumException:
 
     @pytest.mark.asyncio
     async def test_exception(self):
-        from pyrate.worker import import_album
+        from streamarr.worker import import_album
 
         session = _mock_session()
         mock_media_service = AsyncMock()
         mock_media_service.get_by_external_id = AsyncMock(side_effect=Exception("album fail"))
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             with pytest.raises(Exception, match="album fail"):
@@ -3633,7 +3633,7 @@ class TestSendNotificationEmailException:
 
     @pytest.mark.asyncio
     async def test_exception_marks_as_sent(self):
-        from pyrate.worker import send_notification_email
+        from streamarr.worker import send_notification_email
 
         session = _mock_session()
         mock_notif_service = AsyncMock()
@@ -3657,8 +3657,8 @@ class TestSendNotificationEmailException:
                 yield session2
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.NotificationService") as notif_cls,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.NotificationService") as notif_cls,
         ):
             sm.session = fake_session_multi
             notif_cls.side_effect = [mock_notif_service, mock_notif_service2]
@@ -3671,7 +3671,7 @@ class TestProbeMediaFileQualityLevels:
 
     @pytest.mark.asyncio
     async def test_4k_quality(self):
-        from pyrate.worker import probe_media_file
+        from streamarr.worker import probe_media_file
 
         session = _mock_session()
         mock_file = MagicMock(spec=MediaFile)
@@ -3695,8 +3695,8 @@ class TestProbeMediaFileQualityLevels:
         }
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.play.probe_video_full", return_value=probe_data),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.play.probe_video_full", return_value=probe_data),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             result = await probe_media_file("some-guid")
@@ -3704,7 +3704,7 @@ class TestProbeMediaFileQualityLevels:
 
     @pytest.mark.asyncio
     async def test_720p_quality(self):
-        from pyrate.worker import probe_media_file
+        from streamarr.worker import probe_media_file
 
         session = _mock_session()
         mock_file = MagicMock(spec=MediaFile)
@@ -3728,8 +3728,8 @@ class TestProbeMediaFileQualityLevels:
         }
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.play.probe_video_full", return_value=probe_data),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.play.probe_video_full", return_value=probe_data),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             result = await probe_media_file("some-guid")
@@ -3737,7 +3737,7 @@ class TestProbeMediaFileQualityLevels:
 
     @pytest.mark.asyncio
     async def test_480p_quality(self):
-        from pyrate.worker import probe_media_file
+        from streamarr.worker import probe_media_file
 
         session = _mock_session()
         mock_file = MagicMock(spec=MediaFile)
@@ -3761,8 +3761,8 @@ class TestProbeMediaFileQualityLevels:
         }
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.play.probe_video_full", return_value=probe_data),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.play.probe_video_full", return_value=probe_data),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             result = await probe_media_file("some-guid")
@@ -3770,7 +3770,7 @@ class TestProbeMediaFileQualityLevels:
 
     @pytest.mark.asyncio
     async def test_sd_quality(self):
-        from pyrate.worker import probe_media_file
+        from streamarr.worker import probe_media_file
 
         session = _mock_session()
         mock_file = MagicMock(spec=MediaFile)
@@ -3794,8 +3794,8 @@ class TestProbeMediaFileQualityLevels:
         }
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.play.probe_video_full", return_value=probe_data),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.play.probe_video_full", return_value=probe_data),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             result = await probe_media_file("some-guid")
@@ -3804,12 +3804,12 @@ class TestProbeMediaFileQualityLevels:
     @pytest.mark.asyncio
     async def test_probe_exception(self):
         """Cover lines 1309-1311: exception in probe_media_file."""
-        from pyrate.worker import probe_media_file
+        from streamarr.worker import probe_media_file
 
         session = _mock_session()
         session.get = AsyncMock(side_effect=Exception("probe error"))
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             result = await probe_media_file("some-guid")
             assert result["success"] is False
@@ -3822,7 +3822,7 @@ class TestSearchReleasesEdgeCases:
     @pytest.mark.asyncio
     async def test_releases_without_links_re_search(self):
         """Cover line 1361: releases exist but none have links."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
         release_no_links = _make_release(title="No Links Release")
@@ -3846,14 +3846,14 @@ class TestSearchReleasesEdgeCases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=None),
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=None),
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(media_item.guid))
@@ -3861,7 +3861,7 @@ class TestSearchReleasesEdgeCases:
     @pytest.mark.asyncio
     async def test_tvdb_id_from_ext_ids(self):
         """Cover line 1394: tvdb external ID extraction."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
         media_item = _make_media_item(
@@ -3885,14 +3885,14 @@ class TestSearchReleasesEdgeCases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=None),
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=None),
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(media_item.guid))
@@ -3900,7 +3900,7 @@ class TestSearchReleasesEdgeCases:
     @pytest.mark.asyncio
     async def test_episode_missing_season_number(self):
         """Cover lines 1489-1494, 1500-1504: episode with no season/episode numbers."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -3954,14 +3954,14 @@ class TestSearchReleasesEdgeCases:
 
         session.execute = AsyncMock(side_effect=mock_execute)
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(episode.guid))
 
     @pytest.mark.asyncio
     async def test_episode_season_number_from_title(self):
         """Cover lines 1489-1494: derive season number from title."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -4022,14 +4022,14 @@ class TestSearchReleasesEdgeCases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=None),
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=None),
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(episode.guid))
@@ -4038,7 +4038,7 @@ class TestSearchReleasesEdgeCases:
     @pytest.mark.asyncio
     async def test_show_title_fallback(self):
         """Cover line 1508: show_title fallback when show has no title."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -4093,14 +4093,14 @@ class TestSearchReleasesEdgeCases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=None),
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=None),
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(episode.guid))
@@ -4108,7 +4108,7 @@ class TestSearchReleasesEdgeCases:
     @pytest.mark.asyncio
     async def test_song_search_fallback_to_title(self):
         """Cover lines 1528-1532: song search falls back to title."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -4133,11 +4133,11 @@ class TestSearchReleasesEdgeCases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
-            patch("pyrate.worker.get_plugin_instance", return_value=None),
-            patch("pyrate.worker.auto_download_media_item") as mock_auto_dl,
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=None),
+            patch("streamarr.worker.auto_download_media_item") as mock_auto_dl,
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_auto_dl.kiq = AsyncMock()
@@ -4147,7 +4147,7 @@ class TestSearchReleasesEdgeCases:
     @pytest.mark.asyncio
     async def test_release_string_link(self):
         """Cover lines 1699-1700: link_data is a string, not dict."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -4182,15 +4182,15 @@ class TestSearchReleasesEdgeCases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[(releases_data[0], mock_matcher_result)],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=mock_plugin),
-            patch("pyrate.worker.auto_download_media_item") as mock_auto_dl,
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=mock_plugin),
+            patch("streamarr.worker.auto_download_media_item") as mock_auto_dl,
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_auto_dl.kiq = AsyncMock()
@@ -4199,7 +4199,7 @@ class TestSearchReleasesEdgeCases:
     @pytest.mark.asyncio
     async def test_extract_metadata_exception(self):
         """Cover lines 1623-1624: extract_release_metadata raises exception."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -4234,15 +4234,15 @@ class TestSearchReleasesEdgeCases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[(releases_data[0], mock_matcher_result)],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=mock_plugin),
-            patch("pyrate.worker.auto_download_media_item") as mock_auto_dl,
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=mock_plugin),
+            patch("streamarr.worker.auto_download_media_item") as mock_auto_dl,
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_auto_dl.kiq = AsyncMock()
@@ -4251,7 +4251,7 @@ class TestSearchReleasesEdgeCases:
     @pytest.mark.asyncio
     async def test_duplicate_release_title(self):
         """Cover line 1609: skip duplicate release title."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -4287,14 +4287,14 @@ class TestSearchReleasesEdgeCases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[(releases_data[0], mock_matcher_result)],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=None),
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=None),
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(media_item.guid))
@@ -4302,7 +4302,7 @@ class TestSearchReleasesEdgeCases:
     @pytest.mark.asyncio
     async def test_show_year_from_parent(self):
         """Cover line 1555-1556: media_year from show.release_date."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -4364,14 +4364,14 @@ class TestSearchReleasesEdgeCases:
         mock_redis_service = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=None),
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=None),
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await search_media_item_releases(str(episode.guid))
@@ -4379,7 +4379,7 @@ class TestSearchReleasesEdgeCases:
     @pytest.mark.asyncio
     async def test_websocket_publish_exception(self):
         """Cover lines 1747-1748: WebSocket publish exception is caught."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
         session = _mock_session()
 
@@ -4418,15 +4418,15 @@ class TestSearchReleasesEdgeCases:
         )
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.IndexerService", return_value=mock_indexer_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.IndexerService", return_value=mock_indexer_service),
             patch(
-                "pyrate.services.release_matcher.ReleaseMatcher.filter_matching_releases",
+                "streamarr.services.release_matcher.ReleaseMatcher.filter_matching_releases",
                 return_value=[(releases_data[0], mock_matcher_result)],
             ),
-            patch("pyrate.worker.get_plugin_instance", return_value=mock_plugin),
-            patch("pyrate.worker.auto_download_media_item") as mock_auto_dl,
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.get_plugin_instance", return_value=mock_plugin),
+            patch("streamarr.worker.auto_download_media_item") as mock_auto_dl,
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             mock_auto_dl.kiq = AsyncMock()
@@ -4439,9 +4439,9 @@ class TestSearchReleasesEdgeCases:
     @pytest.mark.asyncio
     async def test_search_exception(self):
         """Cover lines 1750-1752: search_media_item_releases exception."""
-        from pyrate.worker import search_media_item_releases
+        from streamarr.worker import search_media_item_releases
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             session = _mock_session()
             sm.session.return_value = _fake_session_ctx(session)
             session.execute = AsyncMock(side_effect=Exception("search fail"))
@@ -4455,7 +4455,7 @@ class TestAutoDownloadEdgeCases:
     @pytest.mark.asyncio
     async def test_user_language_exception(self):
         """Cover lines 1868-1869: user language fetch exception."""
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -4502,11 +4502,11 @@ class TestAutoDownloadEdgeCases:
         mock_settings.get = AsyncMock(return_value=[])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.worker.DownloaderService") as dl_svc_cls,
-            patch("pyrate.worker.add_download") as mock_add_dl,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.DownloaderService") as dl_svc_cls,
+            patch("streamarr.worker.add_download") as mock_add_dl,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             dl_svc_cls.return_value.get_all = AsyncMock(return_value=[mock_downloader])
@@ -4518,7 +4518,7 @@ class TestAutoDownloadEdgeCases:
     @pytest.mark.asyncio
     async def test_allowed_languages_exception(self):
         """Cover lines 1885-1886: allowed_languages fetch exception."""
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -4561,11 +4561,11 @@ class TestAutoDownloadEdgeCases:
         mock_settings.get = AsyncMock(side_effect=Exception("settings fail"))
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
-            patch("pyrate.worker.DownloaderService") as dl_svc_cls,
-            patch("pyrate.worker.add_download") as mock_add_dl,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.DownloaderService") as dl_svc_cls,
+            patch("streamarr.worker.add_download") as mock_add_dl,
         ):
             sm.session.return_value = _fake_session_ctx(session)
             dl_svc_cls.return_value.get_all = AsyncMock(return_value=[mock_downloader])
@@ -4576,7 +4576,7 @@ class TestAutoDownloadEdgeCases:
     @pytest.mark.asyncio
     async def test_no_links_on_release(self):
         """Cover lines 1928-1932: best release has no links."""
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
         session = _mock_session()
 
@@ -4609,9 +4609,9 @@ class TestAutoDownloadEdgeCases:
         mock_settings.get = AsyncMock(return_value=[])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
-            patch("pyrate.worker.SettingsService", return_value=mock_settings),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.SettingsService", return_value=mock_settings),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await auto_download_media_item(str(media_item.guid))
@@ -4619,9 +4619,9 @@ class TestAutoDownloadEdgeCases:
     @pytest.mark.asyncio
     async def test_exception(self):
         """Cover lines 1982-1984: auto_download_media_item exception."""
-        from pyrate.worker import auto_download_media_item
+        from streamarr.worker import auto_download_media_item
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             session = _mock_session()
             sm.session.return_value = _fake_session_ctx(session)
             session.execute = AsyncMock(side_effect=Exception("auto dl fail"))
@@ -4635,7 +4635,7 @@ class TestRefreshMetadataEdgeCases:
     @pytest.mark.asyncio
     async def test_unsupported_media_type(self):
         """Cover lines 2062-2066: unsupported media type for metadata fetch."""
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
 
@@ -4654,9 +4654,9 @@ class TestRefreshMetadataEdgeCases:
         mock_tmdb.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await refresh_media_item_metadata(str(media_item.guid))
@@ -4664,7 +4664,7 @@ class TestRefreshMetadataEdgeCases:
     @pytest.mark.asyncio
     async def test_show_credits_else_branch(self):
         """Cover line 2136: credits_data else branch (not movies or shows)."""
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
 
@@ -4711,10 +4711,10 @@ class TestRefreshMetadataEdgeCases:
         mock_person_service.import_cast_from_tmdb = AsyncMock(return_value=["c1"])
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.services.person.PersonService", new=lambda db: mock_person_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.services.person.PersonService", new=lambda db: mock_person_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await refresh_media_item_metadata(str(media_item_guid))
@@ -4722,7 +4722,7 @@ class TestRefreshMetadataEdgeCases:
     @pytest.mark.asyncio
     async def test_season_number_none(self):
         """Cover line 2165: season_number is None, skip."""
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
 
@@ -4756,9 +4756,9 @@ class TestRefreshMetadataEdgeCases:
         mock_tmdb.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await refresh_media_item_metadata(str(media_item_guid))
@@ -4766,7 +4766,7 @@ class TestRefreshMetadataEdgeCases:
     @pytest.mark.asyncio
     async def test_season_details_none(self):
         """Cover lines 2187-2188: season details is None."""
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
 
@@ -4810,9 +4810,9 @@ class TestRefreshMetadataEdgeCases:
         mock_tmdb.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await refresh_media_item_metadata(str(media_item_guid))
@@ -4820,7 +4820,7 @@ class TestRefreshMetadataEdgeCases:
     @pytest.mark.asyncio
     async def test_existing_episode_update_with_bad_date(self):
         """Cover lines 2253, 2273-2274, 2281-2294: existing episode update + bad date."""
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
 
@@ -4902,10 +4902,10 @@ class TestRefreshMetadataEdgeCases:
         mock_media_service.add_external_id = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.worker.MediaService", return_value=mock_media_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.MediaService", return_value=mock_media_service),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await refresh_media_item_metadata(str(media_item_guid))
@@ -4913,7 +4913,7 @@ class TestRefreshMetadataEdgeCases:
     @pytest.mark.asyncio
     async def test_season_refresh_exception(self):
         """Cover lines 2350-2355: exception during season refresh continues."""
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
         session = _mock_session()
 
@@ -4957,9 +4957,9 @@ class TestRefreshMetadataEdgeCases:
         mock_tmdb.close = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
         ):
             sm.session.return_value = _fake_session_ctx(session)
             await refresh_media_item_metadata(str(media_item_guid))
@@ -4967,9 +4967,9 @@ class TestRefreshMetadataEdgeCases:
     @pytest.mark.asyncio
     async def test_exception_handler(self):
         """Cover lines 2374-2378: overall exception handler."""
-        from pyrate.worker import refresh_media_item_metadata
+        from streamarr.worker import refresh_media_item_metadata
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             session = _mock_session()
             sm.session.return_value = _fake_session_ctx(session)
             session.execute = AsyncMock(side_effect=Exception("refresh fail"))
@@ -4983,22 +4983,22 @@ class TestCleanupExceptions:
     @pytest.mark.asyncio
     async def test_cleanup_orphaned_temp_exception(self):
         """Cover lines 2413-2415."""
-        from pyrate.worker import cleanup_orphaned_temp_files
+        from streamarr.worker import cleanup_orphaned_temp_files
 
-        with patch("pyrate.worker.sessionmanager") as sm:
+        with patch("streamarr.worker.sessionmanager") as sm:
             session = _mock_session()
             sm.session.return_value = _fake_session_ctx(session)
-            with patch("pyrate.services.media.MediaService", side_effect=Exception("cleanup fail")):
+            with patch("streamarr.services.media.MediaService", side_effect=Exception("cleanup fail")):
                 with pytest.raises(Exception, match="cleanup fail"):
                     await cleanup_orphaned_temp_files()
 
     @pytest.mark.asyncio
     async def test_cleanup_stale_sessions_exception(self):
         """Cover lines 2440-2442."""
-        from pyrate.worker import cleanup_stale_transcoding_sessions
+        from streamarr.worker import cleanup_stale_transcoding_sessions
 
         with patch(
-            "pyrate.services.transcoding_session.get_transcoding_session_service",
+            "streamarr.services.transcoding_session.get_transcoding_session_service",
             side_effect=Exception("session fail"),
         ):
             with pytest.raises(Exception, match="session fail"):
@@ -5011,13 +5011,13 @@ class TestMonitorActiveTranscodes:
     @pytest.mark.asyncio
     async def test_no_sessions(self):
         """Empty sessions should return zeros."""
-        from pyrate.worker import monitor_active_transcodes
+        from streamarr.worker import monitor_active_transcodes
 
         mock_session_service = AsyncMock()
         mock_session_service.get_all_sessions = AsyncMock(return_value=[])
 
         with patch(
-            "pyrate.services.transcoding_session.get_transcoding_session_service",
+            "streamarr.services.transcoding_session.get_transcoding_session_service",
             return_value=mock_session_service,
         ):
             result = await monitor_active_transcodes()
@@ -5026,7 +5026,7 @@ class TestMonitorActiveTranscodes:
     @pytest.mark.asyncio
     async def test_running_session_skipped(self):
         """A session whose container is still running should be skipped."""
-        from pyrate.worker import monitor_active_transcodes
+        from streamarr.worker import monitor_active_transcodes
 
         mock_session = MagicMock()
         mock_session.session_id = "sess-1"
@@ -5050,11 +5050,11 @@ class TestMonitorActiveTranscodes:
 
         with (
             patch(
-                "pyrate.services.transcoding_session.get_transcoding_session_service",
+                "streamarr.services.transcoding_session.get_transcoding_session_service",
                 return_value=mock_session_service,
             ),
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.computing.ComputingService", side_effect=mock_computing_ctx),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.computing.ComputingService", side_effect=mock_computing_ctx),
         ):
             sm.session.return_value = _fake_session_ctx(db_session)
             result = await monitor_active_transcodes()
@@ -5064,7 +5064,7 @@ class TestMonitorActiveTranscodes:
     @pytest.mark.asyncio
     async def test_failed_session_skipped(self):
         """A session already marked as failed should be skipped."""
-        from pyrate.worker import monitor_active_transcodes
+        from streamarr.worker import monitor_active_transcodes
 
         mock_session = MagicMock()
         mock_session.session_id = "sess-1"
@@ -5083,11 +5083,11 @@ class TestMonitorActiveTranscodes:
 
         with (
             patch(
-                "pyrate.services.transcoding_session.get_transcoding_session_service",
+                "streamarr.services.transcoding_session.get_transcoding_session_service",
                 return_value=mock_session_service,
             ),
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.computing.ComputingService", side_effect=mock_computing_ctx),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.computing.ComputingService", side_effect=mock_computing_ctx),
         ):
             sm.session.return_value = _fake_session_ctx(db_session)
             result = await monitor_active_transcodes()
@@ -5096,7 +5096,7 @@ class TestMonitorActiveTranscodes:
     @pytest.mark.asyncio
     async def test_retries_exhausted_marks_failed(self):
         """Cover session with retries exhausted: mark failed + notify user."""
-        from pyrate.worker import monitor_active_transcodes
+        from streamarr.worker import monitor_active_transcodes
 
         mock_session = MagicMock()
         mock_session.session_id = "sess-1"
@@ -5125,12 +5125,12 @@ class TestMonitorActiveTranscodes:
 
         with (
             patch(
-                "pyrate.services.transcoding_session.get_transcoding_session_service",
+                "streamarr.services.transcoding_session.get_transcoding_session_service",
                 return_value=mock_session_service,
             ),
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.computing.ComputingService", side_effect=mock_computing_ctx),
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.computing.ComputingService", side_effect=mock_computing_ctx),
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(db_session)
             result = await monitor_active_transcodes()
@@ -5140,7 +5140,7 @@ class TestMonitorActiveTranscodes:
     @pytest.mark.asyncio
     async def test_restart_success(self):
         """Cover successful restart of crashed transcode."""
-        from pyrate.worker import monitor_active_transcodes
+        from streamarr.worker import monitor_active_transcodes
 
         mock_session = MagicMock()
         mock_session.session_id = "sess-1"
@@ -5178,13 +5178,13 @@ class TestMonitorActiveTranscodes:
 
         with (
             patch(
-                "pyrate.services.transcoding_session.get_transcoding_session_service",
+                "streamarr.services.transcoding_session.get_transcoding_session_service",
                 return_value=mock_session_service,
             ),
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.computing.ComputingService", side_effect=mock_computing_ctx),
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
-            patch("pyrate.services.play.start_transcode_container", new_callable=AsyncMock) as mock_start,
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.computing.ComputingService", side_effect=mock_computing_ctx),
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.services.play.start_transcode_container", new_callable=AsyncMock) as mock_start,
         ):
             sm.session.return_value = _fake_session_ctx(db_session)
             result = await monitor_active_transcodes()
@@ -5195,7 +5195,7 @@ class TestMonitorActiveTranscodes:
     @pytest.mark.asyncio
     async def test_restart_failure_marks_failed(self):
         """Cover restart failure when retry_count >= MAX."""
-        from pyrate.worker import monitor_active_transcodes
+        from streamarr.worker import monitor_active_transcodes
 
         mock_session = MagicMock()
         mock_session.session_id = "sess-1"
@@ -5231,12 +5231,12 @@ class TestMonitorActiveTranscodes:
 
         with (
             patch(
-                "pyrate.services.transcoding_session.get_transcoding_session_service",
+                "streamarr.services.transcoding_session.get_transcoding_session_service",
                 return_value=mock_session_service,
             ),
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.computing.ComputingService", side_effect=mock_computing_ctx),
-            patch("pyrate.services.play.start_transcode_container", new_callable=AsyncMock, side_effect=Exception("restart fail")),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.computing.ComputingService", side_effect=mock_computing_ctx),
+            patch("streamarr.services.play.start_transcode_container", new_callable=AsyncMock, side_effect=Exception("restart fail")),
         ):
             sm.session.return_value = _fake_session_ctx(db_session)
             result = await monitor_active_transcodes()
@@ -5246,7 +5246,7 @@ class TestMonitorActiveTranscodes:
     @pytest.mark.asyncio
     async def test_container_check_exception(self):
         """Cover container status check exception - continues to next session."""
-        from pyrate.worker import monitor_active_transcodes
+        from streamarr.worker import monitor_active_transcodes
 
         mock_session = MagicMock()
         mock_session.session_id = "sess-1"
@@ -5269,11 +5269,11 @@ class TestMonitorActiveTranscodes:
 
         with (
             patch(
-                "pyrate.services.transcoding_session.get_transcoding_session_service",
+                "streamarr.services.transcoding_session.get_transcoding_session_service",
                 return_value=mock_session_service,
             ),
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.computing.ComputingService", side_effect=mock_computing_ctx),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.computing.ComputingService", side_effect=mock_computing_ctx),
         ):
             sm.session.return_value = _fake_session_ctx(db_session)
             result = await monitor_active_transcodes()
@@ -5282,10 +5282,10 @@ class TestMonitorActiveTranscodes:
     @pytest.mark.asyncio
     async def test_overall_exception(self):
         """Cover lines 2606-2608: overall exception handler."""
-        from pyrate.worker import monitor_active_transcodes
+        from streamarr.worker import monitor_active_transcodes
 
         with patch(
-            "pyrate.services.transcoding_session.get_transcoding_session_service",
+            "streamarr.services.transcoding_session.get_transcoding_session_service",
             side_effect=Exception("monitor fail"),
         ):
             with pytest.raises(Exception, match="monitor fail"):
@@ -5294,7 +5294,7 @@ class TestMonitorActiveTranscodes:
     @pytest.mark.asyncio
     async def test_notify_failed_exception(self):
         """Cover exception when publishing transcode_failed event."""
-        from pyrate.worker import monitor_active_transcodes
+        from streamarr.worker import monitor_active_transcodes
 
         mock_session = MagicMock()
         mock_session.session_id = "sess-1"
@@ -5324,12 +5324,12 @@ class TestMonitorActiveTranscodes:
 
         with (
             patch(
-                "pyrate.services.transcoding_session.get_transcoding_session_service",
+                "streamarr.services.transcoding_session.get_transcoding_session_service",
                 return_value=mock_session_service,
             ),
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.computing.ComputingService", side_effect=mock_computing_ctx),
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.computing.ComputingService", side_effect=mock_computing_ctx),
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
         ):
             sm.session.return_value = _fake_session_ctx(db_session)
             result = await monitor_active_transcodes()
@@ -5338,7 +5338,7 @@ class TestMonitorActiveTranscodes:
     @pytest.mark.asyncio
     async def test_restart_notify_exception(self):
         """Cover exception when publishing transcode_restarting event."""
-        from pyrate.worker import monitor_active_transcodes
+        from streamarr.worker import monitor_active_transcodes
 
         mock_session = MagicMock()
         mock_session.session_id = "sess-1"
@@ -5378,13 +5378,13 @@ class TestMonitorActiveTranscodes:
 
         with (
             patch(
-                "pyrate.services.transcoding_session.get_transcoding_session_service",
+                "streamarr.services.transcoding_session.get_transcoding_session_service",
                 return_value=mock_session_service,
             ),
-            patch("pyrate.worker.sessionmanager") as sm,
-            patch("pyrate.services.computing.ComputingService", side_effect=mock_computing_ctx),
-            patch("pyrate.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
-            patch("pyrate.services.play.start_transcode_container", new_callable=AsyncMock),
+            patch("streamarr.worker.sessionmanager") as sm,
+            patch("streamarr.services.computing.ComputingService", side_effect=mock_computing_ctx),
+            patch("streamarr.services.redis_event.get_redis_event_service", return_value=mock_redis_service),
+            patch("streamarr.services.play.start_transcode_container", new_callable=AsyncMock),
         ):
             sm.session.return_value = _fake_session_ctx(db_session)
             result = await monitor_active_transcodes()

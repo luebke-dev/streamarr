@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pyrate.services.play import (
+from streamarr.services.play import (
     CodecNegotiationResult,
     PlayAction,
     build_stream_info,
@@ -705,8 +705,8 @@ class TestBuildStreamInfo:
 class TestResolvePlayAction:
     @pytest.mark.asyncio
     async def test_file_exists_returns_ready(self, db_session, tmp_path):
-        from pyrate.models.media import MediaFile, MediaItem, MediaType
-        from pyrate.services.play import resolve_play_action
+        from streamarr.models.media import MediaFile, MediaItem, MediaType
+        from streamarr.services.play import resolve_play_action
 
         media_id = uuid.uuid4()
         item = MediaItem(guid=media_id, title="Test Movie", media_type=MediaType.MOVIES)
@@ -742,15 +742,15 @@ class TestResolvePlayAction:
 
     @pytest.mark.asyncio
     async def test_no_file_no_releases_triggers_search(self, db_session):
-        from pyrate.models.media import MediaItem, MediaType
-        from pyrate.services.play import resolve_play_action
+        from streamarr.models.media import MediaItem, MediaType
+        from streamarr.services.play import resolve_play_action
 
         media_id = uuid.uuid4()
         item = MediaItem(guid=media_id, title="Unknown Movie", media_type=MediaType.MOVIES)
         db_session.add(item)
         await db_session.commit()
 
-        with patch("pyrate.worker.search_media_item_releases") as mock_search:
+        with patch("streamarr.worker.search_media_item_releases") as mock_search:
             mock_search.kiq = AsyncMock()
             action = await resolve_play_action(db_session, item, media_id)
             assert action.status == "searching"

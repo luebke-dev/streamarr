@@ -11,7 +11,7 @@ release pool. Two guards now exist:
 These tests lock both so the edge case can't silently regress.
 """
 
-from pyrate.services.download import _is_transient_error
+from streamarr.services.download import _is_transient_error
 
 # The exact downloader messages that WRONGLY blacklisted releases in the
 # incident — every one must be recognised as transient (infra) now.

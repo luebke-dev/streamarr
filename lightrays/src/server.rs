@@ -199,7 +199,7 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
 
 /// Build a [`CorsLayer`] from an origins list.
 /// A single `*` entry allows any origin; otherwise each entry must be an exact
-/// origin string like `https://pyrate.example.com`.
+/// origin string like `https://streamarr.example.com`.
 fn build_cors_layer(origins: &[String]) -> CorsLayer {
     use axum::http::{HeaderValue, Method};
 
@@ -384,7 +384,7 @@ async fn handle_launch(
     // S-C1: a `docker_image` runs inside a privileged container, so it is a
     // trusted capability and must additionally pass the registry allowlist.
     // The `lightrays:image` scope marks a caller that has already vetted the
-    // image server-side — the pyrate backend mints it for every launch because
+    // image server-side — the streamarr backend mints it for every launch because
     // the image only ever comes from admin-managed container profiles / a
     // superuser-set per-game override, never from the end user. `lightrays:admin`
     // also satisfies it. A caller with neither (e.g. a compromised container

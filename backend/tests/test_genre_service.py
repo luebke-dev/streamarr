@@ -3,9 +3,9 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.genre import Genre
-from pyrate.schemas.genre import GenreCreate, GenreUpdate
-from pyrate.services.genre import GenreService
+from streamarr.models.genre import Genre
+from streamarr.schemas.genre import GenreCreate, GenreUpdate
+from streamarr.services.genre import GenreService
 
 
 class TestGenreCRUD:

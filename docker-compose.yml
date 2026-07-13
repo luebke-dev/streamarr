@@ -1,4 +1,4 @@
-# pyrate.media – Local Dev Docker Compose (all images built locally)
+# Streamarr – Local Dev Docker Compose (all images built locally)
 
 services:
 
@@ -30,7 +30,7 @@ services:
     restart: "no"
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-streamarr}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-streamarr}
       - SECRET_KEY=${SECRET_KEY}
     volumes:
       - ./backend/src:/app/src:rw,z
@@ -52,14 +52,14 @@ services:
         "run",
         "python",
         "-m",
-        "pyrate.server",
+        "streamarr.server",
         "--reload",
       ]
     restart: unless-stopped
     privileged: true
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-streamarr}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-streamarr}
       - REDIS_URL=redis://redis:6379/0
       - ELASTICSEARCH_HOST=elasticsearch
       - ELASTICSEARCH_PORT=9200
@@ -74,12 +74,12 @@ services:
       - LIGHTRAYS_STATE_DIR=/state/lightrays
       # Host path of the games library (container /library/games), so the retro
       # launch can bind-mount a game's ROM into the sibling game container.
-      - LIGHTRAYS_GAMES_LIBRARY_HOST=${PROJECT_ROOT:-/root/pyrate.media}/data/library/games
+      - LIGHTRAYS_GAMES_LIBRARY_HOST=${PROJECT_ROOT:-/root/streamarr.media}/data/library/games
       - LIGHTRAYS_GAMING_STORAGE_CONTAINER=/user-data
-      - LIGHTRAYS_GAMING_STORAGE_HOST=${PROJECT_ROOT:-/root/pyrate.media}/data/users
+      - LIGHTRAYS_GAMING_STORAGE_HOST=${PROJECT_ROOT:-/root/streamarr.media}/data/users
       - PROJECT_ROOT=${PROJECT_ROOT:-/data/}
-      - PYRATE_ARTWORK_CACHE_ENABLED=${PYRATE_ARTWORK_CACHE_ENABLED:-true}
-      - PYRATE_ARTWORK_CACHE_DIR=/cache/artwork
+      - STREAMARR_ARTWORK_CACHE_ENABLED=${STREAMARR_ARTWORK_CACHE_ENABLED:-true}
+      - STREAMARR_ARTWORK_CACHE_DIR=/cache/artwork
     volumes:
       - ./backend/src:/app/src:rw,z
       - ./backend/alembic:/app/alembic:rw,z
@@ -116,18 +116,18 @@ services:
     build:
       context: ./backend
       dockerfile: Containerfile
-    command: ["uv", "run", "taskiq", "worker", "pyrate.worker:broker", "--reload"]
+    command: ["uv", "run", "taskiq", "worker", "streamarr.worker:broker", "--reload"]
     restart: unless-stopped
     privileged: true
     user: "0:0"
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-streamarr}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-streamarr}
       - REDIS_URL=redis://redis:6379/0
       - ELASTICSEARCH_HOST=elasticsearch
       - ELASTICSEARCH_PORT=9200
       - SECRET_KEY=${SECRET_KEY}
-      - PROJECT_ROOT=${PROJECT_ROOT:-/root/pyrate.media/}
+      - PROJECT_ROOT=${PROJECT_ROOT:-/root/streamarr.media/}
     volumes:
       - ./backend/src:/app/src:rw,z
       - ${DATA_DIR:-./data}/library/movies:/library/movies:rw,z
@@ -160,16 +160,16 @@ services:
     build:
       context: ./backend
       dockerfile: Containerfile
-    command: ["uv", "run", "taskiq", "scheduler", "pyrate.worker:scheduler"]
+    command: ["uv", "run", "taskiq", "scheduler", "streamarr.worker:scheduler"]
     restart: unless-stopped
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pyrate}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pyrate}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-streamarr}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-streamarr}
       - REDIS_URL=redis://redis:6379/0
       - ELASTICSEARCH_HOST=elasticsearch
       - ELASTICSEARCH_PORT=9200
       - SECRET_KEY=${SECRET_KEY}
-      - PROJECT_ROOT=${PROJECT_ROOT:-/root/pyrate.media/}
+      - PROJECT_ROOT=${PROJECT_ROOT:-/root/streamarr.media/}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -186,7 +186,7 @@ services:
       context: ./frontend
       dockerfile: Containerfile
       args:
-        VITE_ARTWORK_CACHE_ENABLED: ${PYRATE_ARTWORK_CACHE_ENABLED:-true}
+        VITE_ARTWORK_CACHE_ENABLED: ${STREAMARR_ARTWORK_CACHE_ENABLED:-true}
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-3001}:3000"
@@ -211,14 +211,14 @@ services:
       - backend-python
 
   # ---------------------------------------------------------------------------
-  # Grafana — provisioned Prometheus datasource + pyrate.media dashboard
+  # Grafana — provisioned Prometheus datasource + Streamarr dashboard
   # ---------------------------------------------------------------------------
   grafana:
     image: grafana/grafana:latest
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-pyrate}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-streamarr}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_ANALYTICS_REPORTING_ENABLED=false
       - GF_ANALYTICS_CHECK_FOR_UPDATES=false
@@ -265,7 +265,7 @@ services:
       # Host-path prefixes an admin-gated app_mounts bind may expose inside a
       # game container (e.g. a downloaded Wine game dir). Empty = feature off
       # (fail-closed). Comma-separated absolute host paths.
-      - LIGHTRAYS_ALLOWED_MOUNT_PREFIXES=${LIGHTRAYS_ALLOWED_MOUNT_PREFIXES:-/root/pyrate.media/data/deluge/downloads,/root/pyrate.media/data/games,/root/pyrate.media/data/library/games}
+      - LIGHTRAYS_ALLOWED_MOUNT_PREFIXES=${LIGHTRAYS_ALLOWED_MOUNT_PREFIXES:-/root/streamarr.media/data/deluge/downloads,/root/streamarr.media/data/games,/root/streamarr.media/data/library/games}
       - LIGHTRAYS_RECONNECT_GRACE_SECS=${LIGHTRAYS_RECONNECT_GRACE_SECS:-30}
       - LIGHTRAYS_WS_TICKET_TTL_SECS=${LIGHTRAYS_WS_TICKET_TTL_SECS:-120}
       - LIGHTRAYS_SESSION_TIMEOUT_SECS=${LIGHTRAYS_SESSION_TIMEOUT_SECS:-3600}
@@ -348,9 +348,9 @@ services:
     image: postgres:16
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-pyrate}
+      - POSTGRES_USER=${POSTGRES_USER:-streamarr}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB:-pyrate}
+      - POSTGRES_DB=${POSTGRES_DB:-streamarr}
     # pg_stat_statements tracks per-query call count + timing; slow-query log
     # flags anything over 500ms so we have data to indexize against.
     command:
@@ -372,7 +372,7 @@ services:
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pyrate}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-streamarr}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -390,7 +390,7 @@ services:
   # Elasticsearch
   # ---------------------------------------------------------------------------
   elasticsearch:
-    # Match the k8s deployment (manifests/apps/pyrate.yaml). The Python
+    # Match the k8s deployment (manifests/apps/streamarr.yaml). The Python
     # client is pinned to 9.2.0 in pyproject.toml and refuses to talk to
     # an 8.x server (HEAD / returns 400 over the version handshake).
     image: docker.elastic.co/elasticsearch/elasticsearch:${ES_IMAGE_TAG:-9.2.0}

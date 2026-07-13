@@ -22,9 +22,9 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.auth.jwt_handler import jwt_handler
-from pyrate.auth.password import PasswordService, password_service
-from pyrate.config import (
+from streamarr.auth.jwt_handler import jwt_handler
+from streamarr.auth.password import PasswordService, password_service
+from streamarr.config import (
     AppSettings,
     ConnectionSettings,
     EmailConfig,
@@ -35,8 +35,8 @@ from pyrate.config import (
     PaymentConfig,
     TranscodingConfig,
 )
-from pyrate.database import DatabaseSessionManager
-from pyrate.models.user import User
+from streamarr.database import DatabaseSessionManager
+from streamarr.models.user import User
 
 
 # ===================================================================
@@ -64,7 +64,7 @@ class TestPasswordService:
     def test_password_service_init_fallback(self):
         """Test the fallback branch in PasswordService.__init__."""
         with patch(
-            "pyrate.auth.password.CryptContext",
+            "streamarr.auth.password.CryptContext",
             side_effect=[Exception("fail"), MagicMock()],
         ):
             svc = PasswordService()
@@ -81,7 +81,7 @@ class TestAuthDependencies:
 
     @pytest.mark.asyncio
     async def test_resolve_user_from_token_valid(self, test_user):
-        from pyrate.auth.dependencies import _resolve_user_from_token
+        from streamarr.auth.dependencies import _resolve_user_from_token
 
         mock_session = AsyncMock()
         mock_session.get.return_value = test_user
@@ -94,7 +94,7 @@ class TestAuthDependencies:
 
     @pytest.mark.asyncio
     async def test_resolve_user_from_token_invalid_token(self):
-        from pyrate.auth.dependencies import _resolve_user_from_token
+        from streamarr.auth.dependencies import _resolve_user_from_token
 
         mock_session = AsyncMock()
         user, payload = await _resolve_user_from_token("bad-token", "access", mock_session)
@@ -103,7 +103,7 @@ class TestAuthDependencies:
 
     @pytest.mark.asyncio
     async def test_resolve_user_from_token_wrong_type(self, test_user):
-        from pyrate.auth.dependencies import _resolve_user_from_token
+        from streamarr.auth.dependencies import _resolve_user_from_token
 
         mock_session = AsyncMock()
         token = jwt_handler.create_access_token({"sub": str(test_user.guid)})
@@ -113,7 +113,7 @@ class TestAuthDependencies:
 
     @pytest.mark.asyncio
     async def test_resolve_user_from_token_no_sub(self):
-        from pyrate.auth.dependencies import _resolve_user_from_token
+        from streamarr.auth.dependencies import _resolve_user_from_token
 
         mock_session = AsyncMock()
         token = jwt_handler.create_access_token({})  # no sub
@@ -123,7 +123,7 @@ class TestAuthDependencies:
 
     @pytest.mark.asyncio
     async def test_resolve_user_from_token_user_not_found(self):
-        from pyrate.auth.dependencies import _resolve_user_from_token
+        from streamarr.auth.dependencies import _resolve_user_from_token
 
         mock_session = AsyncMock()
         mock_session.get.return_value = None
@@ -135,7 +135,7 @@ class TestAuthDependencies:
 
     @pytest.mark.asyncio
     async def test_resolve_user_from_token_inactive_user(self):
-        from pyrate.auth.dependencies import _resolve_user_from_token
+        from streamarr.auth.dependencies import _resolve_user_from_token
 
         inactive = MagicMock()
         inactive.is_active = False
@@ -149,7 +149,7 @@ class TestAuthDependencies:
 
     @pytest.mark.asyncio
     async def test_get_current_user_optional_no_creds(self):
-        from pyrate.auth.dependencies import get_current_user_optional
+        from streamarr.auth.dependencies import get_current_user_optional
 
         mock_session = AsyncMock()
         user = await get_current_user_optional(
@@ -161,14 +161,14 @@ class TestAuthDependencies:
     async def test_get_current_user_optional_valid(self, test_user):
         from fastapi.security import HTTPAuthorizationCredentials
 
-        from pyrate.auth.dependencies import get_current_user_optional
+        from streamarr.auth.dependencies import get_current_user_optional
 
         mock_session = AsyncMock()
         mock_session.get.return_value = test_user
 
         token = jwt_handler.create_access_token({"sub": str(test_user.guid)})
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-        with patch("pyrate.auth.dependencies._enforce_user_policy", new_callable=AsyncMock):
+        with patch("streamarr.auth.dependencies._enforce_user_policy", new_callable=AsyncMock):
             user = await get_current_user_optional(
                 request=None, credentials=creds, session=mock_session
             )
@@ -179,7 +179,7 @@ class TestAuthDependencies:
     async def test_get_current_user_optional_invalid_token(self):
         from fastapi.security import HTTPAuthorizationCredentials
 
-        from pyrate.auth.dependencies import get_current_user_optional
+        from streamarr.auth.dependencies import get_current_user_optional
 
         mock_session = AsyncMock()
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="garbage")
@@ -193,12 +193,12 @@ class TestAuthDependencies:
         """Unexpected auth resolver errors propagate instead of downgrading to anonymous."""
         from fastapi.security import HTTPAuthorizationCredentials
 
-        from pyrate.auth.dependencies import get_current_user_optional
+        from streamarr.auth.dependencies import get_current_user_optional
 
         mock_session = AsyncMock()
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="x")
         with patch(
-            "pyrate.auth.dependencies._resolve_user_from_token",
+            "streamarr.auth.dependencies._resolve_user_from_token",
             side_effect=Exception("boom"),
         ):
             with pytest.raises(Exception, match="boom"):
@@ -210,7 +210,7 @@ class TestAuthDependencies:
     async def test_get_current_user_no_credentials(self):
         from fastapi import HTTPException
 
-        from pyrate.auth.dependencies import get_current_user
+        from streamarr.auth.dependencies import get_current_user
 
         mock_session = AsyncMock()
         with pytest.raises(HTTPException) as exc_info:
@@ -224,7 +224,7 @@ class TestAuthDependencies:
         from fastapi import HTTPException
         from fastapi.security import HTTPAuthorizationCredentials
 
-        from pyrate.auth.dependencies import get_current_user
+        from streamarr.auth.dependencies import get_current_user
 
         mock_session = AsyncMock()
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="bad")
@@ -238,14 +238,14 @@ class TestAuthDependencies:
     async def test_get_current_user_valid(self, test_user):
         from fastapi.security import HTTPAuthorizationCredentials
 
-        from pyrate.auth.dependencies import get_current_user
+        from streamarr.auth.dependencies import get_current_user
 
         mock_session = AsyncMock()
         mock_session.get.return_value = test_user
 
         token = jwt_handler.create_access_token({"sub": str(test_user.guid)})
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-        with patch("pyrate.auth.dependencies._enforce_user_policy", new_callable=AsyncMock):
+        with patch("streamarr.auth.dependencies._enforce_user_policy", new_callable=AsyncMock):
             user = await get_current_user(
                 request=None, credentials=creds, session=mock_session
             )
@@ -255,7 +255,7 @@ class TestAuthDependencies:
     async def test_enforce_user_policy_blocks_inactive_schedule(self, test_user):
         from fastapi import HTTPException
 
-        from pyrate.auth.dependencies import _enforce_user_policy
+        from streamarr.auth.dependencies import _enforce_user_policy
 
         permissions = MagicMock()
         permissions.access_schedule_active = False
@@ -263,7 +263,7 @@ class TestAuthDependencies:
 
         mock_session = AsyncMock()
         with patch(
-            "pyrate.auth.dependencies.PermissionService"
+            "streamarr.auth.dependencies.PermissionService"
         ) as permission_service:
             permission_service.return_value.resolve_user_permissions = AsyncMock(
                 return_value=permissions
@@ -278,7 +278,7 @@ class TestAuthDependencies:
     async def test_enforce_user_policy_blocks_remote_request(self, test_user):
         from fastapi import HTTPException
 
-        from pyrate.auth.dependencies import _enforce_user_policy
+        from streamarr.auth.dependencies import _enforce_user_policy
 
         permissions = MagicMock()
         permissions.access_schedule_active = True
@@ -288,7 +288,7 @@ class TestAuthDependencies:
 
         mock_session = AsyncMock()
         with patch(
-            "pyrate.auth.dependencies.PermissionService"
+            "streamarr.auth.dependencies.PermissionService"
         ) as permission_service:
             permission_service.return_value.resolve_user_permissions = AsyncMock(
                 return_value=permissions
@@ -301,7 +301,7 @@ class TestAuthDependencies:
 
     @pytest.mark.asyncio
     async def test_enforce_user_policy_allows_local_request(self, test_user):
-        from pyrate.auth.dependencies import _enforce_user_policy
+        from streamarr.auth.dependencies import _enforce_user_policy
 
         permissions = MagicMock()
         permissions.access_schedule_active = True
@@ -311,7 +311,7 @@ class TestAuthDependencies:
 
         mock_session = AsyncMock()
         with patch(
-            "pyrate.auth.dependencies.PermissionService"
+            "streamarr.auth.dependencies.PermissionService"
         ) as permission_service:
             permission_service.return_value.resolve_user_permissions = AsyncMock(
                 return_value=permissions
@@ -322,7 +322,7 @@ class TestAuthDependencies:
     async def test_get_current_superuser_not_superuser(self, test_user):
         from fastapi import HTTPException
 
-        from pyrate.auth.dependencies import get_current_superuser
+        from streamarr.auth.dependencies import get_current_superuser
 
         with pytest.raises(HTTPException) as exc_info:
             await get_current_superuser(current_user=test_user)
@@ -330,7 +330,7 @@ class TestAuthDependencies:
 
     @pytest.mark.asyncio
     async def test_get_current_superuser_is_superuser(self, test_superuser):
-        from pyrate.auth.dependencies import get_current_superuser
+        from streamarr.auth.dependencies import get_current_superuser
 
         result = await get_current_superuser(current_user=test_superuser)
         assert result.is_superuser is True
@@ -338,18 +338,18 @@ class TestAuthDependencies:
     def test_require_oidc_enabled_not_configured(self):
         from fastapi import HTTPException
 
-        from pyrate.auth.dependencies import require_oidc_enabled
+        from streamarr.auth.dependencies import require_oidc_enabled
 
-        with patch("pyrate.auth.dependencies.oidc_client") as mock_oidc:
+        with patch("streamarr.auth.dependencies.oidc_client") as mock_oidc:
             mock_oidc.is_enabled.return_value = False
             with pytest.raises(HTTPException) as exc_info:
                 require_oidc_enabled()
             assert exc_info.value.status_code == 501
 
     def test_require_oidc_enabled_configured(self):
-        from pyrate.auth.dependencies import require_oidc_enabled
+        from streamarr.auth.dependencies import require_oidc_enabled
 
-        with patch("pyrate.auth.dependencies.oidc_client") as mock_oidc:
+        with patch("streamarr.auth.dependencies.oidc_client") as mock_oidc:
             mock_oidc.is_enabled.return_value = True
             # Should not raise
             require_oidc_enabled()
@@ -358,7 +358,7 @@ class TestAuthDependencies:
     async def test_verify_refresh_token_no_creds(self):
         from fastapi import HTTPException
 
-        from pyrate.auth.dependencies import verify_refresh_token
+        from streamarr.auth.dependencies import verify_refresh_token
 
         mock_session = AsyncMock()
         with pytest.raises(HTTPException) as exc_info:
@@ -372,7 +372,7 @@ class TestAuthDependencies:
         from fastapi import HTTPException
         from fastapi.security import HTTPAuthorizationCredentials
 
-        from pyrate.auth.dependencies import verify_refresh_token
+        from streamarr.auth.dependencies import verify_refresh_token
 
         mock_session = AsyncMock()
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="bad")
@@ -386,14 +386,14 @@ class TestAuthDependencies:
     async def test_verify_refresh_token_valid(self, test_user):
         from fastapi.security import HTTPAuthorizationCredentials
 
-        from pyrate.auth.dependencies import verify_refresh_token
+        from streamarr.auth.dependencies import verify_refresh_token
 
         mock_session = AsyncMock()
         mock_session.get.return_value = test_user
 
         token = jwt_handler.create_refresh_token({"sub": str(test_user.guid)})
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-        with patch("pyrate.auth.dependencies._enforce_user_policy", new_callable=AsyncMock):
+        with patch("streamarr.auth.dependencies._enforce_user_policy", new_callable=AsyncMock):
             user, jti = await verify_refresh_token(
                 request=None, credentials=creds, session=mock_session
             )
@@ -406,7 +406,7 @@ class TestAuthDependencies:
         from fastapi import HTTPException
         from fastapi.security import HTTPAuthorizationCredentials
 
-        from pyrate.auth.dependencies import verify_refresh_token
+        from streamarr.auth.dependencies import verify_refresh_token
 
         mock_session = AsyncMock()
         token = jwt_handler.create_access_token({"sub": str(test_user.guid)})
@@ -423,7 +423,7 @@ class TestAuthDependencies:
         from fastapi import HTTPException
         from fastapi.security import HTTPAuthorizationCredentials
 
-        from pyrate.auth.dependencies import verify_refresh_token
+        from streamarr.auth.dependencies import verify_refresh_token
 
         mock_session = AsyncMock()
         mock_session.get.return_value = test_user
@@ -441,7 +441,7 @@ class TestAuthDependencies:
         token = jose_jwt.encode(payload, jwt_handler.secret_key, algorithm="HS256")
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
         with (
-            patch("pyrate.auth.dependencies._enforce_user_policy", new_callable=AsyncMock),
+            patch("streamarr.auth.dependencies._enforce_user_policy", new_callable=AsyncMock),
             pytest.raises(HTTPException) as exc_info,
         ):
             await verify_refresh_token(
@@ -461,7 +461,7 @@ class TestOIDCClient:
 
     def _make_client(self, **overrides):
         """Create an OIDCClient with mocked config."""
-        from pyrate.auth.oidc_client import OIDCClient
+        from streamarr.auth.oidc_client import OIDCClient
 
         defaults = dict(
             enabled=True,
@@ -539,7 +539,7 @@ class TestOIDCClient:
         mock_response.raise_for_status = MagicMock()
 
         with patch(
-            "pyrate.auth.oidc_client.safe_get",
+            "streamarr.auth.oidc_client.safe_get",
             new=AsyncMock(return_value=mock_response),
         ):
             result = await client.get_provider_metadata()
@@ -567,8 +567,8 @@ class TestOIDCClient:
         mock_token_response = {"access_token": "at", "id_token": "idt"}
 
         with (
-            patch("pyrate.auth.oidc_client.AsyncOAuth2Client") as MockOAuth,
-            patch("pyrate.auth.oidc_client.assert_safe_url"),
+            patch("streamarr.auth.oidc_client.AsyncOAuth2Client") as MockOAuth,
+            patch("streamarr.auth.oidc_client.assert_safe_url"),
         ):
             mock_oauth_instance = AsyncMock()
             mock_oauth_instance.fetch_token.return_value = mock_token_response
@@ -589,7 +589,7 @@ class TestOIDCClient:
         mock_response.raise_for_status = MagicMock()
 
         with patch(
-            "pyrate.auth.oidc_client.safe_get",
+            "streamarr.auth.oidc_client.safe_get",
             new=AsyncMock(return_value=mock_response),
         ):
             result = await client.get_userinfo("access-token")
@@ -609,7 +609,7 @@ class TestOIDCClient:
         mock_jwks_response.raise_for_status = MagicMock()
 
         mock_safe_get = AsyncMock(return_value=mock_jwks_response)
-        with patch("pyrate.auth.oidc_client.safe_get", new=mock_safe_get):
+        with patch("streamarr.auth.oidc_client.safe_get", new=mock_safe_get):
             # CodeIDToken.parse will fail with empty keys, that's expected
             with pytest.raises(Exception):
                 await client.verify_id_token("some-id-token")

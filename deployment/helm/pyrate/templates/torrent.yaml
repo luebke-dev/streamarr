@@ -1,11 +1,11 @@
 {{- if .Values.downloaders.torrent.enabled -}}
-{{- $name := printf "%s-torrent-downloader" (include "pyrate.fullname" .) -}}
+{{- $name := printf "%s-torrent-downloader" (include "streamarr.fullname" .) -}}
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "torrent") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "torrent") | nindent 4 }}
 spec:
   {{- if .Values.downloaders.torrent.service.dhtNodePort }}
   type: NodePort
@@ -24,41 +24,41 @@ spec:
       nodePort: {{ .Values.downloaders.torrent.service.dhtNodePort }}
       {{- end }}
   selector:
-    {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "torrent") | nindent 4 }}
+    {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "torrent") | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "torrent") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "torrent") | nindent 4 }}
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "torrent") | nindent 6 }}
+      {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "torrent") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "torrent") | nindent 8 }}
+        {{- include "streamarr.componentLabels" (dict "ctx" . "component" "torrent") | nindent 8 }}
     spec:
-      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      {{- include "streamarr.imagePullSecrets" . | nindent 6 }}
       securityContext:
         # The torrent image bakes user `app` (UID 1000).
         fsGroup: 1000
       containers:
         - name: torrent
-          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.downloaders.torrent.image) }}
+          image: {{ include "streamarr.image" (dict "ctx" . "img" .Values.downloaders.torrent.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           env:
             - name: WEBHOOK_URL
-              value: "http://{{ include "pyrate.backendHost" . }}:{{ .Values.backend.proxy.service.port }}/api/webhooks/torrent"
+              value: "http://{{ include "streamarr.backendHost" . }}:{{ .Values.backend.proxy.service.port }}/api/webhooks/torrent"
             - name: WEBHOOK_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "pyrate.secretName" . }}
+                  name: {{ include "streamarr.secretName" . }}
                   key: downloader-webhook-secret
             - name: MAX_CONCURRENT_DOWNLOADS
               value: {{ .Values.downloaders.torrent.maxConcurrentDownloads | quote }}
@@ -82,5 +82,5 @@ spec:
       volumes:
         - name: downloads
           persistentVolumeClaim:
-            claimName: {{ include "pyrate.fullname" . }}-downloads
+            claimName: {{ include "streamarr.fullname" . }}-downloads
 {{- end -}}

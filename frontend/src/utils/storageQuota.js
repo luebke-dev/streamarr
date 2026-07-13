@@ -1,4 +1,4 @@
-export const API_CACHE_STORAGE_PREFIX = 'pyrate:api-cache:'
+export const API_CACHE_STORAGE_PREFIX = 'streamarr:api-cache:'
 
 export function isQuotaExceededError(error) {
   if (!error) return false

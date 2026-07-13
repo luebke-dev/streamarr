@@ -31,7 +31,7 @@ Select a target and a **Casting to** entry appears at the bottom of the menu. Wh
 
 The menu doubles as a remote:
 
-=== "pyrate devices"
+=== "streamarr devices"
 
     - **Play/Pause**, **skip ±10 seconds**, and **Previous/Next** when the target supports a play queue
     - **Volume** slider and **mute** where the target supports it
@@ -45,11 +45,11 @@ The menu doubles as a remote:
     - The server automatically prepares the stream in a format the cast device can play
 
 !!! tip "No targets found?"
-    Open pyrate on another device — it appears in the list as soon as it is connected. Cast targets are discovered by the *server* on its network, so the server must be able to reach your Chromecast/TV; your administrator can also register cast targets manually.
+    Open streamarr on another device — it appears in the list as soon as it is connected. Cast targets are discovered by the *server* on its network, so the server must be able to reach your Chromecast/TV; your administrator can also register cast targets manually.
 
 ## Offline downloads
 
-pyrate can prepare **offline copies per device**, so a device can play an item without streaming — subtitles included. Whether offline downloads are available to you, and how many items you can keep, depends on your permissions or [membership plan](membership.md) (look for the *Offline downloads* feature).
+streamarr can prepare **offline copies per device**, so a device can play an item without streaming — subtitles included. Whether offline downloads are available to you, and how many items you can keep, depends on your permissions or [membership plan](membership.md) (look for the *Offline downloads* feature).
 
 Each item on a device moves through these statuses:
 

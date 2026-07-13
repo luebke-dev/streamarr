@@ -9,9 +9,9 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.activity_log import ActivityLog
-from pyrate.models.media import AvailabilityStatus, MediaItem, MediaType
-from pyrate.models.user import User
+from streamarr.models.activity_log import ActivityLog
+from streamarr.models.media import AvailabilityStatus, MediaItem, MediaType
+from streamarr.models.user import User
 
 
 async def _create_media_item(db: AsyncSession, **overrides) -> MediaItem:
@@ -318,7 +318,7 @@ class TestSubtitleProviders:
         assert resp.status_code == 404
 
     async def test_network_provider_search_service(self, db_session: AsyncSession):
-        from pyrate.services.subtitle_provider import SubtitleProviderService
+        from streamarr.services.subtitle_provider import SubtitleProviderService
 
         item = await _create_media_item(db_session)
 
@@ -355,7 +355,7 @@ class TestSubtitleProviders:
         assert results[0]["url"] == "https://subs.example/en.srt"
 
     async def test_opensubtitles_provider_search_service(self, db_session: AsyncSession):
-        from pyrate.services.subtitle_provider import SubtitleProviderService
+        from streamarr.services.subtitle_provider import SubtitleProviderService
 
         item = await _create_media_item(db_session)
 
@@ -411,7 +411,7 @@ class TestSubtitleProviders:
     async def test_opensubtitles_download_resolution_service(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.subtitle_provider import SubtitleProviderService
+        from streamarr.services.subtitle_provider import SubtitleProviderService
 
         item = await _create_media_item(db_session)
 
@@ -534,7 +534,7 @@ class TestSubtitleUpload:
             assert url == "https://subtitles.test/en.vtt"
             return _FakeResponse()
 
-        monkeypatch.setattr("pyrate.api.v1.subtitles.safe_get", _fake_safe_get)
+        monkeypatch.setattr("streamarr.api.v1.subtitles.safe_get", _fake_safe_get)
 
         content = await client.get(
             f"/api/media/{item.guid}/subtitles/remote-en/content",

@@ -14,7 +14,7 @@ def mock_client():
 
 @pytest.fixture
 def tmdb(mock_client):
-    from pyrate.metadata.tmdb import TMDB
+    from streamarr.metadata.tmdb import TMDB
 
     return TMDB(
         api_key="test-api-key",
@@ -313,7 +313,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.tmdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.tmdb.httpx.AsyncClient")
     async def test_validate_success(self, mock_client_cls, tmdb):
         mock_instance = AsyncMock()
         resp = MagicMock()
@@ -325,7 +325,7 @@ class TestValidateConfig:
         assert result["valid"] is True
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.tmdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.tmdb.httpx.AsyncClient")
     async def test_validate_unauthorized(self, mock_client_cls, tmdb):
         mock_instance = AsyncMock()
         resp = MagicMock()
@@ -337,7 +337,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.tmdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.tmdb.httpx.AsyncClient")
     async def test_validate_other_status(self, mock_client_cls, tmdb):
         mock_instance = AsyncMock()
         resp = MagicMock()
@@ -349,7 +349,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.tmdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.tmdb.httpx.AsyncClient")
     async def test_validate_timeout(self, mock_client_cls, tmdb):
         mock_instance = AsyncMock()
         mock_instance.get.side_effect = httpx.TimeoutException("timeout")
@@ -358,7 +358,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.tmdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.tmdb.httpx.AsyncClient")
     async def test_validate_http_error(self, mock_client_cls, tmdb):
         mock_instance = AsyncMock()
         mock_instance.get.side_effect = httpx.HTTPError("connection error")
@@ -367,7 +367,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.tmdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.tmdb.httpx.AsyncClient")
     async def test_validate_unexpected_error(self, mock_client_cls, tmdb):
         mock_instance = AsyncMock()
         mock_instance.get.side_effect = RuntimeError("unexpected")
@@ -383,7 +383,7 @@ class TestValidateConfig:
 class TestCloseAndSetup:
     @pytest.mark.asyncio
     async def test_close_owns_client(self, mock_client):
-        from pyrate.metadata.tmdb import TMDB
+        from streamarr.metadata.tmdb import TMDB
 
         tmdb = TMDB(api_key="key")  # _owns_client=True
         tmdb.client = mock_client
@@ -400,14 +400,14 @@ class TestCloseAndSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_success(self):
-        from pyrate.metadata.tmdb import async_setup
+        from streamarr.metadata.tmdb import async_setup
 
         result = await async_setup({"api_key": "key"})
         assert result is True
 
     @pytest.mark.asyncio
     async def test_async_setup_missing_key(self):
-        from pyrate.metadata.tmdb import async_setup
+        from streamarr.metadata.tmdb import async_setup
 
         result = await async_setup({})
         assert result is False

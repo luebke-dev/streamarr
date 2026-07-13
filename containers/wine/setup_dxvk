@@ -10,7 +10,7 @@
 set -euo pipefail
 
 action="${1:-install}"
-DXVK_DIR="${DXVK_DIR:-/opt/pyrate/dxvk}"
+DXVK_DIR="${DXVK_DIR:-/opt/streamarr/dxvk}"
 : "${WINEPREFIX:?WINEPREFIX must be set}"
 
 sys32="$WINEPREFIX/drive_c/windows/system32"

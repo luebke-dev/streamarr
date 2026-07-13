@@ -8,10 +8,10 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
-from pyrate.models.list import List, ListItem, ListType, ListVisibility
-from pyrate.models.media import MediaExternalId, MediaItem, MediaRelease, MediaReleaseLink, MediaType
-from pyrate.models.user import User
-from pyrate.services.trending import TrendingService
+from streamarr.models.list import List, ListItem, ListType, ListVisibility
+from streamarr.models.media import MediaExternalId, MediaItem, MediaRelease, MediaReleaseLink, MediaType
+from streamarr.models.user import User
+from streamarr.services.trending import TrendingService
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +26,7 @@ async def service(db_session):
 @pytest_asyncio.fixture
 async def owner(db_session):
     """Create a user to own trending lists."""
-    from pyrate.auth.jwt_handler import jwt_handler
+    from streamarr.auth.jwt_handler import jwt_handler
 
     user = User(
         email="trending@example.com",
@@ -208,7 +208,7 @@ class TestListManagement:
             ))
         await db_session.commit()
 
-        with patch("pyrate.worker.search_media_item_releases", new=AsyncMock()):
+        with patch("streamarr.worker.search_media_item_releases", new=AsyncMock()):
             await service.update_trending_movies_list()
 
         result = await db_session.execute(
@@ -254,7 +254,7 @@ class TestListManagement:
             return_value={"results": [{"id": 100}, {"id": 101}]}
         )
         service._tmdb = mock_tmdb
-        with patch("pyrate.worker.search_media_item_releases", new=AsyncMock()):
+        with patch("streamarr.worker.search_media_item_releases", new=AsyncMock()):
             await service.update_trending_movies_list()
 
         new_movie = await _add_movie_with_release("M_new", 102)
@@ -263,7 +263,7 @@ class TestListManagement:
         mock_tmdb.get_trending_movies = AsyncMock(
             return_value={"results": [{"id": 102}]}
         )
-        with patch("pyrate.worker.search_media_item_releases", new=AsyncMock()):
+        with patch("streamarr.worker.search_media_item_releases", new=AsyncMock()):
             await service.update_trending_movies_list()
 
         result = await db_session.execute(

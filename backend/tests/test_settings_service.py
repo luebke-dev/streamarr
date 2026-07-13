@@ -4,9 +4,9 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import SQLModel
 
-from pyrate.models.setting import DEFAULT_SETTINGS, Setting
-from pyrate.services import settings as settings_module
-from pyrate.services.settings import SettingsService
+from streamarr.models.setting import DEFAULT_SETTINGS, Setting
+from streamarr.services import settings as settings_module
+from streamarr.services.settings import SettingsService
 
 
 class TestSettingsBasicOperations:
@@ -333,12 +333,12 @@ class TestSettingsConvenienceMethods:
 
     @pytest.mark.asyncio
     async def test_oidc_settings_mask_secret(self, db_session: AsyncSession):
-        from pyrate.services.system_settings import SystemSettingsService
+        from streamarr.services.system_settings import SystemSettingsService
 
         service = SystemSettingsService(db_session)
         await service.update_oidc_settings(
             enabled=True,
-            client_id="pyrate",
+            client_id="streamarr",
             client_secret="super-secret",
             scopes=["openid", "profile", "email"],
         )
@@ -346,7 +346,7 @@ class TestSettingsConvenienceMethods:
         result = await service.get_oidc_settings()
 
         assert result["enabled"] is True
-        assert result["client_id"] == "pyrate"
+        assert result["client_id"] == "streamarr"
         assert result["client_secret_configured"] is True
         assert "client_secret" not in result
 

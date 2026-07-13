@@ -1,6 +1,6 @@
 """Tests for ReleaseParser - media release name parsing utilities."""
 
-from pyrate.parsers.release_parser import ReleaseParser
+from streamarr.parsers.release_parser import ReleaseParser
 
 
 class TestNormalizeTitle:

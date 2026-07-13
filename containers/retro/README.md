@@ -1,4 +1,4 @@
-# pyrate-retro — libretro (RetroArch) kiosk container
+# streamarr-retro — libretro (RetroArch) kiosk container
 
 One container for **many** retro systems (NES, SNES, N64, GB/GBC, GBA,
 Genesis/MD, Master System, PC Engine, PSX, Arcade). RetroArch runs as a
@@ -59,5 +59,5 @@ software-rendered; N64 (GLideN64) and `mednafen_psx_hw` use OpenGL.
 ## Build
 
 ```
-docker build -t ghcr.io/luebke-dev/pyrate-retro:latest containers/retro
+docker build -t ghcr.io/luebke-dev/streamarr-retro:latest containers/retro
 ```

@@ -6,10 +6,10 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.banner import Banner, UserBannerDismissed
-from pyrate.models.user import User
-from pyrate.schemas.banner import BannerCreate, BannerUpdate
-from pyrate.services.banner import BannerService
+from streamarr.models.banner import Banner, UserBannerDismissed
+from streamarr.models.user import User
+from streamarr.schemas.banner import BannerCreate, BannerUpdate
+from streamarr.services.banner import BannerService
 
 
 class TestBannerCRUD:

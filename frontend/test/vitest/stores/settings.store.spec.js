@@ -60,7 +60,7 @@ describe('useSettingsStore', () => {
 
     it('has default site name', () => {
       const store = useSettingsStore()
-      expect(store.siteName).toBe('pyrate.media')
+      expect(store.siteName).toBe('streamarr.media')
       expect(store.siteNameLoaded).toBe(false)
     })
 
@@ -203,18 +203,18 @@ describe('useSettingsStore', () => {
       expect(store.siteNameLoaded).toBe(true)
     })
 
-    it('uses default pyrate.media when site_name is null', async () => {
+    it('uses default streamarr.media when site_name is null', async () => {
       mockApi.get.mockResolvedValue({ data: { site_name: null } })
       const store = useSettingsStore()
       await store.fetchSiteName()
-      expect(store.siteName).toBe('pyrate.media')
+      expect(store.siteName).toBe('streamarr.media')
     })
 
     it('does not change siteName or set loaded flag on error', async () => {
       mockApi.get.mockRejectedValue(new Error('Network error'))
       const store = useSettingsStore()
       await store.fetchSiteName()
-      expect(store.siteName).toBe('pyrate.media')
+      expect(store.siteName).toBe('streamarr.media')
       expect(store.siteNameLoaded).toBe(false)
     })
 

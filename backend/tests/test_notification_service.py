@@ -5,10 +5,10 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.notification import Notification, NotificationStatus, NotificationType
-from pyrate.models.user import User
-from pyrate.schemas.notification import NotificationCreate, NotificationUpdate
-from pyrate.services.notification import NotificationService
+from streamarr.models.notification import Notification, NotificationStatus, NotificationType
+from streamarr.models.user import User
+from streamarr.schemas.notification import NotificationCreate, NotificationUpdate
+from streamarr.services.notification import NotificationService
 
 
 class TestNotificationCRUD:

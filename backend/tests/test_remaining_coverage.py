@@ -12,12 +12,12 @@ import pytest
 
 
 # ==========================================================================
-# Shows Plugin (src/pyrate/plugins/shows/__init__.py)
+# Shows Plugin (src/streamarr/plugins/shows/__init__.py)
 # ==========================================================================
 
 
 def _make_show_plugin():
-    from pyrate.libraries.shows import ShowLibraryPlugin
+    from streamarr.libraries.shows import ShowLibraryPlugin
     return ShowLibraryPlugin()
 
 
@@ -104,7 +104,7 @@ class TestShowPluginValidatePath:
     @pytest.mark.asyncio
     async def test_validate_path_exception(self):
         plugin = _make_show_plugin()
-        with patch("pyrate.libraries.shows.Path") as MockPath:
+        with patch("streamarr.libraries.shows.Path") as MockPath:
             MockPath.side_effect = Exception("error")
             result = await plugin.validate_path("/some/path")
         assert result is False
@@ -149,7 +149,7 @@ class TestShowPluginLibraryStats:
     @pytest.mark.asyncio
     async def test_get_library_stats_exception(self, tmp_path):
         plugin = _make_show_plugin()
-        with patch("pyrate.libraries.shows.Path") as MockPath:
+        with patch("streamarr.libraries.shows.Path") as MockPath:
             mock_path_obj = MagicMock()
             mock_path_obj.exists.side_effect = Exception("error")
             MockPath.return_value = mock_path_obj
@@ -740,13 +740,13 @@ class TestShowPluginSuggestFileName:
 
 
 # ==========================================================================
-# Worker (src/pyrate/worker.py) - key functions
+# Worker (src/streamarr/worker.py) - key functions
 # ==========================================================================
 
 
 class TestWorkerParseSpotifyDate:
     def test_parse_full_date(self):
-        from pyrate.utils.dates import parse_spotify_date
+        from streamarr.utils.dates import parse_spotify_date
 
         result = parse_spotify_date("2020-05-15")
         assert result is not None
@@ -755,7 +755,7 @@ class TestWorkerParseSpotifyDate:
         assert result.day == 15
 
     def test_parse_year_month(self):
-        from pyrate.utils.dates import parse_spotify_date
+        from streamarr.utils.dates import parse_spotify_date
 
         result = parse_spotify_date("2020-05")
         assert result is not None
@@ -763,44 +763,44 @@ class TestWorkerParseSpotifyDate:
         assert result.month == 5
 
     def test_parse_year_only(self):
-        from pyrate.utils.dates import parse_spotify_date
+        from streamarr.utils.dates import parse_spotify_date
 
         result = parse_spotify_date("2020")
         assert result is not None
         assert result.year == 2020
 
     def test_parse_none(self):
-        from pyrate.utils.dates import parse_spotify_date
+        from streamarr.utils.dates import parse_spotify_date
 
         result = parse_spotify_date(None)
         assert result is None
 
     def test_parse_invalid(self):
-        from pyrate.utils.dates import parse_spotify_date
+        from streamarr.utils.dates import parse_spotify_date
 
         result = parse_spotify_date("not-a-date")
         assert result is None
 
 
 # ==========================================================================
-# Web (src/pyrate/web.py)
+# Web (src/streamarr/web.py)
 # ==========================================================================
 
 
 class TestWebApp:
     def test_app_exists(self):
-        from pyrate.web import app
+        from streamarr.web import app
         assert app is not None
-        assert app.title == "pyrate.media"
+        assert app.title == "streamarr.media"
 
     def test_app_has_docs_url(self):
-        from pyrate.web import app
+        from streamarr.web import app
         assert app.docs_url == "/api/docs"
         assert app.redoc_url is None
         assert app.openapi_url == "/api/openapi.json"
 
     def test_app_has_cors_middleware(self):
-        from pyrate.web import app
+        from streamarr.web import app
         # FastAPI stores middleware in a stack
         middleware_classes = [
             type(m).__name__
@@ -810,7 +810,7 @@ class TestWebApp:
         assert len(app.user_middleware) > 0
 
     def test_app_includes_api_router(self):
-        from pyrate.web import app
+        from streamarr.web import app
         # Check that routes starting with /api exist
         routes = [r.path for r in app.routes if hasattr(r, "path")]
         # At minimum, the static mount and API routes should exist
@@ -818,21 +818,21 @@ class TestWebApp:
 
     @pytest.mark.asyncio
     async def test_lifespan_runs(self):
-        from pyrate.web import lifespan
+        from streamarr.web import lifespan
 
         mock_app = MagicMock()
         with (
-            patch("pyrate.web.load_settings_from_database", new_callable=AsyncMock),
-            patch("pyrate.web.elasticsearch_service") as mock_es,
-            patch("pyrate.libraries.get_registered_plugins", return_value={}),
-            patch("pyrate.web.Path") as mock_path,
+            patch("streamarr.web.load_settings_from_database", new_callable=AsyncMock),
+            patch("streamarr.web.elasticsearch_service") as mock_es,
+            patch("streamarr.libraries.get_registered_plugins", return_value={}),
+            patch("streamarr.web.Path") as mock_path,
         ):
             mock_es.initialize = AsyncMock()
             mock_es.close = AsyncMock()
 
             # Patch sessionmanager to prevent real DB connection
             with (
-                patch("pyrate.database.sessionmanager") as mock_sm,
+                patch("streamarr.database.sessionmanager") as mock_sm,
             ):
                 mock_session = AsyncMock()
                 mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -849,7 +849,7 @@ class TestWebApp:
     async def test_lifespan_settings_load_failure(self):
         import warnings
 
-        from pyrate.web import lifespan
+        from streamarr.web import lifespan
 
         mock_app = MagicMock()
         mock_es = MagicMock()
@@ -858,11 +858,11 @@ class TestWebApp:
 
         with (
             patch(
-                "pyrate.web.load_settings_from_database",
+                "streamarr.web.load_settings_from_database",
                 new_callable=AsyncMock,
                 side_effect=Exception("DB unavailable"),
             ),
-            patch("pyrate.web.elasticsearch_service", mock_es),
+            patch("streamarr.web.elasticsearch_service", mock_es),
             warnings.catch_warnings(),
         ):
             warnings.simplefilter("ignore", RuntimeWarning)
@@ -874,15 +874,15 @@ class TestWebApp:
 
 
 # ==========================================================================
-# Environment Detection (src/pyrate/utils/environment.py)
+# Environment Detection (src/streamarr/utils/environment.py)
 # ==========================================================================
 
 
 class TestEnvironmentDetection:
     def test_detect_kubernetes_sa(self):
-        from pyrate.utils.environment import detect_environment, Environment
+        from streamarr.utils.environment import detect_environment, Environment
 
-        with patch("pyrate.utils.environment.Path") as MockPath:
+        with patch("streamarr.utils.environment.Path") as MockPath:
             mock_path = MagicMock()
             mock_path.exists.return_value = True
             mock_path.is_dir.return_value = True
@@ -892,10 +892,10 @@ class TestEnvironmentDetection:
             assert result == Environment.KUBERNETES
 
     def test_detect_kubernetes_env_vars(self):
-        from pyrate.utils.environment import detect_environment, Environment
+        from streamarr.utils.environment import detect_environment, Environment
 
         with (
-            patch("pyrate.utils.environment.Path") as MockPath,
+            patch("streamarr.utils.environment.Path") as MockPath,
             patch.dict(os.environ, {"KUBERNETES_SERVICE_HOST": "10.0.0.1"}),
         ):
             mock_path = MagicMock()
@@ -907,10 +907,10 @@ class TestEnvironmentDetection:
             assert result == Environment.KUBERNETES
 
     def test_detect_docker_dockerenv(self):
-        from pyrate.utils.environment import detect_environment, Environment
+        from streamarr.utils.environment import detect_environment, Environment
 
         with (
-            patch("pyrate.utils.environment.Path") as MockPath,
+            patch("streamarr.utils.environment.Path") as MockPath,
             patch.dict(os.environ, {}, clear=True),
         ):
             # Remove KUBERNETES_SERVICE_HOST if present
@@ -936,10 +936,10 @@ class TestEnvironmentDetection:
             assert result == Environment.DOCKER
 
     def test_detect_docker_cgroup(self):
-        from pyrate.utils.environment import detect_environment, Environment
+        from streamarr.utils.environment import detect_environment, Environment
 
         with (
-            patch("pyrate.utils.environment.Path") as MockPath,
+            patch("streamarr.utils.environment.Path") as MockPath,
             patch.dict(os.environ, {}, clear=True),
             patch("builtins.open", create=True) as mock_open,
         ):
@@ -960,10 +960,10 @@ class TestEnvironmentDetection:
             assert result == Environment.DOCKER
 
     def test_detect_docker_socket(self):
-        from pyrate.utils.environment import detect_environment, Environment
+        from streamarr.utils.environment import detect_environment, Environment
 
         with (
-            patch("pyrate.utils.environment.Path") as MockPath,
+            patch("streamarr.utils.environment.Path") as MockPath,
             patch.dict(os.environ, {}, clear=True),
             patch("builtins.open", side_effect=FileNotFoundError),
         ):
@@ -988,30 +988,30 @@ class TestEnvironmentDetection:
             assert result == Environment.DOCKER
 
     def test_get_computing_provider_domain_kubernetes(self):
-        from pyrate.utils.environment import get_computing_provider_domain
+        from streamarr.utils.environment import get_computing_provider_domain
 
         with patch(
-            "pyrate.utils.environment.detect_environment",
+            "streamarr.utils.environment.detect_environment",
             return_value="kubernetes",
         ):
             result = get_computing_provider_domain()
             assert result == "kubernetes"
 
     def test_get_computing_provider_domain_docker(self):
-        from pyrate.utils.environment import get_computing_provider_domain
+        from streamarr.utils.environment import get_computing_provider_domain
 
         with patch(
-            "pyrate.utils.environment.detect_environment",
+            "streamarr.utils.environment.detect_environment",
             return_value="docker",
         ):
             result = get_computing_provider_domain()
             assert result == "docker"
 
     def test_get_computing_provider_domain_unknown(self):
-        from pyrate.utils.environment import get_computing_provider_domain
+        from streamarr.utils.environment import get_computing_provider_domain
 
         with patch(
-            "pyrate.utils.environment.detect_environment",
+            "streamarr.utils.environment.detect_environment",
             return_value="unknown",
         ):
             result = get_computing_provider_domain()
@@ -1020,7 +1020,7 @@ class TestEnvironmentDetection:
 
 class TestEnvironmentClass:
     def test_environment_constants(self):
-        from pyrate.utils.environment import Environment
+        from streamarr.utils.environment import Environment
 
         assert Environment.KUBERNETES == "kubernetes"
         assert Environment.DOCKER == "docker"
@@ -1031,7 +1031,7 @@ class TestEnvironmentClass:
 # Schemas: search.py (line 57 - model validator)
 # ==========================================================================
 
-from pyrate.schemas.search import SearchRequest
+from streamarr.schemas.search import SearchRequest
 
 
 class TestSearchRequestSchema:
@@ -1078,7 +1078,7 @@ class TestSearchRequestSchema:
 class TestSubscriptionSchemaValidators:
     @pytest.mark.asyncio
     async def test_package_requires_group_id(self):
-        from pyrate.schemas.subscription import SubscriptionPackageBase
+        from streamarr.schemas.subscription import SubscriptionPackageBase
 
         with pytest.raises(Exception):
             SubscriptionPackageBase(
@@ -1088,7 +1088,7 @@ class TestSubscriptionSchemaValidators:
 
     @pytest.mark.asyncio
     async def test_package_rejects_empty_name(self):
-        from pyrate.schemas.subscription import SubscriptionPackageBase
+        from streamarr.schemas.subscription import SubscriptionPackageBase
 
         with pytest.raises(Exception):
             SubscriptionPackageBase(
@@ -1099,7 +1099,7 @@ class TestSubscriptionSchemaValidators:
 
     @pytest.mark.asyncio
     async def test_package_rejects_zero_price(self):
-        from pyrate.schemas.subscription import SubscriptionPackageBase
+        from streamarr.schemas.subscription import SubscriptionPackageBase
 
         with pytest.raises(Exception):
             SubscriptionPackageBase(
@@ -1110,7 +1110,7 @@ class TestSubscriptionSchemaValidators:
 
     @pytest.mark.asyncio
     async def test_validate_valid_package(self):
-        from pyrate.schemas.subscription import SubscriptionPackageBase
+        from streamarr.schemas.subscription import SubscriptionPackageBase
 
         group_id = uuid.uuid4()
         pkg = SubscriptionPackageBase(
@@ -1124,7 +1124,7 @@ class TestSubscriptionSchemaValidators:
 
     @pytest.mark.asyncio
     async def test_update_schema_allows_partial_group_change(self):
-        from pyrate.schemas.subscription import SubscriptionPackageUpdate
+        from streamarr.schemas.subscription import SubscriptionPackageUpdate
 
         group_id = uuid.uuid4()
         update = SubscriptionPackageUpdate(group_id=group_id)
@@ -1140,7 +1140,7 @@ class TestSubscriptionSchemaValidators:
 
 class TestTranscodingSessionRedis:
     def test_to_redis_dict(self):
-        from pyrate.schemas.transcoding import TranscodingSession
+        from streamarr.schemas.transcoding import TranscodingSession
 
         session = TranscodingSession(
             session_id="test-123",
@@ -1169,7 +1169,7 @@ class TestTranscodingSessionRedis:
         assert isinstance(d["last_accessed_at"], str)
 
     def test_to_redis_dict_none_values(self):
-        from pyrate.schemas.transcoding import TranscodingSession
+        from streamarr.schemas.transcoding import TranscodingSession
 
         session = TranscodingSession(
             session_id="test-456",
@@ -1186,7 +1186,7 @@ class TestTranscodingSessionRedis:
         assert d["input_path"] is None
 
     def test_from_redis_dict(self):
-        from pyrate.schemas.transcoding import TranscodingSession
+        from streamarr.schemas.transcoding import TranscodingSession
 
         data = {
             "session_id": "test-123",
@@ -1219,7 +1219,7 @@ class TestTranscodingSessionRedis:
         assert session.retry_count == 2
 
     def test_from_redis_dict_minimal(self):
-        from pyrate.schemas.transcoding import TranscodingSession
+        from streamarr.schemas.transcoding import TranscodingSession
 
         data = {
             "session_id": "test-min",
@@ -1236,7 +1236,7 @@ class TestTranscodingSessionRedis:
         assert session.retry_count == 0  # Default
 
     def test_roundtrip(self):
-        from pyrate.schemas.transcoding import TranscodingSession
+        from streamarr.schemas.transcoding import TranscodingSession
 
         original = TranscodingSession(
             session_id="roundtrip-test",
@@ -1260,7 +1260,7 @@ class TestTranscodingSessionRedis:
         assert restored.retry_count == original.retry_count
 
     def test_from_session_read(self):
-        from pyrate.schemas.transcoding import TranscodingSession, TranscodingSessionRead
+        from streamarr.schemas.transcoding import TranscodingSession, TranscodingSessionRead
 
         session = TranscodingSession(
             session_id="read-test",
@@ -1282,7 +1282,7 @@ class TestTranscodingSessionRedis:
 
 class TestUserPasswordValidation:
     def test_password_none_is_valid(self):
-        from pyrate.schemas.user import UserCreate
+        from streamarr.schemas.user import UserCreate
 
         user = UserCreate(
             first_name="Test",
@@ -1293,7 +1293,7 @@ class TestUserPasswordValidation:
         assert user.password is None
 
     def test_password_too_short(self):
-        from pyrate.schemas.user import UserCreate
+        from streamarr.schemas.user import UserCreate
 
         with pytest.raises(Exception, match="at least"):
             UserCreate(
@@ -1304,7 +1304,7 @@ class TestUserPasswordValidation:
             )
 
     def test_password_valid(self):
-        from pyrate.schemas.user import UserCreate
+        from streamarr.schemas.user import UserCreate
 
         user = UserCreate(
             first_name="Test",
@@ -1315,9 +1315,9 @@ class TestUserPasswordValidation:
         assert user.password == "SecurePass123"
 
     def test_password_no_uppercase(self):
-        from pyrate.schemas.user import UserCreate
+        from streamarr.schemas.user import UserCreate
 
-        with patch("pyrate.config.settings") as mock_settings:
+        with patch("streamarr.config.settings") as mock_settings:
             mock_settings.oidc.min_password_length = 8
             mock_settings.oidc.require_password_complexity = True
 
@@ -1330,9 +1330,9 @@ class TestUserPasswordValidation:
                 )
 
     def test_password_no_digit(self):
-        from pyrate.schemas.user import UserCreate
+        from streamarr.schemas.user import UserCreate
 
-        with patch("pyrate.config.settings") as mock_settings:
+        with patch("streamarr.config.settings") as mock_settings:
             mock_settings.oidc.min_password_length = 8
             mock_settings.oidc.require_password_complexity = True
 
@@ -1345,9 +1345,9 @@ class TestUserPasswordValidation:
                 )
 
     def test_password_no_lowercase(self):
-        from pyrate.schemas.user import UserCreate
+        from streamarr.schemas.user import UserCreate
 
-        with patch("pyrate.config.settings") as mock_settings:
+        with patch("streamarr.config.settings") as mock_settings:
             mock_settings.oidc.min_password_length = 8
             mock_settings.oidc.require_password_complexity = True
 
@@ -1360,9 +1360,9 @@ class TestUserPasswordValidation:
                 )
 
     def test_password_complexity_disabled(self):
-        from pyrate.schemas.user import UserCreate
+        from streamarr.schemas.user import UserCreate
 
-        with patch("pyrate.config.settings") as mock_settings:
+        with patch("streamarr.config.settings") as mock_settings:
             mock_settings.oidc.min_password_length = 8
             mock_settings.oidc.require_password_complexity = False
 
@@ -1383,7 +1383,7 @@ class TestUserPasswordValidation:
 class TestWorkerTasks:
     @pytest.mark.asyncio
     async def test_handle_completed_download_success(self):
-        from pyrate.worker import handle_completed_download
+        from streamarr.worker import handle_completed_download
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -1395,8 +1395,8 @@ class TestWorkerTasks:
         )
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.DownloadService", return_value=mock_download_service),
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.DownloadService", return_value=mock_download_service),
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -1409,7 +1409,7 @@ class TestWorkerTasks:
 
     @pytest.mark.asyncio
     async def test_handle_completed_download_failure_with_blacklist(self):
-        from pyrate.worker import handle_completed_download
+        from streamarr.worker import handle_completed_download
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -1429,9 +1429,9 @@ class TestWorkerTasks:
         mock_download_service.get_by_external_id = AsyncMock(return_value=mock_download)
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.DownloadService", return_value=mock_download_service),
-            patch("pyrate.worker.auto_download_media_item") as mock_auto,
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.DownloadService", return_value=mock_download_service),
+            patch("streamarr.worker.auto_download_media_item") as mock_auto,
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -1443,7 +1443,7 @@ class TestWorkerTasks:
 
     @pytest.mark.asyncio
     async def test_add_download_success(self):
-        from pyrate.worker import add_download
+        from streamarr.worker import add_download
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -1457,9 +1457,9 @@ class TestWorkerTasks:
         mock_downloader_service.get_all = AsyncMock(return_value=[MagicMock()])
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.DownloadService", return_value=mock_download_service),
-            patch("pyrate.worker.DownloaderService", return_value=mock_downloader_service),
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.DownloadService", return_value=mock_download_service),
+            patch("streamarr.worker.DownloaderService", return_value=mock_downloader_service),
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -1468,7 +1468,7 @@ class TestWorkerTasks:
 
     @pytest.mark.asyncio
     async def test_add_show_download(self):
-        from pyrate.worker import add_show_download
+        from streamarr.worker import add_show_download
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -1482,9 +1482,9 @@ class TestWorkerTasks:
         mock_downloader_service.get_all = AsyncMock(return_value=[MagicMock()])
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.DownloadService", return_value=mock_download_service),
-            patch("pyrate.worker.DownloaderService", return_value=mock_downloader_service),
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.DownloadService", return_value=mock_download_service),
+            patch("streamarr.worker.DownloaderService", return_value=mock_downloader_service),
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -1493,7 +1493,7 @@ class TestWorkerTasks:
 
     @pytest.mark.asyncio
     async def test_add_music_download(self):
-        from pyrate.worker import add_music_download
+        from streamarr.worker import add_music_download
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -1507,9 +1507,9 @@ class TestWorkerTasks:
         mock_downloader_service.get_all = AsyncMock(return_value=[MagicMock()])
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.DownloadService", return_value=mock_download_service),
-            patch("pyrate.worker.DownloaderService", return_value=mock_downloader_service),
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.DownloadService", return_value=mock_download_service),
+            patch("streamarr.worker.DownloaderService", return_value=mock_downloader_service),
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -1518,7 +1518,7 @@ class TestWorkerTasks:
 
     @pytest.mark.asyncio
     async def test_send_notification_email_success(self):
-        from pyrate.worker import send_notification_email
+        from streamarr.worker import send_notification_email
 
         mock_session = AsyncMock()
         mock_notification_service = AsyncMock()
@@ -1535,16 +1535,16 @@ class TestWorkerTasks:
         mock_user.email = "test@example.com"
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.NotificationService", return_value=mock_notification_service),
-            patch("pyrate.services.settings.SettingsService") as mock_settings_service,
-            patch("pyrate.worker.email_service") as mock_email,
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.NotificationService", return_value=mock_notification_service),
+            patch("streamarr.services.settings.SettingsService") as mock_settings_service,
+            patch("streamarr.worker.email_service") as mock_email,
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)
             mock_session.get = AsyncMock(return_value=mock_user)
             mock_settings = AsyncMock()
-            mock_settings.get = AsyncMock(return_value="Pyrate Media")
+            mock_settings.get = AsyncMock(return_value="Streamarr")
             mock_settings_service.return_value = mock_settings
             mock_email.send_notification_email = AsyncMock(return_value=True)
 
@@ -1556,15 +1556,15 @@ class TestWorkerTasks:
 
     @pytest.mark.asyncio
     async def test_send_notification_email_not_found(self):
-        from pyrate.worker import send_notification_email
+        from streamarr.worker import send_notification_email
 
         mock_session = AsyncMock()
         mock_notification_service = AsyncMock()
         mock_notification_service.get_by_id = AsyncMock(return_value=None)
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.NotificationService", return_value=mock_notification_service),
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.NotificationService", return_value=mock_notification_service),
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -1573,7 +1573,7 @@ class TestWorkerTasks:
 
     @pytest.mark.asyncio
     async def test_send_notification_email_disabled(self):
-        from pyrate.worker import send_notification_email
+        from streamarr.worker import send_notification_email
 
         mock_session = AsyncMock()
         mock_notification_service = AsyncMock()
@@ -1582,8 +1582,8 @@ class TestWorkerTasks:
         mock_notification_service.get_by_id = AsyncMock(return_value=mock_notification)
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.NotificationService", return_value=mock_notification_service),
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.NotificationService", return_value=mock_notification_service),
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -1592,7 +1592,7 @@ class TestWorkerTasks:
 
     @pytest.mark.asyncio
     async def test_import_trending_movies(self):
-        from pyrate.worker import import_trending_movies
+        from streamarr.worker import import_trending_movies
 
         mock_session = AsyncMock()
         mock_trending = AsyncMock()
@@ -1600,8 +1600,8 @@ class TestWorkerTasks:
         mock_trending.update_trending_movies_list = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.TrendingService", return_value=mock_trending),
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.TrendingService", return_value=mock_trending),
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -1612,7 +1612,7 @@ class TestWorkerTasks:
 
     @pytest.mark.asyncio
     async def test_import_trending_shows(self):
-        from pyrate.worker import import_trending_shows
+        from streamarr.worker import import_trending_shows
 
         mock_session = AsyncMock()
         mock_trending = AsyncMock()
@@ -1620,8 +1620,8 @@ class TestWorkerTasks:
         mock_trending.update_trending_shows_list = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.TrendingService", return_value=mock_trending),
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.TrendingService", return_value=mock_trending),
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -1632,7 +1632,7 @@ class TestWorkerTasks:
 
     @pytest.mark.asyncio
     async def test_import_trending_games(self):
-        from pyrate.worker import import_trending_games
+        from streamarr.worker import import_trending_games
 
         mock_session = AsyncMock()
         mock_trending = AsyncMock()
@@ -1640,8 +1640,8 @@ class TestWorkerTasks:
         mock_trending.update_trending_games_list = AsyncMock()
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.TrendingService", return_value=mock_trending),
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.TrendingService", return_value=mock_trending),
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -1652,7 +1652,7 @@ class TestWorkerTasks:
 
     @pytest.mark.asyncio
     async def test_import_movie_metadata_success(self):
-        from pyrate.worker import import_movie_metadata
+        from streamarr.worker import import_movie_metadata
 
         mock_session = AsyncMock()
         mock_tmdb = AsyncMock()
@@ -1661,10 +1661,10 @@ class TestWorkerTasks:
         )
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
-            patch("pyrate.worker.import_movie") as mock_import,
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.import_movie") as mock_import,
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -1676,16 +1676,16 @@ class TestWorkerTasks:
 
     @pytest.mark.asyncio
     async def test_import_movie_metadata_no_results(self):
-        from pyrate.worker import import_movie_metadata
+        from streamarr.worker import import_movie_metadata
 
         mock_session = AsyncMock()
         mock_tmdb = AsyncMock()
         mock_tmdb.search_movies = AsyncMock(return_value={"results": []})
 
         with (
-            patch("pyrate.worker.sessionmanager") as mock_sm,
-            patch("pyrate.worker.get_tmdb_api_key", return_value="key"),
-            patch("pyrate.worker.TMDB", return_value=mock_tmdb),
+            patch("streamarr.worker.sessionmanager") as mock_sm,
+            patch("streamarr.worker.get_tmdb_api_key", return_value="key"),
+            patch("streamarr.worker.TMDB", return_value=mock_tmdb),
         ):
             mock_sm.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_sm.session.return_value.__aexit__ = AsyncMock(return_value=False)

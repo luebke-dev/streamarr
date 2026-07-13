@@ -5,9 +5,9 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.friendship import Friendship, FriendshipStatus
-from pyrate.models.user import User
-from pyrate.services.friendship import FriendshipService
+from streamarr.models.friendship import Friendship, FriendshipStatus
+from streamarr.models.user import User
+from streamarr.services.friendship import FriendshipService
 
 
 # ---------------------------------------------------------------------------

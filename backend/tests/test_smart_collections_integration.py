@@ -15,21 +15,21 @@ from typing import Any
 
 import pytest
 
-from pyrate.metadata.list_sources import (
+from streamarr.metadata.list_sources import (
     ExternalRef,
     ListSourceMediaType,
 )
-from pyrate.models.list import List as ListModel, ListItem
-from pyrate.models.media import MediaExternalId, MediaItem
-from pyrate.models.smart_collection import (
+from streamarr.models.list import List as ListModel, ListItem
+from streamarr.models.media import MediaExternalId, MediaItem
+from streamarr.models.smart_collection import (
     SmartCollectionMediaType,
     SmartCollectionRule,
     SmartCollectionRun,
     SmartCollectionRunStatus,
     SmartCollectionSyncMode,
 )
-from pyrate.smart_collections import SmartCollectionService
-from pyrate.smart_collections.builders.base import (
+from streamarr.smart_collections import SmartCollectionService
+from streamarr.smart_collections.builders.base import (
     BuildResult,
     SmartCollectionBuilder,
 )
@@ -98,7 +98,7 @@ async def test_full_run_populates_list(db_session, monkeypatch):
         )
     ]
     monkeypatch.setattr(
-        "pyrate.smart_collections.service.build_builder",
+        "streamarr.smart_collections.service.build_builder",
         _stub_factory(refs),
     )
 
@@ -187,7 +187,7 @@ async def test_filter_drops_low_rating(db_session, monkeypatch):
         )
     ]
     monkeypatch.setattr(
-        "pyrate.smart_collections.service.build_builder",
+        "streamarr.smart_collections.service.build_builder",
         _stub_factory(refs),
     )
 
@@ -226,7 +226,7 @@ async def test_unresolved_refs_dont_break_run(db_session, monkeypatch):
         )
     ]
     monkeypatch.setattr(
-        "pyrate.smart_collections.service.build_builder",
+        "streamarr.smart_collections.service.build_builder",
         _stub_factory(refs),
     )
 

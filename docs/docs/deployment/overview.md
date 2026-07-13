@@ -1,12 +1,12 @@
 # Deployment Overview
 
-pyrate.media ships four supported deployment models, each with a clearly assigned role and a single source of truth in the repository's `deployment/` directory. Change the maintained file for your target — never a downstream copy.
+streamarr.media ships four supported deployment models, each with a clearly assigned role and a single source of truth in the repository's `deployment/` directory. Change the maintained file for your target — never a downstream copy.
 
 ## The four models
 
 | Model | Path | Target | Status |
 |-------|------|--------|--------|
-| **Helm chart** | `deployment/helm/pyrate` | Kubernetes / production | Authoritative for K8s |
+| **Helm chart** | `deployment/helm/streamarr` | Kubernetes / production | Authoritative for K8s |
 | **Docker Compose (prod)** | `deployment/docker/docker-compose.yml` | Single-host production, pre-built registry images | Authoritative for single-host prod |
 | **Root Compose (dev)** | `docker-compose.yml` (repo root) | Local development, all images built locally | Not a production artifact |
 | **Podman quadlets** | `deployment/quadlets/*.container` | Single-host Podman + systemd | Lean SABnzbd-only variant |
@@ -16,10 +16,10 @@ pyrate.media ships four supported deployment models, each with a clearly assigne
 
 ## Single-host production
 
-The prod Compose file pulls images from `registry.gitlab.com/pyrate.media`. For a fresh box, the interactive installer bootstraps everything:
+The prod Compose file pulls images from `registry.gitlab.com/streamarr.media`. For a fresh box, the interactive installer bootstraps everything:
 
 ```bash
-curl -fsSL https://get.pyrate.media | sudo bash
+curl -fsSL https://get.streamarr.media | sudo bash
 ```
 
 It installs Docker (Debian/Fedora/RHEL), generates secrets with `openssl rand`, writes a `chmod 600` `.env` plus a systemd unit, and emits a **generated subset** of the maintained Compose file with only the services you opt into. For the full service set (the three Rust downloaders in addition to SABnzbd), deploy `docker/docker-compose.yml` directly — it remains the source of truth.
@@ -29,8 +29,8 @@ It installs Docker (Debian/Fedora/RHEL), generates secrets with `openssl rand`, 
 The chart is published as an OCI artifact:
 
 ```bash
-helm install pyrate oci://registry.gitlab.com/pyrate.media/deployment/pyrate \
-  --namespace pyrate --create-namespace \
+helm install streamarr oci://registry.gitlab.com/streamarr.media/deployment/streamarr \
+  --namespace streamarr --create-namespace \
   --set secrets.postgresPassword=$(openssl rand -hex 32) \
   --set secrets.secretKey=$(openssl rand -hex 32) \
   --set secrets.lightraysJwtSecret=$(openssl rand -hex 32) \
@@ -53,7 +53,7 @@ The backend auto-detects Kubernetes and runs FFmpeg, ffprobe, chromaprint, and t
 
 ## Podman quadlets
 
-The leanest single-host option: systemd `.container` units with SABnzbd as the **only** downloader — no Rust downloader services and no nginx backend proxy (the backend unit publishes port 8000 directly). Secrets come from `EnvironmentFile=/etc/pyrate/pyrate.env` (`root:root`, mode `0600`); without it the units start with empty passwords and paths.
+The leanest single-host option: systemd `.container` units with SABnzbd as the **only** downloader — no Rust downloader services and no nginx backend proxy (the backend unit publishes port 8000 directly). Secrets come from `EnvironmentFile=/etc/streamarr/streamarr.env` (`root:root`, mode `0600`); without it the units start with empty passwords and paths.
 
 ## Migrations, secrets, Elasticsearch
 
@@ -66,7 +66,7 @@ Database migrations run as a dedicated **one-shot step** before any app process 
     A `pre-install,pre-upgrade` hook Job applies migrations once per release before the Deployments roll out (`migrations.enabled`, default `true`).
 
 === "Quadlets"
-    `pyrate-migrate.container` is a `Type=oneshot` unit; the app units order themselves `After=`/`Requires=` it.
+    `streamarr-migrate.container` is a `Type=oneshot` unit; the app units order themselves `After=`/`Requires=` it.
 
 Secrets are never committed. Compose reads a git-ignored `.env` (copy `docker/.env.example`; keys: `SECRET_KEY`, `POSTGRES_PASSWORD`, `LIGHTRAYS_JWT_SECRET`, `DOWNLOADER_WEBHOOK_SECRET`); Helm uses the `secrets:` values block or `secrets.existingSecret` and fails fast when one is missing; quadlets use the systemd EnvironmentFile above.
 
@@ -90,6 +90,6 @@ Default host ports on the single-host prod model (all overridable via `.env`):
 
 ## Observability and disaster recovery
 
-The dev Compose ships Prometheus (v2.55.1) and a fully provisioned Grafana with the "pyrate.media Overview" dashboard (`observability/`); in production, point your own Prometheus at the backend's `/metrics` endpoint and the worker metrics port. See [Monitoring](../administration/monitoring.md).
+The dev Compose ships Prometheus (v2.55.1) and a fully provisioned Grafana with the "streamarr.media Overview" dashboard (`observability/`); in production, point your own Prometheus at the backend's `/metrics` endpoint and the worker metrics port. See [Monitoring](../administration/monitoring.md).
 
 Real disaster recovery lives in `deployment/backup/`: `backup.sh`/`restore.sh` wrap `pg_dump --format=custom`/`pg_restore`, tar the config, optionally snapshot Elasticsearch (the index is rebuildable from PostgreSQL via the admin reindex endpoints), optionally tar media, and can push sets off-site via rclone or S3 with retention pruning. This is deliberately separate from the in-app settings export described in [Maintenance & Backups](../administration/maintenance.md). For first-time setup, start with [Installation](../getting-started/installation.md).

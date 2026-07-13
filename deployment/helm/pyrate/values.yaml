@@ -1,4 +1,4 @@
-# Default values for pyrate.
+# Default values for streamarr.
 # Override per-environment via `helm install -f values-prod.yaml`.
 
 ## ---------------------------------------------------------------------------
@@ -6,7 +6,7 @@
 ## ---------------------------------------------------------------------------
 global:
   # Image registry + repository prefix. Local images built via docker-compose
-  # default to `pyratemedia-<service>`; override `imageRegistry` to point at a
+  # default to `streamarr-<service>`; override `imageRegistry` to point at a
   # private registry that hosts the same names.
   imageRegistry: ""
   imagePullPolicy: IfNotPresent
@@ -38,8 +38,8 @@ postgres:
   image:
     repository: postgres
     tag: "16"
-  user: pyrate
-  database: pyrate
+  user: streamarr
+  database: streamarr
   service:
     port: 5432
   persistence:
@@ -53,8 +53,8 @@ postgres:
     # `postgres.enabled=false`. CloudNativePG: `<cluster-name>-rw`.
     host: ""
     port: 5432
-    user: pyrate
-    database: pyrate
+    user: streamarr
+    database: streamarr
     # Reference to an existing Secret holding the password. CloudNativePG
     # creates `<cluster-name>-app` with a `password` key by default — point
     # `name` at that Secret and leave `passwordKey` as-is.
@@ -107,7 +107,7 @@ elasticsearch:
 ## Shared persistent volumes
 ##
 ## `mode: pvc` (default) creates standard ReadWriteMany PVCs. This works for
-## the pyrate pods themselves — but **it does not work for FFmpeg or
+## the streamarr pods themselves — but **it does not work for FFmpeg or
 ## lightrays-gaming containers**, because those are spawned as siblings via
 ## the host docker socket and the docker daemon can only bind-mount paths
 ## visible on the node's own filesystem.
@@ -131,7 +131,7 @@ elasticsearch:
 persistence:
   mode: pvc
   hostPath:
-    base: /var/lib/pyrate
+    base: /var/lib/streamarr
   library:
     size: 1Ti
     storageClass: ""
@@ -183,7 +183,7 @@ backend:
   python:
     enabled: true
     image:
-      repository: pyratemedia-backend-python
+      repository: streamarr-backend-python
       tag: "latest"
     replicas: 1
     # The Kubernetes computing provider auto-activates when a ServiceAccount
@@ -201,7 +201,7 @@ backend:
 worker:
   enabled: true
   image:
-    repository: pyratemedia-worker
+    repository: streamarr-worker
     tag: "latest"
   replicas: 2
   # Same as backend-python: the Kubernetes computing provider creates a Job
@@ -214,7 +214,7 @@ worker:
 scheduler:
   enabled: true
   image:
-    repository: pyratemedia-scheduler
+    repository: streamarr-scheduler
     tag: "latest"
   nodeSelector: {}
   tolerations: []
@@ -242,7 +242,7 @@ rbac:
 transcoding:
   namespace: ""           # defaults to release namespace
   jobTtlSeconds: 3600
-  nodeSelector: {}        # e.g. { pyrate.media/role: "transcode" }
+  nodeSelector: {}        # e.g. { streamarr.media/role: "transcode" }
   tolerations: []
   # Number of GPUs to request per transcode Job. Requires a node with the
   # nvidia device plugin installed (or equivalent for QSV/VAAPI).
@@ -254,7 +254,7 @@ transcoding:
 frontend:
   enabled: true
   image:
-    repository: pyratemedia-frontend
+    repository: streamarr-frontend
     tag: "latest"
   replicas: 2
   service:
@@ -269,7 +269,7 @@ frontend:
 lightrays:
   enabled: false
   image:
-    repository: pyratemedia-lightrays
+    repository: streamarr-lightrays
     tag: "latest"
   replicas: 1
   service:
@@ -319,8 +319,8 @@ lightrays:
   # Pin the pod to a node that has the GPU device + state dir.
   nodeSelector: {}
   tolerations: []
-  hostStateDir: /var/lib/pyrate/lightrays/state
-  hostXdgRuntimeDir: /var/lib/pyrate/lightrays/runtime
+  hostStateDir: /var/lib/streamarr/lightrays/state
+  hostXdgRuntimeDir: /var/lib/streamarr/lightrays/runtime
   # Browser-facing URL for the Lightrays WebSocket. Leave empty to let
   # the chart auto-derive it from the ingress settings:
   #   {scheme}://{ingress.host}{ingress.paths.lightrays}
@@ -332,7 +332,7 @@ lightrays:
   gowImage: ghcr.io/games-on-whales/steam:edge
   reconnectGraceSeconds: 30
   wsTicketTtlSeconds: 120
-  # Idle-based session timeout (seconds). Pyrate aligns its Redis TTL
+  # Idle-based session timeout (seconds). Streamarr aligns its Redis TTL
   # with this value so both sides garbage-collect stale sessions together.
   sessionTimeoutSeconds: 3600
   stunServer: stun://stun.l.google.com:19302
@@ -354,7 +354,7 @@ downloaders:
   spotdl:
     enabled: true
     image:
-      repository: pyratemedia-spotdl
+      repository: streamarr-spotdl
       tag: "latest"
     service:
       port: 3000
@@ -367,7 +367,7 @@ downloaders:
   torrent:
     enabled: true
     image:
-      repository: pyratemedia-torrent-downloader
+      repository: streamarr-torrent-downloader
       tag: "latest"
     service:
       port: 3000
@@ -384,14 +384,14 @@ downloaders:
   usenet:
     enabled: false
     image:
-      repository: registry.gitlab.com/pyrate.media/downloaders/usenet
+      repository: registry.gitlab.com/streamarr.media/downloaders/usenet
       tag: latest
     service:
       port: 3000
     existingSecret: ""  # required when enabled=true
     maxConcurrentJobs: 3
     # Job-state DB lives at /data — needs persistence so a pod restart
-    # doesn't drop in-flight job IDs and break Pyrate's polling loop.
+    # doesn't drop in-flight job IDs and break Streamarr's polling loop.
     dataPersistence:
       size: 1Gi
       storageClass: ""
@@ -411,7 +411,7 @@ ingress:
   enabled: false
   className: ""
   annotations: {}
-  host: pyrate.example.com
+  host: streamarr.example.com
   # If empty no TLS block is rendered. Provide a secretName when you have a
   # cert in place (cert-manager or similar).
   tls:

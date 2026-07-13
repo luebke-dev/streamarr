@@ -426,7 +426,7 @@ export default {
     kind: 'Kind',
     kindHint: 'Free-form category, e.g. steam, wine, custom',
     dockerImage: 'Docker Image',
-    dockerImageHint: 'e.g. ghcr.io/luebke-dev/pyrate-wine:latest',
+    dockerImageHint: 'e.g. ghcr.io/luebke-dev/streamarr-wine:latest',
     invalidDockerImage: 'Invalid Docker image reference',
     runtimeProfile: 'Runtime Profile',
     runtimeProfileHint: 'How Lightrays launches the container',
@@ -924,7 +924,7 @@ export default {
     title: 'Remote Control',
     loading: 'Loading targets...',
     noDevices: 'No targets found',
-    noDevicesHint: 'Open pyrate on another device or add a cast target',
+    noDevicesHint: 'Open streamarr on another device or add a cast target',
     unknownDevice: 'Unknown device',
     castingTo: 'Casting to',
     deviceSelected: 'Casting to {name} enabled',
@@ -1115,7 +1115,7 @@ export default {
     connection: 'Connection',
     serverConnection: 'Server Connection',
     serverConnectionHint:
-      'Configure the URL of your Pyrate server. Changes take effect after saving.',
+      'Configure the URL of your Streamarr server. Changes take effect after saving.',
     serverUrl: 'Server URL',
     saveAndReconnect: 'Save & Reconnect',
     serverUrlInvalid: 'Please enter a valid URL starting with http:// or https://',
@@ -1242,7 +1242,7 @@ export default {
     deviceQrSubtitle: 'Scan the QR code to authenticate via an already active device.',
     serverAddressLabel: 'Server Address',
     serverAddressRequired: 'Server address is required',
-    serverAddressInvalid: 'Please enter a valid URL (e.g. https://pyrate.example.com)',
+    serverAddressInvalid: 'Please enter a valid URL (e.g. https://streamarr.example.com)',
     serverAddressDetectedOrigin: 'Server detected at current address',
     serverAddressDetectedQr: 'Server detected via QR code',
     emailLabel: 'Email',
@@ -2196,7 +2196,7 @@ export default {
 
   // Installation Page
   installPage: {
-    title: 'Welcome to pyrate.media',
+    title: 'Welcome to Streamarr',
     subtitle: 'Set up your media system in a few steps',
     checkingStatus: 'Checking installation status...',
     alreadyInstalled: 'System already installed',

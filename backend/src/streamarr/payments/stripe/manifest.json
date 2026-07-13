@@ -1,0 +1,36 @@
+{
+  "name": "Stripe",
+  "domain": "stripe",
+  "version": "1.0.0",
+  "plugin_types": ["payment"],
+  "documentation": "https://stripe.com/docs/api",
+  "description": "Payment processing via Stripe for subscription management",
+  "author": "Streamarr Team",
+  "license": "MIT",
+  "requirements": ["stripe>=7.0.0"],
+  "dependencies": [],
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "secret_key": {
+        "type": "string",
+        "description": "Stripe secret API key"
+      },
+      "publishable_key": {
+        "type": "string",
+        "description": "Stripe publishable API key"
+      },
+      "webhook_secret": {
+        "type": "string",
+        "description": "Stripe webhook signing secret"
+      }
+    },
+    "required": ["secret_key"]
+  },
+  "platforms": ["linux", "windows", "macos"],
+  "after_dependencies": [],
+  "i18n": {
+    "de-DE": "i18n/de-DE.json",
+    "en-US": "i18n/en-US.json"
+  }
+}

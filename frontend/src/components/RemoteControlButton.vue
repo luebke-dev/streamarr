@@ -431,7 +431,7 @@ async function loadDevices() {
     }
     if (castResult.status === 'fulfilled') {
       castTargets.value = (castResult.value.items || [])
-        .filter((target) => target.enabled && target.protocol !== 'pyrate')
+        .filter((target) => target.enabled && target.protocol !== 'streamarr')
         .map((target) => ({
           ...target,
           is_cast_target: true,

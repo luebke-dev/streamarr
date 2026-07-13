@@ -1,6 +1,6 @@
 # Smart Collections & Overlays
 
-pyrate.media ships a Kometa-style automation toolkit for keeping your catalogue curated without manual work: **Smart Collections** populate lists from external charts or your own library on a schedule, **Poster Overlays** stamp conditional badges (4K, HEVC, …) onto artwork, and **Mass Operations** apply rule-based bulk edits to metadata. All three live in the admin area and run as background worker tasks.
+streamarr.media ships a Kometa-style automation toolkit for keeping your catalogue curated without manual work: **Smart Collections** populate lists from external charts or your own library on a schedule, **Poster Overlays** stamp conditional badges (4K, HEVC, …) onto artwork, and **Mass Operations** apply rule-based bulk edits to metadata. All three live in the admin area and run as background worker tasks.
 
 ## Smart Collections
 

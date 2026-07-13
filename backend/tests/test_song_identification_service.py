@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pyrate.services.song_identification import SongIdentificationService
+from streamarr.services.song_identification import SongIdentificationService
 
 
 @pytest.mark.asyncio
@@ -49,19 +49,19 @@ async def test_extract_audio_uses_configured_ffmpeg_task(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "pyrate.services.song_identification.build_media_volumes",
+        "streamarr.services.song_identification.build_media_volumes",
         fake_build_media_volumes,
     )
     monkeypatch.setattr(
-        "pyrate.services.song_identification._ffmpeg_runtime_user",
+        "streamarr.services.song_identification._ffmpeg_runtime_user",
         lambda: {"PUID": "123", "PGID": "456"},
     )
     monkeypatch.setattr(
-        "pyrate.services.song_identification.SystemSettingsService",
+        "streamarr.services.song_identification.SystemSettingsService",
         MagicMock(return_value=settings_service),
     )
     monkeypatch.setattr(
-        "pyrate.services.song_identification.ComputingService",
+        "streamarr.services.song_identification.ComputingService",
         FakeComputingService,
     )
 
@@ -90,7 +90,7 @@ async def test_extract_audio_uses_configured_ffmpeg_task(monkeypatch):
         "/host/temp": "/temp",
     }
     assert captured_task["timeout_seconds"] == 60
-    assert captured_task["labels"]["pyrate.task_type"] == "song_identification"
+    assert captured_task["labels"]["streamarr.task_type"] == "song_identification"
 
     command = captured_task["command"]
     assert command[:4] == ["-hide_banner", "-loglevel", "error", "-ss"]

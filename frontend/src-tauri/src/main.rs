@@ -1,3 +1,3 @@
 fn main() {
-    pyrate_media_lib::run()
+    streamarr_media_lib::run()
 }

@@ -44,14 +44,14 @@ class TestGetPlaylist:
 
     async def test_invalid_token(self, client: AsyncClient):
         mock_service = _mock_token_service_invalid()
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.get("/api/stream/test-session/playlist.m3u8?token=bad-token")
         assert resp.status_code == 401
         assert "Invalid or expired" in resp.json()["detail"]
 
     async def test_session_mismatch(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="different-session")
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.get("/api/stream/test-session/playlist.m3u8?token=valid-token")
         assert resp.status_code == 403
         assert "does not match" in resp.json()["detail"]
@@ -59,8 +59,8 @@ class TestGetPlaylist:
     async def test_playlist_not_found(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
         ):
             mock_path_instance = MagicMock()
             mock_path_instance.exists.return_value = False
@@ -73,8 +73,8 @@ class TestGetPlaylist:
     async def test_success(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
         ):
             mock_path_instance = MagicMock()
             mock_path_instance.exists.return_value = True
@@ -90,8 +90,8 @@ class TestGetPlaylist:
     async def test_token_from_header(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
         ):
             mock_path_instance = MagicMock()
             mock_path_instance.exists.return_value = True
@@ -115,23 +115,23 @@ class TestGetStreamStatus:
 
     async def test_invalid_token(self, client: AsyncClient):
         mock_service = _mock_token_service_invalid()
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.get("/api/stream/test-session/status?token=bad")
         assert resp.status_code == 401
 
     async def test_session_mismatch(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="other")
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.get("/api/stream/test-session/status?token=tok")
         assert resp.status_code == 403
 
     async def test_status_ready(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
             patch("glob.glob", return_value=["/temp/test-session_000.ts", "/temp/test-session_001.ts"]),
-            patch("pyrate.api.v1.stream.ComputingService") as mock_cs,
+            patch("streamarr.api.v1.stream.ComputingService") as mock_cs,
         ):
             mock_path_instance = MagicMock()
             mock_path_instance.exists.return_value = True
@@ -152,10 +152,10 @@ class TestGetStreamStatus:
     async def test_status_not_ready(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
             patch("glob.glob", return_value=[]),
-            patch("pyrate.api.v1.stream.ComputingService") as mock_cs,
+            patch("streamarr.api.v1.stream.ComputingService") as mock_cs,
         ):
             mock_path_instance = MagicMock()
             mock_path_instance.exists.return_value = False
@@ -175,10 +175,10 @@ class TestGetStreamStatus:
     async def test_status_transcoding(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
             patch("glob.glob", return_value=["/temp/test-session_000.ts"]),
-            patch("pyrate.api.v1.stream.ComputingService") as mock_cs,
+            patch("streamarr.api.v1.stream.ComputingService") as mock_cs,
         ):
             mock_path_instance = MagicMock()
             mock_path_instance.exists.return_value = True
@@ -201,10 +201,10 @@ class TestGetStreamStatus:
         """When ComputingService raises, is_transcoding should be False."""
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
             patch("glob.glob", return_value=["/temp/test-session_000.ts"]),
-            patch("pyrate.api.v1.stream.ComputingService") as mock_cs,
+            patch("streamarr.api.v1.stream.ComputingService") as mock_cs,
         ):
             mock_path_instance = MagicMock()
             mock_path_instance.exists.return_value = True
@@ -238,7 +238,7 @@ class TestGetTrickplayManifest:
 
             mock_service, _ = _mock_token_service(session_id=session_id)
             with patch(
-                "pyrate.api.v1.stream.get_play_token_service",
+                "streamarr.api.v1.stream.get_play_token_service",
                 return_value=mock_service,
             ):
                 resp = await client.get(
@@ -270,7 +270,7 @@ class TestGetTrickplayManifest:
         shutil.rmtree(trickplay_dir, ignore_errors=True)
         mock_service, _ = _mock_token_service(session_id=session_id)
         with patch(
-            "pyrate.api.v1.stream.get_play_token_service",
+            "streamarr.api.v1.stream.get_play_token_service",
             return_value=mock_service,
         ):
             resp = await client.get(f"/api/stream/{session_id}/trickplay?token=tok")
@@ -292,7 +292,7 @@ class TestCheckPosition:
 
     async def test_before_start(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.get(
                 "/api/stream/test-session/check-position?token=tok&position=5&start_position=10"
             )
@@ -304,8 +304,8 @@ class TestCheckPosition:
     async def test_available_segment(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
         ):
             mock_segment = MagicMock()
             mock_segment.exists.return_value = True
@@ -322,8 +322,8 @@ class TestCheckPosition:
     async def test_not_transcoded_no_db(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
         ):
             mock_segment = MagicMock()
             mock_segment.exists.return_value = False
@@ -340,9 +340,9 @@ class TestCheckPosition:
     async def test_not_transcoded_transcoding_running(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
-            patch("pyrate.api.v1.stream.ComputingService") as mock_cs,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.ComputingService") as mock_cs,
         ):
             mock_segment = MagicMock()
             mock_segment.exists.return_value = False
@@ -377,7 +377,7 @@ class TestStreamDirectFile:
 
     async def test_invalid_token(self, client: AsyncClient):
         mock_service = _mock_token_service_invalid()
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.get("/api/stream/file?token=bad")
         assert resp.status_code == 401
 
@@ -387,8 +387,8 @@ class TestStreamDirectFile:
 
         mock_service, _ = _mock_token_service(file_path=str(video_file))
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream._ALLOWED_MEDIA_ROOTS", (tmp_path,)),
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream._ALLOWED_MEDIA_ROOTS", (tmp_path,)),
         ):
             resp = await client.get("/api/stream/file?token=tok")
         assert resp.status_code == 200
@@ -407,14 +407,14 @@ class TestStreamAudioFile:
 
     async def test_invalid_token(self, client: AsyncClient):
         mock_service = _mock_token_service_invalid()
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.get("/api/stream/audio/file?token=bad")
         assert resp.status_code == 401
 
     async def test_no_file_path(self, client: AsyncClient):
         mock_service, mock_token = _mock_token_service()
         mock_token.file_path = None
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.get("/api/stream/audio/file?token=tok")
         assert resp.status_code == 404
         assert "No file path" in resp.json()["detail"]
@@ -423,8 +423,8 @@ class TestStreamAudioFile:
         missing_file = tmp_path / "missing.mp3"
         mock_service, mock_token = _mock_token_service(file_path=str(missing_file))
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream._ALLOWED_MEDIA_ROOTS", (tmp_path,)),
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream._ALLOWED_MEDIA_ROOTS", (tmp_path,)),
         ):
             resp = await client.get("/api/stream/audio/file?token=tok")
         assert resp.status_code == 404
@@ -436,8 +436,8 @@ class TestStreamAudioFile:
 
         mock_service, _ = _mock_token_service(file_path=str(audio_file))
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream._ALLOWED_MEDIA_ROOTS", (tmp_path,)),
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream._ALLOWED_MEDIA_ROOTS", (tmp_path,)),
         ):
             resp = await client.get("/api/stream/audio/file?token=tok")
         assert resp.status_code == 200
@@ -450,8 +450,8 @@ class TestStreamAudioFile:
 
         mock_service, _ = _mock_token_service(file_path=str(audio_file))
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream._ALLOWED_MEDIA_ROOTS", (tmp_path,)),
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream._ALLOWED_MEDIA_ROOTS", (tmp_path,)),
         ):
             resp = await client.get("/api/stream/audio/file?token=tok")
         assert resp.status_code == 200
@@ -463,8 +463,8 @@ class TestStreamAudioFile:
 
         mock_service, _ = _mock_token_service(file_path=str(audio_file))
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream._ALLOWED_MEDIA_ROOTS", (tmp_path,)),
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream._ALLOWED_MEDIA_ROOTS", (tmp_path,)),
         ):
             resp = await client.get("/api/stream/audio/file?token=tok")
         assert resp.status_code == 200
@@ -476,8 +476,8 @@ class TestStreamAudioFile:
 
         mock_service, _ = _mock_token_service(file_path=str(audio_file))
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream._ALLOWED_MEDIA_ROOTS", (tmp_path,)),
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream._ALLOWED_MEDIA_ROOTS", (tmp_path,)),
         ):
             resp = await client.get("/api/stream/audio/file?token=tok")
         assert resp.status_code == 200
@@ -494,7 +494,7 @@ class TestGetSegment:
 
     async def test_invalid_token(self, client: AsyncClient):
         mock_service = _mock_token_service_invalid()
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.get(
                 "/api/stream/test-session/test-session_000.ts?token=bad"
             )
@@ -502,7 +502,7 @@ class TestGetSegment:
 
     async def test_session_mismatch(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="other-session")
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.get(
                 "/api/stream/test-session/test-session_000.ts?token=tok"
             )
@@ -510,7 +510,7 @@ class TestGetSegment:
 
     async def test_path_traversal(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.get(
                 "/api/stream/test-session/../../etc/passwd.ts?token=tok"
             )
@@ -519,7 +519,7 @@ class TestGetSegment:
 
     async def test_not_ts_file(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.get(
                 "/api/stream/test-session/test-session.mp4?token=tok"
             )
@@ -529,8 +529,8 @@ class TestGetSegment:
     async def test_segment_not_found(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
         ):
             mock_segment = MagicMock()
             mock_segment.exists.return_value = False
@@ -551,8 +551,8 @@ class TestGetSegment:
 
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
         ):
             mock_segment = MagicMock()
             mock_segment.exists.return_value = True
@@ -568,8 +568,8 @@ class TestGetSegment:
     async def test_token_from_header(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="test-session")
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.Path") as mock_path_cls,
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.Path") as mock_path_cls,
         ):
             mock_segment = MagicMock()
             mock_segment.exists.return_value = False
@@ -593,13 +593,13 @@ class TestStopStream:
 
     async def test_invalid_token(self, client: AsyncClient):
         mock_service = _mock_token_service_invalid()
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.delete("/api/stream/test-session?token=bad")
         assert resp.status_code == 401
 
     async def test_session_mismatch(self, client: AsyncClient):
         mock_service, _ = _mock_token_service(session_id="other")
-        with patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service):
+        with patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service):
             resp = await client.delete("/api/stream/test-session?token=tok")
         assert resp.status_code == 403
 
@@ -615,10 +615,10 @@ class TestStopStream:
         mock_cleanup = AsyncMock(return_value={"deleted_files": 3})
 
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.get_transcoding_session_service", return_value=mock_session_service),
-            patch("pyrate.api.v1.stream.ComputingService") as mock_cs,
-            patch("pyrate.services.media.cleanup_stream_on_stop", mock_cleanup),
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.get_transcoding_session_service", return_value=mock_session_service),
+            patch("streamarr.api.v1.stream.ComputingService") as mock_cs,
+            patch("streamarr.services.media.cleanup_stream_on_stop", mock_cleanup),
         ):
             mock_ctx = AsyncMock()
             mock_ctx.get_tasks_by_label = AsyncMock(
@@ -644,10 +644,10 @@ class TestStopStream:
         mock_cleanup = AsyncMock(return_value={"deleted_files": 0})
 
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.get_transcoding_session_service", return_value=mock_session_service),
-            patch("pyrate.api.v1.stream.ComputingService") as mock_cs,
-            patch("pyrate.services.media.cleanup_stream_on_stop", mock_cleanup),
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.get_transcoding_session_service", return_value=mock_session_service),
+            patch("streamarr.api.v1.stream.ComputingService") as mock_cs,
+            patch("streamarr.services.media.cleanup_stream_on_stop", mock_cleanup),
         ):
             mock_ctx = AsyncMock()
             mock_ctx.get_tasks_by_label = AsyncMock(return_value=[])
@@ -670,10 +670,10 @@ class TestStopStream:
         mock_cleanup = AsyncMock(return_value={"deleted_files": 0})
 
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.get_transcoding_session_service", return_value=mock_session_service),
-            patch("pyrate.api.v1.stream.ComputingService") as mock_cs,
-            patch("pyrate.services.media.cleanup_stream_on_stop", mock_cleanup),
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.get_transcoding_session_service", return_value=mock_session_service),
+            patch("streamarr.api.v1.stream.ComputingService") as mock_cs,
+            patch("streamarr.services.media.cleanup_stream_on_stop", mock_cleanup),
         ):
             mock_ctx = AsyncMock()
             mock_ctx.get_tasks_by_label = AsyncMock(return_value=[])
@@ -696,10 +696,10 @@ class TestStopStream:
         mock_cleanup = AsyncMock(return_value={"deleted_files": 0})
 
         with (
-            patch("pyrate.api.v1.stream.get_play_token_service", return_value=mock_service),
-            patch("pyrate.api.v1.stream.get_transcoding_session_service", return_value=mock_session_service),
-            patch("pyrate.api.v1.stream.ComputingService") as mock_cs,
-            patch("pyrate.services.media.cleanup_stream_on_stop", mock_cleanup),
+            patch("streamarr.api.v1.stream.get_play_token_service", return_value=mock_service),
+            patch("streamarr.api.v1.stream.get_transcoding_session_service", return_value=mock_session_service),
+            patch("streamarr.api.v1.stream.ComputingService") as mock_cs,
+            patch("streamarr.services.media.cleanup_stream_on_stop", mock_cleanup),
         ):
             mock_cs.return_value.__aenter__ = AsyncMock(side_effect=Exception("docker error"))
             mock_cs.return_value.__aexit__ = AsyncMock(return_value=False)

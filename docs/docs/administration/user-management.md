@@ -1,6 +1,6 @@
 # Users & Groups
 
-pyrate.media has one user system shared by streaming, downloads, and gaming. Everything in this chapter lives in the admin area: **Users**, **Groups**, **Invites**, and **Devices** in the sidebar's Users section, plus **Active Sessions** under Monitoring & Queues.
+streamarr.media has one user system shared by streaming, downloads, and gaming. Everything in this chapter lives in the admin area: **Users**, **Groups**, **Invites**, and **Devices** in the sidebar's Users section, plus **Active Sessions** under Monitoring & Queues.
 
 ## Roles
 

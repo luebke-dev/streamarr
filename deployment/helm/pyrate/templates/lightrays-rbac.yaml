@@ -1,5 +1,5 @@
 {{- if and .Values.lightrays.enabled (eq .Values.lightrays.runtime "kubernetes") -}}
-{{- $name := printf "%s-lightrays" (include "pyrate.fullname" .) -}}
+{{- $name := printf "%s-lightrays" (include "streamarr.fullname" .) -}}
 {{/*
 RBAC for the Kubernetes session runtime.
 
@@ -20,7 +20,7 @@ kind: ServiceAccount
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
 {{- if .Values.lightrays.k8s.createSessionNamespace }}
 ---
 apiVersion: v1
@@ -28,7 +28,7 @@ kind: Namespace
 metadata:
   name: {{ .Values.lightrays.k8s.sessionNamespace | quote }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -37,7 +37,7 @@ metadata:
   name: {{ $name }}-session-runner
   namespace: {{ .Values.lightrays.k8s.sessionNamespace | quote }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
 rules:
   # Pod lifecycle — create on launch, watch/get for state polling,
   # delete on stop. List is needed for the readiness check
@@ -61,7 +61,7 @@ metadata:
   name: {{ $name }}-session-runner
   namespace: {{ .Values.lightrays.k8s.sessionNamespace | quote }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "lightrays") | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

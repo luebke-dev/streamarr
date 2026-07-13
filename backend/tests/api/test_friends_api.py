@@ -6,8 +6,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.auth.jwt_handler import jwt_handler
-from pyrate.models.user import User
+from streamarr.auth.jwt_handler import jwt_handler
+from streamarr.models.user import User
 
 from .conftest import auth_headers
 

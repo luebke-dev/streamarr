@@ -1,10 +1,10 @@
 {
-  "name": "pyrate.media",
+  "name": "streamarr",
   "version": "2026.2.1",
   "description": "A streaming media center.",
-  "productName": "pyrate.media",
-  "homepage": "https://pyrate.media",
-  "author": "Sebastian Lübke <pyrate@luebke.dev>",
+  "productName": "Streamarr",
+  "homepage": "https://streamarr.media",
+  "author": "Sebastian Lübke <streamarr@luebke.dev>",
   "type": "module",
   "private": true,
   "scripts": {

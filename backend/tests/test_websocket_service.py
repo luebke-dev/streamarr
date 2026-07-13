@@ -9,7 +9,7 @@ import fakeredis.aioredis
 import pytest
 import pytest_asyncio
 
-from pyrate.services.websocket import (
+from streamarr.services.websocket import (
     WebSocketConnection,
     WebSocketManager,
     set_device_status_callback,
@@ -89,7 +89,7 @@ class TestDeviceStatusCallback:
 class TestWebSocketManagerConnect:
     @pytest.mark.asyncio
     async def test_connect_and_disconnect(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -117,7 +117,7 @@ class TestWebSocketManagerConnect:
 class TestSubscriptions:
     @pytest.mark.asyncio
     async def test_subscribe_and_unsubscribe(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -139,7 +139,7 @@ class TestSubscriptions:
 
     @pytest.mark.asyncio
     async def test_subscribe_idempotent(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -163,7 +163,7 @@ class TestSubscriptions:
 class TestHandleMessage:
     @pytest.mark.asyncio
     async def test_handle_subscribe_message(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -183,7 +183,7 @@ class TestHandleMessage:
 
     @pytest.mark.asyncio
     async def test_handle_ping(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -204,7 +204,7 @@ class TestHandleMessage:
 
     @pytest.mark.asyncio
     async def test_handle_unknown_action(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -224,7 +224,7 @@ class TestHandleMessage:
 
     @pytest.mark.asyncio
     async def test_handle_subscribe_missing_fields(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -250,7 +250,7 @@ class TestHandleMessage:
 class TestBroadcastAndUtility:
     @pytest.mark.asyncio
     async def test_broadcast_to_resource(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -268,7 +268,7 @@ class TestBroadcastAndUtility:
 
     @pytest.mark.asyncio
     async def test_connected_device_ids_for_user(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -308,7 +308,7 @@ class TestCrossReplicaRouting:
         mock_svc.publish_device_presence = AsyncMock()
         mock_svc._get_redis = AsyncMock(return_value=fake)
         with patch(
-            "pyrate.services.websocket.get_redis_event_service",
+            "streamarr.services.websocket.get_redis_event_service",
             return_value=mock_svc,
         ):
             mgr = WebSocketManager()
@@ -341,7 +341,7 @@ class TestCrossReplicaRouting:
         fake = fakeredis.aioredis.FakeRedis(decode_responses=True)
         mgr, mock_svc = self._manager_with_fakeredis(fake)
 
-        from pyrate.services.websocket import RemoteControlError
+        from streamarr.services.websocket import RemoteControlError
 
         with pytest.raises(RemoteControlError, match="not connected"):
             await mgr.send_remote_control_command(
@@ -410,7 +410,7 @@ class TestCrossReplicaRouting:
 class TestDeviceStatusHandling:
     @pytest.mark.asyncio
     async def test_handle_device_status(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()
@@ -444,7 +444,7 @@ class TestDeviceStatusHandling:
 
     @pytest.mark.asyncio
     async def test_handle_device_status_missing_id(self):
-        with patch("pyrate.services.websocket.get_redis_event_service") as mock_redis:
+        with patch("streamarr.services.websocket.get_redis_event_service") as mock_redis:
             mock_svc = MagicMock()
             mock_svc.subscribe = AsyncMock()
             mock_svc.unsubscribe = AsyncMock()

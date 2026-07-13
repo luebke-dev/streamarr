@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from httpx import AsyncClient
 
-from pyrate.auth.jwt_handler import jwt_handler
-from pyrate.models import User
-from pyrate.models.library import Library
-from pyrate.services.settings import SettingsService
+from streamarr.auth.jwt_handler import jwt_handler
+from streamarr.models import User
+from streamarr.models.library import Library
+from streamarr.services.settings import SettingsService
 
 pytestmark = pytest.mark.asyncio
 
@@ -106,7 +106,7 @@ class TestInstallWizardRoutes:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["server_name"] == "pyrate.media"
+        assert data["server_name"] == "streamarr.media"
         assert data["ui_culture"] == "de-DE"
 
     async def test_wizard_configuration_updates_existing_settings(
@@ -147,7 +147,7 @@ class TestInstallWizardRoutes:
         )
 
         assert resp.status_code == 200
-        assert resp.json()["server_name"] == "pyrate.media"
+        assert resp.json()["server_name"] == "streamarr.media"
 
     async def test_wizard_remote_access_updates_existing_network_setting(
         self, client: AsyncClient, test_superuser: User, admin_headers, db_session
@@ -232,7 +232,7 @@ class TestInitialSetup:
         assert data["site_name"] == "My Media Server"
 
     async def test_setup_success_default_site_name(self, client: AsyncClient):
-        """When site_name is omitted, defaults to 'pyrate.media'."""
+        """When site_name is omitted, defaults to 'streamarr.media'."""
         payload = {
             "email": "admin@example.com",
             "password": "Admin123!",
@@ -242,7 +242,7 @@ class TestInitialSetup:
         resp = await client.post("/api/install/setup", json=payload)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["site_name"] == "pyrate.media"
+        assert data["site_name"] == "streamarr.media"
 
     async def test_setup_already_installed(
         self, client: AsyncClient, db_session
@@ -295,8 +295,8 @@ class TestInitialSetup:
 
     async def test_setup_email_already_in_use(self, client: AsyncClient):
         """Returns 400 when the email is already taken (mocked duplicate check)."""
-        from pyrate.database import get_db_session
-        from pyrate.web import app
+        from streamarr.database import get_db_session
+        from streamarr.web import app
 
         mock_db = AsyncMock()
 
@@ -326,7 +326,7 @@ class TestInitialSetup:
 
     async def test_setup_db_exception_returns_500(self, client: AsyncClient):
         """Returns 500 when an unexpected exception occurs during DB operations."""
-        from pyrate.api.v1.install import jwt_handler
+        from streamarr.api.v1.install import jwt_handler
 
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(

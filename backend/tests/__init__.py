@@ -1,1 +1,1 @@
-"""Tests for Pyrate.Media backend."""
+"""Tests for Streamarr backend."""

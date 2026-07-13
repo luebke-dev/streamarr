@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from redis.exceptions import ConnectionError as RedisConnectionError
 from starlette.requests import Request
 
-from pyrate.api import rate_limit as rate_limit_module
+from streamarr.api import rate_limit as rate_limit_module
 
 
 def _request() -> Request:
@@ -96,4 +96,4 @@ async def test_rate_limiter_sets_expiry_for_first_call(monkeypatch):
 
     await dependency(_request())
 
-    assert redis.expire_calls == [("pyrate:ratelimit:auth:127.0.0.1", 60)]
+    assert redis.expire_calls == [("streamarr:ratelimit:auth:127.0.0.1", 60)]

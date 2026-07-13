@@ -7,20 +7,20 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.list import (
+from streamarr.models.list import (
     ListItemType,
     ListType,
     ListVisibility,
     UserListInteractionType,
 )
-from pyrate.models.user import User
-from pyrate.schemas.list import (
+from streamarr.models.user import User
+from streamarr.schemas.list import (
     ListCreate,
     ListItemCreate,
     ListUpdate,
     UserListInteractionCreate,
 )
-from pyrate.services.list import ListService
+from streamarr.services.list import ListService
 
 
 class TestListCRUD:

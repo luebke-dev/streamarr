@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.library import Library
-from pyrate.models.media import (
+from streamarr.models.library import Library
+from streamarr.models.media import (
     AvailabilityStatus,
     MediaExternalId,
     MediaFile,
@@ -15,7 +15,7 @@ from pyrate.models.media import (
     MediaRelease,
     MediaType,
 )
-from pyrate.services.media import MediaService
+from streamarr.services.media import MediaService
 
 
 @pytest.fixture

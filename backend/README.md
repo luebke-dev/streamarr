@@ -1,6 +1,6 @@
-# pyrate.media — Backend
+# streamarr.media — Backend
 
-FastAPI REST API and async task worker for the pyrate.media self-hosted media server.
+FastAPI REST API and async task worker for the streamarr.media self-hosted media server.
 
 ## Stack
 
@@ -42,10 +42,10 @@ uv sync
 cp .env.example .env  # configure SECRET_KEY, DATABASE_URL, REDIS_URL
 
 # Dev server
-uv run uvicorn pyrate.web:app --reload --port 8000
+uv run uvicorn streamarr.web:app --reload --port 8000
 
 # Worker
-uv run taskiq worker pyrate.worker:broker
+uv run taskiq worker streamarr.worker:broker
 
 # Migrations
 uv run alembic upgrade head
@@ -57,7 +57,7 @@ uv run alembic upgrade head
 uv run pytest                              # all tests (SQLite in-memory)
 uv run pytest tests/test_release_parser.py # single file
 uv run pytest -k "search" -v              # by keyword
-uv run pytest --cov=pyrate                 # with coverage
+uv run pytest --cov=streamarr                 # with coverage
 ```
 
 ## Key Design Decisions

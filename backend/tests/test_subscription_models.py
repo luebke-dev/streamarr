@@ -12,8 +12,8 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.group import Group
-from pyrate.models.subscription import (
+from streamarr.models.group import Group
+from streamarr.models.subscription import (
     PaymentHistory,
     QualityLevel,
     SubscriptionPackage,
@@ -21,7 +21,7 @@ from pyrate.models.subscription import (
     UserSession,
     UserSubscription,
 )
-from pyrate.models.user import User
+from streamarr.models.user import User
 
 
 async def _create_group(

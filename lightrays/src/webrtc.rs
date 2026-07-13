@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn redact_handles_urls_without_scheme() {
-        // Pyrate sometimes stores the bare host:port; the helper should
+        // Streamarr sometimes stores the bare host:port; the helper should
         // not crash and should leave it untouched.
         assert_eq!(redact_turn_url("host:3478"), "host:3478");
     }

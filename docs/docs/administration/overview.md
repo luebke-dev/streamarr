@@ -1,6 +1,6 @@
 # Administration Overview
 
-This section covers the administration features of pyrate.media. The admin area lives at `/admin` and is reachable via the **user menu (top right) → Administration**.
+This section covers the administration features of streamarr.media. The admin area lives at `/admin` and is reachable via the **user menu (top right) → Administration**.
 
 !!! note "Who can access the admin area?"
     Only users with **superuser privileges** can open `/admin`. Regular permissions and groups control what users can see and play — they never grant admin access. See [Users & Groups](user-management.md).

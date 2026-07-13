@@ -2,7 +2,7 @@ import { setLocalStorageItem } from 'src/utils/storageQuota'
 
 export const ACCESS_TOKEN_KEY = 'access_token'
 export const REFRESH_TOKEN_KEY = 'refresh_token'
-export const SERVER_URL_KEY = 'pyrate-server-url'
+export const SERVER_URL_KEY = 'streamarr-server-url'
 
 // Token storage model — differs by platform so the web build is not exposed to
 // the localStorage XSS-exfiltration vector:

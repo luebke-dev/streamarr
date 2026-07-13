@@ -1,6 +1,6 @@
 # Membership & Vouchers
 
-pyrate.media includes an optional, Stripe-backed membership system: you define **subscription packages** (paid plans), and users either subscribe with a credit card or redeem a **voucher** code. Everything a member is entitled to — libraries, stream quality, concurrent streams — comes from the [group](user-management.md) linked to their package.
+streamarr.media includes an optional, Stripe-backed membership system: you define **subscription packages** (paid plans), and users either subscribe with a credit card or redeem a **voucher** code. Everything a member is entitled to — libraries, stream quality, concurrent streams — comes from the [group](user-management.md) linked to their package.
 
 !!! note "Memberships are optional"
     Subscriptions are disabled by default. When disabled, all users have unrestricted access and all membership UI is hidden. Enable them under **Admin** -> **Settings** -> **Subscriptions & Payments** -> **Enable Subscriptions**.
