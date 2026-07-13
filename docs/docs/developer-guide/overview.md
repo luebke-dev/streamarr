@@ -1,6 +1,6 @@
 # Developer Guide Overview
 
-pyrate.media is a monorepo: a Python backend, a Quasar/Vue frontend, several Rust services, and everything needed to deploy and observe the stack. This page orients you in the repository and gets a development environment running. For running the stack in production, see the [Deployment Overview](../deployment/overview.md).
+streamarr.media is a monorepo: a Python backend, a Quasar/Vue frontend, several Rust services, and everything needed to deploy and observe the stack. This page orients you in the repository and gets a development environment running. For running the stack in production, see the [Deployment Overview](../deployment/overview.md).
 
 ## Monorepo layout
 
@@ -39,17 +39,17 @@ docker compose up -d --build
     uv sync
 
     # API with hot reload
-    uv run uvicorn pyrate.web:app --reload --port 8000
+    uv run uvicorn streamarr.web:app --reload --port 8000
 
     # Background worker and cron scheduler
-    uv run taskiq worker pyrate.worker:broker
-    uv run taskiq scheduler pyrate.worker:scheduler
+    uv run taskiq worker streamarr.worker:broker
+    uv run taskiq scheduler streamarr.worker:scheduler
 
     # Database migrations
     uv run alembic upgrade head
     ```
 
-    Key packages under `backend/src/pyrate/`: `api/` (routers), `models/` and `schemas/`, `services/`, `libraries/` (library-type plugins), `indexers/`, `downloaders/`, `metadata/`, `workers/`, `smart_collections/`, `overlays/`.
+    Key packages under `backend/src/streamarr/`: `api/` (routers), `models/` and `schemas/`, `services/`, `libraries/` (library-type plugins), `indexers/`, `downloaders/`, `metadata/`, `workers/`, `smart_collections/`, `overlays/`.
 
 === "Frontend (yarn)"
 
@@ -97,7 +97,7 @@ docker compose up -d --build
 cd backend
 uv run pytest
 uv run pytest -k "search" -v
-uv run pytest --cov=pyrate
+uv run pytest --cov=streamarr
 
 # Frontend — Vitest + happy-dom
 cd frontend

@@ -1,26 +1,26 @@
 {{- if .Values.worker.enabled -}}
-{{- $name := printf "%s-worker" (include "pyrate.fullname" .) -}}
+{{- $name := printf "%s-worker" (include "streamarr.fullname" .) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "worker") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "worker") | nindent 4 }}
 spec:
   replicas: {{ .Values.worker.replicas }}
   selector:
     matchLabels:
-      {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "worker") | nindent 6 }}
+      {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "worker") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "worker") | nindent 8 }}
+        {{- include "streamarr.componentLabels" (dict "ctx" . "component" "worker") | nindent 8 }}
     spec:
-      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      {{- include "streamarr.imagePullSecrets" . | nindent 6 }}
       securityContext:
         # backend image bakes appuser (UID/GID 1001).
         fsGroup: 1001
-      serviceAccountName: {{ include "pyrate.computeServiceAccountName" . }}
+      serviceAccountName: {{ include "streamarr.computeServiceAccountName" . }}
       initContainers:
         # See scheduler.yaml — Cilium drops first egress packets while
         # the pod's security identity propagates. Worker connects to
@@ -31,8 +31,8 @@ spec:
             - sh
             - -c
             - |
-              until nc -z {{ include "pyrate.redisHost" . }} {{ .Values.redis.service.port }}; do echo "waiting for redis"; sleep 2; done
-              until nc -z {{ include "pyrate.elasticsearchHost" . }} {{ .Values.elasticsearch.service.port }}; do echo "waiting for elasticsearch"; sleep 2; done
+              until nc -z {{ include "streamarr.redisHost" . }} {{ .Values.redis.service.port }}; do echo "waiting for redis"; sleep 2; done
+              until nc -z {{ include "streamarr.elasticsearchHost" . }} {{ .Values.elasticsearch.service.port }}; do echo "waiting for elasticsearch"; sleep 2; done
       {{- with .Values.worker.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -47,18 +47,18 @@ spec:
       {{- end }}
       containers:
         - name: worker
-          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.worker.image) }}
+          image: {{ include "streamarr.image" (dict "ctx" . "img" .Values.worker.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           command:
             - uv
             - run
             - taskiq
             - worker
-            - pyrate.worker:broker
+            - streamarr.worker:broker
           env:
-            {{- include "pyrate.commonEnv" . | nindent 12 }}
+            {{- include "streamarr.commonEnv" . | nindent 12 }}
             - name: DATABASE_URL
-              value: {{ include "pyrate.databaseUrlAsync" . | quote }}
+              value: {{ include "streamarr.databaseUrlAsync" . | quote }}
             - name: PROJECT_ROOT
               value: {{ .Values.persistence.hostPath.base | quote }}
             - name: COMPUTING_NAMESPACE
@@ -76,7 +76,7 @@ spec:
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           volumeMounts:
-            {{- include "pyrate.dataVolumeMounts" . | nindent 12 }}
+            {{- include "streamarr.dataVolumeMounts" . | nindent 12 }}
       volumes:
-        {{- include "pyrate.dataVolumes" . | nindent 8 }}
+        {{- include "streamarr.dataVolumes" . | nindent 8 }}
 {{- end -}}

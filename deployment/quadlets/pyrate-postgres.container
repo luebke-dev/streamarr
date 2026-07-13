@@ -1,26 +1,26 @@
 [Unit]
-Description=Pyrate Media PostgreSQL Database
+Description=Streamarr PostgreSQL Database
 
 [Container]
 Image=postgres:16
-ContainerName=pyrate-postgres
+ContainerName=streamarr-postgres
 
 # Secrets & host paths (POSTGRES_PASSWORD, SECRET_KEY, DATA_DIR,
 # PROJECT_ROOT, ...) are injected from this file. Create it with mode 0600,
 # owned by root. See deployment/README.md.
-EnvironmentFile=/etc/pyrate/pyrate.env
+EnvironmentFile=/etc/streamarr/streamarr.env
 
 Exec=postgres -c max_connections=200
 
-Environment=POSTGRES_USER=pyrate
+Environment=POSTGRES_USER=streamarr
 Environment=POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-Environment=POSTGRES_DB=pyrate
+Environment=POSTGRES_DB=streamarr
 
 Volume=${DATA_DIR}/postgres:/var/lib/postgresql/data:rw,z
 
 PublishPort=5432:5432
 
-HealthCmd=pg_isready -U pyrate
+HealthCmd=pg_isready -U streamarr
 HealthInterval=10s
 HealthTimeout=5s
 HealthRetries=5

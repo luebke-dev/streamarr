@@ -26,7 +26,7 @@ docker run -d \
   -p 6881:6881/udp \
   -v torrent-data:/data \
   -v torrent-downloads:/downloads \
-  registry.gitlab.com/pyrate.media/torrent-downloader:latest
+  registry.gitlab.com/streamarr.media/torrent-downloader:latest
 ```
 
 ## API

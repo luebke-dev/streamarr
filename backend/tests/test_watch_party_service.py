@@ -8,11 +8,11 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.friendship import Friendship, FriendshipStatus
-from pyrate.models.party import WatchParty, WatchPartyMember
-from pyrate.models.user import User
-from pyrate.schemas.party import PlaybackSync, WatchPartyCreate, WatchPartyUpdate
-from pyrate.services.party import WatchPartyService
+from streamarr.models.friendship import Friendship, FriendshipStatus
+from streamarr.models.party import WatchParty, WatchPartyMember
+from streamarr.models.user import User
+from streamarr.schemas.party import PlaybackSync, WatchPartyCreate, WatchPartyUpdate
+from streamarr.services.party import WatchPartyService
 
 
 @pytest_asyncio.fixture

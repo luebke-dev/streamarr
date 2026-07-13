@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
-from pyrate.schemas.search import SearchRequest, SearchType
-from pyrate.services.search import SearchService, IMPORT_LOCK_PREFIX, IMPORT_LOCK_TTL_SECONDS
+from streamarr.schemas.search import SearchRequest, SearchType
+from streamarr.services.search import SearchService, IMPORT_LOCK_PREFIX, IMPORT_LOCK_TTL_SECONDS
 
 
 # ============================================================================
@@ -933,7 +933,7 @@ class TestSearchLocal:
     async def test_movies_search(self):
         db = MagicMock()
         svc = SearchService(db)
-        with patch("pyrate.services.search.elasticsearch_service") as mock_es:
+        with patch("streamarr.services.search.elasticsearch_service") as mock_es:
             mock_es.search_movies = AsyncMock(return_value={"hits": [], "total": 0})
             req = _search_request("test", SearchType.MOVIES)
             result = await svc._search_local(req)
@@ -944,7 +944,7 @@ class TestSearchLocal:
     async def test_shows_search(self):
         db = MagicMock()
         svc = SearchService(db)
-        with patch("pyrate.services.search.elasticsearch_service") as mock_es:
+        with patch("streamarr.services.search.elasticsearch_service") as mock_es:
             mock_es.search_shows = AsyncMock(return_value={"hits": [], "total": 0})
             req = _search_request("test", SearchType.SHOWS)
             result = await svc._search_local(req)
@@ -954,7 +954,7 @@ class TestSearchLocal:
     async def test_all_search(self):
         db = MagicMock()
         svc = SearchService(db)
-        with patch("pyrate.services.search.elasticsearch_service") as mock_es:
+        with patch("streamarr.services.search.elasticsearch_service") as mock_es:
             mock_es.search_all = AsyncMock(return_value={"hits": [], "total": 0})
             req = _search_request("test", SearchType.ALL)
             result = await svc._search_local(req)
@@ -964,7 +964,7 @@ class TestSearchLocal:
     async def test_exception_returns_empty(self):
         db = MagicMock()
         svc = SearchService(db)
-        with patch("pyrate.services.search.elasticsearch_service") as mock_es:
+        with patch("streamarr.services.search.elasticsearch_service") as mock_es:
             mock_es.search_all = AsyncMock(side_effect=ConnectionError("ES down"))
             req = _search_request("test", SearchType.ALL)
             result = await svc._search_local(req)

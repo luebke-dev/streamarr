@@ -11,16 +11,16 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.media import (
+from streamarr.models.media import (
     AvailabilityStatus,
     MediaFile,
     MediaItem,
     MediaType,
 )
-from pyrate.models.device import Device
-from pyrate.models.user import User
-from pyrate.schemas.play_token import PlayToken, PlayTokenCreate
-from pyrate.services.settings import SettingsService
+from streamarr.models.device import Device
+from streamarr.models.user import User
+from streamarr.schemas.play_token import PlayToken, PlayTokenCreate
+from streamarr.services.settings import SettingsService
 
 from .conftest import auth_headers
 
@@ -140,7 +140,7 @@ class TestPlayMedia:
         resp = await client.post(f"/api/play/{uuid.uuid4()}", headers=user_headers)
         assert resp.status_code == 404
 
-    @patch("pyrate.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.resolve_play_action")
     async def test_status_searching(
         self,
         mock_resolve,
@@ -165,7 +165,7 @@ class TestPlayMedia:
         assert data["status"] == "searching"
         assert "message" in data
 
-    @patch("pyrate.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.resolve_play_action")
     async def test_status_downloading(
         self,
         mock_resolve,
@@ -189,9 +189,9 @@ class TestPlayMedia:
         assert data["download_progress"] == 45.5
         assert data["download_status"] == "downloading"
 
-    @patch("pyrate.services.playback_session.resolve_play_action")
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
     async def test_status_ready(
         self,
         mock_token_svc,
@@ -234,9 +234,9 @@ class TestPlayMedia:
         mock_transcode.assert_called_once()
         assert mock_transcode.await_args.kwargs["audio_stream_index"] == 0
 
-    @patch("pyrate.services.playback_session.resolve_play_action")
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
     async def test_direct_file_play_when_source_is_browser_compatible(
         self,
         mock_token_svc,
@@ -286,9 +286,9 @@ class TestPlayMedia:
         assert data["media_source_id"] == str(file.guid)
         mock_transcode.assert_not_called()
 
-    @patch("pyrate.services.playback_session.resolve_play_action")
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
     async def test_playback_profile_drives_direct_file_play(
         self,
         mock_token_svc,
@@ -335,11 +335,11 @@ class TestPlayMedia:
         assert data["direct_file_url"] == f"/api/stream/file?token={play_token.token}"
         mock_transcode.assert_not_called()
 
-    @patch("pyrate.services.playback_session.resolve_play_action")
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
-    @patch("pyrate.services.playback_session._acquire_transcode_lock", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session._release_transcode_lock", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session._acquire_transcode_lock", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session._release_transcode_lock", new_callable=AsyncMock)
     async def test_registered_device_capabilities_drive_direct_stream(
         self,
         mock_release_lock,
@@ -420,9 +420,9 @@ class TestPlayMedia:
         assert mock_transcode.await_args.kwargs["burn_subtitles"] is True
         mock_release_lock.assert_awaited_once()
 
-    @patch("pyrate.services.playback_session.resolve_play_action")
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
     async def test_direct_file_play_falls_back_when_transcode_codec_is_disallowed(
         self,
         mock_token_svc,
@@ -455,7 +455,7 @@ class TestPlayMedia:
         token_service.create_token = AsyncMock(return_value=play_token)
         mock_token_svc.return_value = token_service
 
-        with patch("pyrate.services.system_settings.SystemSettingsService") as mock_ss:
+        with patch("streamarr.services.system_settings.SystemSettingsService") as mock_ss:
             mock_ss_inst = AsyncMock()
             mock_ss_inst.get_transcoding_settings = AsyncMock(
                 return_value={
@@ -484,11 +484,11 @@ class TestPlayMedia:
         assert data["direct_file_url"] == f"/api/stream/file?token={play_token.token}"
         mock_transcode.assert_not_called()
 
-    @patch("pyrate.services.playback_session.resolve_play_action")
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
-    @patch("pyrate.services.playback_session._acquire_transcode_lock", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session._release_transcode_lock", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session._acquire_transcode_lock", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session._release_transcode_lock", new_callable=AsyncMock)
     async def test_selects_requested_media_source(
         self,
         mock_release_lock,
@@ -556,7 +556,7 @@ class TestPlayMedia:
         assert token_data.file_path == second.file_path
         mock_release_lock.assert_awaited_once()
 
-    @patch("pyrate.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.resolve_play_action")
     async def test_requested_media_source_must_belong_to_item(
         self,
         mock_resolve,
@@ -580,10 +580,10 @@ class TestPlayMedia:
         assert resp.json()["detail"] == "Media source not found"
         mock_resolve.assert_not_called()
 
-    @patch("pyrate.services.playback_session.resolve_play_action")
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
-    @patch("pyrate.services.playback_session._acquire_transcode_lock", return_value=False)
+    @patch("streamarr.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session._acquire_transcode_lock", return_value=False)
     async def test_duplicate_transcode_409(
         self,
         mock_lock,
@@ -785,7 +785,7 @@ class TestPlaybackInfo:
             format="mkv",
         )
 
-        with patch("pyrate.services.system_settings.SystemSettingsService") as mock_ss:
+        with patch("streamarr.services.system_settings.SystemSettingsService") as mock_ss:
             mock_ss_inst = AsyncMock()
             mock_ss_inst.get_transcoding_settings = AsyncMock(
                 return_value={
@@ -1133,8 +1133,8 @@ class TestSeekMedia:
         )
         assert resp.status_code == 403
 
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
     @patch("pathlib.Path.exists", return_value=True)
     async def test_seek_success(
         self,
@@ -1168,8 +1168,8 @@ class TestSeekMedia:
         assert data["content_type"] == "movie"
         mock_transcode.assert_called_once()
 
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
     @patch("pathlib.Path.exists", return_value=True)
     async def test_seek_selects_requested_media_source(
         self,
@@ -1217,8 +1217,8 @@ class TestSeekMedia:
         token_data = token_service.create_token.await_args.args[0]
         assert token_data.file_path == second.file_path
 
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
     @patch("pathlib.Path.exists", return_value=True)
     async def test_seek_preserves_profile_direct_stream_context(
         self,
@@ -1321,7 +1321,7 @@ class TestSeekMedia:
 
 
 class TestPlayMediaNoFiles:
-    @patch("pyrate.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.resolve_play_action")
     async def test_no_files_returns_searching(
         self,
         mock_resolve,
@@ -1343,8 +1343,8 @@ class TestPlayMediaNoFiles:
 
 
 class TestPlayAudioOnly:
-    @patch("pyrate.services.playback_session.resolve_play_action")
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.get_play_token_service")
     async def test_audio_file_play(
         self,
         mock_token_svc,
@@ -1389,8 +1389,8 @@ class TestPlayAudioOnly:
 
 
 class TestSeekMediaExtended:
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
     @patch("pathlib.Path.exists", return_value=True)
     async def test_seek_with_old_session(
         self,
@@ -1421,8 +1421,8 @@ class TestSeekMediaExtended:
         data = resp.json()
         assert data["start_position"] == 500.0
 
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
     @patch("pathlib.Path.exists", return_value=True)
     async def test_seek_with_audio_track(
         self,
@@ -1451,8 +1451,8 @@ class TestSeekMediaExtended:
         )
         assert resp.status_code == 200
 
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
     @patch("pathlib.Path.exists", return_value=True)
     async def test_seek_episode(
         self,
@@ -1506,10 +1506,10 @@ class TestSeekMediaExtended:
 
 
 class TestPlayMediaConcurrentLimit:
-    @patch("pyrate.services.playback_session.resolve_play_action")
-    @patch("pyrate.services.playback_session.get_play_token_service")
-    @patch("pyrate.services.playback_session._acquire_transcode_lock", return_value=True)
-    @patch("pyrate.services.playback_session._release_transcode_lock", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session._acquire_transcode_lock", return_value=True)
+    @patch("streamarr.services.playback_session._release_transcode_lock", new_callable=AsyncMock)
     async def test_concurrent_limit_reached(
         self,
         mock_release,
@@ -1535,8 +1535,8 @@ class TestPlayMediaConcurrentLimit:
         )
 
         with (
-            patch("pyrate.services.system_settings.SystemSettingsService") as mock_ss,
-            patch("pyrate.services.transcoding_session.get_transcoding_session_service") as mock_tss,
+            patch("streamarr.services.system_settings.SystemSettingsService") as mock_ss,
+            patch("streamarr.services.transcoding_session.get_transcoding_session_service") as mock_tss,
         ):
             mock_ss_inst = AsyncMock()
             mock_ss_inst.get_transcoding_settings = AsyncMock(
@@ -1570,7 +1570,7 @@ class TestPlayMediaConcurrentLimit:
 
 
 class TestPlayMediaDownloadBranch:
-    @patch("pyrate.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.resolve_play_action")
     async def test_downloading_no_progress(
         self,
         mock_resolve,
@@ -1601,7 +1601,7 @@ class TestPlayMediaDownloadBranch:
 
 
 class TestSeekConcurrentLimit:
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.get_play_token_service")
     @patch("pathlib.Path.exists", return_value=True)
     async def test_seek_concurrent_limit(
         self,
@@ -1623,8 +1623,8 @@ class TestSeekConcurrentLimit:
         mock_token_svc.return_value = token_service
 
         with (
-            patch("pyrate.services.system_settings.SystemSettingsService") as mock_ss,
-            patch("pyrate.services.transcoding_session.get_transcoding_session_service") as mock_tss,
+            patch("streamarr.services.system_settings.SystemSettingsService") as mock_ss,
+            patch("streamarr.services.transcoding_session.get_transcoding_session_service") as mock_tss,
         ):
             mock_ss_inst = AsyncMock()
             mock_ss_inst.get_transcoding_settings = AsyncMock(
@@ -1661,9 +1661,9 @@ class TestSeekConcurrentLimit:
 
 
 class TestPlayMediaCodecParams:
-    @patch("pyrate.services.playback_session.resolve_play_action")
-    @patch("pyrate.services.playback_session.start_transcode_container", new_callable=AsyncMock)
-    @patch("pyrate.services.playback_session.get_play_token_service")
+    @patch("streamarr.services.playback_session.resolve_play_action")
+    @patch("streamarr.services.playback_session.start_transcode_container", new_callable=AsyncMock)
+    @patch("streamarr.services.playback_session.get_play_token_service")
     async def test_play_with_codec_params(
         self,
         mock_token_svc,

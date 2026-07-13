@@ -1,10 +1,10 @@
-# pyrate.media
+# Streamarr
 
 **Your media, your rules.** A self-hosted, all-in-one platform for media management, streaming, and automation — media server, download automation, and cloud gaming in a single application.
 
-pyrate.media combines what usually takes half a dozen tools: a streaming media center (à la Jellyfin/Plex), release automation (à la Sonarr/Radarr), and a WebRTC cloud-gaming service — with one library, one user system, and one UI.
+Streamarr combines what usually takes half a dozen tools: a streaming media center (à la Jellyfin/Plex), release automation (à la Sonarr/Radarr), and a WebRTC cloud-gaming service — with one library, one user system, and one UI.
 
-📚 **Documentation:** <https://docs.pyrate.luebke.dev>
+📚 **Documentation:** <https://docs.streamarr.luebke.dev>
 
 ## Features
 
@@ -100,11 +100,11 @@ graph TB
 
 ## Deployment
 
-Four supported models (see [`deployment/`](deployment/) and the [docs](https://docs.pyrate.luebke.dev)):
+Four supported models (see [`deployment/`](deployment/) and the [docs](https://docs.streamarr.luebke.dev)):
 
 - **Local dev** — `docker-compose.yml` in the repo root (locally built images)
-- **Single host** — `deployment/docker/docker-compose.yml` with pre-built registry images, or the interactive installer: `curl -fsSL https://get.pyrate.media | sudo bash`
-- **Kubernetes** — Helm chart at `deployment/helm/pyrate` (also published as an OCI artifact), with K8s-native transcode Jobs
+- **Single host** — `deployment/docker/docker-compose.yml` with pre-built registry images, or the interactive installer: `curl -fsSL https://get.streamarr.media | sudo bash`
+- **Kubernetes** — Helm chart at `deployment/helm/streamarr` (also published as an OCI artifact), with K8s-native transcode Jobs
 - **Podman quadlets** — lean systemd-managed single-host variant
 
 ## Repository layout

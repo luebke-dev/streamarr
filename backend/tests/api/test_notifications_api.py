@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, Mock, patch
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models import Notification, NotificationType, User
-from pyrate.models.notification import NotificationStatus
+from streamarr.models import Notification, NotificationType, User
+from streamarr.models.notification import NotificationStatus
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +281,7 @@ class TestNotificationSettings:
         )
         assert settings.status_code == 200
 
-        with patch("pyrate.services.notification.httpx.AsyncClient") as mock_client:
+        with patch("streamarr.services.notification.httpx.AsyncClient") as mock_client:
             response = AsyncMock()
             response.is_redirect = False
             response.raise_for_status = Mock(return_value=None)
@@ -355,7 +355,7 @@ class TestNotificationSettings:
                         "enabled": True,
                         "config": {
                             "url": "https://example.invalid/slack",
-                            "username": "pyrate",
+                            "username": "streamarr",
                         },
                     }
                 ],
@@ -368,7 +368,7 @@ class TestNotificationSettings:
             },
         )
 
-        with patch("pyrate.services.notification.httpx.AsyncClient") as mock_client:
+        with patch("streamarr.services.notification.httpx.AsyncClient") as mock_client:
             response = AsyncMock()
             response.is_redirect = False
             response.raise_for_status = Mock(return_value=None)
@@ -398,7 +398,7 @@ class TestNotificationSettings:
         post = mock_client.return_value.__aenter__.return_value.post
         post.assert_awaited_once()
         payload = post.await_args.kwargs["json"]
-        assert payload["username"] == "pyrate"
+        assert payload["username"] == "streamarr"
         assert "offline.item_update" in payload["text"]
 
     async def test_admin_dispatches_session_command_event(
@@ -426,7 +426,7 @@ class TestNotificationSettings:
             },
         )
 
-        with patch("pyrate.services.notification.httpx.AsyncClient") as mock_client:
+        with patch("streamarr.services.notification.httpx.AsyncClient") as mock_client:
             response = AsyncMock()
             response.is_redirect = False
             response.raise_for_status = Mock(return_value=None)
@@ -606,7 +606,7 @@ class TestDeleteAllNotifications:
 # POST /api/notifications/ (create notification)
 # ---------------------------------------------------------------------------
 class TestCreateNotification:
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_create_own_notification(
         self, mock_email, client: AsyncClient, test_user: User, user_headers
     ):
@@ -628,7 +628,7 @@ class TestCreateNotification:
         data = resp.json()
         assert data["subject"] == "Self Notification"
 
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_create_notification_for_other_user_forbidden(
         self,
         mock_email,
@@ -653,7 +653,7 @@ class TestCreateNotification:
         )
         assert resp.status_code == 403
 
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_admin_create_notification_for_user(
         self,
         mock_email,
@@ -679,7 +679,7 @@ class TestCreateNotification:
         assert resp.status_code == 201
         assert resp.json()["subject"] == "Admin Notice"
 
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_create_notification_with_email(
         self, mock_email, client: AsyncClient, test_user: User, user_headers
     ):
@@ -705,7 +705,7 @@ class TestCreateNotification:
 # POST /api/notifications/bulk (bulk create)
 # ---------------------------------------------------------------------------
 class TestBulkCreateNotifications:
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_bulk_create_as_admin(
         self,
         mock_email,
@@ -732,7 +732,7 @@ class TestBulkCreateNotifications:
         data = resp.json()
         assert data["count"] == 2
 
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_bulk_create_as_user_forbidden(
         self,
         mock_email,
@@ -856,7 +856,7 @@ class TestNotificationPagination:
 # POST /api/notifications/ — with send_email=True (queues email)
 # ---------------------------------------------------------------------------
 class TestCreateNotificationWithEmail:
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_create_with_email_sends_to_kiq(
         self, mock_email, client: AsyncClient, test_user: User, user_headers
     ):
@@ -881,7 +881,7 @@ class TestCreateNotificationWithEmail:
 # POST /api/notifications/bulk — with email
 # ---------------------------------------------------------------------------
 class TestBulkCreateWithEmail:
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_bulk_create_with_email(
         self,
         mock_email,
@@ -913,7 +913,7 @@ class TestBulkCreateWithEmail:
 # POST /api/notifications/admin/send
 # ---------------------------------------------------------------------------
 class TestAdminSendNotification:
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_admin_send_to_specific_users(
         self,
         mock_email,
@@ -940,7 +940,7 @@ class TestAdminSendNotification:
         assert data["count"] == 1
         assert data["recipients"] == 1
 
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_admin_send_to_all_users(
         self,
         mock_email,
@@ -967,7 +967,7 @@ class TestAdminSendNotification:
         assert data["count"] >= 2
         assert data["recipients"] >= 2
 
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_admin_send_no_targets(
         self,
         mock_email,
@@ -990,7 +990,7 @@ class TestAdminSendNotification:
         assert resp.status_code == 400
         assert "Must specify" in resp.json()["detail"]
 
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_admin_send_with_email(
         self,
         mock_email,
@@ -1015,7 +1015,7 @@ class TestAdminSendNotification:
         assert resp.status_code == 201
         mock_email.kiq.assert_called_once()
 
-    @patch("pyrate.api.v1.notifications.send_notification_email")
+    @patch("streamarr.api.v1.notifications.send_notification_email")
     async def test_admin_send_as_user_forbidden(
         self,
         mock_email,

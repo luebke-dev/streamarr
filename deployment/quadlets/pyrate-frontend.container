@@ -1,9 +1,9 @@
 [Unit]
-Description=Pyrate Media Frontend (Quasar SPA)
+Description=Streamarr Frontend (Quasar SPA)
 
 [Container]
-Image=registry.gitlab.com/pyrate.media/frontend:latest
-ContainerName=pyrate-frontend
+Image=registry.gitlab.com/streamarr.media/frontend:latest
+ContainerName=streamarr-frontend
 
 PublishPort=3000:3000
 

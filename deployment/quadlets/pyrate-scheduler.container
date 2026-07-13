@@ -1,23 +1,23 @@
 [Unit]
-Description=Pyrate Media Task Scheduler (TaskIQ)
-After=pyrate-postgres.service pyrate-redis.service pyrate-migrate.service
+Description=Streamarr Task Scheduler (TaskIQ)
+After=streamarr-postgres.service streamarr-redis.service streamarr-migrate.service
 # Block startup until DB migrations have completed successfully.
-Requires=pyrate-migrate.service
+Requires=streamarr-migrate.service
 
 [Container]
-Image=registry.gitlab.com/pyrate.media/backend:latest
-ContainerName=pyrate-scheduler
+Image=registry.gitlab.com/streamarr.media/backend:latest
+ContainerName=streamarr-scheduler
 
 # Secrets & host paths (POSTGRES_PASSWORD, SECRET_KEY, DATA_DIR,
 # PROJECT_ROOT, ...) are injected from this file. Create it with mode 0600,
 # owned by root. See deployment/README.md.
-EnvironmentFile=/etc/pyrate/pyrate.env
+EnvironmentFile=/etc/streamarr/streamarr.env
 
-Exec=uv run taskiq scheduler pyrate.worker:scheduler
+Exec=uv run taskiq scheduler streamarr.worker:scheduler
 
-Environment=DATABASE_URL=postgresql+asyncpg://pyrate:${POSTGRES_PASSWORD}@pyrate-postgres:5432/pyrate
-Environment=REDIS_URL=redis://pyrate-redis:6379/0
-Environment=ELASTICSEARCH_HOST=pyrate-elasticsearch
+Environment=DATABASE_URL=postgresql+asyncpg://streamarr:${POSTGRES_PASSWORD}@streamarr-postgres:5432/streamarr
+Environment=REDIS_URL=redis://streamarr-redis:6379/0
+Environment=ELASTICSEARCH_HOST=streamarr-elasticsearch
 Environment=ELASTICSEARCH_PORT=9200
 Environment=SECRET_KEY=${SECRET_KEY}
 Environment=PROJECT_ROOT=${PROJECT_ROOT}

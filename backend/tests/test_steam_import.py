@@ -4,9 +4,9 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.media import MediaExternalId, MediaItem, MediaType
-from pyrate.services.media import MediaService
-from pyrate.services.steam_import import import_steam_games
+from streamarr.models.media import MediaExternalId, MediaItem, MediaType
+from streamarr.services.media import MediaService
+from streamarr.services.steam_import import import_steam_games
 
 
 @pytest.mark.asyncio

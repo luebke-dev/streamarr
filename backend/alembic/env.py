@@ -10,7 +10,7 @@ from alembic import context
 
 # Try to import settings, but handle missing environment variables gracefully
 try:
-    from pyrate.config import settings
+    from streamarr.config import settings
     _settings = settings
 except Exception:
     # Fallback for migration generation when environment variables are not set
@@ -18,11 +18,11 @@ except Exception:
 
 
 # Import all models to ensure they're registered with metadata
-from pyrate.models import Base
+from streamarr.models import Base
 from sqlmodel import SQLModel
 
 # Import all SQLModel models
-import pyrate.models  # noqa: F401
+import streamarr.models  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -42,7 +42,7 @@ def get_url():
         return _settings.database_url
     else:
         # Fallback URL for migration generation
-        return os.getenv("DATABASE_URL", "postgresql://user:pass@localhost/pyrate")
+        return os.getenv("DATABASE_URL", "postgresql://user:pass@localhost/streamarr")
 
 
 def run_migrations_offline():

@@ -8,10 +8,10 @@ from fastapi import BackgroundTasks
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.api.v1 import favorites as favorites_api
-from pyrate.models.media import MediaItem, MediaType
-from pyrate.models.user import User
-from pyrate.schemas.favorite import FavoriteStatusResponse
+from streamarr.api.v1 import favorites as favorites_api
+from streamarr.models.media import MediaItem, MediaType
+from streamarr.models.user import User
+from streamarr.schemas.favorite import FavoriteStatusResponse
 
 
 @pytest.fixture

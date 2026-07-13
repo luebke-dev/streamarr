@@ -67,8 +67,8 @@ Severity: High
 
 Evidence:
 
-- `frontend/src/stores/auth.js:7` defines `DEVICE_ID_KEY = 'pyrate_device_id'`.
-- `frontend/src/composables/useWebSocket.js:30` also uses `pyrate_device_id`.
+- `frontend/src/stores/auth.js:7` defines `DEVICE_ID_KEY = 'streamarr_device_id'`.
+- `frontend/src/composables/useWebSocket.js:30` also uses `streamarr_device_id`.
 - `frontend/src/components/user-settings/DevicesSection.vue:215` reads
   `localStorage.getItem('device_id')`.
 
@@ -80,7 +80,7 @@ wrong current-device badges/actions or confusing device removal behavior.
 Recommended fix:
 
 Extract a shared `deviceIdentity` utility or export the key from one source.
-Update `DevicesSection` to use the same `pyrate_device_id` key.
+Update `DevicesSection` to use the same `streamarr_device_id` key.
 
 Acceptance criteria:
 
@@ -257,7 +257,7 @@ Acceptance criteria:
 
 Validation:
 
-- `grep -R "access_token\\|refresh_token\\|pyrate_device_id\\|device_id"`
+- `grep -R "access_token\\|refresh_token\\|streamarr_device_id\\|device_id"`
   shows only expected centralized definitions plus reads through helpers.
 
 ### 7. `SectionConfigDialog.vue` should be schema/component driven

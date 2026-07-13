@@ -34,6 +34,6 @@ EXPOSE 8000
 
 # Start the application. Database migrations are NOT run here — they are a
 # dedicated one-shot step (compose `migrate` service / Helm pre-upgrade hook /
-# `pyrate-migrate` quadlet) so exactly one process migrates before the app
+# `streamarr-migrate` quadlet) so exactly one process migrates before the app
 # containers start. See deployment/README.md.
-CMD ["uv", "run", "python", "-m", "pyrate.server"]
+CMD ["uv", "run", "python", "-m", "streamarr.server"]

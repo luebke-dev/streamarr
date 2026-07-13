@@ -1,7 +1,7 @@
 # Lightrays — production-shaped local override.
 #
 # Production deployments target Kubernetes (Helm chart in
-# pyrate.media/deployment/helm). This file exists only for the
+# streamarr.media/deployment/helm). This file exists only for the
 # occasional "smoke-test the prod-ish behaviour on a single host"
 # scenario; the real hardening (cap_drop ALL, seccomp RuntimeDefault,
 # readOnlyRootFilesystem, etc.) is in the Helm pod securityContext.
@@ -15,7 +15,7 @@
 #
 # Usage:
 #   LIGHTRAYS_JWT_SECRET=... \
-#   LIGHTRAYS_CORS_ORIGINS=https://pyrate.example.com \
+#   LIGHTRAYS_CORS_ORIGINS=https://streamarr.example.com \
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 services:

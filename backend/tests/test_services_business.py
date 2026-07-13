@@ -22,14 +22,14 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.media import (
+from streamarr.models.media import (
     AvailabilityStatus,
     MediaExternalId,
     MediaItem,
     MediaRelease,
     MediaType,
 )
-from pyrate.models.user import User
+from streamarr.models.user import User
 
 
 # ===========================================================================
@@ -42,7 +42,7 @@ class TestSystemSettingsStorageAndLightrays:
 
     @pytest_asyncio.fixture
     async def svc(self, db_session: AsyncSession):
-        from pyrate.services.system_settings import SystemSettingsService
+        from streamarr.services.system_settings import SystemSettingsService
 
         return SystemSettingsService(db_session)
 
@@ -97,7 +97,7 @@ class TestSystemSettingsStorageAndLightrays:
     @pytest.mark.asyncio
     async def test_get_system_settings_defaults(self, svc):
         result = await svc.get_system_settings()
-        assert result["site_name"] == "pyrate.media"
+        assert result["site_name"] == "streamarr.media"
         assert result["locale"] == "de-DE"
 
     @pytest.mark.asyncio
@@ -135,7 +135,7 @@ class TestSystemSettingsPreviewNaming:
 
     @pytest_asyncio.fixture
     async def svc(self, db_session: AsyncSession):
-        from pyrate.services.system_settings import SystemSettingsService
+        from streamarr.services.system_settings import SystemSettingsService
 
         return SystemSettingsService(db_session)
 
@@ -160,7 +160,7 @@ class TestSystemSettingsPreviewNaming:
     @pytest.mark.asyncio
     async def test_get_library_settings_with_schema_missing_naming(self, svc):
         """Covers the except branch when get_naming_schema is unavailable."""
-        with patch("pyrate.libraries.get_plugin_instance") as mock_gpi:
+        with patch("streamarr.libraries.get_plugin_instance") as mock_gpi:
             mock_plugin = MagicMock()
             mock_plugin.get_settings_schema.return_value = {}
             mock_plugin.get_naming_schema.side_effect = AttributeError("no such method")
@@ -175,7 +175,7 @@ class TestSystemSettingsStorageOverviewAndCleanup:
 
     @pytest_asyncio.fixture
     async def svc(self, db_session: AsyncSession):
-        from pyrate.services.system_settings import SystemSettingsService
+        from streamarr.services.system_settings import SystemSettingsService
 
         return SystemSettingsService(db_session)
 
@@ -183,7 +183,7 @@ class TestSystemSettingsStorageOverviewAndCleanup:
     async def test_get_storage_overview(self, svc):
         mock_overview = {"temp": {}, "downloads": {}, "libraries": {}}
         with patch(
-            "pyrate.services.storage_cleanup.StorageCleanupService"
+            "streamarr.services.storage_cleanup.StorageCleanupService"
         ) as MockSCS:
             mock_instance = AsyncMock()
             mock_instance.get_storage_overview = AsyncMock(return_value=mock_overview)
@@ -196,7 +196,7 @@ class TestSystemSettingsStorageOverviewAndCleanup:
     async def test_trigger_storage_cleanup(self, svc):
         mock_result = {"temp_cleanup": {}, "download_records": {}}
         with patch(
-            "pyrate.services.storage_cleanup.StorageCleanupService"
+            "streamarr.services.storage_cleanup.StorageCleanupService"
         ) as MockSCS:
             mock_instance = AsyncMock()
             mock_instance.run_full_cleanup = AsyncMock(return_value=mock_result)
@@ -211,9 +211,9 @@ class TestSystemSettingsStandaloneHelpers:
 
     @pytest.mark.asyncio
     async def test_standalone_get_tmdb_api_key(self, db_session: AsyncSession):
-        from pyrate.services.system_settings import get_tmdb_api_key
+        from streamarr.services.system_settings import get_tmdb_api_key
 
-        from pyrate.services.settings import SettingsService
+        from streamarr.services.settings import SettingsService
 
         await SettingsService(db_session).set("plugin.tmdb.api_key", "test-key-123")
         result = await get_tmdb_api_key(db_session)
@@ -221,9 +221,9 @@ class TestSystemSettingsStandaloneHelpers:
 
     @pytest.mark.asyncio
     async def test_standalone_get_tvdb_api_key(self, db_session: AsyncSession):
-        from pyrate.services.system_settings import get_tvdb_api_key
+        from streamarr.services.system_settings import get_tvdb_api_key
 
-        from pyrate.services.settings import SettingsService
+        from streamarr.services.settings import SettingsService
 
         await SettingsService(db_session).set("plugin.tvdb.api_key", "tvdb-key")
         result = await get_tvdb_api_key(db_session)
@@ -231,9 +231,9 @@ class TestSystemSettingsStandaloneHelpers:
 
     @pytest.mark.asyncio
     async def test_standalone_get_igdb_credentials(self, db_session: AsyncSession):
-        from pyrate.services.system_settings import get_igdb_credentials
+        from streamarr.services.system_settings import get_igdb_credentials
 
-        from pyrate.services.settings import SettingsService
+        from streamarr.services.settings import SettingsService
 
         svc = SettingsService(db_session)
         await svc.set("plugin.igdb.client_id", "igdb-id")
@@ -244,7 +244,7 @@ class TestSystemSettingsStandaloneHelpers:
 
     @pytest.mark.asyncio
     async def test_standalone_get_locale(self, db_session: AsyncSession):
-        from pyrate.services.system_settings import get_locale
+        from streamarr.services.system_settings import get_locale
 
         result = await get_locale(db_session)
         assert result == "de-DE"
@@ -260,16 +260,16 @@ class TestTrendingServiceInit:
 
     @pytest.mark.asyncio
     async def test_get_tmdb_initializes_once(self, db_session: AsyncSession):
-        from pyrate.services.trending import TrendingService
+        from streamarr.services.trending import TrendingService
 
         svc = TrendingService(db_session)
         assert svc._tmdb is None
 
         with patch(
-            "pyrate.services.trending.get_tmdb_api_key",
+            "streamarr.services.trending.get_tmdb_api_key",
             AsyncMock(return_value="my-key"),
         ):
-            with patch("pyrate.services.trending.TMDB") as MockTMDB:
+            with patch("streamarr.services.trending.TMDB") as MockTMDB:
                 tmdb1 = await svc._get_tmdb()
                 tmdb2 = await svc._get_tmdb()  # should reuse
                 MockTMDB.assert_called_once_with(api_key="my-key")
@@ -279,15 +279,15 @@ class TestTrendingServiceInit:
     async def test_get_igdb_initializes_with_credentials(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.trending import TrendingService
+        from streamarr.services.trending import TrendingService
 
         svc = TrendingService(db_session)
 
         with patch(
-            "pyrate.services.trending.get_igdb_credentials",
+            "streamarr.services.trending.get_igdb_credentials",
             AsyncMock(return_value=("cid", "csec")),
         ):
-            with patch("pyrate.services.trending.IGDB") as MockIGDB:
+            with patch("streamarr.services.trending.IGDB") as MockIGDB:
                 igdb = await svc._get_igdb()
                 MockIGDB.assert_called_once_with(client_id="cid", client_secret="csec")
                 assert igdb is not None
@@ -296,12 +296,12 @@ class TestTrendingServiceInit:
     async def test_get_igdb_raises_without_credentials(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.trending import TrendingService
+        from streamarr.services.trending import TrendingService
 
         svc = TrendingService(db_session)
 
         with patch(
-            "pyrate.services.trending.get_igdb_credentials",
+            "streamarr.services.trending.get_igdb_credentials",
             AsyncMock(return_value=(None, None)),
         ):
             with pytest.raises(ValueError, match="IGDB credentials not configured"):
@@ -311,12 +311,12 @@ class TestTrendingServiceInit:
     async def test_get_igdb_raises_partial_credentials(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.trending import TrendingService
+        from streamarr.services.trending import TrendingService
 
         svc = TrendingService(db_session)
 
         with patch(
-            "pyrate.services.trending.get_igdb_credentials",
+            "streamarr.services.trending.get_igdb_credentials",
             AsyncMock(return_value=("cid", None)),
         ):
             with pytest.raises(ValueError, match="IGDB credentials not configured"):
@@ -330,7 +330,7 @@ class TestTrendingExistingMovies:
     async def test_get_new_trending_movie_ids_filters_existing(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.trending import TrendingService
+        from streamarr.services.trending import TrendingService
 
         # Create a movie with external ID that matches trending
         mi = MediaItem(title="Existing Movie", media_type=MediaType.MOVIES)
@@ -358,7 +358,7 @@ class TestTrendingExistingMovies:
     async def test_get_new_trending_show_ids_filters_existing(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.trending import TrendingService
+        from streamarr.services.trending import TrendingService
 
         mi = MediaItem(title="Existing Show", media_type=MediaType.SHOWS)
         db_session.add(mi)
@@ -384,7 +384,7 @@ class TestTrendingExistingMovies:
     async def test_get_new_trending_game_ids_filters_existing(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.trending import TrendingService
+        from streamarr.services.trending import TrendingService
 
         mi = MediaItem(title="Existing Game", media_type=MediaType.GAMES)
         db_session.add(mi)
@@ -421,7 +421,7 @@ class TestTrendingUpdateWithoutCredentials:
     async def test_update_trending_shows_list_raises_without_tmdb(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.trending import TrendingService
+        from streamarr.services.trending import TrendingService
 
         svc = TrendingService(db_session)
         # TMDB key is missing → tmdb client returns empty results / 401;
@@ -430,7 +430,7 @@ class TestTrendingUpdateWithoutCredentials:
         # empty trending list; the SYSTEM list is still created.
         await svc.update_trending_shows_list()
 
-        from pyrate.models.list import List
+        from streamarr.models.list import List
         from sqlalchemy import select
 
         result = await db_session.execute(
@@ -442,7 +442,7 @@ class TestTrendingUpdateWithoutCredentials:
     async def test_update_trending_games_list_raises_without_igdb(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.trending import TrendingService
+        from streamarr.services.trending import TrendingService
 
         svc = TrendingService(db_session)
         # IGDB requires both client id + secret; with neither set the
@@ -461,7 +461,7 @@ class TestLibraryRescoreReleases:
 
     @pytest.mark.asyncio
     async def test_rescore_releases_empty_list(self, db_session: AsyncSession):
-        from pyrate.services.library import LibraryService
+        from streamarr.services.library import LibraryService
 
         service = LibraryService(db_session)
         mi = await service.create_media_item(
@@ -472,7 +472,7 @@ class TestLibraryRescoreReleases:
 
     @pytest.mark.asyncio
     async def test_rescore_releases_no_plugin(self, db_session: AsyncSession):
-        from pyrate.services.library import LibraryService
+        from streamarr.services.library import LibraryService
 
         service = LibraryService(db_session)
         mi = await service.create_media_item(
@@ -492,7 +492,7 @@ class TestLibraryRescoreReleases:
     async def test_rescore_releases_plugin_without_score_method(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.library import LibraryService
+        from streamarr.services.library import LibraryService
 
         service = LibraryService(db_session)
         mi = await service.create_media_item(
@@ -515,7 +515,7 @@ class TestLibraryRescoreReleases:
     async def test_rescore_releases_with_working_plugin(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.library import LibraryService
+        from streamarr.services.library import LibraryService
 
         service = LibraryService(db_session)
         mi = await service.create_media_item(
@@ -541,7 +541,7 @@ class TestLibraryRescoreReleases:
     async def test_rescore_releases_scoring_error_continues(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.library import LibraryService
+        from streamarr.services.library import LibraryService
 
         service = LibraryService(db_session)
         mi = await service.create_media_item(
@@ -577,7 +577,7 @@ class TestLibraryGetLibraryStatsNoPlugin:
 
     @pytest.mark.asyncio
     async def test_get_library_stats_no_plugin(self, db_session: AsyncSession):
-        from pyrate.services.library import LibraryService
+        from streamarr.services.library import LibraryService
 
         service = LibraryService(db_session)
 
@@ -611,7 +611,7 @@ class TestSettingsConvenienceHelpersMissing:
 
     @pytest.mark.asyncio
     async def test_get_spotify_credentials(self, db_session: AsyncSession):
-        from pyrate.services.settings import SettingsService
+        from streamarr.services.settings import SettingsService
 
         svc = SettingsService(db_session)
         await svc.set("plugin.spotify.client_id", "sp-id")
@@ -623,7 +623,7 @@ class TestSettingsConvenienceHelpersMissing:
 
     @pytest.mark.asyncio
     async def test_get_spotify_credentials_none(self, db_session: AsyncSession):
-        from pyrate.services.settings import SettingsService
+        from streamarr.services.settings import SettingsService
 
         svc = SettingsService(db_session)
         cid, csec = await svc.get_spotify_credentials()
@@ -632,7 +632,7 @@ class TestSettingsConvenienceHelpersMissing:
 
     @pytest.mark.asyncio
     async def test_get_tvdb_api_key(self, db_session: AsyncSession):
-        from pyrate.services.settings import SettingsService
+        from streamarr.services.settings import SettingsService
 
         svc = SettingsService(db_session)
         await svc.set("plugin.tvdb.api_key", "tvdb-key-val")
@@ -641,7 +641,7 @@ class TestSettingsConvenienceHelpersMissing:
 
     @pytest.mark.asyncio
     async def test_get_tvdb_api_key_none(self, db_session: AsyncSession):
-        from pyrate.services.settings import SettingsService
+        from streamarr.services.settings import SettingsService
 
         svc = SettingsService(db_session)
         result = await svc.get_tvdb_api_key()
@@ -649,7 +649,7 @@ class TestSettingsConvenienceHelpersMissing:
 
     @pytest.mark.asyncio
     async def test_get_oidc_settings(self, db_session: AsyncSession):
-        from pyrate.services.settings import SettingsService
+        from streamarr.services.settings import SettingsService
 
         svc = SettingsService(db_session)
         await svc.set("oidc.provider_url", "https://auth.example.com")
@@ -661,7 +661,7 @@ class TestSettingsConvenienceHelpersMissing:
     async def test_get_email_settings_returns_prefixed(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.settings import SettingsService
+        from streamarr.services.settings import SettingsService
 
         svc = SettingsService(db_session)
         await svc.set("email.smtp_host", "mail.example.com")
@@ -672,7 +672,7 @@ class TestSettingsConvenienceHelpersMissing:
     async def test_get_transcoding_settings_returns_prefixed(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.settings import SettingsService
+        from streamarr.services.settings import SettingsService
 
         svc = SettingsService(db_session)
         await svc.set("transcoding.enabled", True)
@@ -684,7 +684,7 @@ class TestSettingsConvenienceHelpersMissing:
     async def test_get_invite_settings_returns_prefixed(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.settings import SettingsService
+        from streamarr.services.settings import SettingsService
 
         svc = SettingsService(db_session)
         result = await svc.get_invite_settings()
@@ -695,7 +695,7 @@ class TestSettingsConvenienceHelpersMissing:
     async def test_get_subscription_settings_returns_prefixed(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.settings import SettingsService
+        from streamarr.services.settings import SettingsService
 
         svc = SettingsService(db_session)
         result = await svc.get_subscription_settings()
@@ -709,7 +709,7 @@ class TestSettingsStandaloneHelpers:
     async def test_standalone_get_spotify_credentials(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.settings import SettingsService, get_spotify_credentials
+        from streamarr.services.settings import SettingsService, get_spotify_credentials
 
         svc = SettingsService(db_session)
         await svc.set("plugin.spotify.client_id", "sp-id")
@@ -721,7 +721,7 @@ class TestSettingsStandaloneHelpers:
 
     @pytest.mark.asyncio
     async def test_standalone_get_setting(self, db_session: AsyncSession):
-        from pyrate.services.settings import SettingsService, get_setting
+        from streamarr.services.settings import SettingsService, get_setting
 
         svc = SettingsService(db_session)
         await svc.set("custom.key", "custom-value")
@@ -733,14 +733,14 @@ class TestSettingsStandaloneHelpers:
     async def test_standalone_get_setting_with_default(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.settings import get_setting
+        from streamarr.services.settings import get_setting
 
         result = await get_setting(db_session, "nonexistent.key", default="fallback")
         assert result == "fallback"
 
     @pytest.mark.asyncio
     async def test_standalone_get_locale(self, db_session: AsyncSession):
-        from pyrate.services.settings import get_locale
+        from streamarr.services.settings import get_locale
 
         result = await get_locale(db_session)
         assert result == "de-DE"
@@ -757,8 +757,8 @@ class TestGenreGetOrCreate:
     @pytest.mark.asyncio
     async def test_get_or_create_existing_genre(self, db_session: AsyncSession):
         """When genre already exists by ID, return it."""
-        from pyrate.schemas.genre import GenreCreate
-        from pyrate.services.genre import GenreService
+        from streamarr.schemas.genre import GenreCreate
+        from streamarr.services.genre import GenreService
 
         service = GenreService(db_session)
         await service.create(GenreCreate(id=28, name="Action"))
@@ -774,8 +774,8 @@ class TestGenreGetOrCreate:
     ):
         """When genre does not exist, the ON CONFLICT INSERT is attempted.
         Note: pg_insert does not work on SQLite, so we mock the dialect import."""
-        from pyrate.services.genre import GenreService
-        from pyrate.models.genre import Genre
+        from streamarr.services.genre import GenreService
+        from streamarr.models.genre import Genre
 
         service = GenreService(db_session)
 
@@ -811,7 +811,7 @@ class TestStorageCleanupErrorHandling:
         self, db_session: AsyncSession
     ):
         """Cover the except branch in cleanup_old_downloads."""
-        from pyrate.services.storage_cleanup import StorageCleanupService
+        from streamarr.services.storage_cleanup import StorageCleanupService
 
         service = StorageCleanupService(db=db_session)
 
@@ -829,7 +829,7 @@ class TestStorageCleanupErrorHandling:
         self, db_session: AsyncSession
     ):
         """Cover the except branch in cleanup_orphaned_media_files."""
-        from pyrate.services.storage_cleanup import StorageCleanupService
+        from streamarr.services.storage_cleanup import StorageCleanupService
 
         service = StorageCleanupService(db=db_session)
 
@@ -845,7 +845,7 @@ class TestStorageCleanupErrorHandling:
         self, db_session: AsyncSession
     ):
         """Cover the except branch in cleanup_library_duplicates."""
-        from pyrate.services.storage_cleanup import StorageCleanupService
+        from streamarr.services.storage_cleanup import StorageCleanupService
 
         service = StorageCleanupService(db=db_session)
 
@@ -872,7 +872,7 @@ class TestPlayTokenEdgeCases:
         """Cover _get_redis lazy initialization."""
         import fakeredis
 
-        from pyrate.services.play_token import PlayTokenService
+        from streamarr.services.play_token import PlayTokenService
 
         service = PlayTokenService()
         assert service._redis is None
@@ -880,7 +880,7 @@ class TestPlayTokenEdgeCases:
         # Mock redis.from_url to return fakeredis
         fake = fakeredis.FakeAsyncRedis(decode_responses=True)
         with patch(
-            "pyrate.services.play_token.redis.from_url", return_value=fake
+            "streamarr.services.play_token.redis.from_url", return_value=fake
         ):
             r = await service._get_redis()
             assert r is not None
@@ -893,7 +893,7 @@ class TestPlayTokenEdgeCases:
         """Cover the JSONDecodeError/KeyError branch in get_token."""
         import fakeredis
 
-        from pyrate.services.play_token import PlayTokenService, REDIS_KEY_PREFIX
+        from streamarr.services.play_token import PlayTokenService, REDIS_KEY_PREFIX
 
         service = PlayTokenService()
         service._redis = fakeredis.FakeAsyncRedis(decode_responses=True)
@@ -908,7 +908,7 @@ class TestPlayTokenEdgeCases:
         """Cover KeyError branch when token data is missing required fields."""
         import fakeredis
 
-        from pyrate.services.play_token import PlayTokenService, REDIS_KEY_PREFIX
+        from streamarr.services.play_token import PlayTokenService, REDIS_KEY_PREFIX
 
         service = PlayTokenService()
         service._redis = fakeredis.FakeAsyncRedis(decode_responses=True)
@@ -927,7 +927,7 @@ class TestPlayTokenEdgeCases:
         """Cover close() method when redis is connected."""
         import fakeredis
 
-        from pyrate.services.play_token import PlayTokenService
+        from streamarr.services.play_token import PlayTokenService
 
         service = PlayTokenService()
         service._redis = fakeredis.FakeAsyncRedis(decode_responses=True)
@@ -938,7 +938,7 @@ class TestPlayTokenEdgeCases:
     @pytest.mark.asyncio
     async def test_close_when_not_connected(self):
         """Cover close() method when redis is not connected."""
-        from pyrate.services.play_token import PlayTokenService
+        from streamarr.services.play_token import PlayTokenService
 
         service = PlayTokenService()
         assert service._redis is None
@@ -947,9 +947,9 @@ class TestPlayTokenEdgeCases:
 
     def test_get_play_token_service_singleton(self):
         """Cover get_play_token_service global singleton."""
-        from pyrate.services.play_token import get_play_token_service, PlayTokenService
+        from streamarr.services.play_token import get_play_token_service, PlayTokenService
 
-        import pyrate.services.play_token as pt_module
+        import streamarr.services.play_token as pt_module
 
         # Reset global
         pt_module._token_service = None
@@ -965,7 +965,7 @@ class TestPlayTokenEdgeCases:
         """Cover the stale token cleanup in get_all_tokens."""
         import fakeredis
 
-        from pyrate.services.play_token import (
+        from streamarr.services.play_token import (
             PlayTokenService,
             REDIS_TOKENS_SET,
         )
@@ -992,7 +992,7 @@ class TestIndexerCategoryEdgeCases:
     """Cover _get_category_ids_for_type with None newznab_category_id."""
 
     def test_category_with_none_id_filtered(self):
-        from pyrate.services.indexer import IndexerService
+        from streamarr.services.indexer import IndexerService
 
         service = IndexerService.__new__(IndexerService)
 
@@ -1011,7 +1011,7 @@ class TestIndexerCategoryEdgeCases:
         assert result == "2000"
 
     def test_language_hints_deduplication(self):
-        from pyrate.services.indexer import IndexerService
+        from streamarr.services.indexer import IndexerService
 
         service = IndexerService.__new__(IndexerService)
 
@@ -1030,7 +1030,7 @@ class TestIndexerCategoryEdgeCases:
         assert result == ["en", "de", "fr"]  # no duplicates
 
     def test_resolution_hints_deduplication(self):
-        from pyrate.services.indexer import IndexerService
+        from streamarr.services.indexer import IndexerService
 
         service = IndexerService.__new__(IndexerService)
 
@@ -1049,7 +1049,7 @@ class TestIndexerCategoryEdgeCases:
         assert result == ["1080p", "720p", "2160p"]
 
     def test_language_hints_no_language_field(self):
-        from pyrate.services.indexer import IndexerService
+        from streamarr.services.indexer import IndexerService
 
         service = IndexerService.__new__(IndexerService)
 
@@ -1064,7 +1064,7 @@ class TestIndexerCategoryEdgeCases:
         assert result == []
 
     def test_resolution_hints_no_resolution_field(self):
-        from pyrate.services.indexer import IndexerService
+        from streamarr.services.indexer import IndexerService
 
         service = IndexerService.__new__(IndexerService)
 
@@ -1084,12 +1084,12 @@ class TestIndexerSearchMusic:
 
     @pytest.mark.asyncio
     async def test_search_music_no_credentials(self, db_session: AsyncSession):
-        from pyrate.services.indexer import IndexerService
+        from streamarr.services.indexer import IndexerService
 
         service = IndexerService(db_session)
 
         with patch(
-            "pyrate.services.settings.SettingsService"
+            "streamarr.services.settings.SettingsService"
         ) as MockSettings:
             mock_svc = MagicMock()
             mock_svc.get_spotify_credentials = AsyncMock(
@@ -1103,7 +1103,7 @@ class TestIndexerSearchMusic:
 
     @pytest.mark.asyncio
     async def test_search_music_with_credentials(self, db_session: AsyncSession):
-        from pyrate.services.indexer import IndexerService
+        from streamarr.services.indexer import IndexerService
 
         service = IndexerService(db_session)
 
@@ -1114,7 +1114,7 @@ class TestIndexerSearchMusic:
         mock_spotify.close = AsyncMock()
 
         with patch(
-            "pyrate.services.settings.SettingsService"
+            "streamarr.services.settings.SettingsService"
         ) as MockSettings:
             mock_svc = MagicMock()
             mock_svc.get_spotify_credentials = AsyncMock(
@@ -1123,7 +1123,7 @@ class TestIndexerSearchMusic:
             MockSettings.return_value = mock_svc
 
             with patch(
-                "pyrate.services.indexer.Spotify", return_value=mock_spotify
+                "streamarr.services.indexer.Spotify", return_value=mock_spotify
             ):
                 result = await service.search_music(query="test song")
 
@@ -1135,7 +1135,7 @@ class TestIndexerSearchMusic:
     async def test_search_music_exception_returns_empty(
         self, db_session: AsyncSession
     ):
-        from pyrate.services.indexer import IndexerService
+        from streamarr.services.indexer import IndexerService
 
         service = IndexerService(db_session)
 
@@ -1146,7 +1146,7 @@ class TestIndexerSearchMusic:
         mock_spotify.close = AsyncMock()
 
         with patch(
-            "pyrate.services.settings.SettingsService"
+            "streamarr.services.settings.SettingsService"
         ) as MockSettings:
             mock_svc = MagicMock()
             mock_svc.get_spotify_credentials = AsyncMock(
@@ -1155,7 +1155,7 @@ class TestIndexerSearchMusic:
             MockSettings.return_value = mock_svc
 
             with patch(
-                "pyrate.services.indexer.Spotify", return_value=mock_spotify
+                "streamarr.services.indexer.Spotify", return_value=mock_spotify
             ):
                 result = await service.search_music(query="test")
 
@@ -1172,14 +1172,14 @@ class TestReleaseMatcherEdgeCases:
     """Cover fuzzy matching edge cases and filter_matching_releases."""
 
     def test_match_title_empty_after_normalization(self):
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         result = ReleaseMatcher._match_title("", "The Matrix", None, 1999)
         assert not result.is_match
         assert result.match_type == "no_match"
 
     def test_match_title_partial_containment(self):
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         result = ReleaseMatcher._match_title(
             "matrix", "the matrix reloaded", None, None
@@ -1189,7 +1189,7 @@ class TestReleaseMatcherEdgeCases:
         assert result.score >= 0.85
 
     def test_match_title_partial_with_year(self):
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         result = ReleaseMatcher._match_title(
             "matrix", "the matrix", 1999, 1999
@@ -1199,7 +1199,7 @@ class TestReleaseMatcherEdgeCases:
 
     def test_match_title_fuzzy_with_year_appended(self):
         """Cover the fuzzy_with_year branch."""
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         # A title that wouldn't match normally but matches with year appended
         result = ReleaseMatcher._match_title(
@@ -1208,19 +1208,19 @@ class TestReleaseMatcherEdgeCases:
         assert result.is_match
 
     def test_normalize_imdb_id_empty(self):
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         assert ReleaseMatcher._normalize_imdb_id("") == ""
         assert ReleaseMatcher._normalize_imdb_id("tt1234567") == "tt1234567"
         assert ReleaseMatcher._normalize_imdb_id("1234567") == "tt1234567"
 
     def test_normalize_imdb_id_short_number(self):
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         assert ReleaseMatcher._normalize_imdb_id("123") == "tt0000123"
 
     def test_match_movie_with_alternate_titles(self):
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         result = ReleaseMatcher.match_movie_release(
             release_title="Die.Hard.1988.1080p.BluRay.x264-GROUP",
@@ -1231,7 +1231,7 @@ class TestReleaseMatcherEdgeCases:
         assert result.is_match
 
     def test_match_episode_by_tvdb_id(self):
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         result = ReleaseMatcher.match_episode_release(
             release_title="Something.S01E01.1080p.WEB.x264-GROUP",
@@ -1247,7 +1247,7 @@ class TestReleaseMatcherEdgeCases:
 
     def test_match_episode_tvdb_mismatch_season(self):
         """TVDB ID matches but season/episode doesn't - should not match."""
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         result = ReleaseMatcher.match_episode_release(
             release_title="Show.S02E01.1080p.WEB.x264-GROUP",
@@ -1261,26 +1261,26 @@ class TestReleaseMatcherEdgeCases:
         assert not result.is_match
 
     def test_season_episode_matches_season_none(self):
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         result = ReleaseMatcher._season_episode_matches(None, None, None, 1, 1)
         assert result is False
 
     def test_season_episode_matches_season_mismatch(self):
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         result = ReleaseMatcher._season_episode_matches(2, 1, None, 1, 1)
         assert result is False
 
     def test_season_episode_matches_multi_episode_out_of_range(self):
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         result = ReleaseMatcher._season_episode_matches(1, 1, 3, 1, 5)
         assert result is False
 
     def test_filter_matching_releases_empty_title(self):
         """Releases with empty titles are skipped."""
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         releases = [
             {"title": ""},
@@ -1298,7 +1298,7 @@ class TestReleaseMatcherEdgeCases:
 
     def test_filter_matching_releases_with_external_ids(self):
         """Test filter with IMDB external IDs."""
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         releases = [
             {
@@ -1318,7 +1318,7 @@ class TestReleaseMatcherEdgeCases:
 
     def test_filter_matching_releases_with_min_score(self):
         """Test min_score filtering."""
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         releases = [
             {"title": "The.Matrix.1999.1080p.BluRay.x264-GROUP"},
@@ -1337,7 +1337,7 @@ class TestReleaseMatcherEdgeCases:
 
     def test_match_episode_season_pack(self):
         """Cover the season pack matching branch."""
-        from pyrate.services.release_matcher import ReleaseMatcher
+        from streamarr.services.release_matcher import ReleaseMatcher
 
         result = ReleaseMatcher.match_episode_release(
             release_title="Breaking.Bad.S01.1080p.BluRay.x264-GROUP",
@@ -1362,8 +1362,8 @@ class TestGroupServiceEdgeCases:
     async def test_list_groups_pagination(
         self, db_session: AsyncSession
     ):
-        from pyrate.schemas.group import GroupCreate
-        from pyrate.services.group import GroupService
+        from streamarr.schemas.group import GroupCreate
+        from streamarr.services.group import GroupService
 
         service = GroupService(db_session)
 
@@ -1389,8 +1389,8 @@ class TestGroupServiceEdgeCases:
         self, db_session: AsyncSession, test_user: User
     ):
         """Cover rate-limit normalization logic in compute_user_permissions."""
-        from pyrate.schemas.group import GroupCreate
-        from pyrate.services.group import GroupService
+        from streamarr.schemas.group import GroupCreate
+        from streamarr.services.group import GroupService
 
         service = GroupService(db_session)
 
@@ -1432,8 +1432,8 @@ class TestGroupServiceEdgeCases:
         self, db_session: AsyncSession, test_user: User
     ):
         """Two groups with different rate limits: most restrictive wins."""
-        from pyrate.schemas.group import GroupCreate
-        from pyrate.services.group import GroupService
+        from streamarr.schemas.group import GroupCreate
+        from streamarr.services.group import GroupService
 
         service = GroupService(db_session)
 
@@ -1477,8 +1477,8 @@ class TestGroupServiceEdgeCases:
         self, db_session: AsyncSession, test_user: User
     ):
         """get_user_groups excludes inactive groups."""
-        from pyrate.schemas.group import GroupCreate
-        from pyrate.services.group import GroupService
+        from streamarr.schemas.group import GroupCreate
+        from streamarr.services.group import GroupService
 
         service = GroupService(db_session)
 
@@ -1507,7 +1507,7 @@ class TestSystemSettingsUnknownLibraryType:
 
     @pytest_asyncio.fixture
     async def svc(self, db_session: AsyncSession):
-        from pyrate.services.system_settings import SystemSettingsService
+        from streamarr.services.system_settings import SystemSettingsService
 
         return SystemSettingsService(db_session)
 
@@ -1539,7 +1539,7 @@ class TestSystemSettingsUpdateNoneValues:
 
     @pytest_asyncio.fixture
     async def svc(self, db_session: AsyncSession):
-        from pyrate.services.system_settings import SystemSettingsService
+        from streamarr.services.system_settings import SystemSettingsService
 
         return SystemSettingsService(db_session)
 
@@ -1573,7 +1573,7 @@ class TestSystemSettingsUpdateNoneValues:
     @pytest.mark.asyncio
     async def test_update_system_settings_none_values(self, svc):
         result = await svc.update_system_settings()
-        assert result["site_name"] == "pyrate.media"
+        assert result["site_name"] == "streamarr.media"
 
     @pytest.mark.asyncio
     async def test_update_subscription_settings_none_values(self, svc):

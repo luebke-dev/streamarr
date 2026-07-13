@@ -14,7 +14,7 @@ def mock_client():
 
 @pytest.fixture
 def tvdb(mock_client):
-    from pyrate.metadata.tvdb import TVDB
+    from streamarr.metadata.tvdb import TVDB
 
     return TVDB(
         api_key="test-api-key",
@@ -47,13 +47,13 @@ class TestBasicAttributes:
         assert tvdb.get_name() == "TheTVDB"
 
     def test_init_without_client(self):
-        from pyrate.metadata.tvdb import TVDB
+        from streamarr.metadata.tvdb import TVDB
 
         t = TVDB(api_key="key")
         assert t.client is not None
 
     def test_init_without_pin(self):
-        from pyrate.metadata.tvdb import TVDB
+        from streamarr.metadata.tvdb import TVDB
 
         t = TVDB(api_key="key", client=AsyncMock())
         assert t.pin is None
@@ -397,14 +397,14 @@ class TestCloseAndSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_success(self):
-        from pyrate.metadata.tvdb import async_setup
+        from streamarr.metadata.tvdb import async_setup
 
         result = await async_setup({"api_key": "key"})
         assert result is True
 
     @pytest.mark.asyncio
     async def test_async_setup_missing_key(self):
-        from pyrate.metadata.tvdb import async_setup
+        from streamarr.metadata.tvdb import async_setup
 
         result = await async_setup({})
         assert result is False

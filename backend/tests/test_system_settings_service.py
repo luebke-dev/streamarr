@@ -4,7 +4,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.services.system_settings import SystemSettingsService
+from streamarr.services.system_settings import SystemSettingsService
 
 
 @pytest_asyncio.fixture
@@ -258,8 +258,8 @@ class TestEmailSettings:
         assert result["smtp_port"] == 587
         assert result["smtp_use_tls"] is True
         assert result["smtp_use_ssl"] is False
-        assert result["from_email"] == "noreply@pyrate.media"
-        assert result["from_name"] == "Pyrate Media"
+        assert result["from_email"] == "noreply@streamarr.media"
+        assert result["from_name"] == "Streamarr"
 
     @pytest.mark.asyncio
     async def test_update_email_settings(

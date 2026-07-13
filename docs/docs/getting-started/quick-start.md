@@ -1,6 +1,6 @@
 # Quick Start
 
-This guide takes a freshly [installed](installation.md) pyrate.media server from an empty database to a working instance: create the first admin account, configure metadata providers, create libraries, wire up download automation, import some content, and invite your users.
+This guide takes a freshly [installed](installation.md) streamarr.media server from an empty database to a working instance: create the first admin account, configure metadata providers, create libraries, wire up download automation, import some content, and invite your users.
 
 ## 1. Run the setup wizard
 

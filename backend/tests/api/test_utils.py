@@ -1,9 +1,9 @@
-"""Tests for pyrate.api.utils module."""
+"""Tests for streamarr.api.utils module."""
 
 import pytest
 from unittest.mock import MagicMock
 
-from pyrate.api.utils import get_user_locale
+from streamarr.api.utils import get_user_locale
 
 
 class TestGetUserLocale:

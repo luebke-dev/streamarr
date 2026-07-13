@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.computing.base import ComputingBase, TaskResult, TaskStatus
-from pyrate.services.computing import (
+from streamarr.computing.base import ComputingBase, TaskResult, TaskStatus
+from streamarr.services.computing import (
     ComputingService,
     _kubernetes_scheduling_kwargs,
 )
@@ -140,7 +140,7 @@ class MockComputingProvider(ComputingBase):
 def mock_provider():
     """Create a mock computing provider."""
     manifest = {
-        "domain": "pyrate.computing.docker",
+        "domain": "streamarr.computing.docker",
         "name": "Docker Computing Provider",
         "version": "1.0.0",
     }
@@ -159,11 +159,11 @@ class TestComputingServiceProviderSetup:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
+                "streamarr.services.computing.get_computing_provider_domain",
                 return_value="docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -182,11 +182,11 @@ class TestComputingServiceProviderSetup:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
+                "streamarr.services.computing.get_computing_provider_domain",
                 return_value="docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -211,11 +211,11 @@ class TestComputingServiceTaskManagement:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -236,11 +236,11 @@ class TestComputingServiceTaskManagement:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -272,11 +272,11 @@ class TestComputingServiceTaskManagement:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -304,17 +304,17 @@ class TestComputingServiceTaskManagement:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
 
             labels = {
-                "app": "pyrate",
+                "app": "streamarr",
                 "task_type": "transcode",
             }
 
@@ -336,11 +336,11 @@ class TestComputingServiceTaskManagement:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -361,11 +361,11 @@ class TestComputingServiceTaskManagement:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -389,11 +389,11 @@ class TestComputingServiceTaskManagement:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -416,11 +416,11 @@ class TestComputingServiceTaskManagement:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -443,11 +443,11 @@ class TestComputingServiceTaskManagement:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -471,11 +471,11 @@ class TestComputingServiceTaskManagement:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -504,11 +504,11 @@ class TestComputingServiceTaskManagement:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -550,11 +550,11 @@ class TestComputingServiceFFmpegTasks:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -582,11 +582,11 @@ class TestComputingServiceFFmpegTasks:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -610,11 +610,11 @@ class TestComputingServiceFFmpegTasks:
 
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -630,7 +630,7 @@ class TestComputingServiceFFmpegTasks:
             assert "ffprobe" in task["command"]
             assert "-print_format" in task["command"]
             assert "json" in task["command"]
-            assert task["labels"]["pyrate.tool"] == "ffprobe"
+            assert task["labels"]["streamarr.tool"] == "ffprobe"
 
 
 class TestComputingServiceFFmpegCommandBuilder:
@@ -976,11 +976,11 @@ class TestKubernetesSchedulingKwargs:
     def test_node_selector_parsed(self, monkeypatch):
         monkeypatch.setenv(
             "COMPUTING_NODE_SELECTOR_JSON",
-            '{"pyrate.media/role": "transcode"}',
+            '{"streamarr.media/role": "transcode"}',
         )
         monkeypatch.delenv("COMPUTING_TOLERATIONS_JSON", raising=False)
         assert _kubernetes_scheduling_kwargs() == {
-            "node_selector": {"pyrate.media/role": "transcode"}
+            "node_selector": {"streamarr.media/role": "transcode"}
         }
 
     def test_tolerations_parsed(self, monkeypatch):
@@ -1044,11 +1044,11 @@ class TestSchedulingKwargsForwarded:
         service = ComputingService(db_session)
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):
@@ -1069,11 +1069,11 @@ class TestSchedulingKwargsForwarded:
         service = ComputingService(db_session)
         with (
             patch(
-                "pyrate.services.computing.get_computing_provider_domain",
-                return_value="pyrate.computing.docker",
+                "streamarr.services.computing.get_computing_provider_domain",
+                return_value="streamarr.computing.docker",
             ),
             patch(
-                "pyrate.services.computing.DockerComputingProvider",
+                "streamarr.services.computing.DockerComputingProvider",
                 MockComputingProvider,
             ),
         ):

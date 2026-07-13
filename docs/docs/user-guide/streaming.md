@@ -1,6 +1,6 @@
 # Streaming & Playback
 
-pyrate.media plays movies, shows, and more directly in your browser or app. Pressing **Play** always does the right thing — whether the file is already on the server or still has to be fetched first.
+streamarr.media plays movies, shows, and more directly in your browser or app. Pressing **Play** always does the right thing — whether the file is already on the server or still has to be fetched first.
 
 ## Smart Play
 

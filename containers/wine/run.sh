@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# pyrate-wine ENTRYPOINT
+# streamarr-wine ENTRYPOINT
 # ======================
 # Runs a Windows/Wine game inside a nested gamescope that connects to the
 # parent Wayland compositor lightrays runs OUTSIDE the container. See README
-# for the full pyrate game-container contract.
+# for the full streamarr game-container contract.
 #
 # What lightrays injects (we only READ these — never set them):
 #   WAYLAND_DISPLAY        parent compositor socket name (e.g. wayland-1)
@@ -19,11 +19,11 @@
 #   WINEPREFIX  (optional) default /home/retro/.wine (persisted via mount)
 #   WINEARCH    (optional) default win64 (runs 32-bit apps via WoW64)
 #   GAMESCOPE_ARGS (optional) extra flags for gamescope (word-split)
-#   PYRATE_SKIP_DXVK=1   skip DXVK install (use built-in wined3d)
-#   PYRATE_INIT_ONLY=1   create prefix + install DXVK, then exit (warmup)
+#   STREAMARR_SKIP_DXVK=1   skip DXVK install (use built-in wined3d)
+#   STREAMARR_INIT_ONLY=1   create prefix + install DXVK, then exit (warmup)
 set -euo pipefail
 
-log() { printf '[pyrate-wine] %s\n' "$*" >&2; }
+log() { printf '[streamarr-wine] %s\n' "$*" >&2; }
 
 # --- Home / prefix ----------------------------------------------------------
 export HOME="${HOME:-/home/retro}"
@@ -73,8 +73,8 @@ else
 fi
 
 # --- 2. Install DXVK into the prefix (idempotent) ---------------------------
-if [ "${PYRATE_SKIP_DXVK:-0}" = "1" ]; then
-    log "PYRATE_SKIP_DXVK=1 — leaving built-in wined3d in place"
+if [ "${STREAMARR_SKIP_DXVK:-0}" = "1" ]; then
+    log "STREAMARR_SKIP_DXVK=1 — leaving built-in wined3d in place"
 else
     if setup_dxvk install; then
         log "DXVK ready"
@@ -84,8 +84,8 @@ else
 fi
 
 # --- Warmup mode: build the prefix, then stop -------------------------------
-if [ "${PYRATE_INIT_ONLY:-0}" = "1" ]; then
-    log "PYRATE_INIT_ONLY=1 — prefix prepared, exiting"
+if [ "${STREAMARR_INIT_ONLY:-0}" = "1" ]; then
+    log "STREAMARR_INIT_ONLY=1 — prefix prepared, exiting"
     exit 0
 fi
 

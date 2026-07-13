@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import AsyncClient
 
-from pyrate.models.user import User
-from pyrate.schemas.transcoding import TranscodingSession
+from streamarr.models.user import User
+from streamarr.schemas.transcoding import TranscodingSession
 
 from .conftest import auth_headers
 
@@ -55,7 +55,7 @@ def mock_session_service():
     mock_service.get_all_sessions = AsyncMock(return_value=[])
 
     with patch(
-        "pyrate.api.v1.sessions.get_transcoding_session_service",
+        "streamarr.api.v1.sessions.get_transcoding_session_service",
         return_value=mock_service,
     ):
         yield mock_service

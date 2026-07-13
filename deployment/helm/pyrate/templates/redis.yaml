@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "pyrate.redisHost" . }}
+  name: {{ include "streamarr.redisHost" . }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "redis") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "redis") | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
@@ -12,29 +12,29 @@ spec:
       port: {{ .Values.redis.service.port }}
       targetPort: redis
   selector:
-    {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "redis") | nindent 4 }}
+    {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "redis") | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "pyrate.redisHost" . }}
+  name: {{ include "streamarr.redisHost" . }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "redis") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "redis") | nindent 4 }}
 spec:
-  serviceName: {{ include "pyrate.redisHost" . }}
+  serviceName: {{ include "streamarr.redisHost" . }}
   replicas: 1
   selector:
     matchLabels:
-      {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "redis") | nindent 6 }}
+      {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "redis") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "redis") | nindent 8 }}
+        {{- include "streamarr.componentLabels" (dict "ctx" . "component" "redis") | nindent 8 }}
     spec:
-      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      {{- include "streamarr.imagePullSecrets" . | nindent 6 }}
       containers:
         - name: redis
-          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.redis.image) }}
+          image: {{ include "streamarr.image" (dict "ctx" . "img" .Values.redis.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           ports:
             - name: redis

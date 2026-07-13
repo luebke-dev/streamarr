@@ -9,14 +9,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest_asyncio
 
-from pyrate.libraries.quality import (
+from streamarr.libraries.quality import (
     QualityKind,
     parse_quality,
     qualities_for_media_type,
 )
-from pyrate.models.media import MediaFile, MediaItem, MediaRelease, MediaType
-from pyrate.schemas.scoring import QualityProfile
-from pyrate.services.quality_profile import QualityProfileService, default_profile
+from streamarr.models.media import MediaFile, MediaItem, MediaRelease, MediaType
+from streamarr.schemas.scoring import QualityProfile
+from streamarr.services.quality_profile import QualityProfileService, default_profile
 
 # --------------------------------------------------------------------- #
 # S1 — quality ladder (pure)
@@ -172,7 +172,7 @@ async def show_tree(db_session):
 
 
 async def test_monitoring_iter_leaves(db_session, show_tree):
-    from pyrate.services.monitoring import MonitoringService
+    from streamarr.services.monitoring import MonitoringService
 
     show, _season, _eps = show_tree
     svc = MonitoringService(db_session)
@@ -184,7 +184,7 @@ async def test_monitoring_iter_leaves(db_session, show_tree):
 
 
 async def test_monitoring_missing_leaves(db_session, show_tree):
-    from pyrate.services.monitoring import MonitoringService
+    from streamarr.services.monitoring import MonitoringService
 
     show, season, eps = show_tree
     db_session.add(
@@ -197,7 +197,7 @@ async def test_monitoring_missing_leaves(db_session, show_tree):
 
 
 async def test_backfill_worker_helpers(db_session, show_tree):
-    from pyrate.workers.favorites_monitor_worker import (
+    from streamarr.workers.favorites_monitor_worker import (
         _collect_subtree,
         _leaf_guids,
         _missing_leaves,
@@ -213,7 +213,7 @@ async def test_backfill_worker_helpers(db_session, show_tree):
 
 
 async def test_protected_lineage_monitored(db_session, show_tree):
-    from pyrate.services.storage_cleanup import StorageCleanupService
+    from streamarr.services.storage_cleanup import StorageCleanupService
 
     show, season, eps = show_tree
     unmon = MediaItem(guid=uuid.uuid4(), media_type=MediaType.MOVIES, title="Free")
@@ -232,7 +232,7 @@ async def test_protected_lineage_monitored(db_session, show_tree):
 # --------------------------------------------------------------------- #
 
 async def test_upgrade_interfaces_available(db_session):
-    from pyrate.services import upgrade_interfaces as ui
+    from streamarr.services import upgrade_interfaces as ui
 
     assert ui.available() == {"quality": True, "monitoring": True}
     leaves = await ui.iter_monitored_leaves(db_session, limit=5)
@@ -240,7 +240,7 @@ async def test_upgrade_interfaces_available(db_session):
 
 
 async def test_auto_download_is_eligible_upgrade_bypasses_file(db_session, movie):
-    from pyrate.services.auto_download import AutoDownloadService
+    from streamarr.services.auto_download import AutoDownloadService
 
     db_session.add(
         MediaFile(guid=uuid.uuid4(), media_item_guid=movie.guid, file_path="/f.mkv")
@@ -254,7 +254,7 @@ async def test_auto_download_is_eligible_upgrade_bypasses_file(db_session, movie
 
 
 async def test_newznab_fetch_recent_parses_and_limits():
-    from pyrate.indexers.newznab import Newznab
+    from streamarr.indexers.newznab import Newznab
 
     nz = Newznab(base_url="http://x", api_key="k", id="ix1")
     payload = {
@@ -274,8 +274,8 @@ async def test_newznab_fetch_recent_parses_and_limits():
 
 
 async def test_newznab_fetch_recent_error_returns_empty():
-    from pyrate.indexers.base import IndexerError
-    from pyrate.indexers.newznab import Newznab
+    from streamarr.indexers.base import IndexerError
+    from streamarr.indexers.newznab import Newznab
 
     nz = Newznab(base_url="http://x", api_key="k", id="ix1")
     with patch.object(nz, "_request", AsyncMock(side_effect=IndexerError("boom"))):
@@ -285,7 +285,7 @@ async def test_newznab_fetch_recent_error_returns_empty():
 
 async def test_rss_sync_disabled_skips(db_session):
     """Master switch defaults OFF → run_once is a no-op."""
-    from pyrate.services.rss_sync import RssSyncService
+    from streamarr.services.rss_sync import RssSyncService
 
     res = await RssSyncService(db_session).run_once()
     assert res.skipped_disabled is True

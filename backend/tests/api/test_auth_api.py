@@ -8,11 +8,11 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.auth.jwt_handler import jwt_handler
-from pyrate.models.invite import Invite
-from pyrate.models.library import Library
-from pyrate.models.media import MediaItem, MediaType
-from pyrate.models.user import User
+from streamarr.auth.jwt_handler import jwt_handler
+from streamarr.models.invite import Invite
+from streamarr.models.library import Library
+from streamarr.models.media import MediaItem, MediaType
+from streamarr.models.user import User
 
 from .conftest import auth_headers
 
@@ -77,7 +77,7 @@ class TestLocalLogin:
         assert resp.status_code == 401
 
     async def test_login_inactive_user(self, client: AsyncClient, db_session):
-        from pyrate.models.user import User as UserModel
+        from streamarr.models.user import User as UserModel
 
         import uuid
 
@@ -319,7 +319,7 @@ class TestRegister:
         assert "access_token" not in data
 
     async def test_register_invites_disabled(self, client: AsyncClient):
-        with patch("pyrate.services.auth.settings") as mock_settings:
+        with patch("streamarr.services.auth.settings") as mock_settings:
             mock_settings.invites.enabled = False
             resp = await client.post(
                 "/api/auth/register",
@@ -464,8 +464,8 @@ class TestOIDCLogin:
     async def test_oidc_login_redirect(self, client: AsyncClient):
         """OIDC login should create a signed state and redirect to the provider."""
         with (
-            patch("pyrate.api.v1.auth.require_oidc_enabled"),
-            patch("pyrate.api.v1.auth.oidc_client") as mock_oidc,
+            patch("streamarr.api.v1.auth.require_oidc_enabled"),
+            patch("streamarr.api.v1.auth.oidc_client") as mock_oidc,
         ):
             mock_oidc.get_authorization_url = AsyncMock(
                 return_value="https://idp.example.com/authorize?state=test"
@@ -483,7 +483,7 @@ class TestOIDCLogin:
 class TestOIDCCallback:
     async def test_callback_invalid_state(self, client: AsyncClient):
         """Invalid signed state is rejected without requiring SessionMiddleware."""
-        with patch("pyrate.api.v1.auth.require_oidc_enabled"):
+        with patch("streamarr.api.v1.auth.require_oidc_enabled"):
             resp = await client.get(
                 "/api/auth/callback",
                 params={"code": "authcode", "state": "bad_state"},
@@ -493,14 +493,14 @@ class TestOIDCCallback:
     async def test_callback_success_redirects_to_frontend(
         self, client: AsyncClient, test_user: User
     ):
-        from pyrate.api.v1.auth import _create_oidc_state
+        from streamarr.api.v1.auth import _create_oidc_state
 
         state, _nonce = _create_oidc_state(return_to="/media/abc")
         with (
-            patch("pyrate.api.v1.auth.require_oidc_enabled"),
-            patch("pyrate.api.v1.auth.get_app_url", return_value="http://frontend.local"),
-            patch("pyrate.api.v1.auth.oidc_client") as mock_oidc,
-            patch("pyrate.api.v1.auth.AuthService") as mock_auth_service,
+            patch("streamarr.api.v1.auth.require_oidc_enabled"),
+            patch("streamarr.api.v1.auth.get_app_url", return_value="http://frontend.local"),
+            patch("streamarr.api.v1.auth.oidc_client") as mock_oidc,
+            patch("streamarr.api.v1.auth.AuthService") as mock_auth_service,
         ):
             mock_oidc.exchange_code_for_tokens = AsyncMock(
                 return_value={"id_token": "id-token"}
@@ -529,7 +529,7 @@ class TestOIDCCallback:
         # refresh token is delivered as an httpOnly cookie, not in the URL.
         assert "#access_token=access-token" in location
         assert "refresh_token" not in location
-        assert "pyrate_refresh=refresh-token" in resp.headers.get("set-cookie", "")
+        assert "streamarr_refresh=refresh-token" in resp.headers.get("set-cookie", "")
 
 
 # ---------------------------------------------------------------------------
@@ -537,7 +537,7 @@ class TestOIDCCallback:
 # ---------------------------------------------------------------------------
 class TestGetOrCreateUser:
     async def test_existing_oidc_user(self, db_session: AsyncSession):
-        from pyrate.services.auth import AuthService
+        from streamarr.services.auth import AuthService
 
         user = User(
             guid=uuid.uuid4(),
@@ -561,7 +561,7 @@ class TestGetOrCreateUser:
         assert result.first_name == "Updated"
 
     async def test_existing_email_user_link(self, db_session: AsyncSession):
-        from pyrate.services.auth import AuthService
+        from streamarr.services.auth import AuthService
 
         user = User(
             guid=uuid.uuid4(),
@@ -584,9 +584,9 @@ class TestGetOrCreateUser:
         assert result.oidc_sub == "new-oidc-sub"
 
     async def test_new_user_auto_register(self, db_session: AsyncSession):
-        from pyrate.services.auth import AuthService
+        from streamarr.services.auth import AuthService
 
-        with patch("pyrate.services.auth.settings") as mock_settings:
+        with patch("streamarr.services.auth.settings") as mock_settings:
             mock_settings.oidc.auto_register_users = True
             mock_settings.oidc.default_user_active = True
             mock_settings.oidc.default_user_superuser = False
@@ -604,7 +604,7 @@ class TestGetOrCreateUser:
             assert result.oidc_sub == "brand-new-sub"
 
     async def test_missing_oidc_sub(self, db_session: AsyncSession):
-        from pyrate.services.auth import AuthService
+        from streamarr.services.auth import AuthService
 
         with pytest.raises(ValueError, match="missing_oidc_sub"):
             await AuthService(db_session).get_or_create_oidc_user(
@@ -612,9 +612,9 @@ class TestGetOrCreateUser:
             )
 
     async def test_auto_register_disabled(self, db_session: AsyncSession):
-        from pyrate.services.auth import AuthService
+        from streamarr.services.auth import AuthService
 
-        with patch("pyrate.services.auth.settings") as mock_settings:
+        with patch("streamarr.services.auth.settings") as mock_settings:
             mock_settings.oidc.auto_register_users = False
 
             with pytest.raises(ValueError, match="registration_disabled"):
@@ -626,9 +626,9 @@ class TestGetOrCreateUser:
                 )
 
     async def test_no_email_for_creation(self, db_session: AsyncSession):
-        from pyrate.services.auth import AuthService
+        from streamarr.services.auth import AuthService
 
-        with patch("pyrate.services.auth.settings") as mock_settings:
+        with patch("streamarr.services.auth.settings") as mock_settings:
             mock_settings.oidc.auto_register_users = True
 
             with pytest.raises(ValueError, match="email_required"):
@@ -643,7 +643,7 @@ class TestGetOrCreateUser:
 class TestLocalLoginNotEnabled:
     async def test_local_auth_disabled(self, client: AsyncClient, test_user: User):
         """When local auth is disabled, login should return 501."""
-        with patch("pyrate.services.auth.settings") as mock_settings:
+        with patch("streamarr.services.auth.settings") as mock_settings:
             mock_settings.oidc.local_auth_enabled = False
             resp = await client.post(
                 "/api/auth/local/login",
@@ -659,7 +659,7 @@ class TestLocalLoginNotEnabled:
 class TestLogoutBranches:
     async def test_logout_oidc_enabled(self, client: AsyncClient, test_user: User, user_headers):
         """When OIDC is enabled, logout returns a logout_url."""
-        with patch("pyrate.api.v1.auth.oidc_client") as mock_oidc:
+        with patch("streamarr.api.v1.auth.oidc_client") as mock_oidc:
             mock_oidc.is_enabled.return_value = True
             mock_oidc.get_logout_url = AsyncMock(return_value="https://idp.example.com/logout")
             resp = await client.post("/api/auth/logout", headers=user_headers)
@@ -670,7 +670,7 @@ class TestLogoutBranches:
 
     async def test_logout_local(self, client: AsyncClient, test_user: User, user_headers):
         """When OIDC is disabled, logout returns a success message."""
-        with patch("pyrate.api.v1.auth.oidc_client") as mock_oidc:
+        with patch("streamarr.api.v1.auth.oidc_client") as mock_oidc:
             mock_oidc.is_enabled.return_value = False
             resp = await client.post("/api/auth/logout", headers=user_headers)
         assert resp.status_code == 200
@@ -684,9 +684,9 @@ class TestLogoutBranches:
 class TestAuthStatusOIDC:
     async def test_status_oidc_enabled(self, client: AsyncClient):
         """When OIDC is enabled, auth_methods should include 'oidc'."""
-        with patch("pyrate.api.v1.auth.oidc_client") as mock_oidc:
+        with patch("streamarr.api.v1.auth.oidc_client") as mock_oidc:
             mock_oidc.is_enabled.return_value = True
-            with patch("pyrate.api.v1.auth.settings") as mock_settings:
+            with patch("streamarr.api.v1.auth.settings") as mock_settings:
                 mock_settings.oidc.local_auth_enabled = True
                 resp = await client.get("/api/auth/status")
         assert resp.status_code == 200
@@ -697,9 +697,9 @@ class TestAuthStatusOIDC:
 
     async def test_status_no_auth_methods(self, client: AsyncClient):
         """When both OIDC and local are disabled, auth_methods is empty."""
-        with patch("pyrate.api.v1.auth.oidc_client") as mock_oidc:
+        with patch("streamarr.api.v1.auth.oidc_client") as mock_oidc:
             mock_oidc.is_enabled.return_value = False
-            with patch("pyrate.api.v1.auth.settings") as mock_settings:
+            with patch("streamarr.api.v1.auth.settings") as mock_settings:
                 mock_settings.oidc.local_auth_enabled = False
                 resp = await client.get("/api/auth/status")
         assert resp.status_code == 200
@@ -791,7 +791,7 @@ class TestForgotPassword:
         self, client: AsyncClient, test_user: User
     ):
         """Sends reset email for existing user, returns generic message."""
-        with patch("pyrate.services.auth.email_service") as mock_email:
+        with patch("streamarr.services.auth.email_service") as mock_email:
             mock_email.send_email = AsyncMock(return_value=True)
             resp = await client.post(
                 "/api/auth/forgot-password",
@@ -817,7 +817,7 @@ class TestForgotPassword:
         self, client: AsyncClient, test_user: User
     ):
         """Verify that the email service is called for valid users."""
-        with patch("pyrate.services.auth.email_service") as mock_email:
+        with patch("streamarr.services.auth.email_service") as mock_email:
             mock_email.send_email = AsyncMock(return_value=True)
             await client.post(
                 "/api/auth/forgot-password",
@@ -830,7 +830,7 @@ class TestForgotPassword:
 
     async def test_forgot_password_does_not_send_for_unknown(self, client: AsyncClient):
         """No email sent for unknown address."""
-        with patch("pyrate.services.auth.email_service") as mock_email:
+        with patch("streamarr.services.auth.email_service") as mock_email:
             mock_email.send_email = AsyncMock(return_value=True)
             await client.post(
                 "/api/auth/forgot-password",
@@ -853,7 +853,7 @@ class TestForgotPassword:
         db_session.add(user)
         await db_session.commit()
 
-        with patch("pyrate.services.auth.email_service") as mock_email:
+        with patch("streamarr.services.auth.email_service") as mock_email:
             mock_email.send_email = AsyncMock(return_value=True)
             resp = await client.post(
                 "/api/auth/forgot-password",
@@ -877,7 +877,7 @@ class TestForgotPassword:
         db_session.add(user)
         await db_session.commit()
 
-        with patch("pyrate.services.auth.email_service") as mock_email:
+        with patch("streamarr.services.auth.email_service") as mock_email:
             mock_email.send_email = AsyncMock(return_value=True)
             resp = await client.post(
                 "/api/auth/forgot-password",
@@ -888,7 +888,7 @@ class TestForgotPassword:
 
     async def test_forgot_password_local_auth_disabled(self, client: AsyncClient):
         """When local auth is disabled, forgot-password returns 501."""
-        with patch("pyrate.services.auth.settings") as mock_settings:
+        with patch("streamarr.services.auth.settings") as mock_settings:
             mock_settings.oidc.local_auth_enabled = False
             resp = await client.post(
                 "/api/auth/forgot-password",
@@ -901,7 +901,7 @@ class TestForgotPassword:
         self, client: AsyncClient, test_user: User
     ):
         """Email lookup should be case-insensitive."""
-        with patch("pyrate.services.auth.email_service") as mock_email:
+        with patch("streamarr.services.auth.email_service") as mock_email:
             mock_email.send_email = AsyncMock(return_value=True)
             resp = await client.post(
                 "/api/auth/forgot-password",
@@ -1053,7 +1053,7 @@ class TestResetPassword:
 
     async def test_reset_password_local_auth_disabled(self, client: AsyncClient):
         """When local auth is disabled, reset-password returns 501."""
-        with patch("pyrate.services.auth.settings") as mock_settings:
+        with patch("streamarr.services.auth.settings") as mock_settings:
             mock_settings.oidc.local_auth_enabled = False
             resp = await client.post(
                 "/api/auth/reset-password",
@@ -1171,7 +1171,7 @@ class TestResendVerification:
         db_session.add(user)
         await db_session.commit()
 
-        with patch("pyrate.services.auth.email_service") as mock_email:
+        with patch("streamarr.services.auth.email_service") as mock_email:
             mock_email.send_email = AsyncMock(return_value=True)
             resp = await client.post(
                 "/api/auth/resend-verification", json={"email": user.email}
@@ -1196,7 +1196,7 @@ class TestResendVerification:
         db_session.add(user)
         await db_session.commit()
 
-        with patch("pyrate.services.auth.email_service") as mock_email:
+        with patch("streamarr.services.auth.email_service") as mock_email:
             mock_email.send_email = AsyncMock(return_value=True)
             resp = await client.post(
                 "/api/auth/resend-verification", json={"email": user.email}

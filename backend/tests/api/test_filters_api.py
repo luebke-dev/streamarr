@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.genre import Genre
-from pyrate.models.media import (
+from streamarr.models.genre import Genre
+from streamarr.models.media import (
     AvailabilityStatus,
     MediaFile,
     MediaItem,
@@ -15,9 +15,9 @@ from pyrate.models.media import (
     media_genre_table,
     media_platform_table,
 )
-from pyrate.models.person import MediaCast, Person
-from pyrate.models.platform import Platform
-from pyrate.models.user import User
+from streamarr.models.person import MediaCast, Person
+from streamarr.models.platform import Platform
+from streamarr.models.user import User
 
 
 async def _create_item(db: AsyncSession, **overrides) -> MediaItem:

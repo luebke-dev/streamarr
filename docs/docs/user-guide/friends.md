@@ -1,6 +1,6 @@
 # Friends & Invites
 
-pyrate.media has a built-in social layer: add other users on your server as **friends**, and bring new people on board with personal **invite links**. Friends and invites live on two separate pages, both reached from the user menu in the top-right corner.
+streamarr.media has a built-in social layer: add other users on your server as **friends**, and bring new people on board with personal **invite links**. Friends and invites live on two separate pages, both reached from the user menu in the top-right corner.
 
 !!! note "Availability"
     Both features are controlled by your administrator. The **Friends** and **Invite Friends** entries only appear in the user menu when the corresponding feature is enabled on the server.
@@ -14,7 +14,7 @@ Open **User menu → Friends** (or navigate to `/friends`).
 1. In the **Add Friend** card, enter the email address the other person uses on this server.
 2. Click **Send Friend Request**.
 
-If something is off, the form tells you right away — for example when no user exists with that address, a request is already pending, or you are already friends. Your friend will see the request the next time they use pyrate.media.
+If something is off, the form tells you right away — for example when no user exists with that address, a request is already pending, or you are already friends. Your friend will see the request the next time they use streamarr.media.
 
 ### Handling requests
 

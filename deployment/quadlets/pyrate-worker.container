@@ -1,26 +1,26 @@
 [Unit]
-Description=Pyrate Media Background Worker (TaskIQ)
-After=pyrate-postgres.service pyrate-redis.service pyrate-migrate.service
+Description=Streamarr Background Worker (TaskIQ)
+After=streamarr-postgres.service streamarr-redis.service streamarr-migrate.service
 # Block startup until DB migrations have completed successfully.
-Requires=pyrate-migrate.service
+Requires=streamarr-migrate.service
 
 [Container]
-Image=registry.gitlab.com/pyrate.media/backend:latest
-ContainerName=pyrate-worker
+Image=registry.gitlab.com/streamarr.media/backend:latest
+ContainerName=streamarr-worker
 
 # Secrets & host paths (POSTGRES_PASSWORD, SECRET_KEY, DATA_DIR,
 # PROJECT_ROOT, ...) are injected from this file. Create it with mode 0600,
 # owned by root. See deployment/README.md.
-EnvironmentFile=/etc/pyrate/pyrate.env
+EnvironmentFile=/etc/streamarr/streamarr.env
 
-Exec=uv run taskiq worker pyrate.worker:broker
+Exec=uv run taskiq worker streamarr.worker:broker
 
 SecurityLabelDisable=true
 PodmanArgs=--privileged
 
-Environment=DATABASE_URL=postgresql+asyncpg://pyrate:${POSTGRES_PASSWORD}@pyrate-postgres:5432/pyrate
-Environment=REDIS_URL=redis://pyrate-redis:6379/0
-Environment=ELASTICSEARCH_HOST=pyrate-elasticsearch
+Environment=DATABASE_URL=postgresql+asyncpg://streamarr:${POSTGRES_PASSWORD}@streamarr-postgres:5432/streamarr
+Environment=REDIS_URL=redis://streamarr-redis:6379/0
+Environment=ELASTICSEARCH_HOST=streamarr-elasticsearch
 Environment=ELASTICSEARCH_PORT=9200
 Environment=SECRET_KEY=${SECRET_KEY}
 Environment=DOWNLOADER_WEBHOOK_SECRET=${DOWNLOADER_WEBHOOK_SECRET}

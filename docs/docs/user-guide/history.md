@@ -9,7 +9,7 @@ Your viewing history shows everything you have watched, listened to, played, or 
 
 ## What Gets Tracked
 
-History is not limited to video. pyrate.media records progress for:
+History is not limited to video. streamarr.media records progress for:
 
 | Media | Example |
 |-------|---------|

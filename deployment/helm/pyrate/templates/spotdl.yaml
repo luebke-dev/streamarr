@@ -1,11 +1,11 @@
 {{- if .Values.downloaders.spotdl.enabled -}}
-{{- $name := printf "%s-spotdl" (include "pyrate.fullname" .) -}}
+{{- $name := printf "%s-spotdl" (include "streamarr.fullname" .) -}}
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "spotdl") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "spotdl") | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
@@ -13,7 +13,7 @@ spec:
       port: {{ .Values.downloaders.spotdl.service.port }}
       targetPort: http
   selector:
-    {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "spotdl") | nindent 4 }}
+    {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "spotdl") | nindent 4 }}
 ---
 {{- if .Values.downloaders.spotdl.persistence.enabled }}
 apiVersion: v1
@@ -21,7 +21,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: {{ $name }}-data
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "spotdl") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "spotdl") | nindent 4 }}
 spec:
   accessModes: ["ReadWriteOnce"]
   {{- if or .Values.downloaders.spotdl.persistence.storageClass .Values.global.storageClass }}
@@ -37,20 +37,20 @@ kind: Deployment
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "spotdl") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "spotdl") | nindent 4 }}
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "spotdl") | nindent 6 }}
+      {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "spotdl") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "spotdl") | nindent 8 }}
+        {{- include "streamarr.componentLabels" (dict "ctx" . "component" "spotdl") | nindent 8 }}
     spec:
-      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      {{- include "streamarr.imagePullSecrets" . | nindent 6 }}
       securityContext:
         # The spotdl image bakes user `app` (UID 1000); fsGroup makes the
         # mounted PVC readable+writable to that user without requiring an
@@ -58,15 +58,15 @@ spec:
         fsGroup: 1000
       containers:
         - name: spotdl
-          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.downloaders.spotdl.image) }}
+          image: {{ include "streamarr.image" (dict "ctx" . "img" .Values.downloaders.spotdl.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           env:
             - name: WEBHOOK_URL
-              value: "http://{{ include "pyrate.backendHost" . }}:{{ .Values.backend.proxy.service.port }}/api/webhooks/spotdl"
+              value: "http://{{ include "streamarr.backendHost" . }}:{{ .Values.backend.proxy.service.port }}/api/webhooks/spotdl"
             - name: WEBHOOK_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "pyrate.secretName" . }}
+                  name: {{ include "streamarr.secretName" . }}
                   key: downloader-webhook-secret
           ports:
             - name: http

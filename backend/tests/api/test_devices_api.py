@@ -9,8 +9,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models import ActivityLog, Device, User
-from pyrate.models.media import AvailabilityStatus, MediaFile, MediaItem, MediaType
+from streamarr.models import ActivityLog, Device, User
+from streamarr.models.media import AvailabilityStatus, MediaFile, MediaItem, MediaType
 
 from .conftest import auth_headers
 
@@ -226,7 +226,7 @@ class TestDeviceCapabilities:
                 "supported_commands": ["play", "pause", "message"],
                 "supports_display_message": True,
                 "supports_play_queue": True,
-                "app_name": "pyrate-web",
+                "app_name": "streamarr-web",
                 "app_version": "1.0.0",
             },
         )
@@ -238,14 +238,14 @@ class TestDeviceCapabilities:
         assert data["supports_play_queue"] is True
 
         await db_session.refresh(device)
-        assert device.device_info["capabilities"]["app_name"] == "pyrate-web"
+        assert device.device_info["capabilities"]["app_name"] == "streamarr-web"
 
         log_result = await db_session.execute(
             select(ActivityLog).where(ActivityLog.event_type == "session.capabilities")
         )
         log_entry = log_result.scalar_one()
         assert log_entry.entity_guid == device.guid
-        assert "pyrate-web" in log_entry.extra_data
+        assert "streamarr-web" in log_entry.extra_data
 
     async def test_update_other_users_capabilities_hidden(
         self, client: AsyncClient, db_session, test_superuser, user_headers
@@ -265,7 +265,7 @@ class TestDeviceCommands:
     async def test_send_command_to_owned_device(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         device = await _create_device(db_session, test_user, "living-room")
         manager = _FakeRemoteControlManager()
@@ -288,7 +288,7 @@ class TestDeviceCommands:
     async def test_send_command_by_device_id(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         await _create_device(db_session, test_user, "living-room")
         manager = _FakeRemoteControlManager()
@@ -307,7 +307,7 @@ class TestDeviceCommands:
     async def test_send_command_by_device_id_hides_other_users_device(
         self, client: AsyncClient, db_session, test_superuser, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         await _create_device(db_session, test_superuser, "admin-device")
         manager = _FakeRemoteControlManager()
@@ -325,7 +325,7 @@ class TestDeviceCommands:
     async def test_send_session_message_by_device_id(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         await _create_device(db_session, test_user, "living-room")
         manager = _FakeRemoteControlManager()
@@ -356,7 +356,7 @@ class TestDeviceCommands:
     async def test_send_session_message_by_device_id_hides_other_users_device(
         self, client: AsyncClient, db_session, test_superuser, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         await _create_device(db_session, test_superuser, "admin-device")
         manager = _FakeRemoteControlManager()
@@ -374,7 +374,7 @@ class TestDeviceCommands:
     async def test_send_session_play_media_by_device_id(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         await _create_device(db_session, test_user, "living-room")
         manager = _FakeRemoteControlManager()
@@ -409,7 +409,7 @@ class TestDeviceCommands:
     async def test_send_session_play_media_by_device_id_hides_other_users_device(
         self, client: AsyncClient, db_session, test_superuser, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         await _create_device(db_session, test_superuser, "admin-device")
         manager = _FakeRemoteControlManager()
@@ -427,7 +427,7 @@ class TestDeviceCommands:
     async def test_send_session_play_queue_by_device_id(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         await _create_device(db_session, test_user, "living-room")
         manager = _FakeRemoteControlManager()
@@ -469,7 +469,7 @@ class TestDeviceCommands:
     async def test_send_session_play_queue_rejects_out_of_range_start(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         await _create_device(db_session, test_user, "living-room")
         manager = _FakeRemoteControlManager()
@@ -490,7 +490,7 @@ class TestDeviceCommands:
     async def test_send_session_play_command_by_device_id(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         await _create_device(db_session, test_user, "living-room")
         manager = _FakeRemoteControlManager()
@@ -532,7 +532,7 @@ class TestDeviceCommands:
     async def test_send_session_play_command_rejects_out_of_range_start(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         await _create_device(db_session, test_user, "living-room")
         manager = _FakeRemoteControlManager()
@@ -554,7 +554,7 @@ class TestDeviceCommands:
     async def test_send_command_to_other_users_device_is_hidden(
         self, client: AsyncClient, db_session, test_superuser, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         device = await _create_device(db_session, test_superuser, "admin-device")
         manager = _FakeRemoteControlManager()
@@ -572,7 +572,7 @@ class TestDeviceCommands:
     async def test_admin_can_send_command_to_any_device(
         self, client: AsyncClient, db_session, test_user, admin_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         device = await _create_device(db_session, test_user, "user-device")
         manager = _FakeRemoteControlManager()
@@ -591,8 +591,8 @@ class TestDeviceCommands:
     async def test_send_command_to_disconnected_device_logs_failure(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
-        from pyrate.services.websocket import RemoteControlError
+        from streamarr.api.v1 import devices as devices_api
+        from streamarr.services.websocket import RemoteControlError
 
         device = await _create_device(db_session, test_user, "offline-device")
         manager = _FakeRemoteControlManager(
@@ -618,7 +618,7 @@ class TestDeviceCommands:
     async def test_command_history_is_device_scoped(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         device = await _create_device(db_session, test_user, "history-device")
         other_device = await _create_device(db_session, test_user, "other-device")
@@ -648,7 +648,7 @@ class TestDeviceCommands:
     async def test_send_message_command(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         device = await _create_device(db_session, test_user, "message-device")
         manager = _FakeRemoteControlManager()
@@ -670,7 +670,7 @@ class TestDeviceCommands:
     async def test_send_browse_command(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         device = await _create_device(db_session, test_user, "browse-device")
         manager = _FakeRemoteControlManager()
@@ -700,7 +700,7 @@ class TestActiveDeviceSessions:
     async def test_list_my_active_sessions(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         device = await _create_device(db_session, test_user, "living-room")
         device.is_playing = True
@@ -747,7 +747,7 @@ class TestActiveDeviceSessions:
         user_headers,
         monkeypatch,
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         await _create_device(db_session, test_user, "user-device")
         await _create_device(db_session, test_superuser, "admin-device")
@@ -789,7 +789,7 @@ class TestActiveDeviceSessions:
         admin_headers,
         monkeypatch,
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         await _create_device(db_session, test_user, "user-device")
         await _create_device(db_session, test_superuser, "admin-device")
@@ -833,7 +833,7 @@ class TestDeviceSessionContract:
     async def test_get_device_session_contract(
         self, client: AsyncClient, db_session, test_user, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         device = await _create_device(db_session, test_user, "living-room")
         media_guid = uuid.uuid4()
@@ -900,7 +900,7 @@ class TestDeviceSessionContract:
         admin_headers,
         monkeypatch,
     ):
-        from pyrate.api.v1 import devices as devices_api
+        from streamarr.api.v1 import devices as devices_api
 
         device = await _create_device(db_session, test_user, "managed-living-room")
         device.is_playing = True

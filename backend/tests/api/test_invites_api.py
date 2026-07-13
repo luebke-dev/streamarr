@@ -7,8 +7,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.auth.jwt_handler import jwt_handler
-from pyrate.models import Invite, User
+from streamarr.auth.jwt_handler import jwt_handler
+from streamarr.models import Invite, User
 
 from .conftest import auth_headers
 
@@ -73,7 +73,7 @@ class TestCreateInvite:
         """Invite creation is blocked when the invite system is disabled."""
         from unittest.mock import patch
 
-        from pyrate.config import settings
+        from streamarr.config import settings
 
         with patch.object(settings.invites, "enabled", False):
             resp = await client.post("/api/invites", json={}, headers=admin_headers)
@@ -85,7 +85,7 @@ class TestCreateInvite:
         """When require_admin_creation is True, regular users cannot create invites."""
         from unittest.mock import patch
 
-        from pyrate.config import settings
+        from streamarr.config import settings
 
         with patch.object(settings.invites, "require_admin_creation", True):
             resp = await client.post("/api/invites", json={}, headers=user_headers)
@@ -116,7 +116,7 @@ class TestCreateInvite:
         """
         from unittest.mock import patch
 
-        from pyrate.config import settings
+        from streamarr.config import settings
 
         with patch.object(settings.invites, "max_expiry_hours", 10):
             resp = await client.post(
@@ -172,7 +172,7 @@ class TestListInvites:
         """Listing invites is blocked when the invite system is disabled."""
         from unittest.mock import patch
 
-        from pyrate.config import settings
+        from streamarr.config import settings
 
         with patch.object(settings.invites, "enabled", False):
             resp = await client.get("/api/invites", headers=admin_headers)
@@ -209,7 +209,7 @@ class TestGetInvite:
         """Getting an invite is blocked when the invite system is disabled."""
         from unittest.mock import patch
 
-        from pyrate.config import settings
+        from streamarr.config import settings
 
         invite = await _create_invite(db_session, test_superuser)
         with patch.object(settings.invites, "enabled", False):
@@ -250,7 +250,7 @@ class TestUpdateInvite:
         """Updating an invite is blocked when the invite system is disabled."""
         from unittest.mock import patch
 
-        from pyrate.config import settings
+        from streamarr.config import settings
 
         invite = await _create_invite(db_session, test_superuser)
         with patch.object(settings.invites, "enabled", False):
@@ -308,7 +308,7 @@ class TestDeleteInvite:
         """Deleting an invite is blocked when the invite system is disabled."""
         from unittest.mock import patch
 
-        from pyrate.config import settings
+        from streamarr.config import settings
 
         invite = await _create_invite(db_session, test_superuser)
         with patch.object(settings.invites, "enabled", False):
@@ -331,7 +331,7 @@ class TestDeleteInvite:
         from unittest.mock import AsyncMock, patch
 
         invite = await _create_invite(db_session, test_superuser)
-        with patch("pyrate.services.invite.InviteService.delete", new_callable=AsyncMock) as mock_del:
+        with patch("streamarr.services.invite.InviteService.delete", new_callable=AsyncMock) as mock_del:
             mock_del.return_value = False
             resp = await client.delete(f"/api/invites/{invite.guid}", headers=admin_headers)
         assert resp.status_code == 500
@@ -357,7 +357,7 @@ class TestValidateInvite:
         """Validation endpoint returns 403 when the invite system is disabled."""
         from unittest.mock import patch
 
-        from pyrate.config import settings
+        from streamarr.config import settings
 
         with patch.object(settings.invites, "enabled", False):
             resp = await client.post("/api/invites/validate", json={"token": "some.tok.en"})
@@ -367,10 +367,10 @@ class TestValidateInvite:
         """Returns 400 when token has valid signature but invite not found/expired in DB."""
         from unittest.mock import AsyncMock, patch
 
-        from pyrate.auth.jwt_handler import jwt_handler as jh
+        from streamarr.auth.jwt_handler import jwt_handler as jh
 
         with patch.object(jh, "verify_invite_token", return_value={"invite_id": "x"}), \
-             patch("pyrate.api.v1.invites.InviteService") as MockService:
+             patch("streamarr.api.v1.invites.InviteService") as MockService:
             MockService.return_value.get_valid_by_token = AsyncMock(return_value=None)
             resp = await client.post("/api/invites/validate", json={"token": "any.jwt.token"})
         assert resp.status_code == 400

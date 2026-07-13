@@ -1,12 +1,12 @@
 # Installation
 
-pyrate.media ships four supported deployment models. All of them run the same stack — API, workers, scheduler, frontend, PostgreSQL 16, Redis 7, and Elasticsearch 9.2.0 — they differ in how you install, configure, and operate it.
+streamarr.media ships four supported deployment models. All of them run the same stack — API, workers, scheduler, frontend, PostgreSQL 16, Redis 7, and Elasticsearch 9.2.0 — they differ in how you install, configure, and operate it.
 
 | Model | Use when | Source of truth |
 |-------|----------|-----------------|
 | **One-line installer** | First single-host install, guided setup | `deployment/install.sh` |
 | **Docker Compose (prod)** | Single host, full service set, pre-built registry images | `deployment/docker/docker-compose.yml` |
-| **Helm / Kubernetes** | Cluster deployments | `deployment/helm/pyrate` (also published as an OCI chart) |
+| **Helm / Kubernetes** | Cluster deployments | `deployment/helm/streamarr` (also published as an OCI chart) |
 | **Podman quadlets** | Single host with Podman + systemd, lean variant | `deployment/quadlets/*.container` |
 
 !!! note "Local development"
@@ -24,25 +24,25 @@ pyrate.media ships four supported deployment models. All of them run the same st
 The fastest path on a fresh Linux host:
 
 ```bash
-curl -fsSL https://get.pyrate.media | sudo bash
+curl -fsSL https://get.streamarr.media | sudo bash
 ```
 
 The interactive installer:
 
 1. Installs Docker Engine and Compose for your distribution.
-2. Asks for install directory (default `/opt/pyrate-media`), data directory (default `/var/lib/pyrate-media`), ports, and optional services (Elasticsearch on by default; SABnzbd and Lightrays opt-in).
+2. Asks for install directory (default `/opt/streamarr`), data directory (default `/var/lib/streamarr`), ports, and optional services (Elasticsearch on by default; SABnzbd and Lightrays opt-in).
 3. Generates secrets with `openssl rand` and writes a `chmod 600` `.env`.
-4. Writes a Docker Compose file, starts the stack, and installs a `pyrate-media.service` systemd unit so it starts on boot.
+4. Writes a Docker Compose file, starts the stack, and installs a `streamarr.service` systemd unit so it starts on boot.
 
 !!! note "Installer output is a subset"
     The installer emits only the services you opt into. It does not include the Rust torrent/spotify/usenet downloader services — if you want the full stack, deploy `deployment/docker/docker-compose.yml` directly.
 
 ## Docker Compose (single host)
 
-The maintained production Compose file uses pre-built images from `registry.gitlab.com/pyrate.media`.
+The maintained production Compose file uses pre-built images from `registry.gitlab.com/streamarr.media`.
 
 ```bash
-mkdir /srv/pyrate && cd /srv/pyrate
+mkdir /srv/streamarr && cd /srv/streamarr
 # copy deployment/docker/docker-compose.yml and deployment/docker/.env.example here
 cp .env.example .env
 docker compose up -d
@@ -68,8 +68,8 @@ Edit `.env` before the first start. At minimum set:
 The chart is published as an OCI artifact:
 
 ```bash
-helm install pyrate oci://registry.gitlab.com/pyrate.media/deployment/pyrate \
-  --namespace pyrate --create-namespace \
+helm install streamarr oci://registry.gitlab.com/streamarr.media/deployment/streamarr \
+  --namespace streamarr --create-namespace \
   --set secrets.postgresPassword=$(openssl rand -hex 32) \
   --set secrets.secretKey=$(openssl rand -hex 32) \
   --set secrets.lightraysJwtSecret=$(openssl rand -hex 32) \
@@ -91,8 +91,8 @@ Alternatively set `secrets.existingSecret` to mount a pre-provisioned Secret. No
 The leanest single-host variant: systemd-managed containers with SABnzbd as the only downloader — no nginx proxy and no Rust downloader services.
 
 1. Copy `deployment/quadlets/*.container` to `/etc/containers/systemd/`.
-2. Create `/etc/pyrate/pyrate.env` (`root:root`, mode `0600`) with the same keys as the Compose `.env` (`POSTGRES_PASSWORD`, `SECRET_KEY`, `LIGHTRAYS_JWT_SECRET`, `DOWNLOADER_WEBHOOK_SECRET`, `DATA_DIR`, `PROJECT_ROOT`). Without it the units start with empty passwords and paths.
-3. `systemctl daemon-reload`, then start the units. If you start them manually, run `systemctl start pyrate-migrate.service` first.
+2. Create `/etc/streamarr/streamarr.env` (`root:root`, mode `0600`) with the same keys as the Compose `.env` (`POSTGRES_PASSWORD`, `SECRET_KEY`, `LIGHTRAYS_JWT_SECRET`, `DOWNLOADER_WEBHOOK_SECRET`, `DATA_DIR`, `PROJECT_ROOT`). Without it the units start with empty passwords and paths.
+3. `systemctl daemon-reload`, then start the units. If you start them manually, run `systemctl start streamarr-migrate.service` first.
 
 ## Database migrations
 
@@ -100,7 +100,7 @@ Migrations run as a dedicated **one-shot Alembic step** (`alembic upgrade head`)
 
 - **Compose / installer**: a `migrate` service; backend, worker, and scheduler wait for it via `service_completed_successfully`.
 - **Helm**: a `pre-install`/`pre-upgrade` hook Job (`migrations.enabled`, default on).
-- **Quadlets**: the `pyrate-migrate.service` oneshot unit, required by the app units.
+- **Quadlets**: the `streamarr-migrate.service` oneshot unit, required by the app units.
 
 ## Default ports
 

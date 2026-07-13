@@ -20,11 +20,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel
 
-from pyrate.auth.jwt_handler import jwt_handler
-from pyrate.database import Base
+from streamarr.auth.jwt_handler import jwt_handler
+from streamarr.database import Base
 
 # Import all models to register them with SQLAlchemy/SQLModel metadata
-from pyrate.models import (  # noqa: F401
+from streamarr.models import (  # noqa: F401
     ActivityLog,
     ApiKey,
     Device,
@@ -39,21 +39,21 @@ from pyrate.models import (  # noqa: F401
     User,
     UserListInteraction,
 )
-from pyrate.models.downloads import Download  # noqa: F401
-from pyrate.models.genre import Genre  # noqa: F401
-from pyrate.models.group import Group, UserGroupLink  # noqa: F401
-from pyrate.models.indexer import Indexer, IndexerCategory  # noqa: F401
-from pyrate.models.library import Library  # noqa: F401
-from pyrate.models.media import MediaItem, MediaType  # noqa: F401
-from pyrate.models.party import WatchParty, WatchPartyMember  # noqa: F401
-from pyrate.models.person import MediaCast, Person  # noqa: F401
-from pyrate.models.subscription import (  # noqa: F401
+from streamarr.models.downloads import Download  # noqa: F401
+from streamarr.models.genre import Genre  # noqa: F401
+from streamarr.models.group import Group, UserGroupLink  # noqa: F401
+from streamarr.models.indexer import Indexer, IndexerCategory  # noqa: F401
+from streamarr.models.library import Library  # noqa: F401
+from streamarr.models.media import MediaItem, MediaType  # noqa: F401
+from streamarr.models.party import WatchParty, WatchPartyMember  # noqa: F401
+from streamarr.models.person import MediaCast, Person  # noqa: F401
+from streamarr.models.subscription import (  # noqa: F401
     PaymentHistory,
     SubscriptionPackage,
     UserSession,
     UserSubscription,
 )
-from pyrate.models.viewing_history import ViewingHistory  # noqa: F401
+from streamarr.models.viewing_history import ViewingHistory  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ def _ssrf_guard_resolves_test_hosts():
     from unittest.mock import patch
 
     with patch(
-        "pyrate.utils.net._resolve_host",
+        "streamarr.utils.net._resolve_host",
         return_value=[ipaddress.ip_address("93.184.216.34")],
     ):
         yield
@@ -276,14 +276,14 @@ def _make_auth_overrides(db_dependency):
 @pytest_asyncio.fixture(scope="function")
 async def client(test_db_engine) -> AsyncGenerator[AsyncClient]:
     """Provide an httpx AsyncClient wired to the FastAPI app with test DB."""
-    from pyrate.auth.dependencies import (
+    from streamarr.auth.dependencies import (
         get_current_superuser,
         get_current_user,
         get_current_user_optional,
         verify_refresh_token,
     )
-    from pyrate.database import get_db_session
-    from pyrate.web import app
+    from streamarr.database import get_db_session
+    from streamarr.web import app
 
     maker = async_sessionmaker(
         test_db_engine, class_=AsyncSession, expire_on_commit=False

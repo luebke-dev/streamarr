@@ -1,5 +1,5 @@
 [project]
-name = "pyrate"
+name = "streamarr"
 version = "2026.2.1"
 description = "Add your description here"
 readme = "README.md"
@@ -39,7 +39,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pyrate = "pyrate:main"
+streamarr = "streamarr:main"
 
 [build-system]
 requires = ["uv_build>=0.8.15,<0.9.0"]
@@ -83,4 +83,4 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # FastAPI dependency injection: current_user / db / session are injected for auth
 # enforcement even when not used directly in the function body
-"src/pyrate/api/**/*.py" = ["ARG001"]
+"src/streamarr/api/**/*.py" = ["ARG001"]

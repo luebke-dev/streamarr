@@ -9,14 +9,14 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from pyrate.overlays import (
+from streamarr.overlays import (
     OverlayRenderError,
     OverlayRenderer,
     build_render_context,
     evaluate_condition,
     resolution_label,
 )
-from pyrate.overlays.renderer import (
+from streamarr.overlays.renderer import (
     _format_placeholders,
     _parse_color,
     _resolve_axis,

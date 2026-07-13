@@ -2,7 +2,7 @@
 
 Stand: 2026-05-11
 
-Scope: statischer Review von `backend/src/pyrate` und `backend/tests` mit Fokus auf Antipatterns, Sicherheitsrisiken, Duplizierung, Modulgrenzen und Testqualität. Es wurden keine Backend-Codefixes vorgenommen.
+Scope: statischer Review von `backend/src/streamarr` und `backend/tests` mit Fokus auf Antipatterns, Sicherheitsrisiken, Duplizierung, Modulgrenzen und Testqualität. Es wurden keine Backend-Codefixes vorgenommen.
 
 ## Kurzfazit
 
@@ -26,10 +26,10 @@ Library-Permissions, Superuser-Ausnahmen und Parental-Control-Checks werden pro 
 
 **Belege**
 
-- `src/pyrate/api/v1/search.py:171-201`: `/search/local` nutzt nur `CurrentUser` und ruft `elasticsearch_service` direkt auf. Keine `UserPermissionsDep`, keine `allowed_libraries`, kein `parental_max_age`.
-- `src/pyrate/api/v1/genres.py:22-69` und `src/pyrate/api/v1/genres.py:89-134`: Genre-Endpunkte geben `MediaItemSummary` zurück, filtern aber nur global deaktivierte Media-Typen, nicht Nutzerrechte oder Altersfreigaben.
-- `src/pyrate/api/v1/media.py:2809-2866`: Availability und Watch-Toggle prüfen nur, ob das `MediaItem` existiert. Kein Library-/Age-Check.
-- `src/pyrate/api/v1/lightrays.py:54-83`: Game-Launch prüft `MediaType.GAMES` und `max_game_streams`, aber nicht explizit `games` in `allowed_libraries` oder Parental-Control.
+- `src/streamarr/api/v1/search.py:171-201`: `/search/local` nutzt nur `CurrentUser` und ruft `elasticsearch_service` direkt auf. Keine `UserPermissionsDep`, keine `allowed_libraries`, kein `parental_max_age`.
+- `src/streamarr/api/v1/genres.py:22-69` und `src/streamarr/api/v1/genres.py:89-134`: Genre-Endpunkte geben `MediaItemSummary` zurück, filtern aber nur global deaktivierte Media-Typen, nicht Nutzerrechte oder Altersfreigaben.
+- `src/streamarr/api/v1/media.py:2809-2866`: Availability und Watch-Toggle prüfen nur, ob das `MediaItem` existiert. Kein Library-/Age-Check.
+- `src/streamarr/api/v1/lightrays.py:54-83`: Game-Launch prüft `MediaType.GAMES` und `max_game_streams`, aber nicht explizit `games` in `allowed_libraries` oder Parental-Control.
 - Das Muster existiert mehrfach: direkte `MEDIA_TYPE_TO_LIBRARY`-/`allowed_libraries`-Checks sind über viele Router verteilt.
 
 **Ziel**
@@ -55,11 +55,11 @@ Mehrere Endpunkte verändern globale Media-/Library-Daten, verwenden aber nur `C
 
 **Belege**
 
-- `src/pyrate/api/v1/media.py:1292-1324`: `create_media_item` erstellt globale Media-Items mit `CurrentUser`.
-- `src/pyrate/api/v1/media.py:1618-1644`: `update_media_item` patcht globale Media-Items mit `CurrentUser`.
-- `src/pyrate/api/v1/libraries.py:1950-1955`: `import_trending_items` importiert Provider-Daten und aktualisiert Systemlisten, aber nutzt `Depends(get_current_user)`.
-- `src/pyrate/api/v1/libraries.py:2412-2420`: `import_by_external_id` erstellt globale Media-Items, Seasons und Episodes mit `Depends(get_current_user)`.
-- `src/pyrate/api/v1/libraries.py:492`, `547`, `631`, `902+`: viele benachbarte Library-Admin-Endpunkte nutzen `get_current_superuser`.
+- `src/streamarr/api/v1/media.py:1292-1324`: `create_media_item` erstellt globale Media-Items mit `CurrentUser`.
+- `src/streamarr/api/v1/media.py:1618-1644`: `update_media_item` patcht globale Media-Items mit `CurrentUser`.
+- `src/streamarr/api/v1/libraries.py:1950-1955`: `import_trending_items` importiert Provider-Daten und aktualisiert Systemlisten, aber nutzt `Depends(get_current_user)`.
+- `src/streamarr/api/v1/libraries.py:2412-2420`: `import_by_external_id` erstellt globale Media-Items, Seasons und Episodes mit `Depends(get_current_user)`.
+- `src/streamarr/api/v1/libraries.py:492`, `547`, `631`, `902+`: viele benachbarte Library-Admin-Endpunkte nutzen `get_current_superuser`.
 
 **Ziel**
 
@@ -82,12 +82,12 @@ Viele Services committen selbst. Gleichzeitig committen Router und Worker ebenfa
 
 **Belege**
 
-- `src/pyrate/services/media.py:81-92`: `_persist` committed jedes Entity direkt.
-- `src/pyrate/services/media.py:525-526`, `561`, `577`, `592`, `605`: Update/Delete-Methoden committen intern.
-- `src/pyrate/services/list.py:249-283`, `285-305`, `720-738`, `1068-1107`: Listenoperationen committen intern.
-- `src/pyrate/services/activity_log.py:23-33`: Activity-Log schreibt und committed selbst.
-- `src/pyrate/api/v1/media.py:1588-1612` und `1647-1684`: Endpoint committed Media-Änderung und ruft danach einen Service auf, der erneut committed.
-- `src/pyrate/api/v1/libraries.py:2160-2321`: `import_trending_items` nutzt `db.begin_nested()`, ruft aber Services auf, die intern committen.
+- `src/streamarr/services/media.py:81-92`: `_persist` committed jedes Entity direkt.
+- `src/streamarr/services/media.py:525-526`, `561`, `577`, `592`, `605`: Update/Delete-Methoden committen intern.
+- `src/streamarr/services/list.py:249-283`, `285-305`, `720-738`, `1068-1107`: Listenoperationen committen intern.
+- `src/streamarr/services/activity_log.py:23-33`: Activity-Log schreibt und committed selbst.
+- `src/streamarr/api/v1/media.py:1588-1612` und `1647-1684`: Endpoint committed Media-Änderung und ruft danach einen Service auf, der erneut committed.
+- `src/streamarr/api/v1/libraries.py:2160-2321`: `import_trending_items` nutzt `db.begin_nested()`, ruft aber Services auf, die intern committen.
 
 **Ziel**
 
@@ -110,12 +110,12 @@ Mehrere API-Dateien sind God-Router geworden. Sie enthalten Pydantic-Modelle, Pr
 
 **Belege**
 
-- `src/pyrate/api/v1/media.py`: 3719 Zeilen, 51 Route-Handler.
-- `src/pyrate/api/v1/libraries.py`: 2934 Zeilen, 39 Route-Handler.
-- `src/pyrate/api/v1/play.py`: 1866 Zeilen.
-- `src/pyrate/api/v1/libraries.py:1950-2389`: `import_trending_items` ist ca. 439 Zeilen und enthält Provider-Setup, Mapping, Media-Erstellung, External IDs, Seasons/Episodes, Liste-Sync und Fehlerbehandlung.
-- `src/pyrate/api/v1/play.py:773-1444`: `play_media` ist ca. 672 Zeilen und orchestriert Permission, Source-Auswahl, Codec-Verhandlung, Rate-Limits, Container-Handling, Token und Response.
-- `src/pyrate/api/v1/media.py:968-1289`: `list_media_items` ist ca. 321 Zeilen mit sehr vielen Query-Parametern und doppeltem `list_media_items`/`count_media_items`-Parameterblock.
+- `src/streamarr/api/v1/media.py`: 3719 Zeilen, 51 Route-Handler.
+- `src/streamarr/api/v1/libraries.py`: 2934 Zeilen, 39 Route-Handler.
+- `src/streamarr/api/v1/play.py`: 1866 Zeilen.
+- `src/streamarr/api/v1/libraries.py:1950-2389`: `import_trending_items` ist ca. 439 Zeilen und enthält Provider-Setup, Mapping, Media-Erstellung, External IDs, Seasons/Episodes, Liste-Sync und Fehlerbehandlung.
+- `src/streamarr/api/v1/play.py:773-1444`: `play_media` ist ca. 672 Zeilen und orchestriert Permission, Source-Auswahl, Codec-Verhandlung, Rate-Limits, Container-Handling, Token und Response.
+- `src/streamarr/api/v1/media.py:968-1289`: `list_media_items` ist ca. 321 Zeilen mit sehr vielen Query-Parametern und doppeltem `list_media_items`/`count_media_items`-Parameterblock.
 
 **Ziel**
 
@@ -139,10 +139,10 @@ Router in fachliche Module und Service-Orchestratoren schneiden:
 
 **Belege**
 
-- `src/pyrate/api/v1/play.py:452-590`: `get_playback_info` resolved Capabilities, Quality, Transcoding-Settings und Direct-Play/Stream/Transcode-Entscheidung.
-- `src/pyrate/api/v1/play.py:773-1444`: `play_media` wiederholt große Teile davon und startet zusätzlich Sessions.
-- `src/pyrate/api/v1/play.py:1334-1348`: direkter synchroner `import docker`, `docker.from_env()`, Container-List/Stop/Remove im async Route-Handler.
-- `src/pyrate/services/computing.py:235-301`: es existiert bereits eine async Provider-Abstraktion für Docker/Kubernetes.
+- `src/streamarr/api/v1/play.py:452-590`: `get_playback_info` resolved Capabilities, Quality, Transcoding-Settings und Direct-Play/Stream/Transcode-Entscheidung.
+- `src/streamarr/api/v1/play.py:773-1444`: `play_media` wiederholt große Teile davon und startet zusätzlich Sessions.
+- `src/streamarr/api/v1/play.py:1334-1348`: direkter synchroner `import docker`, `docker.from_env()`, Container-List/Stop/Remove im async Route-Handler.
+- `src/streamarr/services/computing.py:235-301`: es existiert bereits eine async Provider-Abstraktion für Docker/Kubernetes.
 
 **Ziel**
 
@@ -165,9 +165,9 @@ Einige Endpoints bauen Response-Dicts händisch aus ORM-Objekten. Das macht Feld
 
 **Belege**
 
-- `src/pyrate/api/v1/media.py:1399-1515`: `get_media_item` baut `item_dict` manuell mit Files, Releases, Links, External IDs und Cast.
-- `src/pyrate/api/v1/media.py:1117-1270`: `list_media_items` übergibt denselben großen Filterblock an `list_media_items` und `count_media_items`.
-- `src/pyrate/api/v1/search.py:66-121`: Filter-Erkennung wird manuell aus vielen optionalen Feldern zusammengesetzt.
+- `src/streamarr/api/v1/media.py:1399-1515`: `get_media_item` baut `item_dict` manuell mit Files, Releases, Links, External IDs und Cast.
+- `src/streamarr/api/v1/media.py:1117-1270`: `list_media_items` übergibt denselben großen Filterblock an `list_media_items` und `count_media_items`.
+- `src/streamarr/api/v1/search.py:66-121`: Filter-Erkennung wird manuell aus vielen optionalen Feldern zusammengesetzt.
 
 **Ziel**
 
@@ -191,9 +191,9 @@ Search ist nicht nur Suche. Provider-Ergebnisse werden gefiltert, Imports werden
 
 **Belege**
 
-- `src/pyrate/services/search.py:565-605`: Provider-first Search fällt bei beliebiger Exception auf lokale Suche zurück und queued optional Imports.
-- `src/pyrate/services/search.py:1510-1730`: derselbe Service enthält konkrete TMDB-/IGDB-/Spotify-Importhelpers und commit-relevante Logik.
-- `src/pyrate/services/elasticsearch.py:429-480`, `628-680`, `990-1045`: Elasticsearch Query-Aufbau für Movies, Shows und All ist stark ähnlich.
+- `src/streamarr/services/search.py:565-605`: Provider-first Search fällt bei beliebiger Exception auf lokale Suche zurück und queued optional Imports.
+- `src/streamarr/services/search.py:1510-1730`: derselbe Service enthält konkrete TMDB-/IGDB-/Spotify-Importhelpers und commit-relevante Logik.
+- `src/streamarr/services/elasticsearch.py:429-480`, `628-680`, `990-1045`: Elasticsearch Query-Aufbau für Movies, Shows und All ist stark ähnlich.
 
 **Ziel**
 
@@ -218,11 +218,11 @@ Movie- und Show-Plugins enthalten viel ähnliche Logik für Pfadvalidierung, Sta
 
 **Belege**
 
-- `src/pyrate/libraries/movies.py:30-91` und `src/pyrate/libraries/shows.py:37-101`: sehr ähnliche `validate_path`, Stats und Video-Extension-Logik.
-- `src/pyrate/libraries/movies.py:230-259` und `src/pyrate/libraries/shows.py:240-275`: ähnliche Media-File-Validation.
-- `src/pyrate/libraries/movies.py:370-455` und `src/pyrate/libraries/shows.py:385-475`: ähnliche Release-Scoring-Blöcke mit leicht anderer Gewichtung.
-- `src/pyrate/libraries/movies.py:1004-1065`: Movie-Promotion resolved Zielpfade und prüft `is_relative_to(library_root)`.
-- `src/pyrate/libraries/shows.py:1051-1116`: Show-Promotion baut Zielpfade per String und hat keinen expliziten `resolve()`/`is_relative_to()`-Check wie Movies.
+- `src/streamarr/libraries/movies.py:30-91` und `src/streamarr/libraries/shows.py:37-101`: sehr ähnliche `validate_path`, Stats und Video-Extension-Logik.
+- `src/streamarr/libraries/movies.py:230-259` und `src/streamarr/libraries/shows.py:240-275`: ähnliche Media-File-Validation.
+- `src/streamarr/libraries/movies.py:370-455` und `src/streamarr/libraries/shows.py:385-475`: ähnliche Release-Scoring-Blöcke mit leicht anderer Gewichtung.
+- `src/streamarr/libraries/movies.py:1004-1065`: Movie-Promotion resolved Zielpfade und prüft `is_relative_to(library_root)`.
+- `src/streamarr/libraries/shows.py:1051-1116`: Show-Promotion baut Zielpfade per String und hat keinen expliziten `resolve()`/`is_relative_to()`-Check wie Movies.
 
 **Ziel**
 
@@ -247,11 +247,11 @@ Movie- und Show-Plugins enthalten viel ähnliche Logik für Pfadvalidierung, Sta
 
 **Belege**
 
-- `src/pyrate/worker.py`: 1681 Zeilen, 37 `@broker.task`-Definitionen.
-- `src/pyrate/worker.py`: 46 Vorkommen von `except Exception`.
-- `src/pyrate/worker.py:98-130`: Scheduled Download-Polling mit internem Minutenloop.
-- `src/pyrate/worker.py:430-447`, `589-647`: mehrere Trending-Import-Schedules mit ähnlicher Struktur.
-- `src/pyrate/worker.py:1092-1424`: mehrere Cleanup- und Monitor-Aufgaben im selben Modul.
+- `src/streamarr/worker.py`: 1681 Zeilen, 37 `@broker.task`-Definitionen.
+- `src/streamarr/worker.py`: 46 Vorkommen von `except Exception`.
+- `src/streamarr/worker.py:98-130`: Scheduled Download-Polling mit internem Minutenloop.
+- `src/streamarr/worker.py:430-447`, `589-647`: mehrere Trending-Import-Schedules mit ähnlicher Struktur.
+- `src/streamarr/worker.py:1092-1424`: mehrere Cleanup- und Monitor-Aufgaben im selben Modul.
 
 **Ziel**
 
@@ -278,10 +278,10 @@ Viele Flows fangen `Exception`, loggen und machen weiter oder fallen auf einen a
 
 **Belege**
 
-- `src/pyrate/services/search.py:597-605`: beliebige Exception in Provider-Suche führt zu lokalem Fallback.
-- `src/pyrate/api/rate_limit.py:75-81`: Rate-Limiter fail-open bei jeder Redis-Exception.
-- `src/pyrate/api/v1/libraries.py:2317-2319`: einzelne Importfehler werden geschluckt und der Import läuft weiter.
-- `src/pyrate/api/v1/play.py:1316-1319`: Fehler beim Concurrent-Stream-Check werden nur debug-geloggt.
+- `src/streamarr/services/search.py:597-605`: beliebige Exception in Provider-Suche führt zu lokalem Fallback.
+- `src/streamarr/api/rate_limit.py:75-81`: Rate-Limiter fail-open bei jeder Redis-Exception.
+- `src/streamarr/api/v1/libraries.py:2317-2319`: einzelne Importfehler werden geschluckt und der Import läuft weiter.
+- `src/streamarr/api/v1/play.py:1316-1319`: Fehler beim Concurrent-Stream-Check werden nur debug-geloggt.
 
 **Ziel**
 
@@ -307,10 +307,10 @@ Viele Router importieren Services und Models innerhalb von Funktionen. Das ist m
 
 Gezählte lokale Imports in API-Funktionen:
 
-- `src/pyrate/api/v1/media.py`: 34
-- `src/pyrate/api/v1/libraries.py`: 24
-- `src/pyrate/api/v1/play.py`: 22
-- `src/pyrate/api/v1/tasks.py`: 20
+- `src/streamarr/api/v1/media.py`: 34
+- `src/streamarr/api/v1/libraries.py`: 24
+- `src/streamarr/api/v1/play.py`: 22
+- `src/streamarr/api/v1/tasks.py`: 20
 
 **Ziel**
 
@@ -349,6 +349,6 @@ Coverage-Tests schrittweise in verhaltensorientierte Tests umbauen:
 
 ## Tooling-Hinweise
 
-- `python3 -m ruff check src/pyrate` konnte in dieser lokalen Umgebung nicht laufen: `No module named ruff`.
-- `python3 -m mypy src/pyrate --no-error-summary` konnte in dieser lokalen Umgebung nicht laufen: `No module named mypy`.
+- `python3 -m ruff check src/streamarr` konnte in dieser lokalen Umgebung nicht laufen: `No module named ruff`.
+- `python3 -m mypy src/streamarr --no-error-summary` konnte in dieser lokalen Umgebung nicht laufen: `No module named mypy`.
 - Die statischen Findings basieren auf Dateimetriken, AST-Metriken, Greps und gezieltem Lesen der betroffenen Module.

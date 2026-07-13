@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# pyrate game-container library — image #1: Wine + gamescope
+# streamarr game-container library — image #1: Wine + gamescope
 # ==========================================================
 # A lean, self-built runtime for streaming Windows/Wine games through
 # lightrays. Deliberately NOT based on games-on-whales (no s6/launch
@@ -14,7 +14,7 @@
 FROM archlinux:latest
 
 # DXVK release baked into the image (installed into each WINEPREFIX at
-# runtime by /opt/pyrate/setup_dxvk). v3.0 still ships d3d9.dll, which is
+# runtime by /opt/streamarr/setup_dxvk). v3.0 still ships d3d9.dll, which is
 # what WoW 3.3.5 needs.
 ARG DXVK_VERSION=3.0
 
@@ -49,18 +49,18 @@ RUN --mount=type=cache,target=/var/cache/pacman/pkg,sharing=locked \
 # copy them into each WINEPREFIX at runtime via our setup_dxvk helper. The
 # v3.0 tarball no longer ships a setup_dxvk.sh, so we provide our own.
 ADD https://github.com/doitsujin/dxvk/releases/download/v${DXVK_VERSION}/dxvk-${DXVK_VERSION}.tar.gz /tmp/dxvk.tar.gz
-RUN mkdir -p /opt/pyrate/dxvk && \
-    tar -xzf /tmp/dxvk.tar.gz -C /opt/pyrate/dxvk --strip-components=1 && \
+RUN mkdir -p /opt/streamarr/dxvk && \
+    tar -xzf /tmp/dxvk.tar.gz -C /opt/streamarr/dxvk --strip-components=1 && \
     rm /tmp/dxvk.tar.gz && \
-    ls -R /opt/pyrate/dxvk
+    ls -R /opt/streamarr/dxvk
 
 # ---------------------------------------------------------------------------
-# pyrate entrypoint + helpers
+# streamarr entrypoint + helpers
 # ---------------------------------------------------------------------------
-COPY run.sh /opt/pyrate/run.sh
-COPY setup_dxvk /opt/pyrate/setup_dxvk
-RUN chmod +x /opt/pyrate/run.sh /opt/pyrate/setup_dxvk && \
-    ln -sf /opt/pyrate/setup_dxvk /usr/local/bin/setup_dxvk
+COPY run.sh /opt/streamarr/run.sh
+COPY setup_dxvk /opt/streamarr/setup_dxvk
+RUN chmod +x /opt/streamarr/run.sh /opt/streamarr/setup_dxvk && \
+    ln -sf /opt/streamarr/setup_dxvk /usr/local/bin/setup_dxvk
 
 # Persistent per-session state (the WINEPREFIX) lives under /home/retro;
 # lightrays bind-mounts the app-state dir over it at launch. World-writable
@@ -68,11 +68,11 @@ RUN chmod +x /opt/pyrate/run.sh /opt/pyrate/setup_dxvk && \
 RUN install -d -m 0777 /home/retro
 
 ENV DXVK_VERSION=${DXVK_VERSION} \
-    DXVK_DIR=/opt/pyrate/dxvk \
+    DXVK_DIR=/opt/streamarr/dxvk \
     HOME=/home/retro \
     WINEPREFIX=/home/retro/.wine \
     WINEARCH=win64 \
     WINEDEBUG=-all \
-    PYRATE_IMAGE=pyrate-wine
+    STREAMARR_IMAGE=streamarr-wine
 
-ENTRYPOINT ["/opt/pyrate/run.sh"]
+ENTRYPOINT ["/opt/streamarr/run.sh"]

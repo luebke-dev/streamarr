@@ -2,7 +2,7 @@
 
 import pytest
 
-from pyrate.models.viewing_history import ViewingHistory
+from streamarr.models.viewing_history import ViewingHistory
 
 
 class TestCalculateProgressPercentage:

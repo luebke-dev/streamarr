@@ -1,6 +1,6 @@
 # Admin Dashboard
 
-The admin dashboard is the landing page of the admin area and gives you an at-a-glance overview of your pyrate.media instance: system health, active streams, downloads, users, library sizes, and storage.
+The admin dashboard is the landing page of the admin area and gives you an at-a-glance overview of your streamarr.media instance: system health, active streams, downloads, users, library sizes, and storage.
 
 ## Access
 

@@ -7,7 +7,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.user import User
+from streamarr.models.user import User
 
 
 def _search_response(**overrides):
@@ -39,7 +39,7 @@ def mock_search_service():
     mock_svc.get_or_import_item = AsyncMock(return_value=None)
     mock_svc.close = AsyncMock()
 
-    with patch("pyrate.api.v1.search.SearchService", return_value=mock_svc) as cls:
+    with patch("streamarr.api.v1.search.SearchService", return_value=mock_svc) as cls:
         cls._instance = mock_svc
         yield mock_svc
 

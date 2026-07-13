@@ -1,6 +1,6 @@
 # Games
 
-pyrate.media includes a full games library with IGDB metadata — and you don't install anything to play: games run on the server and stream directly to your browser via **Lightrays**, pyrate.media's cloud-gaming service.
+streamarr.media includes a full games library with IGDB metadata — and you don't install anything to play: games run on the server and stream directly to your browser via **Lightrays**, streamarr.media's cloud-gaming service.
 
 ## The Games Library
 
@@ -26,7 +26,7 @@ Game metadata comes from the **Internet Game Database (IGDB)** and includes:
 3. The server launches a game session — you'll briefly see *"Launching game session…"* — and the stream appears in your browser.
 
 !!! note "Download & play"
-    If the version you picked isn't stored on the server yet, pyrate.media starts downloading it and shows the same waiting screen used for movies and episodes: *"The game is downloading — this can take a moment."* The game launches automatically once the download finishes.
+    If the version you picked isn't stored on the server yet, streamarr.media starts downloading it and shows the same waiting screen used for movies and episodes: *"The game is downloading — this can take a moment."* The game launches automatically once the download finishes.
 
 !!! tip "Steam games"
     Games that run on the Steam runtime open in Steam's Big Picture interface inside the stream. You only need to sign in to Steam once — your login and game data are kept per user and shared across all your Steam game sessions.

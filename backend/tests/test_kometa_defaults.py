@@ -11,17 +11,17 @@ import uuid
 
 import pytest
 
-from pyrate.metadata.list_sources import (
+from streamarr.metadata.list_sources import (
     ListSourceError,
     ListSourceMediaType,
     source_class,
 )
-from pyrate.schemas.mass_operation import _MassOperationCommon  # noqa: F401
-from pyrate.schemas.overlay import OverlayTemplateCreate
-from pyrate.schemas.smart_collection import SmartCollectionCreate
-from pyrate.smart_collections import build_builder, builder_types
-from pyrate.smart_collections.cron import parse_cron
-from pyrate.smart_collections.defaults import (
+from streamarr.schemas.mass_operation import _MassOperationCommon  # noqa: F401
+from streamarr.schemas.overlay import OverlayTemplateCreate
+from streamarr.schemas.smart_collection import SmartCollectionCreate
+from streamarr.smart_collections import build_builder, builder_types
+from streamarr.smart_collections.cron import parse_cron
+from streamarr.smart_collections.defaults import (
     OVERLAY_DEFAULTS,
     SMART_COLLECTION_DEFAULTS,
     all_default_slugs,
@@ -126,7 +126,7 @@ def test_overlay_default_has_visible_element(entry):
 
 def test_guid_is_stable_across_calls():
     """The defaults module computes guids via uuid5 — same slug, same guid."""
-    from pyrate.smart_collections.defaults import _smart_guid
+    from streamarr.smart_collections.defaults import _smart_guid
 
     first = _smart_guid("tmdb-popular-movies")
     second = _smart_guid("tmdb-popular-movies")

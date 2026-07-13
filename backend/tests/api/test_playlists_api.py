@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.media import AvailabilityStatus, MediaItem, MediaType
-from pyrate.models.user import User
+from streamarr.models.media import AvailabilityStatus, MediaItem, MediaType
+from streamarr.models.user import User
 
 
 class _FakeRemoteControlManager:
@@ -262,8 +262,8 @@ class TestPlaylists:
         user_headers,
         monkeypatch,
     ):
-        from pyrate.api.v1 import devices as devices_api
-        from pyrate.models import Device
+        from streamarr.api.v1 import devices as devices_api
+        from streamarr.models import Device
 
         device = Device(
             guid=uuid.uuid4(),

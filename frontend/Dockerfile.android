@@ -1,6 +1,6 @@
-# Multi-stage Android APK build for pyrate.media
-# Usage: docker build -f Dockerfile.android -t pyrate-android .
-# Extract APK: docker run --rm -v $(pwd)/dist:/out pyrate-android
+# Multi-stage Android APK build for streamarr.media
+# Usage: docker build -f Dockerfile.android -t streamarr-android .
+# Extract APK: docker run --rm -v $(pwd)/dist:/out streamarr-android
 
 # Stage 1: Build Quasar SPA for Capacitor
 FROM node:22 AS quasar-build

@@ -11,8 +11,8 @@ import fakeredis
 import pytest
 import pytest_asyncio
 
-from pyrate.schemas.play_token import PlayToken, PlayTokenCreate
-from pyrate.services.play_token import PlayTokenService
+from streamarr.schemas.play_token import PlayToken, PlayTokenCreate
+from streamarr.services.play_token import PlayTokenService
 
 
 # ---------------------------------------------------------------------------

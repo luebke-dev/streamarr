@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from pyrate.services.playback_session import _normalize_transcode_start_position
+from streamarr.services.playback_session import _normalize_transcode_start_position
 
 
 def _media_file(duration):

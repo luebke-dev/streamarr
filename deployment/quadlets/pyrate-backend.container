@@ -1,19 +1,19 @@
 [Unit]
-Description=Pyrate Media Backend API
-After=pyrate-postgres.service pyrate-redis.service pyrate-elasticsearch.service pyrate-migrate.service
+Description=Streamarr Backend API
+After=streamarr-postgres.service streamarr-redis.service streamarr-elasticsearch.service streamarr-migrate.service
 # Block startup until DB migrations have completed successfully.
-Requires=pyrate-migrate.service
+Requires=streamarr-migrate.service
 
 [Container]
-Image=registry.gitlab.com/pyrate.media/backend:latest
-ContainerName=pyrate-backend
+Image=registry.gitlab.com/streamarr.media/backend:latest
+ContainerName=streamarr-backend
 
 # Secrets & host paths (POSTGRES_PASSWORD, SECRET_KEY, DATA_DIR,
 # PROJECT_ROOT, ...) are injected from this file. Create it with mode 0600,
 # owned by root. See deployment/README.md.
-EnvironmentFile=/etc/pyrate/pyrate.env
+EnvironmentFile=/etc/streamarr/streamarr.env
 
-Exec=uv run uvicorn pyrate.web:app --host 0.0.0.0 --port 8000 --workers 2
+Exec=uv run uvicorn streamarr.web:app --host 0.0.0.0 --port 8000 --workers 2
 
 SecurityLabelDisable=true
 PodmanArgs=--privileged
@@ -21,12 +21,12 @@ PodmanArgs=--privileged
 PublishPort=8000:8000
 
 # Database & services
-Environment=DATABASE_URL=postgresql+asyncpg://pyrate:${POSTGRES_PASSWORD}@pyrate-postgres:5432/pyrate
-Environment=REDIS_URL=redis://pyrate-redis:6379/0
-Environment=ELASTICSEARCH_HOST=pyrate-elasticsearch
+Environment=DATABASE_URL=postgresql+asyncpg://streamarr:${POSTGRES_PASSWORD}@streamarr-postgres:5432/streamarr
+Environment=REDIS_URL=redis://streamarr-redis:6379/0
+Environment=ELASTICSEARCH_HOST=streamarr-elasticsearch
 Environment=ELASTICSEARCH_PORT=9200
 Environment=SECRET_KEY=${SECRET_KEY}
-Environment=LIGHTRAYS_URL=http://pyrate-lightrays:8080
+Environment=LIGHTRAYS_URL=http://streamarr-lightrays:8080
 Environment=LIGHTRAYS_JWT_SECRET=${LIGHTRAYS_JWT_SECRET}
 Environment=DOWNLOADER_WEBHOOK_SECRET=${DOWNLOADER_WEBHOOK_SECRET}
 # Absolute HOST path to the install dir — used to bind-mount media into FFmpeg

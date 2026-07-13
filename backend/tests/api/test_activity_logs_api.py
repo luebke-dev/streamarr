@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
 
-from pyrate.models.activity_log import ActivityLog
-from pyrate.models.user import User
+from streamarr.models.activity_log import ActivityLog
+from streamarr.models.user import User
 
 
 class TestActivityLogs:
@@ -172,7 +172,7 @@ class TestActivityLogs:
         self, client: AsyncClient, test_superuser: User, admin_headers
     ):
         with patch(
-            "pyrate.services.activity_log.NotificationDispatchService"
+            "streamarr.services.activity_log.NotificationDispatchService"
         ) as dispatch_service:
             dispatch_service.return_value.dispatch_event = AsyncMock(return_value=[])
 

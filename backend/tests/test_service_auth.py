@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.user import User
-from pyrate.services.auth import AuthService, _get_app_url, _get_email_i18n
+from streamarr.models.user import User
+from streamarr.services.auth import AuthService, _get_app_url, _get_email_i18n
 
 
 # ---------------------------------------------------------------------------
@@ -41,16 +41,16 @@ def _make_user(**overrides) -> User:
 class TestGetSiteNameFallback:
     @pytest.mark.asyncio
     async def test_get_site_name_exception_returns_fallback(self, db_session: AsyncSession):
-        """When SettingsService.get raises, fallback to 'Pyrate Media'."""
+        """When SettingsService.get raises, fallback to 'Streamarr'."""
         service = AuthService(db_session)
-        with patch("pyrate.services.auth.AuthService._get_site_name") as mock_gsn:
+        with patch("streamarr.services.auth.AuthService._get_site_name") as mock_gsn:
             # Simulate the real implementation hitting an exception
             pass
 
         # Test the actual implementation
-        with patch("pyrate.services.settings.SettingsService.get", side_effect=Exception("db down")):
+        with patch("streamarr.services.settings.SettingsService.get", side_effect=Exception("db down")):
             result = await service._get_site_name()
-        assert result == "Pyrate Media"
+        assert result == "Streamarr"
 
 
 # ---------------------------------------------------------------------------
@@ -64,8 +64,8 @@ class TestSendPasswordResetEmailFailure:
         service = AuthService(db_session)
         user = _make_user()
 
-        with patch("pyrate.services.auth.jwt_handler") as mock_jwt, \
-             patch("pyrate.services.auth.email_service") as mock_email:
+        with patch("streamarr.services.auth.jwt_handler") as mock_jwt, \
+             patch("streamarr.services.auth.email_service") as mock_email:
             mock_jwt.create_password_reset_token.return_value = "reset-token"
             mock_email.send_email = AsyncMock(return_value=False)
 
@@ -85,8 +85,8 @@ class TestSendVerificationEmail:
         service = AuthService(db_session)
         user = _make_user(ui_language="de-DE")
 
-        with patch("pyrate.services.auth.jwt_handler") as mock_jwt, \
-             patch("pyrate.services.auth.email_service") as mock_email:
+        with patch("streamarr.services.auth.jwt_handler") as mock_jwt, \
+             patch("streamarr.services.auth.email_service") as mock_email:
             mock_jwt.create_email_verify_token.return_value = "verify-token"
             mock_email.send_email = AsyncMock(return_value=True)
 
@@ -106,7 +106,7 @@ class TestVerifyEmail:
     async def test_verify_email_invalid_payload(self, db_session: AsyncSession):
         """verify_email raises when payload has no sub or email (line 389)."""
         service = AuthService(db_session)
-        with patch("pyrate.services.auth.jwt_handler") as mock_jwt:
+        with patch("streamarr.services.auth.jwt_handler") as mock_jwt:
             mock_jwt.verify_email_verify_token.return_value = {"sub": None, "email": None}
             with pytest.raises(ValueError, match="invalid_token_payload"):
                 await service.verify_email("some-token")
@@ -115,7 +115,7 @@ class TestVerifyEmail:
     async def test_verify_email_user_not_found(self, db_session: AsyncSession):
         """verify_email raises when user not found (line 396)."""
         service = AuthService(db_session)
-        with patch("pyrate.services.auth.jwt_handler") as mock_jwt:
+        with patch("streamarr.services.auth.jwt_handler") as mock_jwt:
             mock_jwt.verify_email_verify_token.return_value = {
                 "sub": str(uuid.uuid4()),
                 "email": "test@example.com",
@@ -127,7 +127,7 @@ class TestVerifyEmail:
     async def test_verify_email_email_mismatch(self, db_session: AsyncSession, test_user: User):
         """verify_email raises when email doesn't match (line 402)."""
         service = AuthService(db_session)
-        with patch("pyrate.services.auth.jwt_handler") as mock_jwt:
+        with patch("streamarr.services.auth.jwt_handler") as mock_jwt:
             mock_jwt.verify_email_verify_token.return_value = {
                 "sub": str(test_user.guid),
                 "email": "wrong@example.com",
@@ -167,10 +167,10 @@ class TestRegisterWithInvite:
         mock_invite_svc.get_valid_by_token = AsyncMock(return_value=MagicMock(guid=uuid.uuid4()))
         mock_invite_svc.use_invite = AsyncMock(return_value=None)
 
-        with patch("pyrate.services.auth.settings") as mock_settings, \
-             patch("pyrate.services.auth.jwt_handler") as mock_jwt, \
-             patch("pyrate.services.auth.AuthService._get_site_name", return_value="Test"), \
-             patch("pyrate.services.invite.InviteService", return_value=mock_invite_svc):
+        with patch("streamarr.services.auth.settings") as mock_settings, \
+             patch("streamarr.services.auth.jwt_handler") as mock_jwt, \
+             patch("streamarr.services.auth.AuthService._get_site_name", return_value="Test"), \
+             patch("streamarr.services.invite.InviteService", return_value=mock_invite_svc):
             mock_settings.invites.enabled = True
             mock_settings.oidc.local_auth_enabled = True
             mock_settings.oidc.min_password_length = 8
@@ -209,12 +209,12 @@ class TestRegisterWithInvite:
         mock_friendship_svc = MagicMock()
         mock_friendship_svc.create_accepted = AsyncMock(side_effect=Exception("friendship error"))
 
-        with patch("pyrate.services.auth.settings") as mock_settings, \
-             patch("pyrate.services.auth.jwt_handler") as mock_jwt, \
-             patch("pyrate.services.auth.AuthService._get_site_name", return_value="Test"), \
-             patch("pyrate.services.auth.AuthService._send_verification_email", return_value=True), \
-             patch("pyrate.services.invite.InviteService", return_value=mock_invite_svc), \
-             patch("pyrate.services.friendship.FriendshipService", return_value=mock_friendship_svc):
+        with patch("streamarr.services.auth.settings") as mock_settings, \
+             patch("streamarr.services.auth.jwt_handler") as mock_jwt, \
+             patch("streamarr.services.auth.AuthService._get_site_name", return_value="Test"), \
+             patch("streamarr.services.auth.AuthService._send_verification_email", return_value=True), \
+             patch("streamarr.services.invite.InviteService", return_value=mock_invite_svc), \
+             patch("streamarr.services.friendship.FriendshipService", return_value=mock_friendship_svc):
             mock_settings.invites.enabled = True
             mock_settings.oidc.local_auth_enabled = True
             mock_settings.oidc.min_password_length = 8
@@ -248,8 +248,8 @@ class TestResetPassword:
     async def test_reset_password_invalid_token_payload(self, db_session: AsyncSession):
         """reset_password raises when payload missing sub/email."""
         service = AuthService(db_session)
-        with patch("pyrate.services.auth.settings") as mock_settings, \
-             patch("pyrate.services.auth.jwt_handler") as mock_jwt:
+        with patch("streamarr.services.auth.settings") as mock_settings, \
+             patch("streamarr.services.auth.jwt_handler") as mock_jwt:
             mock_settings.oidc.local_auth_enabled = True
             mock_jwt.verify_password_reset_token.return_value = {"sub": None, "email": None}
             with pytest.raises(ValueError, match="invalid_token_payload"):

@@ -11,8 +11,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.auth.jwt_handler import jwt_handler
-from pyrate.config import (
+from streamarr.auth.jwt_handler import jwt_handler
+from streamarr.config import (
     AppSettings,
     ConnectionSettings,
     EmailConfig,
@@ -23,13 +23,13 @@ from pyrate.config import (
     PaymentConfig,
     TranscodingConfig,
 )
-from pyrate.database import DatabaseSessionManager
-from pyrate.models.user import User
+from streamarr.database import DatabaseSessionManager
+from streamarr.models.user import User
 
 # ===================================================================
 
 HAS_LEGACY_PLUGIN_LOADER = (
-    importlib.util.find_spec("pyrate.plugins.loader") is not None
+    importlib.util.find_spec("streamarr.plugins.loader") is not None
 )
 
 
@@ -135,7 +135,7 @@ class TestUpdateDeviceStatus:
 
     @pytest.mark.asyncio
     async def test_update_device_status_found(self, db_session, test_user):
-        from pyrate.models.device import Device
+        from streamarr.models.device import Device
 
         device = Device(
             guid=uuid.uuid4(),
@@ -159,8 +159,8 @@ class TestUpdateDeviceStatus:
         async def mock_get_db_session():
             yield db_session
 
-        with patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session):
-            from pyrate.api.v1.ws import update_device_status
+        with patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session):
+            from streamarr.api.v1.ws import update_device_status
 
             await update_device_status(
                 str(test_user.guid), "dev-123", status_data
@@ -176,8 +176,8 @@ class TestUpdateDeviceStatus:
         async def mock_get_db_session():
             yield db_session
 
-        with patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session):
-            from pyrate.api.v1.ws import update_device_status
+        with patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session):
+            from streamarr.api.v1.ws import update_device_status
 
             # Should not raise, just log warning
             await update_device_status(
@@ -186,7 +186,7 @@ class TestUpdateDeviceStatus:
 
     @pytest.mark.asyncio
     async def test_update_device_status_invalid_media_guid(self, db_session, test_user):
-        from pyrate.models.device import Device
+        from streamarr.models.device import Device
 
         device = Device(
             guid=uuid.uuid4(),
@@ -205,8 +205,8 @@ class TestUpdateDeviceStatus:
         async def mock_get_db_session():
             yield db_session
 
-        with patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session):
-            from pyrate.api.v1.ws import update_device_status
+        with patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session):
+            from streamarr.api.v1.ws import update_device_status
 
             await update_device_status(
                 str(test_user.guid), "dev-456", status_data
@@ -217,7 +217,7 @@ class TestUpdateDeviceStatus:
 
     @pytest.mark.asyncio
     async def test_update_device_status_no_media_guid(self, db_session, test_user):
-        from pyrate.models.device import Device
+        from streamarr.models.device import Device
 
         device = Device(
             guid=uuid.uuid4(),
@@ -236,8 +236,8 @@ class TestUpdateDeviceStatus:
         async def mock_get_db_session():
             yield db_session
 
-        with patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session):
-            from pyrate.api.v1.ws import update_device_status
+        with patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session):
+            from streamarr.api.v1.ws import update_device_status
 
             await update_device_status(
                 str(test_user.guid), "dev-789", status_data
@@ -256,8 +256,8 @@ class TestUpdateDeviceStatus:
         async def mock_get_db_session():
             yield mock_session
 
-        with patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session):
-            from pyrate.api.v1.ws import update_device_status
+        with patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session):
+            from streamarr.api.v1.ws import update_device_status
 
             await update_device_status(
                 str(test_user.guid), "dev-error", {"is_playing": False}
@@ -268,7 +268,7 @@ class TestUpdateDeviceStatus:
     @pytest.mark.asyncio
     async def test_update_device_status_media_guid_as_uuid(self, db_session, test_user):
         """media_guid passed as UUID object (not string)."""
-        from pyrate.models.device import Device
+        from streamarr.models.device import Device
 
         device = Device(
             guid=uuid.uuid4(),
@@ -288,8 +288,8 @@ class TestUpdateDeviceStatus:
         async def mock_get_db_session():
             yield db_session
 
-        with patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session):
-            from pyrate.api.v1.ws import update_device_status
+        with patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session):
+            from streamarr.api.v1.ws import update_device_status
 
             await update_device_status(
                 str(test_user.guid), "dev-uuid-obj", status_data
@@ -309,10 +309,10 @@ class TestWebSocketEndpoint:
 
     @pytest.mark.asyncio
     async def test_websocket_invalid_token(self):
-        from pyrate.api.v1.ws import websocket_endpoint
+        from streamarr.api.v1.ws import websocket_endpoint
 
         mock_ws = AsyncMock()
-        with patch("pyrate.api.v1.ws.jwt_handler") as mock_jwt:
+        with patch("streamarr.api.v1.ws.jwt_handler") as mock_jwt:
             mock_jwt.verify_token.return_value = None
             await websocket_endpoint(mock_ws, token="bad-token")
 
@@ -322,10 +322,10 @@ class TestWebSocketEndpoint:
 
     @pytest.mark.asyncio
     async def test_websocket_wrong_token_type(self):
-        from pyrate.api.v1.ws import websocket_endpoint
+        from streamarr.api.v1.ws import websocket_endpoint
 
         mock_ws = AsyncMock()
-        with patch("pyrate.api.v1.ws.jwt_handler") as mock_jwt:
+        with patch("streamarr.api.v1.ws.jwt_handler") as mock_jwt:
             mock_jwt.verify_token.return_value = {"type": "refresh", "sub": "uid"}
             await websocket_endpoint(mock_ws, token="refresh-token")
 
@@ -335,10 +335,10 @@ class TestWebSocketEndpoint:
 
     @pytest.mark.asyncio
     async def test_websocket_no_sub_in_payload(self):
-        from pyrate.api.v1.ws import websocket_endpoint
+        from streamarr.api.v1.ws import websocket_endpoint
 
         mock_ws = AsyncMock()
-        with patch("pyrate.api.v1.ws.jwt_handler") as mock_jwt:
+        with patch("streamarr.api.v1.ws.jwt_handler") as mock_jwt:
             mock_jwt.verify_token.return_value = {"type": "access"}  # no sub
             await websocket_endpoint(mock_ws, token="token")
 
@@ -348,7 +348,7 @@ class TestWebSocketEndpoint:
 
     @pytest.mark.asyncio
     async def test_websocket_user_not_found(self):
-        from pyrate.api.v1.ws import websocket_endpoint
+        from streamarr.api.v1.ws import websocket_endpoint
 
         mock_ws = AsyncMock()
         mock_db = AsyncMock()
@@ -358,8 +358,8 @@ class TestWebSocketEndpoint:
             yield mock_db
 
         with (
-            patch("pyrate.api.v1.ws.jwt_handler") as mock_jwt,
-            patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session),
+            patch("streamarr.api.v1.ws.jwt_handler") as mock_jwt,
+            patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session),
         ):
             mock_jwt.verify_token.return_value = {
                 "type": "access",
@@ -373,7 +373,7 @@ class TestWebSocketEndpoint:
 
     @pytest.mark.asyncio
     async def test_websocket_inactive_user(self):
-        from pyrate.api.v1.ws import websocket_endpoint
+        from streamarr.api.v1.ws import websocket_endpoint
 
         mock_ws = AsyncMock()
         mock_user = MagicMock()
@@ -385,8 +385,8 @@ class TestWebSocketEndpoint:
             yield mock_db
 
         with (
-            patch("pyrate.api.v1.ws.jwt_handler") as mock_jwt,
-            patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session),
+            patch("streamarr.api.v1.ws.jwt_handler") as mock_jwt,
+            patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session),
         ):
             mock_jwt.verify_token.return_value = {
                 "type": "access",
@@ -400,7 +400,7 @@ class TestWebSocketEndpoint:
 
     @pytest.mark.asyncio
     async def test_websocket_access_schedule_denied(self):
-        from pyrate.api.v1.ws import websocket_endpoint
+        from streamarr.api.v1.ws import websocket_endpoint
 
         mock_ws = AsyncMock()
         mock_user = MagicMock()
@@ -418,9 +418,9 @@ class TestWebSocketEndpoint:
             yield mock_db
 
         with (
-            patch("pyrate.api.v1.ws.jwt_handler") as mock_jwt,
-            patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session),
-            patch("pyrate.api.v1.ws.PermissionService", return_value=permission_service),
+            patch("streamarr.api.v1.ws.jwt_handler") as mock_jwt,
+            patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session),
+            patch("streamarr.api.v1.ws.PermissionService", return_value=permission_service),
         ):
             mock_jwt.verify_token.return_value = {
                 "type": "access",
@@ -436,7 +436,7 @@ class TestWebSocketEndpoint:
     async def test_websocket_connect_and_disconnect(self):
         from fastapi import WebSocketDisconnect
 
-        from pyrate.api.v1.ws import websocket_endpoint
+        from streamarr.api.v1.ws import websocket_endpoint
 
         mock_ws = AsyncMock()
         mock_ws.receive_json.side_effect = WebSocketDisconnect()
@@ -458,9 +458,9 @@ class TestWebSocketEndpoint:
 
         user_id = str(uuid.uuid4())
         with (
-            patch("pyrate.api.v1.ws.jwt_handler") as mock_jwt,
-            patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session),
-            patch("pyrate.api.v1.ws.get_websocket_manager", return_value=mock_manager),
+            patch("streamarr.api.v1.ws.jwt_handler") as mock_jwt,
+            patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session),
+            patch("streamarr.api.v1.ws.get_websocket_manager", return_value=mock_manager),
         ):
             mock_jwt.verify_token.return_value = {
                 "type": "access",
@@ -473,7 +473,7 @@ class TestWebSocketEndpoint:
 
     @pytest.mark.asyncio
     async def test_websocket_handles_invalid_json(self):
-        from pyrate.api.v1.ws import websocket_endpoint
+        from streamarr.api.v1.ws import websocket_endpoint
 
         mock_ws = AsyncMock()
         # First call raises ValueError (invalid JSON), second raises disconnect
@@ -497,9 +497,9 @@ class TestWebSocketEndpoint:
             yield mock_db
 
         with (
-            patch("pyrate.api.v1.ws.jwt_handler") as mock_jwt,
-            patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session),
-            patch("pyrate.api.v1.ws.get_websocket_manager", return_value=mock_manager),
+            patch("streamarr.api.v1.ws.jwt_handler") as mock_jwt,
+            patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session),
+            patch("streamarr.api.v1.ws.get_websocket_manager", return_value=mock_manager),
         ):
             mock_jwt.verify_token.return_value = {
                 "type": "access",
@@ -511,7 +511,7 @@ class TestWebSocketEndpoint:
 
     @pytest.mark.asyncio
     async def test_websocket_handles_unexpected_exception(self):
-        from pyrate.api.v1.ws import websocket_endpoint
+        from streamarr.api.v1.ws import websocket_endpoint
 
         mock_ws = AsyncMock()
         mock_ws.receive_json.side_effect = RuntimeError("unexpected")
@@ -529,9 +529,9 @@ class TestWebSocketEndpoint:
             yield mock_db
 
         with (
-            patch("pyrate.api.v1.ws.jwt_handler") as mock_jwt,
-            patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session),
-            patch("pyrate.api.v1.ws.get_websocket_manager", return_value=mock_manager),
+            patch("streamarr.api.v1.ws.jwt_handler") as mock_jwt,
+            patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session),
+            patch("streamarr.api.v1.ws.get_websocket_manager", return_value=mock_manager),
         ):
             mock_jwt.verify_token.return_value = {
                 "type": "access",
@@ -545,7 +545,7 @@ class TestWebSocketEndpoint:
     async def test_websocket_handles_message(self):
         from fastapi import WebSocketDisconnect
 
-        from pyrate.api.v1.ws import websocket_endpoint
+        from streamarr.api.v1.ws import websocket_endpoint
 
         mock_ws = AsyncMock()
         mock_ws.receive_json.side_effect = [
@@ -566,9 +566,9 @@ class TestWebSocketEndpoint:
             yield mock_db
 
         with (
-            patch("pyrate.api.v1.ws.jwt_handler") as mock_jwt,
-            patch("pyrate.api.v1.ws.get_db_session", mock_get_db_session),
-            patch("pyrate.api.v1.ws.get_websocket_manager", return_value=mock_manager),
+            patch("streamarr.api.v1.ws.jwt_handler") as mock_jwt,
+            patch("streamarr.api.v1.ws.get_db_session", mock_get_db_session),
+            patch("streamarr.api.v1.ws.get_websocket_manager", return_value=mock_manager),
         ):
             mock_jwt.verify_token.return_value = {
                 "type": "access",
@@ -591,11 +591,11 @@ class TestPluginClass:
 
     pytestmark = pytest.mark.skipif(
         not HAS_LEGACY_PLUGIN_LOADER,
-        reason="legacy pyrate.plugins.loader module has been removed",
+        reason="legacy streamarr.plugins.loader module has been removed",
     )
 
     def _make_manifest(self, **overrides):
-        from pyrate.plugins.manifest import PluginManifest
+        from streamarr.plugins.manifest import PluginManifest
 
         data = {
             "name": "Test Plugin",
@@ -609,8 +609,8 @@ class TestPluginClass:
         return PluginManifest(**data)
 
     def test_plugin_properties(self):
-        from pyrate.plugins.loader import Plugin
-        from pyrate.plugins.manifest import PluginType
+        from streamarr.plugins.loader import Plugin
+        from streamarr.plugins.manifest import PluginType
 
         manifest = self._make_manifest()
         mock_class = MagicMock()
@@ -627,7 +627,7 @@ class TestPluginClass:
         assert PluginType.LIBRARY in plugin.plugin_types
 
     def test_get_instance_creates_once(self):
-        from pyrate.plugins.loader import Plugin
+        from streamarr.plugins.loader import Plugin
 
         manifest = self._make_manifest()
         mock_class = MagicMock()
@@ -641,7 +641,7 @@ class TestPluginClass:
             path=Path("/fake"),
         )
 
-        with patch("pyrate.plugins.loader.get_hook_manager") as mock_hm:
+        with patch("streamarr.plugins.loader.get_hook_manager") as mock_hm:
             inst1 = plugin.get_instance()
             inst2 = plugin.get_instance()
 
@@ -649,7 +649,7 @@ class TestPluginClass:
         mock_class.assert_called_once()
 
     def test_load_translations_locale_not_in_manifest(self):
-        from pyrate.plugins.loader import Plugin
+        from streamarr.plugins.loader import Plugin
 
         manifest = self._make_manifest(i18n={})
         plugin = Plugin(
@@ -661,7 +661,7 @@ class TestPluginClass:
         assert plugin.load_translations("de-DE") == {}
 
     def test_load_translations_file_not_found(self, tmp_path):
-        from pyrate.plugins.loader import Plugin
+        from streamarr.plugins.loader import Plugin
 
         manifest = self._make_manifest(i18n={"de-DE": "i18n/de.json"})
         plugin = Plugin(
@@ -673,7 +673,7 @@ class TestPluginClass:
         assert plugin.load_translations("de-DE") == {}
 
     def test_load_translations_success(self, tmp_path):
-        from pyrate.plugins.loader import Plugin
+        from streamarr.plugins.loader import Plugin
 
         i18n_dir = tmp_path / "i18n"
         i18n_dir.mkdir()
@@ -691,7 +691,7 @@ class TestPluginClass:
         assert result == {"hello": "Hallo"}
 
     def test_load_translations_invalid_json(self, tmp_path):
-        from pyrate.plugins.loader import Plugin
+        from streamarr.plugins.loader import Plugin
 
         i18n_dir = tmp_path / "i18n"
         i18n_dir.mkdir()
@@ -710,7 +710,7 @@ class TestPluginClass:
 
     @pytest.mark.asyncio
     async def test_async_setup_with_method(self):
-        from pyrate.plugins.loader import Plugin
+        from streamarr.plugins.loader import Plugin
 
         manifest = self._make_manifest()
         mock_class = MagicMock()
@@ -727,7 +727,7 @@ class TestPluginClass:
 
     @pytest.mark.asyncio
     async def test_async_setup_without_method(self):
-        from pyrate.plugins.loader import Plugin
+        from streamarr.plugins.loader import Plugin
 
         manifest = self._make_manifest()
         mock_class = MagicMock(spec=[])  # no async_setup attribute
@@ -743,7 +743,7 @@ class TestPluginClass:
 
     @pytest.mark.asyncio
     async def test_async_setup_exception(self):
-        from pyrate.plugins.loader import Plugin
+        from streamarr.plugins.loader import Plugin
 
         manifest = self._make_manifest()
         mock_class = MagicMock()
@@ -760,7 +760,7 @@ class TestPluginClass:
 
     @pytest.mark.asyncio
     async def test_async_unload_with_instance(self):
-        from pyrate.plugins.loader import Plugin
+        from streamarr.plugins.loader import Plugin
 
         manifest = self._make_manifest()
         mock_class = MagicMock()
@@ -773,7 +773,7 @@ class TestPluginClass:
             plugin_class=mock_class,
             path=Path("/fake"),
         )
-        with patch("pyrate.plugins.loader.get_hook_manager"):
+        with patch("streamarr.plugins.loader.get_hook_manager"):
             plugin.get_instance()
 
         result = await plugin.async_unload()
@@ -783,7 +783,7 @@ class TestPluginClass:
 
     @pytest.mark.asyncio
     async def test_async_unload_no_instance(self):
-        from pyrate.plugins.loader import Plugin
+        from streamarr.plugins.loader import Plugin
 
         manifest = self._make_manifest()
         plugin = Plugin(
@@ -797,7 +797,7 @@ class TestPluginClass:
 
     @pytest.mark.asyncio
     async def test_async_unload_exception(self):
-        from pyrate.plugins.loader import Plugin
+        from streamarr.plugins.loader import Plugin
 
         manifest = self._make_manifest()
         mock_instance = AsyncMock()
@@ -820,12 +820,12 @@ class TestPluginLoaderFunctions:
 
     pytestmark = pytest.mark.skipif(
         not HAS_LEGACY_PLUGIN_LOADER,
-        reason="legacy pyrate.plugins.loader module has been removed",
+        reason="legacy streamarr.plugins.loader module has been removed",
     )
 
     @pytest.mark.asyncio
     async def test_async_load_plugin_not_a_directory(self, tmp_path):
-        from pyrate.plugins.loader import PluginLoadError, async_load_plugin
+        from streamarr.plugins.loader import PluginLoadError, async_load_plugin
 
         fake_file = tmp_path / "not_a_dir.txt"
         fake_file.write_text("hello")
@@ -835,7 +835,7 @@ class TestPluginLoaderFunctions:
 
     @pytest.mark.asyncio
     async def test_async_load_plugin_no_manifest(self, tmp_path):
-        from pyrate.plugins.loader import PluginLoadError, async_load_plugin
+        from streamarr.plugins.loader import PluginLoadError, async_load_plugin
 
         plugin_dir = tmp_path / "myplugin"
         plugin_dir.mkdir()
@@ -845,7 +845,7 @@ class TestPluginLoaderFunctions:
 
     @pytest.mark.asyncio
     async def test_async_load_plugin_invalid_manifest(self, tmp_path):
-        from pyrate.plugins.loader import PluginLoadError, async_load_plugin
+        from streamarr.plugins.loader import PluginLoadError, async_load_plugin
 
         plugin_dir = tmp_path / "myplugin"
         plugin_dir.mkdir()
@@ -856,7 +856,7 @@ class TestPluginLoaderFunctions:
 
     @pytest.mark.asyncio
     async def test_async_load_plugin_domain_mismatch(self, tmp_path):
-        from pyrate.plugins.loader import PluginLoadError, async_load_plugin
+        from streamarr.plugins.loader import PluginLoadError, async_load_plugin
 
         plugin_dir = tmp_path / "myplugin"
         plugin_dir.mkdir()
@@ -875,14 +875,14 @@ class TestPluginLoaderFunctions:
 
     @pytest.mark.asyncio
     async def test_async_discover_plugins_nonexistent_dir(self, tmp_path):
-        from pyrate.plugins.loader import async_discover_plugins
+        from streamarr.plugins.loader import async_discover_plugins
 
         result = await async_discover_plugins(tmp_path / "nonexistent")
         assert result == {}
 
     @pytest.mark.asyncio
     async def test_async_discover_plugins_skips_hidden_and_underscore(self, tmp_path):
-        from pyrate.plugins.loader import async_discover_plugins
+        from streamarr.plugins.loader import async_discover_plugins
 
         (tmp_path / "_internal").mkdir()
         (tmp_path / ".hidden").mkdir()
@@ -891,7 +891,7 @@ class TestPluginLoaderFunctions:
         assert result == {}
 
     def test_get_plugin_instance_not_found(self):
-        import pyrate.libraries as lib_mod
+        import streamarr.libraries as lib_mod
 
         original_registry = lib_mod._registry
         original_instances = lib_mod._instances.copy()
@@ -907,7 +907,7 @@ class TestPluginLoaderFunctions:
             lib_mod._instances.update(original_instances)
 
     def test_get_plugin_instance_case_insensitive(self):
-        import pyrate.libraries as lib_mod
+        import streamarr.libraries as lib_mod
 
         mock_class = MagicMock()
         mock_instance = MagicMock()
@@ -927,7 +927,7 @@ class TestPluginLoaderFunctions:
             lib_mod._instances.update(original_instances)
 
     def test_get_available_media_types(self):
-        import pyrate.libraries as lib_mod
+        import streamarr.libraries as lib_mod
 
         original_registry = lib_mod._registry
         try:
@@ -940,7 +940,7 @@ class TestPluginLoaderFunctions:
             lib_mod._registry = original_registry
 
     def test_get_library_type_for_media_item_type_not_found(self):
-        import pyrate.libraries as lib_mod
+        import streamarr.libraries as lib_mod
 
         original_registry = lib_mod._registry
         try:
@@ -952,7 +952,7 @@ class TestPluginLoaderFunctions:
             lib_mod._registry = original_registry
 
     def test_get_media_item_types_for_library_not_found(self):
-        import pyrate.libraries as lib_mod
+        import streamarr.libraries as lib_mod
 
         original_registry = lib_mod._registry
         try:
@@ -964,7 +964,7 @@ class TestPluginLoaderFunctions:
             lib_mod._registry = original_registry
 
     def test_get_all_media_item_types(self):
-        import pyrate.libraries as lib_mod
+        import streamarr.libraries as lib_mod
 
         mock_class = MagicMock()
         mock_instance = MagicMock()
@@ -986,7 +986,7 @@ class TestPluginLoaderFunctions:
 
     def test_get_all_media_item_types_dedup(self):
         """Duplicate type names across plugins should be deduplicated."""
-        import pyrate.libraries as lib_mod
+        import streamarr.libraries as lib_mod
 
         mock_class_a = MagicMock()
         mock_inst_a = MagicMock()
@@ -1017,7 +1017,7 @@ class TestDownloadService:
     """Tests for DownloadService methods."""
 
     def _make_service(self, db=None):
-        from pyrate.services.download import DownloadService
+        from streamarr.services.download import DownloadService
 
         return DownloadService(db=db or AsyncMock())
 
@@ -1133,7 +1133,7 @@ class TestDownloadService:
         mp3.write_text("data")
 
         with patch(
-            "pyrate.services.download.get_library_type_for_media_item_type",
+            "streamarr.services.download.get_library_type_for_media_item_type",
             return_value="MUSIC",
         ):
             assert svc.is_valid_media_file(mp3, "SONGS") is True
@@ -1145,7 +1145,7 @@ class TestDownloadService:
         mkv.write_text("data")
 
         with patch(
-            "pyrate.services.download.get_library_type_for_media_item_type",
+            "streamarr.services.download.get_library_type_for_media_item_type",
             return_value="MOVIES",
         ):
             assert svc.is_valid_media_file(mkv, "MOVIES") is True
@@ -1616,13 +1616,13 @@ class TestConfig:
 
     def test_connection_settings_has_secret_key(self):
         """The module-level settings should have the test SECRET_KEY."""
-        from pyrate.config import settings
+        from streamarr.config import settings
 
         assert settings.secret_key is not None
         assert settings.secret_key != ""
 
     def test_connection_settings_database_url(self):
-        from pyrate.config import connection_settings
+        from streamarr.config import connection_settings
 
         # In tests, DATABASE_URL is set to sqlite
         assert "sqlite" in connection_settings.database_url

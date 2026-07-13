@@ -6,10 +6,10 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.group import Group, UserGroupLink
-from pyrate.models.setting import Setting
-from pyrate.models.user import User
-from pyrate.services.permission import PermissionService
+from streamarr.models.group import Group, UserGroupLink
+from streamarr.models.setting import Setting
+from streamarr.models.user import User
+from streamarr.services.permission import PermissionService
 
 
 @pytest_asyncio.fixture

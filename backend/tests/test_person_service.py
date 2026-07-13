@@ -6,10 +6,10 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.media import MediaItem, MediaType
-from pyrate.models.person import MediaCast, Person
-from pyrate.models.user import User
-from pyrate.services.person import PersonService
+from streamarr.models.media import MediaItem, MediaType
+from streamarr.models.person import MediaCast, Person
+from streamarr.models.user import User
+from streamarr.services.person import PersonService
 
 
 # ---------------------------------------------------------------------------

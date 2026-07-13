@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from pyrate.models import ActivityLog
-from pyrate.services.casting import airplay as cast_airplay
-from pyrate.services.casting import chromecast as cast_chromecast
-from pyrate.services.casting import dlna as cast_dlna
-from pyrate.services.websocket import RemoteControlError
+from streamarr.models import ActivityLog
+from streamarr.services.casting import airplay as cast_airplay
+from streamarr.services.casting import chromecast as cast_chromecast
+from streamarr.services.casting import dlna as cast_dlna
+from streamarr.services.websocket import RemoteControlError
 
 
 class _FakeRemoteControlManager:
@@ -79,7 +79,7 @@ class TestCastTargets:
                 {
                     "id": "living-room",
                     "name": "Living Room",
-                    "protocol": "pyrate",
+                    "protocol": "streamarr",
                     "device_id": "living-room-device",
                     "supports_remote_control": True,
                 },
@@ -108,10 +108,10 @@ class TestCastTargets:
         log_entry = log_result.scalar_one()
         assert "Updated 2 cast targets" in log_entry.message
 
-    async def test_discover_includes_manual_and_active_pyrate_sessions(
+    async def test_discover_includes_manual_and_active_streamarr_sessions(
         self, client: AsyncClient, admin_headers, user_headers, test_user, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -149,10 +149,10 @@ class TestCastTargets:
         targets = {item["id"]: item for item in data["items"]}
         assert targets["office-tv"]["discovered"] is False
         assert targets["office-tv"]["discovery_source"] == "manual"
-        assert targets["pyrate:living-room-device"]["protocol"] == "pyrate"
-        assert targets["pyrate:living-room-device"]["device_id"] == "living-room-device"
-        assert targets["pyrate:living-room-device"]["discovery_source"] == "active_session"
-        assert targets["pyrate:living-room-device"]["supports_remote_control"] is True
+        assert targets["streamarr:living-room-device"]["protocol"] == "streamarr"
+        assert targets["streamarr:living-room-device"]["device_id"] == "living-room-device"
+        assert targets["streamarr:living-room-device"]["discovery_source"] == "active_session"
+        assert targets["streamarr:living-room-device"]["supports_remote_control"] is True
 
     async def test_discover_filters_active_sessions_to_current_user(
         self,
@@ -162,7 +162,7 @@ class TestCastTargets:
         test_superuser,
         monkeypatch,
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         now = datetime.now(UTC)
         manager = _FakeRemoteControlManager(
@@ -191,16 +191,16 @@ class TestCastTargets:
 
         assert resp.status_code == 200
         ids = {item["id"] for item in resp.json()["items"]}
-        assert "pyrate:user-device" in ids
-        assert "pyrate:admin-device" not in ids
+        assert "streamarr:user-device" in ids
+        assert "streamarr:admin-device" not in ids
 
     async def test_protocol_capabilities(self, client: AsyncClient, user_headers):
         resp = await client.get("/api/cast/protocols", headers=user_headers)
 
         assert resp.status_code == 200
         protocols = {item["protocol"]: item for item in resp.json()}
-        assert protocols["pyrate"]["discovery_supported"] is True
-        assert protocols["pyrate"]["remote_control_supported"] is True
+        assert protocols["streamarr"]["discovery_supported"] is True
+        assert protocols["streamarr"]["remote_control_supported"] is True
         assert protocols["chromecast"]["discovery_supported"] is True
         assert protocols["chromecast"]["remote_control_supported"] is True
         assert protocols["chromecast"]["native_sender_supported"] is True
@@ -228,7 +228,7 @@ class TestCastTargets:
     async def test_native_discovery_includes_ssdp_dlna_targets(
         self, client: AsyncClient, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         monkeypatch.setattr(
             cast_api,
@@ -256,7 +256,7 @@ class TestCastTargets:
     async def test_native_discovery_includes_mdns_cast_targets(
         self, client: AsyncClient, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         monkeypatch.setattr(cast_api, "_discover_dlna_targets", lambda timeout_seconds=1.0: [])
         monkeypatch.setattr(
@@ -332,7 +332,7 @@ class TestCastCommands:
         assert resp.status_code == 422
         assert "Unsupported Chromecast command" in resp.json()["detail"]
 
-    async def test_pyrate_target_sends_remote_command(
+    async def test_streamarr_target_sends_remote_command(
         self,
         client: AsyncClient,
         db_session,
@@ -341,7 +341,7 @@ class TestCastCommands:
         test_user,
         monkeypatch,
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -350,7 +350,7 @@ class TestCastCommands:
                 {
                     "id": "living-room",
                     "name": "Living Room",
-                    "protocol": "pyrate",
+                    "protocol": "streamarr",
                     "device_id": "living-room-device",
                     "supports_remote_control": True,
                 }
@@ -382,7 +382,7 @@ class TestCastCommands:
     async def test_dlna_target_sends_renderer_command(
         self, client: AsyncClient, db_session, admin_headers, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -423,7 +423,7 @@ class TestCastCommands:
     async def test_dlna_seek_command_formats_position_seconds(
         self, client: AsyncClient, admin_headers, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -462,7 +462,7 @@ class TestCastCommands:
     async def test_dlna_resume_command_is_accepted(
         self, client: AsyncClient, admin_headers, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -491,7 +491,7 @@ class TestCastCommands:
         assert send_dlna.await_args.args[1] == "resume"
 
     async def test_dlna_metadata_builder_uses_media_fields(self):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         metadata = cast_dlna._dlna_metadata(
             {
@@ -511,7 +511,7 @@ class TestCastCommands:
         assert "poster.jpg?size=large" in metadata
 
     async def test_dlna_metadata_infers_mime_type_from_url(self):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         metadata = cast_dlna._dlna_metadata(
             {"title": "Movie"},
@@ -521,7 +521,7 @@ class TestCastCommands:
         assert "video/x-matroska" in metadata
 
     async def test_dlna_metadata_builder_preserves_raw_metadata(self):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         metadata = cast_dlna._dlna_metadata(
             {"metadata": "<DIDL-Lite>custom</DIDL-Lite>", "title": "Ignored"},
@@ -533,7 +533,7 @@ class TestCastCommands:
     async def test_airplay_target_sends_receiver_command(
         self, client: AsyncClient, db_session, admin_headers, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -571,14 +571,14 @@ class TestCastCommands:
         assert "airplay" in log_entry.extra_data
 
     async def test_airplay_play_payload_includes_metadata_fields(self):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         payload = cast_airplay._airplay_play_payload(
             "https://media.test/movie.mkv",
             {
                 "start_position": 12.5,
                 "title": "Movie Night",
-                "artist": "pyrate",
+                "artist": "streamarr",
                 "album": "Featured",
                 "poster_url": "https://media.test/poster.jpg",
             },
@@ -587,14 +587,14 @@ class TestCastCommands:
         assert payload["Content-Location"] == "https://media.test/movie.mkv"
         assert payload["Start-Position"] == "12.5"
         assert payload["Title"] == "Movie Night"
-        assert payload["Artist"] == "pyrate"
+        assert payload["Artist"] == "streamarr"
         assert payload["Album"] == "Featured"
         assert payload["Artwork-URL"] == "https://media.test/poster.jpg"
 
     async def test_chromecast_target_sends_dial_command(
         self, client: AsyncClient, db_session, admin_headers, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -634,7 +634,7 @@ class TestCastCommands:
     async def test_chromecast_target_sends_media_namespace_play_command(
         self, client: AsyncClient, db_session, admin_headers, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -681,7 +681,7 @@ class TestCastCommands:
     async def test_chromecast_target_sends_receiver_volume_command(
         self, client: AsyncClient, admin_headers, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -711,7 +711,7 @@ class TestCastCommands:
         assert send_receiver.await_args.args[2]["level"] == 50
 
     async def test_chromecast_receiver_volume_payload_normalizes_fields(self):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         volume_payload = cast_chromecast._chromecast_receiver_control_payload(
             "volume",
@@ -737,7 +737,7 @@ class TestCastCommands:
         }
 
     async def test_chromecast_load_payload_includes_media_metadata(self):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         payload = cast_chromecast._chromecast_load_payload(
             {
@@ -759,7 +759,7 @@ class TestCastCommands:
         assert payload["currentTime"] == 42.0
 
     async def test_chromecast_queue_load_payload_includes_ordered_items(self):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         payload = cast_chromecast._chromecast_queue_load_payload(
             {
@@ -797,7 +797,7 @@ class TestCastCommands:
     async def test_chromecast_target_sends_media_namespace_queue_command(
         self, client: AsyncClient, admin_headers, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -836,7 +836,7 @@ class TestCastCommands:
         assert send_media.await_args.args[2]["start_index"] == 1
 
     async def test_chromecast_control_payload_includes_provided_media_session(self):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         payload = cast_chromecast._chromecast_media_control_payload(
             "seek",
@@ -851,7 +851,7 @@ class TestCastCommands:
         }
 
     async def test_chromecast_media_command_resolves_active_media_session(self, monkeypatch):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         target = cast_api.CastTarget(
             id="chromecast-living-room",
@@ -886,7 +886,7 @@ class TestCastCommands:
         ]
 
     async def test_chromecast_media_command_accepts_custom_receiver_app_id(self, monkeypatch):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         target = cast_api.CastTarget(
             id="chromecast-living-room",
@@ -913,7 +913,7 @@ class TestCastCommands:
         assert calls == [("chromecast-living-room", "LOAD", True, "CUSTOM123")]
 
     async def test_chromecast_media_command_requires_active_session(self, monkeypatch):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         target = cast_api.CastTarget(
             id="chromecast-living-room",
@@ -940,7 +940,7 @@ class TestCastCommands:
             raise AssertionError("pause without an active media session should fail")
 
     async def test_chromecast_media_command_launches_only_for_load(self, monkeypatch):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         target = cast_api.CastTarget(
             id="chromecast-living-room",
@@ -978,7 +978,7 @@ class TestCastCommands:
         ]
 
     async def test_chromecast_cast_message_round_trips_payload(self):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         raw = cast_chromecast._cast_message(
             namespace="urn:x-cast:com.google.cast.media",
@@ -996,7 +996,7 @@ class TestCastCommands:
     async def test_remote_control_failure_returns_conflict(
         self, client: AsyncClient, admin_headers, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -1005,7 +1005,7 @@ class TestCastCommands:
                 {
                     "id": "bedroom",
                     "name": "Bedroom",
-                    "protocol": "pyrate",
+                    "protocol": "streamarr",
                     "device_id": "offline-device",
                 }
             ],
@@ -1029,7 +1029,7 @@ class TestCastStatus:
     async def test_dlna_target_status(
         self, client: AsyncClient, admin_headers, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -1073,7 +1073,7 @@ class TestCastStatus:
     async def test_airplay_target_status(
         self, client: AsyncClient, admin_headers, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -1116,7 +1116,7 @@ class TestCastStatus:
     async def test_chromecast_target_status(
         self, client: AsyncClient, admin_headers, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         await _register_targets(
             client,
@@ -1155,7 +1155,7 @@ class TestCastStatus:
         get_status.assert_awaited_once()
 
     async def test_chromecast_status_prefers_media_session_state(self, monkeypatch):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         class FakeResponse:
             status_code = 200
@@ -1233,7 +1233,7 @@ class TestCastStatus:
     async def test_chromecast_status_falls_back_to_eureka_without_media_session(
         self, monkeypatch
     ):
-        from pyrate.api.v1 import cast as cast_api
+        from streamarr.api.v1 import cast as cast_api
 
         class FakeResponse:
             status_code = 200
@@ -1303,7 +1303,7 @@ class TestCastStatus:
                 {
                     "id": "office-tv",
                     "name": "Office TV",
-                    "protocol": "pyrate",
+                    "protocol": "streamarr",
                     "host": "192.0.2.20",
                 }
             ],

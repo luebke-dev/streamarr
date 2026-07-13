@@ -8,11 +8,11 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Set test environment before pyrate imports
+# Set test environment before streamarr imports
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 
-from pyrate.services.storage_cleanup import StorageCleanupService, cleanup_session_temp_files
+from streamarr.services.storage_cleanup import StorageCleanupService, cleanup_session_temp_files
 
 
 class TestDiskUsage:
@@ -305,8 +305,8 @@ class TestDownloadRecordsCleanupDB:
     async def test_deletes_old_completed_downloads(self, db_session: AsyncSession):
         from datetime import datetime, timedelta, UTC
 
-        from pyrate.models.downloader import Downloader
-        from pyrate.models.downloads import Download
+        from streamarr.models.downloader import Downloader
+        from streamarr.models.downloads import Download
 
         downloader = Downloader(
             guid=uuid.uuid4(),
@@ -364,8 +364,8 @@ class TestDownloadRecordsCleanupDB:
     async def test_custom_statuses(self, db_session: AsyncSession):
         from datetime import datetime, timedelta, UTC
 
-        from pyrate.models.downloader import Downloader
-        from pyrate.models.downloads import Download
+        from streamarr.models.downloader import Downloader
+        from streamarr.models.downloads import Download
 
         downloader = Downloader(
             guid=uuid.uuid4(),
@@ -401,7 +401,7 @@ class TestOrphanedMediaFilesCleanupDB:
 
     @pytest.mark.asyncio
     async def test_removes_orphaned_records(self, db_session: AsyncSession, tmp_path):
-        from pyrate.models.media import MediaFile, MediaItem, MediaType
+        from streamarr.models.media import MediaFile, MediaItem, MediaType
 
         item = MediaItem(
             guid=uuid.uuid4(),
@@ -446,7 +446,7 @@ class TestOrphanedMediaFilesCleanupDB:
 
     @pytest.mark.asyncio
     async def test_no_orphans(self, db_session: AsyncSession, tmp_path):
-        from pyrate.models.media import MediaFile, MediaItem, MediaType
+        from streamarr.models.media import MediaFile, MediaItem, MediaType
 
         item = MediaItem(
             guid=uuid.uuid4(),
@@ -485,7 +485,7 @@ class TestLibraryDuplicatesCleanupDB:
     async def test_removes_duplicates_keeps_largest(
         self, db_session: AsyncSession, tmp_path
     ):
-        from pyrate.models.media import MediaFile, MediaItem, MediaType
+        from streamarr.models.media import MediaFile, MediaItem, MediaType
 
         item = MediaItem(
             guid=uuid.uuid4(),
@@ -539,7 +539,7 @@ class TestLibraryDuplicatesCleanupDB:
 
     @pytest.mark.asyncio
     async def test_no_duplicates(self, db_session: AsyncSession, tmp_path):
-        from pyrate.models.media import MediaFile, MediaItem, MediaType
+        from streamarr.models.media import MediaFile, MediaItem, MediaType
 
         item = MediaItem(
             guid=uuid.uuid4(),

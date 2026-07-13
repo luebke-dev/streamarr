@@ -1,10 +1,10 @@
 # Overview
 
-**Your media, your rules.** pyrate.media is a self-hosted, all-in-one platform for media management, streaming, and automation. It combines what usually takes half a dozen tools — a streaming media center, release automation, and cloud gaming — with one library, one user system, and one UI.
+**Your media, your rules.** streamarr.media is a self-hosted, all-in-one platform for media management, streaming, and automation. It combines what usually takes half a dozen tools — a streaming media center, release automation, and cloud gaming — with one library, one user system, and one UI.
 
-## What is pyrate.media?
+## What is streamarr.media?
 
-With pyrate.media you can:
+With streamarr.media you can:
 
 - **Discover** — find movies, shows, music, games, and books via rich metadata, trending lists, and recommendations
 - **Organize** — manage everything in libraries, lists, playlists, and collections
@@ -37,7 +37,7 @@ Media plays directly in the client. When a file is compatible it direct-plays; o
 ### Smart Play & automation
 
 !!! tip "Press play on anything"
-    You can start playback even for media you don't have a file for yet. pyrate.media searches your configured indexers, starts the download, and shows live status — *Searching for releases* → *Downloading* → *Ready to play*.
+    You can start playback even for media you don't have a file for yet. streamarr.media searches your configured indexers, starts the download, and shows live status — *Searching for releases* → *Downloading* → *Ready to play*.
 
 Behind the scenes, admins configure Newznab/Torznab [indexers](../administration/indexers.md) and [download clients](../administration/downloaders.md), including release scoring, auto-download of monitored favorites, and quality upgrades.
 
@@ -76,6 +76,6 @@ The UI is available in English and German.
 
 ## Next steps
 
-1. **[Installation](installation.md)** — deploy pyrate.media with Docker Compose, Kubernetes, or Podman
+1. **[Installation](installation.md)** — deploy streamarr.media with Docker Compose, Kubernetes, or Podman
 2. **[Quick Start](quick-start.md)** — first-run setup and your first library
 3. **[Dashboard & Home](../user-guide/dashboard.md)** — get to know the interface

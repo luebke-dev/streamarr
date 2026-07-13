@@ -14,12 +14,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy import select
 
-from pyrate.models.media import MediaItem
-from pyrate.services.mass_operation import (
+from streamarr.models.media import MediaItem
+from streamarr.services.mass_operation import (
     MassOperationError,
     MassOperationService,
 )
-from pyrate.smart_collections.filters import apply_media_filters_to_query
+from streamarr.smart_collections.filters import apply_media_filters_to_query
 
 
 # ---------------------------------------------------------------------------

@@ -13,17 +13,17 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.activity_log import ActivityLog
-from pyrate.models.library import Library
-from pyrate.models.media import (
+from streamarr.models.activity_log import ActivityLog
+from streamarr.models.library import Library
+from streamarr.models.media import (
     AvailabilityStatus,
     MediaExternalId,
     MediaFile,
     MediaItem,
     MediaType,
 )
-from pyrate.models.person import MediaCast, Person
-from pyrate.models.user import User
+from streamarr.models.person import MediaCast, Person
+from streamarr.models.user import User
 
 from .conftest import auth_headers
 
@@ -175,7 +175,7 @@ class TestListMediaItems:
     async def test_filter_by_availability_local(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         local = await _create_media_item(db_session, title="Local")
         remote = await _create_media_item(db_session, title="Remote")
@@ -202,7 +202,7 @@ class TestListMediaItems:
     async def test_filter_by_availability_releases(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
-        from pyrate.models.media import MediaRelease
+        from streamarr.models.media import MediaRelease
 
         with_release = await _create_media_item(db_session, title="Has Release")
         none = await _create_media_item(db_session, title="No Release")
@@ -381,8 +381,8 @@ class TestListMediaItems:
     async def test_filter_by_favorite_and_played_state(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
-        from pyrate.models.viewing_history import ViewingHistory
-        from pyrate.services.list import ListService
+        from streamarr.models.viewing_history import ViewingHistory
+        from streamarr.services.list import ListService
 
         favorite = await _create_media_item(db_session, title="Favorite")
         played = await _create_media_item(db_session, title="Played")
@@ -415,8 +415,8 @@ class TestListMediaItems:
     async def test_filter_by_platform(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
-        from pyrate.models.media import media_platform_table
-        from pyrate.models.platform import Platform
+        from streamarr.models.media import media_platform_table
+        from streamarr.models.platform import Platform
 
         pc = Platform(name="PC")
         switch = Platform(name="Switch")
@@ -879,7 +879,7 @@ class TestManualMetadataUpdate:
         admin_headers,
         monkeypatch,
     ):
-        from pyrate.api.v1 import media as media_api
+        from streamarr.api.v1 import media as media_api
 
         item = await _create_media_item(db_session, title="Wrong Title")
         search_identify = AsyncMock(
@@ -1393,7 +1393,7 @@ class TestDownloadRelease:
     async def test_no_download_links(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
-        from pyrate.models.media import MediaRelease
+        from streamarr.models.media import MediaRelease
 
         item = await _create_media_item(db_session)
         release = MediaRelease(
@@ -1412,7 +1412,7 @@ class TestDownloadRelease:
         assert resp.status_code == 400
         assert "no download links" in resp.json()["detail"].lower()
 
-    @patch("pyrate.api.v1.media.add_download")
+    @patch("streamarr.api.v1.media.add_download")
     async def test_download_movie_success(
         self,
         mock_add_download,
@@ -1421,7 +1421,7 @@ class TestDownloadRelease:
         test_user: User,
         user_headers,
     ):
-        from pyrate.models.media import MediaRelease, MediaReleaseLink
+        from streamarr.models.media import MediaRelease, MediaReleaseLink
 
         mock_add_download.kiq = AsyncMock()
 
@@ -1454,7 +1454,7 @@ class TestDownloadRelease:
         assert data["release_title"] == "Movie.2024.1080p"
         mock_add_download.kiq.assert_called_once()
 
-    @patch("pyrate.api.v1.media.add_show_download")
+    @patch("streamarr.api.v1.media.add_show_download")
     async def test_download_show_success(
         self,
         mock_add_show_download,
@@ -1463,7 +1463,7 @@ class TestDownloadRelease:
         test_user: User,
         user_headers,
     ):
-        from pyrate.models.media import MediaRelease, MediaReleaseLink
+        from streamarr.models.media import MediaRelease, MediaReleaseLink
 
         mock_add_show_download.kiq = AsyncMock()
 
@@ -1528,9 +1528,9 @@ class TestGetMediaItemDownloads:
         test_superuser: User,
         admin_headers,
     ):
-        from pyrate.models.downloads import Download
-        from pyrate.models.downloader import Downloader
-        from pyrate.models.media import MediaRelease, MediaReleaseLink
+        from streamarr.models.downloads import Download
+        from streamarr.models.downloader import Downloader
+        from streamarr.models.media import MediaRelease, MediaReleaseLink
 
         item = await _create_media_item(db_session)
 
@@ -1688,7 +1688,7 @@ class TestAvailabilityAndWatchAccess:
         )
 
         with patch(
-            "pyrate.services.availability.check_availability",
+            "streamarr.services.availability.check_availability",
             AsyncMock(return_value=availability),
         ):
             resp = await client.get(
@@ -1777,7 +1777,7 @@ class TestGetMediaStreams:
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
         import json
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         item = await _create_media_item(db_session)
         probe = json.dumps({
@@ -1828,7 +1828,7 @@ class TestGetMediaStreams:
         user_headers,
     ):
         import json
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         item = await _create_media_item(
             db_session,
@@ -1885,7 +1885,7 @@ class TestGetMediaStreams:
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
         import json
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         item = await _create_media_item(db_session)
         probe = json.dumps({
@@ -1918,7 +1918,7 @@ class TestGetMediaStreams:
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
         import json
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         item = await _create_media_item(db_session)
         probe = json.dumps({
@@ -1952,7 +1952,7 @@ class TestGetMediaStreams:
     async def test_streams_quality_tiers(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         item = await _create_media_item(db_session)
         for quality, height in [("2160p", 2160), ("1080p", 1080), ("720p", 720), ("480p", 480)]:
@@ -1982,7 +1982,7 @@ class TestGetMediaSources:
     async def test_media_sources_list_files_with_urls(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         item = await _create_media_item(db_session, title="Multi Source Movie")
         lower = MediaFile(
@@ -2063,7 +2063,7 @@ class TestRefreshMetadata:
         )
         assert resp.status_code == 404
 
-    @patch("pyrate.worker.refresh_media_item_metadata")
+    @patch("streamarr.worker.refresh_media_item_metadata")
     async def test_success(
         self,
         mock_refresh,
@@ -2163,7 +2163,7 @@ class TestShowResume:
     async def test_in_progress_episode_resumes(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
-        from pyrate.models.viewing_history import ViewingHistory
+        from streamarr.models.viewing_history import ViewingHistory
 
         show, episodes = await self._create_show_hierarchy(db_session)
         # Mark second episode as in-progress
@@ -2190,7 +2190,7 @@ class TestShowResume:
     async def test_completed_episode_goes_next(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
-        from pyrate.models.viewing_history import ViewingHistory
+        from streamarr.models.viewing_history import ViewingHistory
 
         show, episodes = await self._create_show_hierarchy(db_session)
         # Mark first episode as completed
@@ -2216,7 +2216,7 @@ class TestShowResume:
     async def test_fully_watched_replays(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
-        from pyrate.models.viewing_history import ViewingHistory
+        from streamarr.models.viewing_history import ViewingHistory
 
         show, episodes = await self._create_show_hierarchy(db_session, eps_per_season=1)
         # Mark only episode as completed
@@ -2532,7 +2532,7 @@ class TestMediaImages:
         monkeypatch,
         tmp_path,
     ):
-        monkeypatch.setenv("PYRATE_ARTWORK_DIR", str(tmp_path / "artwork"))
+        monkeypatch.setenv("STREAMARR_ARTWORK_DIR", str(tmp_path / "artwork"))
         item = await _create_media_item(db_session)
         image_bytes = b"\x89PNG\r\n\x1a\nuploaded-poster"
 
@@ -2575,7 +2575,7 @@ class TestMediaImages:
         monkeypatch,
         tmp_path,
     ):
-        monkeypatch.setenv("PYRATE_ARTWORK_DIR", str(tmp_path / "artwork"))
+        monkeypatch.setenv("STREAMARR_ARTWORK_DIR", str(tmp_path / "artwork"))
         item = await _create_media_item(db_session)
 
         resp = await client.post(
@@ -2619,7 +2619,7 @@ class TestMediaImages:
         pytest.importorskip("PIL")
         from PIL import Image
 
-        monkeypatch.setenv("PYRATE_ARTWORK_DIR", str(tmp_path / "artwork"))
+        monkeypatch.setenv("STREAMARR_ARTWORK_DIR", str(tmp_path / "artwork"))
         image_buffer = BytesIO()
         Image.new("RGB", (4, 4), (255, 0, 0)).save(image_buffer, format="PNG")
         image_bytes = image_buffer.getvalue()
@@ -2816,7 +2816,7 @@ class TestMediaImages:
         admin_headers,
         monkeypatch,
     ):
-        from pyrate.api.v1 import media as media_api
+        from streamarr.api.v1 import media as media_api
 
         item = await _create_media_item(
             db_session,
@@ -2913,7 +2913,7 @@ class TestMediaImages:
     async def test_proxy_remote_image(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers, monkeypatch
     ):
-        from pyrate.api.v1 import media as media_api
+        from streamarr.api.v1 import media as media_api
 
         item = await _create_media_item(
             db_session,
@@ -2937,7 +2937,7 @@ class TestMediaImages:
     ):
         pytest.importorskip("PIL")
         from PIL import Image
-        from pyrate.api.v1 import media as media_api
+        from streamarr.api.v1 import media as media_api
 
         image_buffer = BytesIO()
         Image.new("RGB", (4, 4), (0, 0, 255)).save(image_buffer, format="PNG")
@@ -3164,7 +3164,7 @@ class TestDownloadMediaFile:
         test_user: User,
         user_headers,
     ):
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         test_user.allowed_libraries = []
         await db_session.commit()
@@ -3206,7 +3206,7 @@ class TestDownloadMediaFile:
         user_headers,
         tmp_path,
     ):
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         outside_path = tmp_path / "outside.mkv"
         outside_path.write_bytes(b"outside")
@@ -3233,7 +3233,7 @@ class TestDownloadMediaFile:
         user_headers,
         tmp_path,
     ):
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         media_path = tmp_path / "movies" / "Feature.mkv"
         media_path.parent.mkdir()
@@ -3272,7 +3272,7 @@ class TestDeleteMediaFile:
     async def test_forbidden_for_regular_user(
         self, client: AsyncClient, db_session: AsyncSession, test_user: User, user_headers
     ):
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         item = await _create_media_item(db_session)
         f = MediaFile(
@@ -3310,7 +3310,7 @@ class TestDeleteMediaFile:
     async def test_delete_success(
         self, client: AsyncClient, db_session: AsyncSession, test_superuser: User, admin_headers
     ):
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         item = await _create_media_item(db_session)
         f = MediaFile(
@@ -3338,7 +3338,7 @@ class TestDeleteMediaFile:
         test_superuser: User,
         admin_headers,
     ):
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         item = await _create_media_item(db_session)
         f = MediaFile(
@@ -3399,7 +3399,7 @@ class TestReprobeMediaFile:
         )
         assert resp.status_code == 403
 
-    @patch("pyrate.worker.probe_media_file")
+    @patch("streamarr.worker.probe_media_file")
     async def test_reprobe_success(
         self,
         mock_probe,
@@ -3408,7 +3408,7 @@ class TestReprobeMediaFile:
         test_superuser: User,
         admin_headers,
     ):
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         mock_probe.kiq = AsyncMock()
 
@@ -3465,7 +3465,7 @@ class TestReprobeAllMediaFiles:
         )
         assert resp.status_code == 403
 
-    @patch("pyrate.worker.probe_media_file")
+    @patch("streamarr.worker.probe_media_file")
     async def test_reprobe_all_success(
         self,
         mock_probe,
@@ -3474,7 +3474,7 @@ class TestReprobeAllMediaFiles:
         test_superuser: User,
         admin_headers,
     ):
-        from pyrate.models.media import MediaFile
+        from streamarr.models.media import MediaFile
 
         mock_probe.kiq = AsyncMock()
 

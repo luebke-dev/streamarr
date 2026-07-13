@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# pyrate-retro ENTRYPOINT
+# streamarr-retro ENTRYPOINT
 # =======================
 # Boots a single retro game under a nested gamescope that connects to the
 # parent Wayland compositor lightrays runs OUTSIDE the container, then hands
@@ -24,7 +24,7 @@
 #   RETROARCH_ARGS   (optional) extra flags for retroarch (word-split)
 set -euo pipefail
 
-log() { printf '[pyrate-retro] %s\n' "$*" >&2; }
+log() { printf '[streamarr-retro] %s\n' "$*" >&2; }
 
 # Map a ROM file extension → bundled libretro core basename. Keep in sync with
 # the backend's ROM-extension registry. Ambiguous extensions (.bin, .zip) get
@@ -48,7 +48,7 @@ core_for_ext() {
 export HOME="${HOME:-/home/retro}"
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 CORES_DIR="${CORES_DIR:-/cores}"
-KIOSK_CFG="/opt/pyrate/retroarch-kiosk.cfg"
+KIOSK_CFG="/opt/streamarr/retroarch-kiosk.cfg"
 
 # Per-game persistent state dirs (under the /home/retro mount). RetroArch
 # writes .srm saves + savestates here; they survive because lightrays mounts
@@ -78,7 +78,7 @@ case "$RETRO_CORE" in
 esac
 if [ ! -f "$CORE_SO" ]; then
     log "ERROR: core '$RETRO_CORE' not found at '$CORE_SO'. Available cores:"
-    ls -1 "$CORES_DIR" 2>/dev/null | sed 's/^/[pyrate-retro]   /' >&2 || true
+    ls -1 "$CORES_DIR" 2>/dev/null | sed 's/^/[streamarr-retro]   /' >&2 || true
     exit 1
 fi
 
@@ -95,7 +95,7 @@ R="${GAMESCOPE_REFRESH:-60}"
 # gaming preferences. Materialise them into a RetroArch --appendconfig so they
 # override the baked kiosk cfg without mutating it.
 APPEND_ARGS=""
-OVERRIDE_CFG="$HOME/pyrate-controller.cfg"
+OVERRIDE_CFG="$HOME/streamarr-controller.cfg"
 if [ -n "${RETRO_ANALOG_DEADZONE:-}" ] || [ -n "${RETRO_DPAD_MODE:-}" ]; then
     : > "$OVERRIDE_CFG"
     if [ -n "${RETRO_ANALOG_DEADZONE:-}" ]; then

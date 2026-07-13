@@ -1,11 +1,11 @@
 {{- if .Values.downloaders.usenet.enabled -}}
-{{- $name := printf "%s-usenet-downloader" (include "pyrate.fullname" .) -}}
+{{- $name := printf "%s-usenet-downloader" (include "streamarr.fullname" .) -}}
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "usenet") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "usenet") | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
@@ -13,42 +13,42 @@ spec:
       port: {{ .Values.downloaders.usenet.service.port }}
       targetPort: http
   selector:
-    {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "usenet") | nindent 4 }}
+    {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "usenet") | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "usenet") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "usenet") | nindent 4 }}
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "pyrate.selectorLabels" (dict "ctx" . "component" "usenet") | nindent 6 }}
+      {{- include "streamarr.selectorLabels" (dict "ctx" . "component" "usenet") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "usenet") | nindent 8 }}
+        {{- include "streamarr.componentLabels" (dict "ctx" . "component" "usenet") | nindent 8 }}
     spec:
-      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      {{- include "streamarr.imagePullSecrets" . | nindent 6 }}
       securityContext:
         # The usenet image bakes user `app` (UID 1000); fsGroup keeps the
         # shared downloads PVC writable from inside the container.
         fsGroup: 1000
       containers:
         - name: usenet
-          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.downloaders.usenet.image) }}
+          image: {{ include "streamarr.image" (dict "ctx" . "img" .Values.downloaders.usenet.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           env:
             - name: WEBHOOK_URL
-              value: "http://{{ include "pyrate.backendHost" . }}:{{ .Values.backend.proxy.service.port }}/api/webhooks/usenet"
+              value: "http://{{ include "streamarr.backendHost" . }}:{{ .Values.backend.proxy.service.port }}/api/webhooks/usenet"
             - name: WEBHOOK_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "pyrate.secretName" . }}
+                  name: {{ include "streamarr.secretName" . }}
                   key: downloader-webhook-secret
             - name: DOWNLOAD_MAX_CONCURRENT_JOBS
               value: {{ .Values.downloaders.usenet.maxConcurrentJobs | quote }}
@@ -73,23 +73,23 @@ spec:
             # NZB extracts land where the importer can pick them up.
             - { name: downloads, mountPath: /downloads }
             # Per-pod sqlite job state — without this, every pod restart
-            # wipes in-flight job IDs and Pyrate's polling sees an empty
+            # wipes in-flight job IDs and Streamarr's polling sees an empty
             # queue.
             - { name: data, mountPath: /data }
       volumes:
         - name: downloads
           persistentVolumeClaim:
-            claimName: {{ include "pyrate.fullname" . }}-downloads
+            claimName: {{ include "streamarr.fullname" . }}-downloads
         - name: data
           persistentVolumeClaim:
-            claimName: {{ include "pyrate.fullname" . }}-usenet-data
+            claimName: {{ include "streamarr.fullname" . }}-usenet-data
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "pyrate.fullname" . }}-usenet-data
+  name: {{ include "streamarr.fullname" . }}-usenet-data
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "usenet") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "usenet") | nindent 4 }}
 spec:
   accessModes: ["ReadWriteOnce"]
   {{- with .Values.downloaders.usenet.dataPersistence.storageClass | default $.Values.global.storageClass }}

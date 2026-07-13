@@ -1,21 +1,21 @@
-"""Tests for pyrate.api.dependencies module."""
+"""Tests for streamarr.api.dependencies module."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pyrate.api.dependencies import get_payment_provider, get_payment_service
+from streamarr.api.dependencies import get_payment_provider, get_payment_service
 
 
 class TestGetPaymentProvider:
     def test_payment_disabled(self):
-        with patch("pyrate.api.dependencies.settings") as mock_settings:
+        with patch("streamarr.api.dependencies.settings") as mock_settings:
             mock_settings.payment.enabled = False
             result = get_payment_provider()
             assert result is None
 
     def test_payment_stripe(self):
-        with patch("pyrate.api.dependencies.settings") as mock_settings:
+        with patch("streamarr.api.dependencies.settings") as mock_settings:
             mock_settings.payment.enabled = True
             mock_settings.payment.provider = "stripe"
             mock_settings.payment.stripe_secret_key = "sk_test_xxx"
@@ -31,7 +31,7 @@ class TestGetPaymentProvider:
                 pytest.skip("stripe package not installed")
 
     def test_payment_unknown_provider(self):
-        with patch("pyrate.api.dependencies.settings") as mock_settings:
+        with patch("streamarr.api.dependencies.settings") as mock_settings:
             mock_settings.payment.enabled = True
             mock_settings.payment.provider = "unknown_provider"
             result = get_payment_provider()
@@ -51,6 +51,6 @@ class TestGetPaymentService:
         mock_provider = MagicMock()
         result = await get_payment_service(db=mock_db, provider=mock_provider)
         assert result is not None
-        from pyrate.services.payment import PaymentService
+        from streamarr.services.payment import PaymentService
 
         assert isinstance(result, PaymentService)

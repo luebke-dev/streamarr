@@ -8,9 +8,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.config import settings
-from pyrate.models.group import Group
-from pyrate.models.subscription import (
+from streamarr.config import settings
+from streamarr.models.group import Group
+from streamarr.models.subscription import (
     PaymentHistory,
     SubscriptionPackage,
     UserSession,
@@ -495,8 +495,8 @@ class TestCreatePackageWithPayment:
             return_value=(mock_product, mock_price)
         )
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -544,8 +544,8 @@ class TestSubscribeWithPayment:
             return_value=mock_subscription
         )
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -572,8 +572,8 @@ class TestSubscribeWithPayment:
         """Subscribe to nonexistent package with mocked payment service."""
         mock_payment_service = AsyncMock()
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -613,8 +613,8 @@ class TestCancelWithPayment:
         mock_payment_service = AsyncMock()
         mock_payment_service.cancel_subscription = AsyncMock()
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -635,8 +635,8 @@ class TestCancelWithPayment:
         """Cancel when user has no active subscription."""
         mock_payment_service = AsyncMock()
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -679,8 +679,8 @@ class TestStripeWebhookWithPayment:
             return_value=event
         )
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -712,8 +712,8 @@ class TestStripeWebhookWithPayment:
             return_value=event
         )
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -743,8 +743,8 @@ class TestStripeWebhookWithPayment:
             return_value=event
         )
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -774,8 +774,8 @@ class TestStripeWebhookWithPayment:
             return_value=event
         )
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -804,8 +804,8 @@ class TestStripeWebhookWithPayment:
             return_value=event
         )
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -827,8 +827,8 @@ class TestStripeWebhookWithPayment:
         """Webhook without a Stripe-Signature header is rejected with 400."""
         mock_payment_service = AsyncMock()
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -854,8 +854,8 @@ class TestStripeWebhookWithPayment:
             side_effect=ValueError("bad signature")
         )
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -889,8 +889,8 @@ class TestStripeWebhookWithPayment:
             return_value=event
         )
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -1093,8 +1093,8 @@ class TestCreatePackageError:
             side_effect=ValueError("Stripe API error")
         )
 
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 
@@ -1132,8 +1132,8 @@ class TestSubscribeAlreadySubscribed:
         await _create_subscription(db_session, test_user.guid, pkg.guid)
 
         mock_payment_service = AsyncMock()
-        from pyrate.api.dependencies import get_payment_service
-        from pyrate.web import app
+        from streamarr.api.dependencies import get_payment_service
+        from streamarr.web import app
 
         app.dependency_overrides[get_payment_service] = lambda: mock_payment_service
 

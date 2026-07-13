@@ -86,7 +86,7 @@ export const useRemoteControlStore = defineStore('remoteControl', () => {
 
   // Send remote command to target device
   function isNativeCastTarget(target) {
-    return !!target?.protocol && target.protocol !== 'pyrate'
+    return !!target?.protocol && target.protocol !== 'streamarr'
   }
 
   function playbackProfileForTarget(target) {

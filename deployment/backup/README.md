@@ -1,7 +1,7 @@
-# pyrate.media — Backup & Restore (Disaster Recovery)
+# streamarr.media — Backup & Restore (Disaster Recovery)
 
 This directory holds the **real disaster-recovery (DR)** story for
-pyrate.media. It is deliberately separate from the JSON export endpoints under
+streamarr.media. It is deliberately separate from the JSON export endpoints under
 `/api/backups/*`, which are only a **settings / config migration** aid (they
 export a redactable subset of DB rows for moving config between installs) and
 are **not** a disaster-recovery mechanism.
@@ -39,14 +39,14 @@ Copy `backup.env.example` to `backup.env` and edit. `POSTGRES_PASSWORD` is read
 from the process environment or the repo-root `.env` if not set in `backup.env`.
 `pg_dump`/`pg_restore` live in the Postgres **container**, so by default both
 scripts shell into it via `docker exec ${PG_CONTAINER}` (default
-`pyratemedia-db-1`). Set `PG_CONTAINER=""` to use local client tools against
+`streamarr-db-1`). Set `PG_CONTAINER=""` to use local client tools against
 `PGHOST:PGPORT` instead.
 
 ## Running a backup
 
 ```bash
 deployment/backup/backup.sh                 # uses deployment/backup/backup.env
-deployment/backup/backup.sh /etc/pyrate-backup.env
+deployment/backup/backup.sh /etc/streamarr-backup.env
 ```
 
 Output lands in `${BACKUP_ROOT}/<UTC-timestamp>/` with a `MANIFEST.txt`
@@ -57,7 +57,7 @@ than `RETENTION_DAYS` are pruned.
 ## Restoring
 
 ```bash
-deployment/backup/restore.sh /var/backups/pyrate/20260703T020000Z
+deployment/backup/restore.sh /var/backups/streamarr/20260703T020000Z
 # or point straight at a dump:
 deployment/backup/restore.sh /path/to/postgres.dump
 ```
@@ -77,7 +77,7 @@ Set `RESTORE_ASSUME_YES=1` to skip the interactive confirmation (for automation)
 
 ```cron
 # Nightly full DB + config backup at 02:00, log to syslog
-0 2 * * *  cd /root/pyrate.media && deployment/backup/backup.sh >> /var/log/pyrate-backup.log 2>&1
+0 2 * * *  cd /root/streamarr.media && deployment/backup/backup.sh >> /var/log/streamarr-backup.log 2>&1
 ```
 
 Or use a systemd timer wrapping the same command. Verify restores periodically
@@ -85,10 +85,10 @@ against a throwaway database — an untested backup is not a backup.
 
 ## In-app scheduled backup (optional)
 
-`src/pyrate/workers/backup_worker.py` provides a `scheduled_database_backup`
+`src/streamarr/workers/backup_worker.py` provides a `scheduled_database_backup`
 worker task (daily 02:00) and a manual trigger at
 `POST /api/backups/disaster-recovery/pg-dump`. These only work if `pg_dump` is
 on the container's `PATH` (it is **not** in the default backend/worker images);
 when it is missing they no-op gracefully and point back to these scripts, which
 remain the primary, fully-featured path. `GET /api/backups/disaster-recovery/status`
-reports availability and the configured backup directory (`PYRATE_BACKUP_DIR`).
+reports availability and the configured backup directory (`STREAMARR_BACKUP_DIR`).

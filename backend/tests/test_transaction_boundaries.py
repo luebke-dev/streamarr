@@ -5,14 +5,14 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.activity_log import ActivityLog
-from pyrate.models.list import List, ListType, ListVisibility
-from pyrate.models.media import MediaExternalId, MediaItem, MediaType
-from pyrate.schemas.activity_log import ActivityLogCreate
-from pyrate.schemas.list import ListCreate
-from pyrate.services.activity_log import ActivityLogService
-from pyrate.services.list import ListService
-from pyrate.services.media import MediaService
+from streamarr.models.activity_log import ActivityLog
+from streamarr.models.list import List, ListType, ListVisibility
+from streamarr.models.media import MediaExternalId, MediaItem, MediaType
+from streamarr.schemas.activity_log import ActivityLogCreate
+from streamarr.schemas.list import ListCreate
+from streamarr.services.activity_log import ActivityLogService
+from streamarr.services.list import ListService
+from streamarr.services.media import MediaService
 
 
 async def test_media_create_and_external_id_can_roll_back_together(

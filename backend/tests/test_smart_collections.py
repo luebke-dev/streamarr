@@ -11,23 +11,23 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pyrate.metadata.list_sources import (
+from streamarr.metadata.list_sources import (
     ExternalRef,
     ListSourceError,
     ListSourceMediaType,
 )
-from pyrate.smart_collections import (
+from streamarr.smart_collections import (
     build_builder,
     builder_types,
     next_run_after,
     parse_cron,
 )
-from pyrate.smart_collections.builders.library_filter import (
+from streamarr.smart_collections.builders.library_filter import (
     LIBRARY_FILTER_TYPE,
     LibraryFilterBuilder,
 )
-from pyrate.smart_collections.builders.list_source import ListSourceBuilder
-from pyrate.smart_collections.filters import filter_resolved
+from streamarr.smart_collections.builders.list_source import ListSourceBuilder
+from streamarr.smart_collections.filters import filter_resolved
 
 
 # ---------------------------------------------------------------------------

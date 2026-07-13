@@ -36,7 +36,7 @@ export async function applyOverlay(mediaGuid, target = 'POSTER') {
 export function overlayPreviewUrl(mediaGuid, target = 'POSTER') {
   // Returns a URL that streams a rendered preview image when used as
   // an <img src=…>. The axios boot already attaches auth headers via
-  // interceptor, but image elements can't carry them — pyrate's auth
+  // interceptor, but image elements can't carry them — streamarr's auth
   // also supports a cookie token, so the same-origin <img> works.
   return `/api/overlays/preview/${mediaGuid}?target=${encodeURIComponent(target)}`
 }

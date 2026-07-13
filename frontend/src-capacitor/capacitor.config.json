@@ -1,6 +1,6 @@
 {
-  "appId": "media.pyrate.app",
-  "appName": "pyrate.media",
+  "appId": "media.streamarr.app",
+  "appName": "streamarr.media",
   "webDir": "www",
   "server": {
     "androidScheme": "https"

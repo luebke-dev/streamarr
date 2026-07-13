@@ -1,6 +1,6 @@
 # Transcoding
 
-Transcoding converts media on the fly into a stream the client can actually play, delivered as HLS. pyrate.media never runs FFmpeg inside the backend — every transcode, probe, and trickplay job runs in its own **disposable container**.
+Transcoding converts media on the fly into a stream the client can actually play, delivered as HLS. streamarr.media never runs FFmpeg inside the backend — every transcode, probe, and trickplay job runs in its own **disposable container**.
 
 The runtime is auto-detected and shown as a chip next to the page title under **Admin → Transcoding**:
 
@@ -13,7 +13,7 @@ The runtime is auto-detected and shown as a chip next to the page title under **
     FFmpeg runs as short-lived **Jobs** using a dedicated ServiceAccount (created by the Helm chart's RBAC). The chart's `transcoding.*` values control the Job namespace, TTL, node selector, tolerations, and an optional GPU request (`transcoding.gpuLimit`). See the [Deployment Overview](../deployment/overview.md).
 
 !!! tip "The bundled FFmpeg image"
-    The **FFmpeg Docker Image** setting accepts any image with `ffmpeg`/`ffprobe` on its PATH (default: `lscr.io/linuxserver/ffmpeg:latest`). pyrate.media also ships its own image based on **jellyfin-ffmpeg** (`deployment/docker/ffmpeg/Containerfile`) with VA-API, Vulkan, and OpenCL libraries plus chromaprint for audio fingerprinting.
+    The **FFmpeg Docker Image** setting accepts any image with `ffmpeg`/`ffprobe` on its PATH (default: `lscr.io/linuxserver/ffmpeg:latest`). streamarr.media also ships its own image based on **jellyfin-ffmpeg** (`deployment/docker/ffmpeg/Containerfile`) with VA-API, Vulkan, and OpenCL libraries plus chromaprint for audio fingerprinting.
 
 ## Direct play vs. transcoding
 

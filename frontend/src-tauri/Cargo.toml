@@ -1,13 +1,13 @@
 [package]
-name = "pyrate-media"
+name = "streamarr"
 version = "2026.2.1"
 description = "A streaming media center."
-authors = ["Sebastian Lübke <pyrate@luebke.dev>"]
+authors = ["Sebastian Lübke <streamarr@luebke.dev>"]
 edition = "2021"
 rust-version = "1.77.2"
 
 [lib]
-name = "pyrate_media_lib"
+name = "streamarr_media_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

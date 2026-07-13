@@ -1,6 +1,6 @@
 # Account & Login
 
-Everything about signing in, creating an account, and managing your profile in pyrate.media.
+Everything about signing in, creating an account, and managing your profile in streamarr.media.
 
 ## First-Run Setup
 
@@ -16,7 +16,7 @@ Afterwards you sign in with the administrator credentials you just created. See 
 
 === "Local account"
 
-    1. Open pyrate.media in your browser or app
+    1. Open streamarr.media in your browser or app
     2. Enter your **Email** and **Password**
     3. Click **Sign In**
 
@@ -26,7 +26,7 @@ Afterwards you sign in with the administrator credentials you just created. See 
 
     1. Click **Sign In with OIDC**
     2. You are redirected to the identity provider — sign in there
-    3. You are sent back to pyrate.media, already signed in
+    3. You are sent back to streamarr.media, already signed in
 
     On your first OIDC sign-in an account can be created for you automatically, so no separate registration is needed.
 

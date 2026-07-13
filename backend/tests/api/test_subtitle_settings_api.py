@@ -2,7 +2,7 @@
 
 from httpx import AsyncClient
 
-from pyrate.models.user import User
+from streamarr.models.user import User
 
 
 class TestSubtitleSettings:

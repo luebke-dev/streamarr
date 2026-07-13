@@ -312,7 +312,7 @@ export default defineComponent({
       email: '',
       password: '',
       password_confirm: '',
-      site_name: 'pyrate.media',
+      site_name: 'Streamarr',
       locale: 'de-DE',
     })
 

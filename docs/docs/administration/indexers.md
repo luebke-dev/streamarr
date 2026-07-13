@@ -1,6 +1,6 @@
 # Indexers
 
-Indexers are the search services pyrate.media queries to find **releases** — downloadable copies of movies, episodes, music, games, and books. Every automation feature that acquires media (Smart Play, [favorites](../user-guide/favorites.md) auto-download, quality upgrades, RSS sync) searches through the indexers configured here. The releases they return are downloaded by a [download client](downloaders.md).
+Indexers are the search services streamarr.media queries to find **releases** — downloadable copies of movies, episodes, music, games, and books. Every automation feature that acquires media (Smart Play, [favorites](../user-guide/favorites.md) auto-download, quality upgrades, RSS sync) searches through the indexers configured here. The releases they return are downloaded by a [download client](downloaders.md).
 
 ## Supported types
 

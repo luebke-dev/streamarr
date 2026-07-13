@@ -5,9 +5,9 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.device import Device
-from pyrate.models.user import User
-from pyrate.services.device import DeviceService
+from streamarr.models.device import Device
+from streamarr.models.user import User
+from streamarr.services.device import DeviceService
 
 
 class TestDeviceGetOrCreate:

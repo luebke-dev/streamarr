@@ -33,7 +33,7 @@ The sidebar shows read-only details: your **User ID**, **Account Status** (Activ
     The interface is fully translated into **English** and **German**. Further languages appear in the dropdown, but their translations are not complete yet.
 
 !!! tip "Your audio languages also steer downloads"
-    When pyrate.media downloads something on your behalf (for example via Smart Play or monitored favorites), your preferred audio languages are factored into which release is chosen.
+    When streamarr.media downloads something on your behalf (for example via Smart Play or monitored favorites), your preferred audio languages are factored into which release is chosen.
 
 You can always override audio and subtitle tracks for the current video in the player itself — see [Streaming & Playback](streaming.md).
 
@@ -82,7 +82,7 @@ Each card also has an **Offline sync** panel listing that device's offline downl
 For local accounts: enter your current password, then the new password (at least 8 characters) and its confirmation.
 
 !!! info "OIDC accounts"
-    If you sign in through an identity provider, password changes are done at the provider, not in pyrate.media.
+    If you sign in through an identity provider, password changes are done at the provider, not in streamarr.media.
 
 ### Danger Zone
 

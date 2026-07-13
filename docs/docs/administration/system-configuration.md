@@ -38,7 +38,7 @@ Branding is server-driven and applied on every client at app start. There is cur
 
     | Field | Purpose |
     |-------|---------|
-    | `server_name` | Branding display name (default `pyrate.media`) |
+    | `server_name` | Branding display name (default `streamarr.media`) |
     | `login_disclaimer` | Text shown on the login page |
     | `logo_url` | Custom logo URL |
     | `custom_css` | Global CSS injected into every client |
@@ -47,7 +47,7 @@ Branding is server-driven and applied on every client at app start. There is cur
 
 === "Themes — `GET`/`PUT /api/branding/themes`"
 
-    Up to 50 themes, each with `id`, `name`, `enabled`, a **`dark`** flag (switches the client into dark or light mode), **`colors`** (Quasar color tokens, applied as `--q-*` CSS variables — e.g. `primary`, `secondary`), **`variables`** (custom `--pyrate-*` CSS variables), and per-theme `custom_css`. Activate one with `PUT /api/branding/themes/active`.
+    Up to 50 themes, each with `id`, `name`, `enabled`, a **`dark`** flag (switches the client into dark or light mode), **`colors`** (Quasar color tokens, applied as `--q-*` CSS variables — e.g. `primary`, `secondary`), **`variables`** (custom `--streamarr-*` CSS variables), and per-theme `custom_css`. Activate one with `PUT /api/branding/themes/active`.
 
 ## Notifications
 

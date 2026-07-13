@@ -10,7 +10,7 @@ makes the asyncpg dialect emit ``$N::<enumname>`` casts in INSERT
 statements at runtime, producing
 ``UndefinedObjectError: type "smartcollectionrunstatus" does not exist``.
 
-Every existing StrEnum column in pyrate (listtype, mediatype, …) is
+Every existing StrEnum column in streamarr (listtype, mediatype, …) is
 backed by a real PG ENUM, so we align the new tables with the
 convention. Existing seeded values already match the enum members so
 the in-place ``ALTER COLUMN … USING`` cast is safe.

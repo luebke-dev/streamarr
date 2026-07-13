@@ -8,9 +8,9 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.downloader import Downloader
-from pyrate.models.downloads import Download
-from pyrate.services.download import DownloadService
+from streamarr.models.downloader import Downloader
+from streamarr.models.downloads import Download
+from streamarr.services.download import DownloadService
 
 
 @pytest_asyncio.fixture
@@ -384,7 +384,7 @@ class TestBlacklistDownload:
         self, db_session: AsyncSession, test_downloader: Downloader
     ):
         """Create a download linked to a release via MediaReleaseLink."""
-        from pyrate.models.media import MediaItem, MediaRelease, MediaReleaseLink, MediaType
+        from streamarr.models.media import MediaItem, MediaRelease, MediaReleaseLink, MediaType
 
         media_item = MediaItem(
             guid=uuid.uuid4(),
@@ -508,7 +508,7 @@ class TestGetMediaItemGuid:
         db_session: AsyncSession,
         test_downloader: Downloader,
     ):
-        from pyrate.models.media import MediaItem, MediaRelease, MediaReleaseLink, MediaType
+        from streamarr.models.media import MediaItem, MediaRelease, MediaReleaseLink, MediaType
 
         media_item = MediaItem(
             guid=uuid.uuid4(),

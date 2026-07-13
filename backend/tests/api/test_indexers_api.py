@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import AsyncClient
 
-from pyrate.models.indexer import Indexer
+from streamarr.models.indexer import Indexer
 
 pytestmark = pytest.mark.asyncio
 
@@ -92,7 +92,7 @@ class TestValidateIndexerConfig:
         mock_instance.validate_config = AsyncMock(return_value={"valid": True, "errors": []})
         mock_instance.close = AsyncMock()
 
-        with patch("pyrate.indexers.newznab.Newznab", return_value=mock_instance) as cls:
+        with patch("streamarr.indexers.newznab.Newznab", return_value=mock_instance) as cls:
             resp = await client.post(
                 "/api/indexers/validate?plugin_type=newznab",
                 json={"host": "https://example.com", "api_key": "secret"},
@@ -113,7 +113,7 @@ class TestValidateIndexerConfig:
         mock_instance.validate_config = AsyncMock(side_effect=RuntimeError("boom"))
         mock_instance.close = AsyncMock()
 
-        with patch("pyrate.indexers.newznab.Newznab", return_value=mock_instance):
+        with patch("streamarr.indexers.newznab.Newznab", return_value=mock_instance):
             resp = await client.post(
                 "/api/indexers/validate?plugin_type=newznab",
                 json={},

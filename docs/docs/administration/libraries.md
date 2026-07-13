@@ -1,6 +1,6 @@
 # Library Management
 
-Libraries are the core of pyrate.media. Each library manages one media type and carries its own storage path, naming conventions, release scoring, and quality profiles. **Only one library per type can exist** — the type dropdown only offers types that do not already have an enabled library.
+Libraries are the core of streamarr.media. Each library manages one media type and carries its own storage path, naming conventions, release scoring, and quality profiles. **Only one library per type can exist** — the type dropdown only offers types that do not already have an enabled library.
 
 ## Creating a Library
 

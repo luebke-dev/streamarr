@@ -428,7 +428,7 @@ export default {
     kind: 'Art',
     kindHint: 'Freie Kategorie, z. B. steam, wine, custom',
     dockerImage: 'Docker-Image',
-    dockerImageHint: 'z. B. ghcr.io/luebke-dev/pyrate-wine:latest',
+    dockerImageHint: 'z. B. ghcr.io/luebke-dev/streamarr-wine:latest',
     invalidDockerImage: 'Ungültige Docker-Image-Referenz',
     runtimeProfile: 'Runtime-Profil',
     runtimeProfileHint: 'Wie Lightrays den Container startet',
@@ -930,7 +930,7 @@ export default {
     title: 'Fernsteuerung',
     loading: 'Ziele werden geladen...',
     noDevices: 'Keine Ziele gefunden',
-    noDevicesHint: 'Öffne pyrate auf einem anderen Gerät oder füge ein Cast-Ziel hinzu',
+    noDevicesHint: 'Öffne streamarr auf einem anderen Gerät oder füge ein Cast-Ziel hinzu',
     unknownDevice: 'Unbekanntes Gerät',
     castingTo: 'Wiedergabe auf',
     deviceSelected: 'Wiedergabe auf {name} aktiviert',
@@ -1121,7 +1121,7 @@ export default {
     connection: 'Verbindung',
     serverConnection: 'Serververbindung',
     serverConnectionHint:
-      'Konfigurieren Sie die URL Ihres Pyrate-Servers. Änderungen werden nach dem Speichern wirksam.',
+      'Konfigurieren Sie die URL Ihres Streamarr-Servers. Änderungen werden nach dem Speichern wirksam.',
     serverUrl: 'Server-URL',
     saveAndReconnect: 'Speichern & Neu verbinden',
     serverUrlInvalid: 'Bitte eine gültige URL eingeben, die mit http:// oder https:// beginnt',
@@ -1137,7 +1137,7 @@ export default {
       'Scannen Sie den QR-Code um sich über ein bereits aktives Gerät zu authentifizieren.',
     serverAddressLabel: 'Server-Adresse',
     serverAddressRequired: 'Server-Adresse ist erforderlich',
-    serverAddressInvalid: 'Bitte geben Sie eine gültige URL ein (z.B. https://pyrate.example.com)',
+    serverAddressInvalid: 'Bitte geben Sie eine gültige URL ein (z.B. https://streamarr.example.com)',
     serverAddressDetectedOrigin: 'Server an aktueller Adresse erkannt',
     serverAddressDetectedQr: 'Server via QR-Code erkannt',
     emailLabel: 'E-Mail',
@@ -1820,7 +1820,7 @@ export default {
 
   // Installation Page
   installPage: {
-    title: 'Willkommen bei pyrate.media',
+    title: 'Willkommen bei Streamarr',
     subtitle: 'Richte dein Mediensystem in wenigen Schritten ein',
     checkingStatus: 'Installationsstatus wird überprüft...',
     alreadyInstalled: 'System bereits installiert',

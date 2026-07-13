@@ -1,20 +1,20 @@
-{{ include "pyrate.fullname" . }} {{ .Chart.AppVersion }} installed in namespace "{{ .Release.Namespace }}".
+{{ include "streamarr.fullname" . }} {{ .Chart.AppVersion }} installed in namespace "{{ .Release.Namespace }}".
 
 Services:
 {{- if .Values.frontend.enabled }}
-  • frontend           svc/{{ include "pyrate.fullname" . }}-frontend:{{ .Values.frontend.service.port }}
+  • frontend           svc/{{ include "streamarr.fullname" . }}-frontend:{{ .Values.frontend.service.port }}
 {{- end }}
 {{- if .Values.backend.python.enabled }}
-  • backend (proxy)    svc/{{ include "pyrate.fullname" . }}-backend:{{ .Values.backend.proxy.service.port }}
+  • backend (proxy)    svc/{{ include "streamarr.fullname" . }}-backend:{{ .Values.backend.proxy.service.port }}
 {{- end }}
 {{- if .Values.lightrays.enabled }}
-  • lightrays          svc/{{ include "pyrate.fullname" . }}-lightrays:{{ .Values.lightrays.service.apiPort }}
+  • lightrays          svc/{{ include "streamarr.fullname" . }}-lightrays:{{ .Values.lightrays.service.apiPort }}
 {{- end }}
 {{- if .Values.downloaders.torrent.enabled }}
-  • torrent-downloader svc/{{ include "pyrate.fullname" . }}-torrent-downloader:{{ .Values.downloaders.torrent.service.port }}
+  • torrent-downloader svc/{{ include "streamarr.fullname" . }}-torrent-downloader:{{ .Values.downloaders.torrent.service.port }}
 {{- end }}
 {{- if .Values.downloaders.spotdl.enabled }}
-  • spotdl             svc/{{ include "pyrate.fullname" . }}-spotdl:{{ .Values.downloaders.spotdl.service.port }}
+  • spotdl             svc/{{ include "streamarr.fullname" . }}-spotdl:{{ .Values.downloaders.spotdl.service.port }}
 {{- end }}
 
 {{- if .Values.ingress.enabled }}
@@ -23,7 +23,7 @@ Ingress: https://{{ .Values.ingress.host }}{{ .Values.ingress.paths.frontend }}
 {{- else }}
 
 No ingress is configured. To reach the frontend locally:
-  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "pyrate.fullname" . }}-frontend {{ .Values.frontend.service.port }}:{{ .Values.frontend.service.port }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "streamarr.fullname" . }}-frontend {{ .Values.frontend.service.port }}:{{ .Values.frontend.service.port }}
   open http://localhost:{{ .Values.frontend.service.port }}
 {{- end }}
 

@@ -7,14 +7,14 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.group import Group
-from pyrate.models.subscription import (
+from streamarr.models.group import Group
+from streamarr.models.subscription import (
     SubscriptionPackage,
     SubscriptionStatus,
     UserSubscription,
 )
-from pyrate.models.user import User
-from pyrate.services.subscription import SubscriptionService
+from streamarr.models.user import User
+from streamarr.services.subscription import SubscriptionService
 
 # ---------------------------------------------------------------------------
 # Fixtures

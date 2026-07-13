@@ -1,6 +1,6 @@
 # Dashboard & Home Page
 
-The home page is the central entry point into pyrate.media. It is assembled from configurable **sections** — rows and carousels that your administrator arranges into a page layout. The same section system also powers the library browse pages (Movies, Shows, Games, Music, Books).
+The home page is the central entry point into streamarr.media. It is assembled from configurable **sections** — rows and carousels that your administrator arranges into a page layout. The same section system also powers the library browse pages (Movies, Shows, Games, Music, Books).
 
 ## Home Page Sections
 

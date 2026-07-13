@@ -1,6 +1,6 @@
-# pyrate.media deployment
+# streamarr.media deployment
 
-This directory holds the deployment models for pyrate.media. To avoid drift they
+This directory holds the deployment models for streamarr.media. To avoid drift they
 now have **clearly assigned roles and a single source of truth per target**
 (Architecture 3.1). Change the maintained file for a target, not a downstream
 copy.
@@ -9,7 +9,7 @@ copy.
 
 | Model | Path | Target | Status |
 |-------|------|--------|--------|
-| **Helm chart** | `helm/pyrate` | **Kubernetes / production** | **Authoritative** for K8s. Maintained. |
+| **Helm chart** | `helm/streamarr` | **Kubernetes / production** | **Authoritative** for K8s. Maintained. |
 | **Docker Compose (prod)** | `docker/docker-compose.yml` | **Single-host production** (pre-built registry images) | **Authoritative** for single-host prod. Maintained. |
 | **Root Compose (dev)** | `../docker-compose.yml` | **Local development only** (all images built locally) | Maintained for dev; **not** a production artifact. |
 | **Quadlets** | `quadlets/*.container` | Single-host **Podman / systemd** alternative | Alternative to Docker Compose prod. **SABnzbd-only variant** (see below). |
@@ -41,7 +41,7 @@ No secrets are ever committed in clear text. Each model injects them differently
   / a `-f values-prod.yaml`, or set `secrets.existingSecret` to mount a
   pre-provisioned Secret. Values default to empty so the chart fails fast if a
   secret is missing.
-- **Quadlets:** via a systemd `EnvironmentFile=/etc/pyrate/pyrate.env` declared
+- **Quadlets:** via a systemd `EnvironmentFile=/etc/streamarr/streamarr.env` declared
   in every unit that references `${...}` (all except the frontend). Create that
   file `root:root`, mode `0600`, with the same keys as the Compose `.env`
   (`POSTGRES_PASSWORD`, `SECRET_KEY`, `LIGHTRAYS_JWT_SECRET`,
@@ -64,7 +64,7 @@ sub-paths differ, and there is one deliberate, code-driven divergence:
 | `/cache`, `/temp`, `/user-data` | backend/worker | `cache`, `temp`, `users` |
 
 **The `/downloads` divergence is intentional but has a code coupling worth
-knowing about.** `backend/src/pyrate/services/computing.py` bind-mounts
+knowing about.** `backend/src/streamarr/services/computing.py` bind-mounts
 `${PROJECT_ROOT}/usenet-remote/downloads` into every FFmpeg/transcode container
 it spawns via the host Docker socket (Docker runtime only; the Kubernetes
 runtime uses the `downloads` PVC and is unaffected). So:
@@ -87,7 +87,7 @@ collapsed to a single default:
 
 - **Root dev** — `http://lightrays:8080` (bridge network, Compose service DNS,
   internal API port 8080).
-- **Quadlets** — `http://pyrate-lightrays:8080` (Podman network, container DNS).
+- **Quadlets** — `http://streamarr-lightrays:8080` (Podman network, container DNS).
 - **Prod Compose** — `http://127.0.0.1:${LIGHTRAYS_PORT:-8009}`: lightrays runs
   `network_mode: host` for WebRTC UDP, so it binds `LIGHTRAYS_PORT` (default
   8009) directly on the host instead of the internal 8080.
@@ -142,13 +142,13 @@ How the single migration step is wired in each model:
   uses the `backend.python` image. Toggle via `migrations.enabled` (default
   `true`). The per-pod alembic init container was removed.
 
-- **Quadlets:** `pyrate-migrate.container` is a `Type=oneshot`
+- **Quadlets:** `streamarr-migrate.container` is a `Type=oneshot`
   (`RemainAfterExit=yes`) unit running `alembic upgrade head`. The
-  `pyrate-backend`, `pyrate-worker`, and `pyrate-scheduler` units order
-  themselves `After=pyrate-migrate.service` and `Requires=pyrate-migrate.service`,
+  `streamarr-backend`, `streamarr-worker`, and `streamarr-scheduler` units order
+  themselves `After=streamarr-migrate.service` and `Requires=streamarr-migrate.service`,
   so they start only once the migration has completed successfully. If you drive
   the units manually rather than via `default.target`, run
-  `systemctl start pyrate-migrate.service` (and wait for it to finish) before
+  `systemctl start streamarr-migrate.service` (and wait for it to finish) before
   starting the app units.
 
 ## Elasticsearch version
@@ -158,5 +158,5 @@ handshake against an 8.x server, so every model runs Elasticsearch **9.2.0**:
 
 - Compose (root + prod + `install.sh` output): image tag comes from
   `ES_IMAGE_TAG` (default `9.2.0`, documented in `docker/.env.example`).
-- Quadlets: pinned in `pyrate-elasticsearch.container`.
+- Quadlets: pinned in `streamarr-elasticsearch.container`.
 - Helm: pinned via `elasticsearch.image.tag` in `values.yaml`.

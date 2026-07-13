@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# pyrate game-container library — image #2: RetroArch (libretro) kiosk
+# streamarr game-container library — image #2: RetroArch (libretro) kiosk
 # ===================================================================
 # One container for MANY retro systems. RetroArch is run headless as a
 # KIOSK: a core + ROM are passed on the command line so it boots straight
@@ -10,7 +10,7 @@
 #
 # Per game, lightrays injects RETRO_CORE (which core to load) and RETRO_ROM
 # (the ROM path, from the game's app_ref); everything else is the same
-# gamescope + nested-Wayland contract the pyrate-wine image already uses.
+# gamescope + nested-Wayland contract the streamarr-wine image already uses.
 #
 # Base: Arch Linux — retroarch, gamescope, Xwayland and the Intel Vulkan/GL
 # userspace are all packaged. The libretro CORES are fetched from the
@@ -75,11 +75,11 @@ RUN mkdir -p /usr/share/libretro/autoconfig && \
     rm -rf /tmp/autoconf.tar.gz /tmp/retroarch-joypad-autoconfig-master || true
 
 # ---------------------------------------------------------------------------
-# pyrate entrypoint + baked kiosk config
+# streamarr entrypoint + baked kiosk config
 # ---------------------------------------------------------------------------
-COPY retroarch-kiosk.cfg /opt/pyrate/retroarch-kiosk.cfg
-COPY run.sh /opt/pyrate/run.sh
-RUN chmod +x /opt/pyrate/run.sh
+COPY retroarch-kiosk.cfg /opt/streamarr/retroarch-kiosk.cfg
+COPY run.sh /opt/streamarr/run.sh
+RUN chmod +x /opt/streamarr/run.sh
 
 # Persistent per-game state (saves + savestates + config) lives under
 # /home/retro; lightrays bind-mounts the app-state dir over it at launch.
@@ -89,6 +89,6 @@ RUN install -d -m 0777 /home/retro
 ENV HOME=/home/retro \
     XDG_CONFIG_HOME=/home/retro/.config \
     CORES_DIR=/cores \
-    PYRATE_IMAGE=pyrate-retro
+    STREAMARR_IMAGE=streamarr-retro
 
-ENTRYPOINT ["/opt/pyrate/run.sh"]
+ENTRYPOINT ["/opt/streamarr/run.sh"]

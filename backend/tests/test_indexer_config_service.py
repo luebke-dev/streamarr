@@ -6,9 +6,9 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.indexer import Indexer
-from pyrate.schemas.indexer import IndexerCreate, IndexerUpdate
-from pyrate.services.indexer_config import IndexerService
+from streamarr.models.indexer import Indexer
+from streamarr.schemas.indexer import IndexerCreate, IndexerUpdate
+from streamarr.services.indexer_config import IndexerService
 
 
 @pytest_asyncio.fixture

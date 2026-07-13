@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.media import MediaType
-from pyrate.services.media import MediaService, cleanup_stream_on_stop
+from streamarr.models.media import MediaType
+from streamarr.services.media import MediaService, cleanup_stream_on_stop
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ class TestValidateWithPlugin:
         mock_plugin = MagicMock()
         mock_plugin.validate_path = AsyncMock(return_value=True)
 
-        with patch("pyrate.services.media.get_plugin_instance", return_value=mock_plugin):
+        with patch("streamarr.services.media.get_plugin_instance", return_value=mock_plugin):
             result = await svc.validate_with_plugin(MediaType.MOVIES, "/library/movies/test.mkv")
         assert result is True
 
@@ -136,7 +136,7 @@ class TestValidateWithPlugin:
     async def test_validate_with_plugin_none(self, db_session: AsyncSession):
         """validate_with_plugin returns True when no plugin found."""
         svc = MediaService(db_session)
-        with patch("pyrate.services.media.get_plugin_instance", return_value=None):
+        with patch("streamarr.services.media.get_plugin_instance", return_value=None):
             result = await svc.validate_with_plugin(MediaType.MOVIES, "/library/movies/test.mkv")
         assert result is True
 
@@ -188,7 +188,7 @@ class TestSelectBestRelease:
         media_item = _make_media_item(media_type=MagicMock(value="UNKNOWN"))
         releases = [_make_release()]
 
-        with patch("pyrate.services.media.get_plugin_instance", return_value=None):
+        with patch("streamarr.services.media.get_plugin_instance", return_value=None):
             result = await svc.select_best_release(media_item, releases)
         assert result == releases[0]
 
@@ -205,8 +205,8 @@ class TestSelectBestRelease:
         mock_plugin.extract_release_metadata = AsyncMock(side_effect=lambda t: {"title": t})
         mock_plugin.score_release = AsyncMock(side_effect=[30.0, 90.0])
 
-        with patch("pyrate.services.media.get_plugin_instance", return_value=mock_plugin), \
-             patch("pyrate.services.settings.SettingsService.get", new_callable=AsyncMock, return_value=None):
+        with patch("streamarr.services.media.get_plugin_instance", return_value=mock_plugin), \
+             patch("streamarr.services.settings.SettingsService.get", new_callable=AsyncMock, return_value=None):
             result = await svc.select_best_release(media_item, [r1, r2])
 
         assert result == r2
@@ -222,8 +222,8 @@ class TestSelectBestRelease:
         mock_plugin = MagicMock()
         mock_plugin.extract_release_metadata = AsyncMock(side_effect=Exception("parse error"))
 
-        with patch("pyrate.services.media.get_plugin_instance", return_value=mock_plugin), \
-             patch("pyrate.services.settings.SettingsService.get", new_callable=AsyncMock, return_value=None):
+        with patch("streamarr.services.media.get_plugin_instance", return_value=mock_plugin), \
+             patch("streamarr.services.settings.SettingsService.get", new_callable=AsyncMock, return_value=None):
             result = await svc.select_best_release(media_item, [r1])
 
         assert result == r1
@@ -239,8 +239,8 @@ class TestSelectBestRelease:
         mock_plugin.extract_release_metadata = AsyncMock(return_value={"title": "test"})
         mock_plugin.score_release = AsyncMock(return_value=80.0)
 
-        with patch("pyrate.services.media.get_plugin_instance", return_value=mock_plugin), \
-             patch("pyrate.services.settings.SettingsService.get", new_callable=AsyncMock, return_value=None):
+        with patch("streamarr.services.media.get_plugin_instance", return_value=mock_plugin), \
+             patch("streamarr.services.settings.SettingsService.get", new_callable=AsyncMock, return_value=None):
             result = await svc.select_best_release(
                 media_item, [r1],
                 user_languages=["de"],
@@ -282,7 +282,7 @@ class TestCleanupOrphanedError:
         """glob error is caught (lines 893-895)."""
         svc = MediaService(db_session)
 
-        with patch("pyrate.services.media.glob.glob", side_effect=Exception("perm denied")):
+        with patch("streamarr.services.media.glob.glob", side_effect=Exception("perm denied")):
             result = await svc.cleanup_orphaned_temp_files()
 
         assert len(result["errors"]) > 0
@@ -458,7 +458,7 @@ class TestCleanupStreamOnStopWithContentId:
     @pytest.mark.asyncio
     async def test_cleanup_with_content_id(self, db_session: AsyncSession):
         """cleanup_stream_on_stop leaves source library files to retention cleanup."""
-        with patch("pyrate.services.media.glob.glob", return_value=[]), \
+        with patch("streamarr.services.media.glob.glob", return_value=[]), \
              patch.object(MediaService, "cleanup_media_file", new_callable=AsyncMock) as mock_cleanup:
             result = await cleanup_stream_on_stop(
                 db=db_session,

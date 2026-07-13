@@ -3,7 +3,7 @@
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from pyrate.models import ActivityLog
+from streamarr.models import ActivityLog
 
 
 class TestBrandingConfiguration:
@@ -12,7 +12,7 @@ class TestBrandingConfiguration:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["server_name"] == "pyrate.media"
+        assert data["server_name"] == "streamarr.media"
         assert data["login_disclaimer"] == ""
         assert data["custom_css"] == ""
         assert data["logo_url"] is None
@@ -35,7 +35,7 @@ class TestBrandingConfiguration:
             "/api/branding/configuration",
             headers=admin_headers,
             json={
-                "server_name": "Pyrate Test",
+                "server_name": "Streamarr Test",
                 "login_disclaimer": "Private server",
                 "custom_css": "body { color: rgb(1, 2, 3); }",
                 "logo_url": "https://cdn.example.test/logo.png",
@@ -45,7 +45,7 @@ class TestBrandingConfiguration:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["server_name"] == "Pyrate Test"
+        assert data["server_name"] == "Streamarr Test"
         assert data["login_disclaimer"] == "Private server"
         assert data["custom_css"] == "body { color: rgb(1, 2, 3); }"
         assert data["logo_url"] == "https://cdn.example.test/logo.png"
@@ -53,7 +53,7 @@ class TestBrandingConfiguration:
 
         public = await client.get("/api/branding/configuration")
         assert public.status_code == 200
-        assert public.json()["server_name"] == "Pyrate Test"
+        assert public.json()["server_name"] == "Streamarr Test"
 
         log_result = await db_session.execute(
             select(ActivityLog).where(ActivityLog.event_type == "branding.update")

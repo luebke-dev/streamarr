@@ -1,6 +1,6 @@
 # Movies & Shows
 
-pyrate.media manages movies and shows as **media libraries**. Each library is created by an admin and can have its own page layout, release scoring rules, and storage paths. This page covers browsing, the media detail page, and how new content gets into your library — including Smart Play, which downloads what you press play on.
+streamarr.media manages movies and shows as **media libraries**. Each library is created by an admin and can have its own page layout, release scoring rules, and storage paths. This page covers browsing, the media detail page, and how new content gets into your library — including Smart Play, which downloads what you press play on.
 
 ## Browsing a Library
 

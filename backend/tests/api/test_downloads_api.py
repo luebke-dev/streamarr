@@ -6,10 +6,10 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.downloader import Downloader
-from pyrate.models.downloads import Download
-from pyrate.models.media import MediaItem, MediaRelease, MediaReleaseLink, MediaType
-from pyrate.models.user import User
+from streamarr.models.downloader import Downloader
+from streamarr.models.downloads import Download
+from streamarr.models.media import MediaItem, MediaRelease, MediaReleaseLink, MediaType
+from streamarr.models.user import User
 
 from .conftest import auth_headers
 
@@ -249,8 +249,8 @@ class TestListDownloads:
         from datetime import datetime as dt
         from unittest.mock import AsyncMock, MagicMock
 
-        from pyrate.database import get_db_session
-        from pyrate.web import app
+        from streamarr.database import get_db_session
+        from streamarr.web import app
 
         # Create a media_release_link whose guid conversion raises → triggers except block
         class _BrokenGuid:

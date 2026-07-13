@@ -192,7 +192,7 @@ import BackupRestoreCard from 'src/components/admin/settings/BackupRestoreCard.v
 const settingsStore = useSettingsStore()
 
 const saving = ref(false)
-const siteName = ref('pyrate.media')
+const siteName = ref('Streamarr')
 const subscriptionsEnabled = ref(false)
 const invitesEnabled = ref(true)
 const friendsEnabled = ref(true)

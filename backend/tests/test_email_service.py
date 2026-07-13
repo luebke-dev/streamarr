@@ -9,17 +9,17 @@ from unittest.mock import patch
 
 import pytest
 
-from pyrate.services.email import EmailService
+from streamarr.services.email import EmailService
 
 
 @pytest.fixture
 def email_service() -> EmailService:
     """Create an EmailService with the real template directory."""
-    with patch("pyrate.services.email.settings") as mock_settings:
+    with patch("streamarr.services.email.settings") as mock_settings:
         mock_settings.email.enabled = False  # Don't actually send emails
         mock_settings.email.templates_dir = "templates/email"
-        mock_settings.email.from_name = "Pyrate Media"
-        mock_settings.email.from_email = "noreply@pyrate.media"
+        mock_settings.email.from_name = "Streamarr"
+        mock_settings.email.from_email = "noreply@streamarr.media"
         mock_settings.email.reply_to = None
         mock_settings.email.smtp_host = "localhost"
         mock_settings.email.smtp_port = 587
@@ -45,7 +45,7 @@ class TestJinjaInitialization:
 
     def test_jinja_env_none_when_dir_missing(self):
         """Test that Jinja env is None when templates dir doesn't exist."""
-        with patch("pyrate.services.email.settings") as mock_settings:
+        with patch("streamarr.services.email.settings") as mock_settings:
             mock_settings.email.enabled = False
             mock_settings.email.templates_dir = "nonexistent/path"
             service = EmailService()
@@ -61,11 +61,11 @@ class TestRenderTemplate:
             "subject": "Test Notification",
             "message": "This is a test message.",
             "notification_type": "info",
-            "app_name": "Pyrate Media",
+            "app_name": "Streamarr",
             "app_url": "http://localhost:8080",
             "lang": "en",
             "i18n": {
-                "footer": "This email was sent automatically by Pyrate Media.",
+                "footer": "This email was sent automatically by Streamarr.",
                 "ignore_hint": "If you did not request this email, you can safely ignore it.",
             },
         }
@@ -75,16 +75,16 @@ class TestRenderTemplate:
     @staticmethod
     def welcome_context() -> dict:
         return {
-            "subject": "Welcome to Pyrate Media",
+            "subject": "Welcome to Streamarr",
             "user_name": "John",
-            "app_name": "Pyrate Media",
+            "app_name": "Streamarr",
             "app_url": "http://localhost:8080",
             "lang": "en",
             "i18n": {
                 "heading": "Welcome",
-                "body": "Welcome to Pyrate Media.",
+                "body": "Welcome to Streamarr.",
                 "features": "Browse and play your media library.",
-                "button": "Open Pyrate Media",
+                "button": "Open Streamarr",
                 "help": "Contact your administrator if you need help.",
             },
         }
@@ -98,7 +98,7 @@ class TestRenderTemplate:
         if not templates_dir.exists():
             pytest.skip("Template directory not found")
 
-        with patch("pyrate.services.email.settings") as mock_settings:
+        with patch("streamarr.services.email.settings") as mock_settings:
             mock_settings.email.enabled = False
             mock_settings.email.templates_dir = "templates/email"
             service = EmailService()
@@ -127,7 +127,7 @@ class TestRenderTemplate:
         html, text = service_with_templates.render_template("notification", context)
 
         assert len(text) > 0
-        assert "Pyrate Media" in text
+        assert "Streamarr" in text
         assert "This is a test message" in text
 
     def test_render_notification_type_in_text(
@@ -159,7 +159,7 @@ class TestRenderTemplate:
 
     def test_render_without_jinja_env(self):
         """Test rendering when jinja env is not initialized."""
-        with patch("pyrate.services.email.settings") as mock_settings:
+        with patch("streamarr.services.email.settings") as mock_settings:
             mock_settings.email.enabled = False
             mock_settings.email.templates_dir = "nonexistent"
             service = EmailService()
@@ -177,7 +177,7 @@ class TestSendEmail:
     @pytest.mark.asyncio
     async def test_send_email_disabled(self):
         """Test that sending email when disabled returns False."""
-        with patch("pyrate.services.email.settings") as mock_settings:
+        with patch("streamarr.services.email.settings") as mock_settings:
             mock_settings.email.enabled = False
             mock_settings.email.templates_dir = "templates/email"
             service = EmailService()
@@ -192,7 +192,7 @@ class TestSendEmail:
     @pytest.mark.asyncio
     async def test_send_notification_email_disabled(self):
         """Test that notification email when disabled returns False."""
-        with patch("pyrate.services.email.settings") as mock_settings:
+        with patch("streamarr.services.email.settings") as mock_settings:
             mock_settings.email.enabled = False
             mock_settings.email.templates_dir = "templates/email"
             mock_settings.cors_allowed_origins = ["http://localhost:8080"]

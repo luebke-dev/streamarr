@@ -7,7 +7,7 @@ import { clearApiCacheStorage, isQuotaExceededError } from 'src/utils/storageQuo
 // Bumped when the response shape of a cached endpoint changes so old
 // localStorage entries don't keep serving stale data. Last bump:
 // persistent entries now carry their cache key for targeted invalidation.
-const STORAGE_PREFIX = 'pyrate:api-cache:v3:'
+const STORAGE_PREFIX = 'streamarr:api-cache:v3:'
 const MEMORY_CACHE_MAX_ENTRIES = 200
 const PERSISTENT_CACHE_MAX_ENTRIES = 300
 const memoryCache = new Map()

@@ -1,11 +1,11 @@
 {{- if .Values.migrations.enabled -}}
-{{- $name := printf "%s-migrate" (include "pyrate.fullname" .) -}}
+{{- $name := printf "%s-migrate" (include "streamarr.fullname" .) -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "pyrate.componentLabels" (dict "ctx" . "component" "migrate") | nindent 4 }}
+    {{- include "streamarr.componentLabels" (dict "ctx" . "component" "migrate") | nindent 4 }}
   annotations:
     # Run `alembic upgrade head` exactly once per release, before the app
     # Deployments are created/updated. Replaces the old per-pod alembic init
@@ -19,23 +19,23 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "pyrate.componentLabels" (dict "ctx" . "component" "migrate") | nindent 8 }}
+        {{- include "streamarr.componentLabels" (dict "ctx" . "component" "migrate") | nindent 8 }}
     spec:
-      {{- include "pyrate.imagePullSecrets" . | nindent 6 }}
+      {{- include "streamarr.imagePullSecrets" . | nindent 6 }}
       restartPolicy: Never
       securityContext:
         # backend image bakes appuser (UID/GID 1001).
         fsGroup: 1001
       containers:
         - name: migrate
-          image: {{ include "pyrate.image" (dict "ctx" . "img" .Values.backend.python.image) }}
+          image: {{ include "streamarr.image" (dict "ctx" . "img" .Values.backend.python.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           workingDir: /app
           command: ["uv", "run", "alembic", "upgrade", "head"]
           env:
-            {{- include "pyrate.commonEnv" . | nindent 12 }}
+            {{- include "streamarr.commonEnv" . | nindent 12 }}
             - name: DATABASE_URL
-              value: {{ include "pyrate.databaseUrlAsync" . | quote }}
+              value: {{ include "streamarr.databaseUrlAsync" . | quote }}
           resources:
             {{- toYaml .Values.migrations.resources | nindent 12 }}
 {{- end -}}

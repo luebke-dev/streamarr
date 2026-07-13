@@ -1,12 +1,12 @@
 apiVersion: v2
-name: pyrate
+name: streamarr
 description: Self-hosted media platform — backend, worker, scheduler, frontend, lightrays, downloaders, plus postgres/redis/elasticsearch.
 type: application
 version: 0.1.10
 appVersion: "1.0.0"
-home: https://pyrate.media
+home: https://streamarr.media
 sources:
-  - https://github.com/pyrate-media/pyrate
+  - https://github.com/streamarr/streamarr
 keywords:
   - media
   - streaming
@@ -14,4 +14,4 @@ keywords:
   - usenet
   - torrent
 maintainers:
-  - name: pyrate.media
+  - name: streamarr.media

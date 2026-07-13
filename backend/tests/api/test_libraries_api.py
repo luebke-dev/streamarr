@@ -10,9 +10,9 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models import ActivityLog
-from pyrate.models.library import Library
-from pyrate.models.user import User
+from streamarr.models import ActivityLog
+from streamarr.models.library import Library
+from streamarr.models.user import User
 
 from .conftest import auth_headers
 
@@ -134,7 +134,7 @@ class TestCreateLibrary:
         )
         assert resp.status_code == 403
 
-    @patch("pyrate.services.library.LibraryService.get_plugin")
+    @patch("streamarr.services.library.LibraryService.get_plugin")
     async def test_create_library_success(
         self,
         mock_get_plugin,
@@ -164,7 +164,7 @@ class TestCreateLibrary:
         assert data["type"] == "MOVIES"
         assert data["enabled"] is True
 
-    @patch("pyrate.services.library.LibraryService.get_plugin")
+    @patch("streamarr.services.library.LibraryService.get_plugin")
     async def test_create_duplicate_type_conflict(
         self,
         mock_get_plugin,
@@ -189,7 +189,7 @@ class TestCreateLibrary:
         )
         assert resp.status_code == 409
 
-    @patch("pyrate.services.library.LibraryService.get_plugin")
+    @patch("streamarr.services.library.LibraryService.get_plugin")
     async def test_create_invalid_path(
         self,
         mock_get_plugin,
@@ -679,7 +679,7 @@ class TestLibraryScanRefresh:
         ]
 
         with patch(
-            "pyrate.api.v1.libraries.LibraryService.scan_library_for_media",
+            "streamarr.api.v1.libraries.LibraryService.scan_library_for_media",
             AsyncMock(return_value=discovered),
         ):
             resp = await client.post(
@@ -706,7 +706,7 @@ class TestLibraryScanRefresh:
         lib = await _create_library(db_session)
 
         with patch(
-            "pyrate.api.v1.libraries.LibraryService.scan_library_for_media",
+            "streamarr.api.v1.libraries.LibraryService.scan_library_for_media",
             AsyncMock(return_value=[]),
         ):
             resp = await client.post(
@@ -900,7 +900,7 @@ class TestMovieLibraryConfig:
         resp = await client.get("/api/libraries/movies/config", headers=user_headers)
         assert resp.status_code == 403
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_get_movie_config(
         self, mock_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -919,7 +919,7 @@ class TestMovieLibraryConfig:
         assert "enable_library" in data
         assert "naming" in data
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_update_movie_config(
         self, mock_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -943,7 +943,7 @@ class TestMovieLibraryConfig:
 
 
 class TestShowLibraryConfig:
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_get_show_config(
         self, mock_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -962,7 +962,7 @@ class TestShowLibraryConfig:
         assert "hide_season_zero" in data
         assert "naming" in data
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_update_show_config(
         self, mock_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -999,8 +999,8 @@ class TestListLibraryTypes:
         resp = await client.get("/api/libraries/types")
         assert resp.status_code == 401
 
-    @patch("pyrate.plugins.get_registry")
-    @patch("pyrate.plugins.get_registered_plugins")
+    @patch("streamarr.plugins.get_registry")
+    @patch("streamarr.plugins.get_registered_plugins")
     async def test_success(
         self,
         mock_registered,
@@ -1048,8 +1048,8 @@ class TestListLibraryPlugins:
         resp = await client.get("/api/libraries/plugins", headers=user_headers)
         assert resp.status_code == 403
 
-    @patch("pyrate.api.v1.libraries.get_registry")
-    @patch("pyrate.api.v1.libraries.get_registered_plugins")
+    @patch("streamarr.api.v1.libraries.get_registry")
+    @patch("streamarr.api.v1.libraries.get_registered_plugins")
     async def test_success(
         self,
         mock_registered,
@@ -1083,8 +1083,8 @@ class TestListLibraryPlugins:
         assert data[0]["id"] == "MOVIES"
         assert data[0]["name"] == "Movies"
 
-    @patch("pyrate.api.v1.libraries.get_registry")
-    @patch("pyrate.api.v1.libraries.get_registered_plugins")
+    @patch("streamarr.api.v1.libraries.get_registry")
+    @patch("streamarr.api.v1.libraries.get_registered_plugins")
     async def test_filter_by_type(
         self,
         mock_registered,
@@ -1171,7 +1171,7 @@ class TestPluginUIConfig:
         resp = await client.get("/api/libraries/plugins/movies/ui-config")
         assert resp.status_code == 401
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_not_a_library_plugin(
         self, mock_get_plugin, client: AsyncClient, test_user: User, user_headers
     ):
@@ -1185,7 +1185,7 @@ class TestPluginUIConfig:
         # re-raised as 500 due to the endpoint's error handling structure.
         assert resp.status_code == 500
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_success(
         self, mock_get_plugin, client: AsyncClient, test_user: User, user_headers
     ):
@@ -1204,7 +1204,7 @@ class TestPluginUIConfig:
         assert data["library_icon"] == "movie-icon"
         assert data["play_button_label"] == "Watch"
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_exception_returns_500(
         self, mock_get_plugin, client: AsyncClient, test_user: User, user_headers
     ):
@@ -1233,7 +1233,7 @@ class TestGenericLibraryConfig:
         # generic branch for "movies". Let's test with "shows" too.
         pass
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_get_generic_config_success(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -1253,7 +1253,7 @@ class TestGenericLibraryConfig:
         assert "enable_library" in data
         assert "naming" in data
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_get_generic_config_plugin_not_found(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -1264,7 +1264,7 @@ class TestGenericLibraryConfig:
         )
         assert resp.status_code == 404
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_update_generic_config_success(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -1287,7 +1287,7 @@ class TestGenericLibraryConfig:
         assert data["library_path"] == "/media/games"
         assert data["enable_library"] is True
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_update_generic_config_plugin_not_found(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -1313,7 +1313,7 @@ class TestGenericLibraryConfig:
 
 class TestPhotoLibraryPlugin:
     async def test_photo_plugin_registers_media_types(self):
-        from pyrate.libraries import get_all_media_item_types, get_plugin_instance
+        from streamarr.libraries import get_all_media_item_types, get_plugin_instance
 
         plugin = get_plugin_instance("PHOTOS")
         assert plugin is not None
@@ -1323,7 +1323,7 @@ class TestPhotoLibraryPlugin:
         assert "HOME_VIDEOS" in media_types
 
     async def test_photo_plugin_scans_photos_and_home_videos(self, tmp_path):
-        from pyrate.libraries.photos import PhotoLibraryPlugin
+        from streamarr.libraries.photos import PhotoLibraryPlugin
 
         (tmp_path / "album").mkdir()
         photo = tmp_path / "album" / "image.jpg"
@@ -1347,7 +1347,7 @@ class TestPhotoLibraryPlugin:
 
 
 class TestPreviewNaming:
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_preview_movie_naming(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -1367,7 +1367,7 @@ class TestPreviewNaming:
         assert data["file"] == "The Matrix (1999) - 1080p"
         assert data["full_path"] is not None
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_preview_show_naming(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -1389,7 +1389,7 @@ class TestPreviewNaming:
         data = resp.json()
         assert data["folder"] == "Breaking Bad"
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_preview_generic_naming_success(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -1407,7 +1407,7 @@ class TestPreviewNaming:
         data = resp.json()
         assert data["folder"] == "Sample Title (2024)"
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_preview_generic_naming_dedicated_type_rejected(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -1420,7 +1420,7 @@ class TestPreviewNaming:
         # Instead test that the generic endpoint rejects the dedicated type string:
         pass
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_preview_generic_naming_plugin_not_found(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -1472,8 +1472,8 @@ class TestImportTrending:
         )
         assert resp.status_code == 400
 
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_no_api_key(
         self,
         mock_plugin_class,
@@ -1494,8 +1494,8 @@ class TestImportTrending:
         assert resp.status_code == 500
         assert "API key" in resp.json()["detail"]
 
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_success_movies(
         self,
         mock_plugin_class,
@@ -1521,7 +1521,7 @@ class TestImportTrending:
         data = resp.json()
         assert data["imported_count"] == 0
 
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_plugin_not_found(
         self,
         mock_plugin_class,
@@ -1539,8 +1539,8 @@ class TestImportTrending:
         )
         assert resp.status_code == 404
 
-    @patch("pyrate.services.system_settings.get_igdb_credentials")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.services.system_settings.get_igdb_credentials")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_igdb_no_credentials(
         self,
         mock_plugin_class,
@@ -1601,8 +1601,8 @@ class TestImportByExternalId:
         lib = await _create_library(db_session, type="AUDIOBOOKS", name="Audiobooks")
 
         # Need to mock TMDB plugin first since it checks library type after plugin init
-        with patch("pyrate.plugins.registry.get_plugin_class") as mock_cls, \
-             patch("pyrate.services.system_settings.get_tmdb_api_key") as mock_key:
+        with patch("streamarr.plugins.registry.get_plugin_class") as mock_cls, \
+             patch("streamarr.services.system_settings.get_tmdb_api_key") as mock_key:
             mock_cls.return_value = MagicMock(return_value=AsyncMock())
             mock_key.return_value = "test-key"
 
@@ -1613,8 +1613,8 @@ class TestImportByExternalId:
             )
         assert resp.status_code == 400
 
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_tmdb_not_configured(
         self,
         mock_plugin_class,
@@ -1636,8 +1636,8 @@ class TestImportByExternalId:
         assert resp.status_code == 500
         assert "API key" in resp.json()["detail"]
 
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_already_exists(
         self,
         mock_plugin_class,
@@ -1647,7 +1647,7 @@ class TestImportByExternalId:
         test_superuser: User,
         admin_headers,
     ):
-        from pyrate.models.media import MediaExternalId, MediaItem, MediaType
+        from streamarr.models.media import MediaExternalId, MediaItem, MediaType
 
         lib = await _create_library(db_session, type="MOVIES", name="Movies")
 
@@ -1682,8 +1682,8 @@ class TestImportByExternalId:
         data = resp.json()
         assert data["already_existed"] is True
 
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_not_found_on_tmdb(
         self,
         mock_plugin_class,
@@ -1708,9 +1708,9 @@ class TestImportByExternalId:
         )
         assert resp.status_code == 404
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media")
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media")
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_success(
         self,
         mock_plugin_class,
@@ -1757,8 +1757,8 @@ class TestImportByExternalId:
 class TestListLibraryTypesDetailed:
     """Cover list_library_types body with more branches."""
 
-    @patch("pyrate.plugins.get_registry")
-    @patch("pyrate.plugins.get_registered_plugins")
+    @patch("streamarr.plugins.get_registry")
+    @patch("streamarr.plugins.get_registered_plugins")
     async def test_existing_type_skipped(
         self,
         mock_registered,
@@ -1788,8 +1788,8 @@ class TestListLibraryTypesDetailed:
         type_ids = [t["type"] for t in data]
         assert "MOVIES" not in type_ids
 
-    @patch("pyrate.plugins.get_registry")
-    @patch("pyrate.plugins.get_registered_plugins")
+    @patch("streamarr.plugins.get_registry")
+    @patch("streamarr.plugins.get_registered_plugins")
     async def test_plugin_not_in_registry(
         self,
         mock_registered,
@@ -1809,8 +1809,8 @@ class TestListLibraryTypesDetailed:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    @patch("pyrate.plugins.get_registry")
-    @patch("pyrate.plugins.get_registered_plugins")
+    @patch("streamarr.plugins.get_registry")
+    @patch("streamarr.plugins.get_registered_plugins")
     async def test_no_translations(
         self,
         mock_registered,
@@ -1841,8 +1841,8 @@ class TestListLibraryTypesDetailed:
 class TestListLibraryPluginsDetailed:
     """Cover list_library_plugins additional branches."""
 
-    @patch("pyrate.api.v1.libraries.get_registry")
-    @patch("pyrate.api.v1.libraries.get_registered_plugins")
+    @patch("streamarr.api.v1.libraries.get_registry")
+    @patch("streamarr.api.v1.libraries.get_registered_plugins")
     async def test_plugin_exception_skipped(
         self,
         mock_registered,
@@ -1863,8 +1863,8 @@ class TestListLibraryPluginsDetailed:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    @patch("pyrate.api.v1.libraries.get_registry")
-    @patch("pyrate.api.v1.libraries.get_registered_plugins")
+    @patch("streamarr.api.v1.libraries.get_registry")
+    @patch("streamarr.api.v1.libraries.get_registered_plugins")
     async def test_plugin_with_translations(
         self,
         mock_registered,
@@ -1926,7 +1926,7 @@ class TestMetadataProvidersDetailed:
 class TestMovieConfigNamingUpdate:
     """Cover naming update branches in movie/show config."""
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_update_movie_config_with_naming(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -1950,7 +1950,7 @@ class TestMovieConfigNamingUpdate:
 
 
 class TestShowConfigNamingUpdate:
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_update_show_config_with_naming(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -1974,7 +1974,7 @@ class TestShowConfigNamingUpdate:
 
 
 class TestGenericConfigNamingUpdate:
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_update_generic_config_with_naming(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -2055,8 +2055,8 @@ class TestScoringConfigEdgeCases:
 class TestImportTrendingShowsAndGames:
     """Cover show and game branches in import-trending."""
 
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_shows_empty_trending(
         self,
         mock_plugin_class,
@@ -2082,8 +2082,8 @@ class TestImportTrendingShowsAndGames:
         assert resp.status_code == 202
         assert resp.json()["imported_count"] == 0
 
-    @patch("pyrate.services.system_settings.get_igdb_credentials")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.services.system_settings.get_igdb_credentials")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_games_empty_trending(
         self,
         mock_plugin_class,
@@ -2109,8 +2109,8 @@ class TestImportTrendingShowsAndGames:
         assert resp.status_code == 202
         assert resp.json()["imported_count"] == 0
 
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_plugin_init_fails(
         self,
         mock_plugin_class,
@@ -2134,8 +2134,8 @@ class TestImportTrendingShowsAndGames:
         assert resp.status_code == 500
         assert "Failed to initialize" in resp.json()["detail"]
 
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_fetch_method_not_available(
         self,
         mock_plugin_class,
@@ -2159,9 +2159,9 @@ class TestImportTrendingShowsAndGames:
         )
         assert resp.status_code == 500
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_trending_with_results(
         self,
         mock_plugin_class,
@@ -2236,7 +2236,7 @@ class TestImportTrendingShowsAndGames:
 class TestImportByExternalIdDetailed:
     """Cover import_by_external_id additional branches."""
 
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_tmdb_plugin_class_none(
         self,
         mock_plugin_class,
@@ -2257,8 +2257,8 @@ class TestImportByExternalIdDetailed:
         assert resp.status_code == 404
         assert "TMDB plugin not found" in resp.json()["detail"]
 
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_plugin_init_exception(
         self,
         mock_plugin_class,
@@ -2282,9 +2282,9 @@ class TestImportByExternalIdDetailed:
         assert resp.status_code == 500
         assert "Failed to initialize TMDB provider" in resp.json()["detail"]
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_show_with_seasons(
         self,
         mock_plugin_class,
@@ -2346,9 +2346,9 @@ class TestImportByExternalIdDetailed:
         assert data["already_existed"] is False
         assert "seasons" in data["message"]
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_movie_no_release_date(
         self,
         mock_plugin_class,
@@ -2384,9 +2384,9 @@ class TestImportByExternalIdDetailed:
         )
         assert resp.status_code == 201
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_general_exception(
         self,
         mock_plugin_class,
@@ -2414,9 +2414,9 @@ class TestImportByExternalIdDetailed:
         assert resp.status_code == 500
         assert "Failed to import item" in resp.json()["detail"]
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_show_season_fails(
         self,
         mock_plugin_class,
@@ -2462,9 +2462,9 @@ class TestImportByExternalIdDetailed:
 class TestImportTrendingWithRealItems:
     """Cover the detailed import loop with trending items that have actual data."""
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_trending_shows_with_data(
         self,
         mock_plugin_class,
@@ -2516,9 +2516,9 @@ class TestImportTrendingWithRealItems:
         # SQLite doesn't support begin_nested, so items may fail individually
         assert "imported_count" in data
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_trending_item_with_timestamp_release(
         self,
         mock_plugin_class,
@@ -2562,9 +2562,9 @@ class TestImportTrendingWithRealItems:
         )
         assert resp.status_code == 202
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_trending_item_without_title(
         self,
         mock_plugin_class,
@@ -2595,9 +2595,9 @@ class TestImportTrendingWithRealItems:
         assert resp.status_code == 202
         assert resp.json()["imported_count"] == 0
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_trending_fetch_exception(
         self,
         mock_plugin_class,
@@ -2627,7 +2627,7 @@ class TestImportTrendingWithRealItems:
 class TestNamingHelpers:
     """Cover _load_naming_config and _save_naming_config (lines 249-250)."""
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_naming_with_existing_settings(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -2696,7 +2696,7 @@ class TestDedicatedConfigTypeRedirect:
 class TestScoringConfigStoredInvalid:
     """Cover lines 1176-1177 and 1225-1227: stored scoring config is invalid."""
 
-    @patch("pyrate.services.settings.SettingsService.get")
+    @patch("streamarr.services.settings.SettingsService.get")
     async def test_get_movie_scoring_stored_invalid(
         self, mock_get, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -2706,7 +2706,7 @@ class TestScoringConfigStoredInvalid:
         resp = await client.get("/api/libraries/movies/scoring", headers=admin_headers)
         assert resp.status_code == 200
 
-    @patch("pyrate.services.settings.SettingsService.get")
+    @patch("streamarr.services.settings.SettingsService.get")
     async def test_get_show_scoring_stored_invalid(
         self, mock_get, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -2719,8 +2719,8 @@ class TestScoringConfigStoredInvalid:
 class TestCreateLibraryValueError:
     """Cover the ValueError branch of create_library (line 731)."""
 
-    @patch("pyrate.services.library.LibraryService.create_library")
-    @patch("pyrate.services.library.LibraryService.get_library_by_type")
+    @patch("streamarr.services.library.LibraryService.create_library")
+    @patch("streamarr.services.library.LibraryService.get_library_by_type")
     async def test_create_library_value_error(
         self,
         mock_get_by_type,
@@ -2748,7 +2748,7 @@ class TestCreateLibraryValueError:
 class TestShowNamingPreviewBranches:
     """Cover show naming with alternative templates."""
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_show_preview_with_folder_key(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -2768,7 +2768,7 @@ class TestShowNamingPreviewBranches:
         )
         assert resp.status_code == 200
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_show_preview_no_season_folder(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -2794,7 +2794,7 @@ class TestShowNamingPreviewBranches:
 class TestGenericLibraryConfigNoDefaultPath:
     """Cover the default path fallback in get_generic_library_config."""
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_generic_no_get_default_path(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -2821,7 +2821,7 @@ class TestGenericLibraryConfigNoDefaultPath:
 class TestUpdateLibraryValueError:
     """Cover the ValueError branch in update_library (line 731)."""
 
-    @patch("pyrate.services.library.LibraryService.update_library")
+    @patch("streamarr.services.library.LibraryService.update_library")
     async def test_update_value_error(
         self,
         mock_update,
@@ -2844,9 +2844,9 @@ class TestUpdateLibraryValueError:
 class TestImportByExternalIdReImport:
     """Cover re-import branches: season/episode already exists."""
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_reimport_show_existing_seasons(
         self,
         mock_plugin_class,
@@ -2858,7 +2858,7 @@ class TestImportByExternalIdReImport:
         admin_headers,
     ):
         """Cover lines 1948-1955, 2007-2014: season/episode already exists."""
-        from pyrate.models.media import MediaExternalId, MediaItem, MediaType
+        from streamarr.models.media import MediaExternalId, MediaItem, MediaType
 
         lib = await _create_library(db_session, type="SHOWS", name="Shows Reimp", plugin_id="shows")
         mock_api_key.return_value = "test-key"
@@ -2943,9 +2943,9 @@ class TestImportByExternalIdReImport:
         data = resp.json()
         assert data["already_existed"] is True
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_show_no_details_for_season(
         self,
         mock_plugin_class,
@@ -2986,9 +2986,9 @@ class TestImportByExternalIdReImport:
         )
         assert resp.status_code == 201
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_movie_no_release_date_string(
         self,
         mock_plugin_class,
@@ -3024,9 +3024,9 @@ class TestImportByExternalIdReImport:
         )
         assert resp.status_code == 201
 
-    @patch("pyrate.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
-    @patch("pyrate.services.system_settings.get_tmdb_api_key")
-    @patch("pyrate.plugins.registry.get_plugin_class")
+    @patch("streamarr.api.v1.libraries.import_genres_for_media", new_callable=AsyncMock)
+    @patch("streamarr.services.system_settings.get_tmdb_api_key")
+    @patch("streamarr.plugins.registry.get_plugin_class")
     async def test_import_show_episode_bad_air_date(
         self,
         mock_plugin_class,
@@ -3087,7 +3087,7 @@ class TestImportByExternalIdReImport:
 class TestShowLibraryConfigAllowedLanguages:
     """Cover the allowed_languages branch in show config."""
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_update_show_config_all_fields(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -3115,7 +3115,7 @@ class TestShowLibraryConfigAllowedLanguages:
         )
         assert resp.status_code == 200
 
-    @patch("pyrate.api.v1.libraries.get_plugin_instance")
+    @patch("streamarr.api.v1.libraries.get_plugin_instance")
     async def test_update_movie_config_all_fields(
         self, mock_get_plugin, client: AsyncClient, test_superuser: User, admin_headers
     ):

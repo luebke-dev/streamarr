@@ -2,8 +2,8 @@
 
 import pytest
 
-from pyrate.parsers.release_parser import ParsedMovieRelease, ParsedShowRelease, ReleaseParser
-from pyrate.services.release_matcher import MatchResult, ReleaseMatcher
+from streamarr.parsers.release_parser import ParsedMovieRelease, ParsedShowRelease, ReleaseParser
+from streamarr.services.release_matcher import MatchResult, ReleaseMatcher
 
 
 class TestReleaseParser:

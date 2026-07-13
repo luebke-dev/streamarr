@@ -3,7 +3,7 @@
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from pyrate.models import ActivityLog
+from streamarr.models import ActivityLog
 
 
 class TestPluginRepositories:

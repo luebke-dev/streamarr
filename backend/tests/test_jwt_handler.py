@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import pytest
 
-from pyrate.auth.jwt_handler import JWTHandler
+from streamarr.auth.jwt_handler import JWTHandler
 
 
 @pytest.fixture

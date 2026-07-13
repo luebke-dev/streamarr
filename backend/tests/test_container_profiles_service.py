@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import the model at module scope so it registers on Base.metadata before the
 # test_db_engine fixture runs create_all().
-from pyrate.models.container_profile import ContainerProfile  # noqa: F401
-from pyrate.services import container_profiles as cp
+from streamarr.models.container_profile import ContainerProfile  # noqa: F401
+from streamarr.services import container_profiles as cp
 
 STEAM_IMAGE = "ghcr.io/games-on-whales/steam:edge"
 

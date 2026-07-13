@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from httpx import AsyncClient
 
-from pyrate.models.user import User
+from streamarr.models.user import User
 
 
 class TestClientLogs:
@@ -28,7 +28,7 @@ class TestClientLogs:
     async def test_ingest_client_log(
         self, client: AsyncClient, test_user: User, user_headers
     ):
-        with patch("pyrate.api.v1.client_logs.logger.error") as log_error:
+        with patch("streamarr.api.v1.client_logs.logger.error") as log_error:
             resp = await client.post(
                 "/api/client-logs",
                 headers=user_headers,

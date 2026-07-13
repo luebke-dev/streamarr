@@ -3,8 +3,8 @@
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from pyrate.models.activity_log import ActivityLog
-from pyrate.models.user import User
+from streamarr.models.activity_log import ActivityLog
+from streamarr.models.user import User
 
 
 class TestNetworkSettings:
@@ -85,8 +85,8 @@ class TestNetworkSettings:
             headers=admin_headers,
             json={"bind_host": "127.0.0.1", "bind_port": 9443},
         )
-        monkeypatch.setenv("PYRATE_EFFECTIVE_BIND_HOST", "0.0.0.0")
-        monkeypatch.setenv("PYRATE_EFFECTIVE_BIND_PORT", "8000")
+        monkeypatch.setenv("STREAMARR_EFFECTIVE_BIND_HOST", "0.0.0.0")
+        monkeypatch.setenv("STREAMARR_EFFECTIVE_BIND_PORT", "8000")
 
         resp = await client.get("/api/settings/network/runtime", headers=admin_headers)
 
@@ -98,7 +98,7 @@ class TestNetworkSettings:
         assert data["ssl_files_present"] is False
         assert data["restart_required"] is True
         assert data["internal_base_url"] == "http://127.0.0.1:9443"
-        assert data["reverse_proxy_env"]["PYRATE_UPSTREAM_PORT"] == "9443"
+        assert data["reverse_proxy_env"]["STREAMARR_UPSTREAM_PORT"] == "9443"
 
     async def test_get_network_runtime_settings_reports_proxy_urls(
         self, client: AsyncClient, test_superuser: User, admin_headers
@@ -121,11 +121,11 @@ class TestNetworkSettings:
         assert data["public_base_url"] == "https://media.example.test"
         assert data["internal_base_url"] == "https://127.0.0.1:443"
         assert data["reverse_proxy_env"] == {
-            "PYRATE_UPSTREAM_HOST": "0.0.0.0",
-            "PYRATE_UPSTREAM_PORT": "443",
-            "PYRATE_UPSTREAM_SCHEME": "https",
-            "PYRATE_PUBLIC_BASE_URL": "https://media.example.test",
-            "PYRATE_INTERNAL_BASE_URL": "https://127.0.0.1:443",
+            "STREAMARR_UPSTREAM_HOST": "0.0.0.0",
+            "STREAMARR_UPSTREAM_PORT": "443",
+            "STREAMARR_UPSTREAM_SCHEME": "https",
+            "STREAMARR_PUBLIC_BASE_URL": "https://media.example.test",
+            "STREAMARR_INTERNAL_BASE_URL": "https://127.0.0.1:443",
         }
 
     async def test_get_network_runtime_settings_as_user_forbidden(

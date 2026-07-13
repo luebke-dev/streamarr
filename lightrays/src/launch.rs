@@ -346,7 +346,7 @@ const FORBIDDEN_MOUNT_SUBTREES: [&str; 6] = [
     "/proc",
     "/sys",
     "/etc",
-    "/opt/pyrate",
+    "/opt/streamarr",
 ];
 
 /// True when a path contains a `..` segment (traversal). Split on `/` so
@@ -939,8 +939,8 @@ mod tests {
             "/sys",
             "/etc",
             "/etc/passwd",
-            "/opt/pyrate",
-            "/opt/pyrate/bin",
+            "/opt/streamarr",
+            "/opt/streamarr/bin",
         ] {
             assert!(
                 validate_app_mounts(&[mount("/srv/games/x", bad, false)], &prefixes).is_err(),

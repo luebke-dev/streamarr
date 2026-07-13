@@ -5,8 +5,8 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.page_layout import PageLayout, PageSection, SectionType
-from pyrate.services.page_layout import PageLayoutService
+from streamarr.models.page_layout import PageLayout, PageSection, SectionType
+from streamarr.services.page_layout import PageLayoutService
 
 
 class TestPageLayoutCRUD:

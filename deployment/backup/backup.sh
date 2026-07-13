@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# pyrate.media disaster-recovery backup.
+# streamarr.media disaster-recovery backup.
 #
 # Produces, under a timestamped directory:
 #   * postgres.dump       — pg_dump custom-format archive (the source of truth)
@@ -44,11 +44,11 @@ if [[ -z "${POSTGRES_PASSWORD:-}" && -f "${REPO_ROOT}/.env" ]]; then
   set -a; source <(grep -E '^POSTGRES_' "${REPO_ROOT}/.env" || true); set +a
 fi
 
-BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/pyrate}"
+BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/streamarr}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
-PG_CONTAINER="${PG_CONTAINER:-pyratemedia-db-1}"
-POSTGRES_USER="${POSTGRES_USER:-pyrate}"
-POSTGRES_DB="${POSTGRES_DB:-pyrate}"
+PG_CONTAINER="${PG_CONTAINER:-streamarr-db-1}"
+POSTGRES_USER="${POSTGRES_USER:-streamarr}"
+POSTGRES_DB="${POSTGRES_DB:-streamarr}"
 PGHOST="${PGHOST:-127.0.0.1}"
 PGPORT="${PGPORT:-5432}"
 ES_HOST="${ES_HOST:-127.0.0.1}"
@@ -70,7 +70,7 @@ log "Writing backup set to ${DEST}"
 
 MANIFEST="${DEST}/MANIFEST.txt"
 {
-  echo "pyrate.media backup"
+  echo "streamarr.media backup"
   echo "created_utc: ${TS}"
   echo "host: $(hostname 2>/dev/null || echo unknown)"
   echo "postgres_db: ${POSTGRES_DB}"
@@ -106,7 +106,7 @@ if [[ -n "${ES_SNAPSHOT_REPO}" ]] && have curl; then
       -d "{\"type\":\"fs\",\"settings\":{\"location\":\"${ES_SNAPSHOT_REPO_LOCATION}\"}}" \
       >/dev/null || log "  WARN: could not register snapshot repository (continuing)"
   fi
-  SNAP="pyrate-${TS,,}"
+  SNAP="streamarr-${TS,,}"
   if curl -sf -X PUT "${ES_BASE}/_snapshot/${ES_SNAPSHOT_REPO}/${SNAP}?wait_for_completion=true" \
        -o "${DEST}/elasticsearch.json"; then
     echo "elasticsearch.json: snapshot '${SNAP}' in repo '${ES_SNAPSHOT_REPO}'" >> "${MANIFEST}"

@@ -8,10 +8,10 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.device import Device
-from pyrate.models.media import MediaItem, MediaType
-from pyrate.models.user import User
-from pyrate.models.viewing_history import ViewingHistory
+from streamarr.models.device import Device
+from streamarr.models.media import MediaItem, MediaType
+from streamarr.models.user import User
+from streamarr.models.viewing_history import ViewingHistory
 
 
 @pytest.fixture

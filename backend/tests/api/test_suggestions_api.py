@@ -7,17 +7,17 @@ from datetime import UTC, date, datetime
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.genre import Genre
-from pyrate.models.media import (
+from streamarr.models.genre import Genre
+from streamarr.models.media import (
     AvailabilityStatus,
     MediaItem,
     MediaType,
     media_genre_table,
 )
-from pyrate.models.person import MediaCast, Person
-from pyrate.models.user import User
-from pyrate.models.viewing_history import ViewingHistory
-from pyrate.services.list import ListService
+from streamarr.models.person import MediaCast, Person
+from streamarr.models.user import User
+from streamarr.models.viewing_history import ViewingHistory
+from streamarr.services.list import ListService
 
 
 async def _create_item(

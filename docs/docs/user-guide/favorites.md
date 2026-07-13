@@ -1,6 +1,6 @@
 # Favorites & Likes
 
-Favorites give you one-click access to the media you care about most — and on servers where it is enabled, favoriting something tells pyrate.media to fetch and maintain it for you automatically. Likes are a lighter signal: a quick thumbs-up for individual items and for other users' lists.
+Favorites give you one-click access to the media you care about most — and on servers where it is enabled, favoriting something tells streamarr.media to fetch and maintain it for you automatically. Likes are a lighter signal: a quick thumbs-up for individual items and for other users' lists.
 
 ## Marking Media as a Favorite
 

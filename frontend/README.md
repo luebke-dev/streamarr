@@ -1,6 +1,6 @@
-# pyrate.media — Frontend
+# streamarr.media — Frontend
 
-Vue 3 / Quasar SPA for the pyrate.media self-hosted media server.
+Vue 3 / Quasar SPA for the streamarr.media self-hosted media server.
 
 ## Stack
 

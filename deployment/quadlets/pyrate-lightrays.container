@@ -1,15 +1,15 @@
 [Unit]
 Description=Lightrays cloud-gaming WebRTC streaming server
-After=pyrate-backend.service
+After=streamarr-backend.service
 
 [Container]
-Image=registry.gitlab.com/pyrate.media/lightrays:latest
-ContainerName=pyrate-lightrays
+Image=registry.gitlab.com/streamarr.media/lightrays:latest
+ContainerName=streamarr-lightrays
 
 # Secrets & host paths (POSTGRES_PASSWORD, SECRET_KEY, DATA_DIR,
 # PROJECT_ROOT, ...) are injected from this file. Create it with mode 0600,
 # owned by root. See deployment/README.md.
-EnvironmentFile=/etc/pyrate/pyrate.env
+EnvironmentFile=/etc/streamarr/streamarr.env
 
 # Lightrays requires privileged mode for Wayland compositor + GPU access
 SecurityLabelDisable=true
@@ -19,8 +19,8 @@ PodmanArgs=--privileged
 Volume=/var/run/docker.sock:/var/run/docker.sock:rw,z
 
 # Shared runtime & state dirs visible to both Lightrays and game containers
-Volume=/srv/pyrate/lightrays/runtime:/run/lightrays:rw,z
-Volume=/srv/pyrate/lightrays/state:/state/lightrays:rw,z
+Volume=/srv/streamarr/lightrays/runtime:/run/lightrays:rw,z
+Volume=/srv/streamarr/lightrays/state:/state/lightrays:rw,z
 
 # GPU device passthrough for hardware-accelerated video encoding
 AddDevice=/dev/dri
@@ -35,8 +35,8 @@ Environment=LIGHTRAYS_STUN_SERVER=stun://stun.l.google.com:19302
 Environment=LIGHTRAYS_CORS_ORIGINS=*
 Environment=XDG_RUNTIME_DIR=/run/lightrays
 Environment=LIGHTRAYS_STATE_DIR=/state/lightrays
-Environment=LIGHTRAYS_HOST_XDG_RUNTIME_DIR=/srv/pyrate/lightrays/runtime
-Environment=LIGHTRAYS_HOST_STATE_DIR=/srv/pyrate/lightrays/state
+Environment=LIGHTRAYS_HOST_XDG_RUNTIME_DIR=/srv/streamarr/lightrays/runtime
+Environment=LIGHTRAYS_HOST_STATE_DIR=/srv/streamarr/lightrays/state
 
 # Optional TURN server for NAT traversal (uncomment and configure if needed)
 # Environment=LIGHTRAYS_TURN_SERVER=

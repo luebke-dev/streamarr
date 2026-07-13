@@ -99,7 +99,7 @@ describe('useRemoteControlStore', () => {
   })
 
   describe('loadTargetSession', () => {
-    it('loads the native session contract for pyrate devices', async () => {
+    it('loads the native session contract for streamarr devices', async () => {
       const store = useRemoteControlStore()
       store.setTargetDevice({ device_id: 'living-room', name: 'Living Room' })
       api.get.mockResolvedValueOnce({
@@ -195,13 +195,13 @@ describe('useRemoteControlStore', () => {
   })
 
   describe('playbackOptionsForTarget', () => {
-    it('uses registered pyrate device guid for backend capability lookup', () => {
+    it('uses registered streamarr device guid for backend capability lookup', () => {
       const store = useRemoteControlStore()
       expect(
         store.playbackOptionsForTarget({
           guid: 'device-guid',
           device_id: 'browser-1',
-          protocol: 'pyrate',
+          protocol: 'streamarr',
         }),
       ).toEqual({ device_guid: 'device-guid' })
     })
@@ -248,7 +248,7 @@ describe('useRemoteControlStore', () => {
       expect(mockWs.send).not.toHaveBeenCalled()
     })
 
-    it('posts pyrate device commands through the native device session API', async () => {
+    it('posts streamarr device commands through the native device session API', async () => {
       const store = useRemoteControlStore()
       store.targetDevice = { device_id: 'd1' }
 

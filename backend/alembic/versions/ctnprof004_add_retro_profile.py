@@ -5,7 +5,7 @@ Revises: ctnprof003
 Create Date: 2026-07-04 00:00:00.000000
 
 Seeds a single builtin ``retro`` profile backing the generic
-``pyrate-retro`` (RetroArch kiosk) image, so any GAMES item that references
+``streamarr-retro`` (RetroArch kiosk) image, so any GAMES item that references
 ``extra_data.lightrays.profile = "retro"`` launches a libretro core + ROM
 with no per-game plumbing. The core is chosen per-game via
 ``extra_data.lightrays.env.RETRO_CORE``; the ROM travels as ``app_ref`` and
@@ -37,7 +37,7 @@ _SEED_RETRO = sa.text(
     )
     SELECT
         gen_random_uuid(), 'retro', 'libretro',
-        'ghcr.io/luebke-dev/pyrate-retro:latest', 'gow-app', 'game',
+        'ghcr.io/luebke-dev/streamarr-retro:latest', 'gow-app', 'game',
         CAST('{"RETRO_ROM": "{app_ref}", "RETRO_SYSTEM_DIR": "/system"}' AS JSONB),
         true, NOW(), NOW()
     WHERE NOT EXISTS (

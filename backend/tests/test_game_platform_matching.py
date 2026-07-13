@@ -7,13 +7,13 @@ exist: a platform gate (reject releases whose named platform isn't one of the
 game's) and no-intro token-containment recovery. Lock both.
 """
 
-from pyrate.services.game_platforms import (
+from streamarr.services.game_platforms import (
     is_retro_platform,
     normalize_platforms,
     platform_from_release_title,
     retro_core_for,
 )
-from pyrate.services.release_matcher import ReleaseMatcher
+from streamarr.services.release_matcher import ReleaseMatcher
 
 GAME = "The Legend of Zelda: Ocarina of Time"
 # Ocarina's IGDB platforms.

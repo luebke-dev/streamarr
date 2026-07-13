@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from httpx import AsyncClient
 
-from pyrate.models.activity_log import ActivityLog
-from pyrate.models.user import User
+from streamarr.models.activity_log import ActivityLog
+from streamarr.models.user import User
 
 
 class TestListTasks:
@@ -50,7 +50,7 @@ class TestTaskHistory:
         mock_task = AsyncMock()
         mock_task.kiq = AsyncMock()
 
-        with patch("pyrate.worker.refresh_downloads", mock_task, create=True):
+        with patch("streamarr.worker.refresh_downloads", mock_task, create=True):
             run_resp = await client.post(
                 "/api/tasks/refresh_downloads/run", headers=admin_headers
             )
@@ -71,7 +71,7 @@ class TestTaskHistory:
         mock_task = AsyncMock()
         mock_task.kiq = AsyncMock(side_effect=RuntimeError("redis down"))
 
-        with patch("pyrate.worker.refresh_downloads", mock_task, create=True):
+        with patch("streamarr.worker.refresh_downloads", mock_task, create=True):
             run_resp = await client.post(
                 "/api/tasks/refresh_downloads/run", headers=admin_headers
             )
@@ -173,8 +173,8 @@ class TestRunTask:
         mock_task.kiq = AsyncMock()
 
         with patch(
-            "pyrate.api.v1.tasks.refresh_downloads", mock_task, create=True
-        ), patch("pyrate.worker.refresh_downloads", mock_task, create=True):
+            "streamarr.api.v1.tasks.refresh_downloads", mock_task, create=True
+        ), patch("streamarr.worker.refresh_downloads", mock_task, create=True):
             resp = await client.post(
                 "/api/tasks/refresh_downloads/run", headers=admin_headers
             )
@@ -191,7 +191,7 @@ class TestRunTask:
         mock_task = AsyncMock()
         mock_task.kiq = AsyncMock()
 
-        with patch("pyrate.worker.import_trending_movies", mock_task, create=True):
+        with patch("streamarr.worker.import_trending_movies", mock_task, create=True):
             resp = await client.post(
                 "/api/tasks/import_trending_movies/run", headers=admin_headers
             )
@@ -205,7 +205,7 @@ class TestRunTask:
         mock_task = AsyncMock()
         mock_task.kiq = AsyncMock()
 
-        with patch("pyrate.worker.import_trending_shows", mock_task, create=True):
+        with patch("streamarr.worker.import_trending_shows", mock_task, create=True):
             resp = await client.post(
                 "/api/tasks/import_trending_shows/run", headers=admin_headers
             )
@@ -219,7 +219,7 @@ class TestRunTask:
         mock_task = AsyncMock()
         mock_task.kiq = AsyncMock()
 
-        with patch("pyrate.worker.import_trending_games", mock_task, create=True):
+        with patch("streamarr.worker.import_trending_games", mock_task, create=True):
             resp = await client.post(
                 "/api/tasks/import_trending_games/run", headers=admin_headers
             )
@@ -234,7 +234,7 @@ class TestRunTask:
         mock_task.kiq = AsyncMock()
 
         with patch(
-            "pyrate.worker.cleanup_orphaned_temp_files", mock_task, create=True
+            "streamarr.worker.cleanup_orphaned_temp_files", mock_task, create=True
         ):
             resp = await client.post(
                 "/api/tasks/cleanup_orphaned_temp_files/run",
@@ -250,7 +250,7 @@ class TestRunTask:
         mock_task.kiq = AsyncMock()
 
         with patch(
-            "pyrate.worker.cleanup_stale_transcoding_sessions",
+            "streamarr.worker.cleanup_stale_transcoding_sessions",
             mock_task,
             create=True,
         ):
@@ -267,7 +267,7 @@ class TestRunTask:
         mock_task = AsyncMock()
         mock_task.kiq = AsyncMock()
 
-        with patch("pyrate.worker.cleanup_storage", mock_task, create=True):
+        with patch("streamarr.worker.cleanup_storage", mock_task, create=True):
             resp = await client.post(
                 "/api/tasks/cleanup_storage/run", headers=admin_headers
             )
@@ -278,11 +278,11 @@ class TestRunTask:
         self, client: AsyncClient, test_superuser: User, admin_headers
     ):
         """Test reindex_all task endpoint directly (bypassing ASGI)."""
-        from pyrate.api.v1.tasks import run_task
+        from streamarr.api.v1.tasks import run_task
 
         mock_user = MagicMock()
 
-        with patch("pyrate.api.v1.tasks._spawn_background") as spawn_background:
+        with patch("streamarr.api.v1.tasks._spawn_background") as spawn_background:
             result = await run_task("reindex_all", mock_user)
 
         assert result.task_id == "reindex_all"
@@ -293,11 +293,11 @@ class TestRunTask:
     async def test_run_reindex_movies(
         self, client: AsyncClient, test_superuser: User, admin_headers
     ):
-        from pyrate.api.v1.tasks import run_task
+        from streamarr.api.v1.tasks import run_task
 
         mock_user = MagicMock()
 
-        with patch("pyrate.api.v1.tasks._spawn_background") as spawn_background:
+        with patch("streamarr.api.v1.tasks._spawn_background") as spawn_background:
             result = await run_task("reindex_movies", mock_user)
 
         assert result.task_id == "reindex_movies"
@@ -307,11 +307,11 @@ class TestRunTask:
     async def test_run_reindex_shows(
         self, client: AsyncClient, test_superuser: User, admin_headers
     ):
-        from pyrate.api.v1.tasks import run_task
+        from streamarr.api.v1.tasks import run_task
 
         mock_user = MagicMock()
 
-        with patch("pyrate.api.v1.tasks._spawn_background") as spawn_background:
+        with patch("streamarr.api.v1.tasks._spawn_background") as spawn_background:
             result = await run_task("reindex_shows", mock_user)
 
         assert result.task_id == "reindex_shows"
@@ -325,7 +325,7 @@ class TestRunTask:
         mock_task = MagicMock()
         mock_task.kiq = AsyncMock(side_effect=RuntimeError("redis down"))
 
-        with patch("pyrate.worker.refresh_downloads", mock_task, create=True):
+        with patch("streamarr.worker.refresh_downloads", mock_task, create=True):
             resp = await client.post(
                 "/api/tasks/refresh_downloads/run", headers=admin_headers
             )

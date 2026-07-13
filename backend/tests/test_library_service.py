@@ -7,16 +7,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.library import Library
-from pyrate.models.media import (
+from streamarr.models.library import Library
+from streamarr.models.media import (
     AvailabilityStatus,
     MediaExternalId,
     MediaItem,
     MediaRelease,
     MediaType,
 )
-from pyrate.models.user import User
-from pyrate.services.library import LibraryService
+from streamarr.models.user import User
+from streamarr.services.library import LibraryService
 
 
 class MockPlugin:

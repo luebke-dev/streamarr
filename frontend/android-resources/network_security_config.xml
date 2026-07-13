@@ -7,7 +7,7 @@
         </trust-anchors>
     </base-config>
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">pyrate.luebke.dev</domain>
+        <domain includeSubdomains="true">streamarr.luebke.dev</domain>
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">10.10.10.11</domain>
     </domain-config>

@@ -1,4 +1,4 @@
-"""Tests for pyrate.config module - covers dataclass defaults and load_settings_from_database."""
+"""Tests for streamarr.config module - covers dataclass defaults and load_settings_from_database."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,7 +11,7 @@ import pytest
 
 class TestOIDCConfig:
     def test_defaults(self):
-        from pyrate.config import OIDCConfig
+        from streamarr.config import OIDCConfig
 
         cfg = OIDCConfig()
         assert cfg.enabled is False
@@ -31,7 +31,7 @@ class TestOIDCConfig:
 
 class TestInvitesConfig:
     def test_defaults(self):
-        from pyrate.config import InvitesConfig
+        from streamarr.config import InvitesConfig
 
         cfg = InvitesConfig()
         assert cfg.enabled is True
@@ -42,7 +42,7 @@ class TestInvitesConfig:
 
 class TestPaymentConfig:
     def test_defaults(self):
-        from pyrate.config import PaymentConfig
+        from streamarr.config import PaymentConfig
 
         cfg = PaymentConfig()
         assert cfg.enabled is False
@@ -52,19 +52,19 @@ class TestPaymentConfig:
 
 class TestEmailConfig:
     def test_defaults(self):
-        from pyrate.config import EmailConfig
+        from streamarr.config import EmailConfig
 
         cfg = EmailConfig()
         assert cfg.enabled is False
         assert cfg.smtp_host == "localhost"
         assert cfg.smtp_port == 587
         assert cfg.smtp_use_tls is True
-        assert cfg.from_email == "noreply@pyrate.media"
+        assert cfg.from_email == "noreply@streamarr.media"
 
 
 class TestTranscodingConfig:
     def test_defaults(self):
-        from pyrate.config import TranscodingConfig
+        from streamarr.config import TranscodingConfig
 
         cfg = TranscodingConfig()
         assert cfg.enabled is False
@@ -76,7 +76,7 @@ class TestTranscodingConfig:
 
 class TestMetadataConfig:
     def test_defaults(self):
-        from pyrate.config import MetadataConfig
+        from streamarr.config import MetadataConfig
 
         cfg = MetadataConfig()
         assert cfg.tmdb_api_key is None
@@ -87,7 +87,7 @@ class TestMetadataConfig:
 
 class TestLibraryConfig:
     def test_defaults(self):
-        from pyrate.config import LibraryConfig
+        from streamarr.config import LibraryConfig
 
         cfg = LibraryConfig()
         assert cfg.enabled is True
@@ -97,7 +97,7 @@ class TestLibraryConfig:
         assert cfg.download_rules == []
 
     def test_custom_path(self):
-        from pyrate.config import LibraryConfig
+        from streamarr.config import LibraryConfig
 
         cfg = LibraryConfig(library_path="/data/movies")
         assert cfg.library_path == "/data/movies"
@@ -106,12 +106,12 @@ class TestLibraryConfig:
 class TestElasticsearchConfig:
     @patch.dict("os.environ", {}, clear=True)
     def test_defaults(self):
-        from pyrate.config import ElasticsearchConfig
+        from streamarr.config import ElasticsearchConfig
 
         cfg = ElasticsearchConfig()
         assert cfg.host == "localhost"
         assert cfg.port == 9200
-        assert cfg.index_prefix == "pyrate"
+        assert cfg.index_prefix == "streamarr"
         assert cfg.use_ssl is False
         assert cfg.timeout == 30
 
@@ -122,7 +122,7 @@ class TestElasticsearchConfig:
 
 class TestAppSettings:
     def test_app_settings_init(self):
-        from pyrate.config import AppSettings
+        from streamarr.config import AppSettings
 
         app = AppSettings()
         assert app.oidc is not None
@@ -144,14 +144,14 @@ class TestAppSettings:
 
 class TestConnectionSettings:
     def test_singleton_exists(self):
-        from pyrate.config import connection_settings, settings
+        from streamarr.config import connection_settings, settings
 
         assert connection_settings is not None
         assert settings is not None
         assert connection_settings.secret_key != ""
 
     def test_settings_has_database_url(self):
-        from pyrate.config import settings
+        from streamarr.config import settings
 
         assert settings.database_url is not None
 
@@ -163,7 +163,7 @@ class TestConnectionSettings:
 class TestLoadSettingsFromDatabase:
     @pytest.mark.asyncio
     async def test_load_settings_applies_prefixes(self):
-        from pyrate.config import load_settings_from_database, settings
+        from streamarr.config import load_settings_from_database, settings
 
         mock_settings = {
             "oidc.enabled": True,
@@ -188,8 +188,8 @@ class TestLoadSettingsFromDatabase:
         mock_settings_service.get_all.return_value = mock_settings
 
         with (
-            patch("pyrate.database.sessionmanager") as mock_sm,
-            patch("pyrate.services.settings.SettingsService", return_value=mock_settings_service),
+            patch("streamarr.database.sessionmanager") as mock_sm,
+            patch("streamarr.services.settings.SettingsService", return_value=mock_settings_service),
         ):
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(return_value=mock_session)
@@ -217,15 +217,15 @@ class TestLoadSettingsFromDatabase:
     @pytest.mark.asyncio
     async def test_load_settings_empty(self):
         """Loading with empty settings doesn't crash."""
-        from pyrate.config import load_settings_from_database
+        from streamarr.config import load_settings_from_database
 
         mock_session = AsyncMock()
         mock_settings_service = AsyncMock()
         mock_settings_service.get_all.return_value = {}
 
         with (
-            patch("pyrate.database.sessionmanager") as mock_sm,
-            patch("pyrate.services.settings.SettingsService", return_value=mock_settings_service),
+            patch("streamarr.database.sessionmanager") as mock_sm,
+            patch("streamarr.services.settings.SettingsService", return_value=mock_settings_service),
         ):
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(return_value=mock_session)

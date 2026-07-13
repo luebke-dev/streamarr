@@ -23,7 +23,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 # Hardened production — fails fast unless LIGHTRAYS_JWT_SECRET and
 # LIGHTRAYS_CORS_ORIGINS are provided by the environment.
 LIGHTRAYS_JWT_SECRET=$(openssl rand -hex 32) \
-LIGHTRAYS_CORS_ORIGINS=https://pyrate.example.com \
+LIGHTRAYS_CORS_ORIGINS=https://streamarr.example.com \
   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 

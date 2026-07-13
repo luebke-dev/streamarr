@@ -6,10 +6,10 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.invite import Invite
-from pyrate.models.user import User
-from pyrate.schemas.invite import InviteCreate, InviteUpdate
-from pyrate.services.invite import InviteService
+from streamarr.models.invite import Invite
+from streamarr.models.user import User
+from streamarr.schemas.invite import InviteCreate, InviteUpdate
+from streamarr.services.invite import InviteService
 
 
 class TestInviteCRUD:

@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
-from pyrate.schemas.search import SearchRequest, SearchType
-from pyrate.services.elasticsearch import ElasticsearchService
+from streamarr.schemas.search import SearchRequest, SearchType
+from streamarr.services.elasticsearch import ElasticsearchService
 
 
 # ==========================================================================
@@ -18,7 +18,7 @@ from pyrate.services.elasticsearch import ElasticsearchService
 
 def _make_es_service(with_client: bool = True) -> ElasticsearchService:
     svc = ElasticsearchService()
-    svc.index_prefix = "test_pyrate"
+    svc.index_prefix = "test_streamarr"
     if with_client:
         client = AsyncMock()
         client.ping = AsyncMock(return_value=True)
@@ -58,7 +58,7 @@ def _make_hit(title="Test", score=5.0, has_highlight=False, has_id=True):
         "_id": str(uuid.uuid4()),
         "_score": score,
         "_source": {"title": title},
-        "_index": "test_pyrate_movies",
+        "_index": "test_streamarr_movies",
     }
     if has_id:
         hit["_source"]["id"] = str(uuid.uuid4())
@@ -115,7 +115,7 @@ class TestElasticsearchLifecycle:
         svc = ElasticsearchService()
         svc.index_prefix = "test"
         with patch(
-            "pyrate.services.elasticsearch.AsyncElasticsearch"
+            "streamarr.services.elasticsearch.AsyncElasticsearch"
         ) as MockES:
             mock_client = AsyncMock()
             mock_client.ping = AsyncMock(return_value=True)
@@ -133,7 +133,7 @@ class TestElasticsearchLifecycle:
         svc = ElasticsearchService()
         svc.index_prefix = "test"
         with patch(
-            "pyrate.services.elasticsearch.AsyncElasticsearch"
+            "streamarr.services.elasticsearch.AsyncElasticsearch"
         ) as MockES:
             mock_client = AsyncMock()
             mock_client.ping = AsyncMock(return_value=False)
@@ -150,7 +150,7 @@ class TestElasticsearchLifecycle:
         svc = ElasticsearchService()
         svc.index_prefix = "test"
         with patch(
-            "pyrate.services.elasticsearch.AsyncElasticsearch"
+            "streamarr.services.elasticsearch.AsyncElasticsearch"
         ) as MockES:
             MockES.side_effect = ESConnectionError("connection refused")
             await svc.initialize()
@@ -347,7 +347,7 @@ class TestElasticsearchSearch:
         svc.client.search = AsyncMock(
             return_value=_make_search_response([], total=0)
         )
-        from pyrate.schemas.search import SearchSortBy, SortOrder
+        from streamarr.schemas.search import SearchSortBy, SortOrder
         req = SearchRequest(
             query="Test", search_type=SearchType.MOVIES,
             sort_by=SearchSortBy.TITLE, sort_order=SortOrder.ASC,
@@ -361,7 +361,7 @@ class TestElasticsearchSearch:
         svc.client.search = AsyncMock(
             return_value=_make_search_response([], total=0)
         )
-        from pyrate.schemas.search import SearchSortBy
+        from streamarr.schemas.search import SearchSortBy
         req = SearchRequest(
             query="Test", search_type=SearchType.MOVIES,
             sort_by=SearchSortBy.RELEASE_DATE,
@@ -477,7 +477,7 @@ class TestElasticsearchSearch:
         svc.client.search = AsyncMock(
             return_value=_make_search_response([], total=0)
         )
-        from pyrate.schemas.search import SearchSortBy
+        from streamarr.schemas.search import SearchSortBy
         req = SearchRequest(
             query="Test", search_type=SearchType.ALL,
             sort_by=SearchSortBy.RELEASE_DATE,
@@ -491,7 +491,7 @@ class TestElasticsearchSearch:
         svc.client.search = AsyncMock(
             return_value=_make_search_response([], total=0)
         )
-        from pyrate.schemas.search import SearchSortBy
+        from streamarr.schemas.search import SearchSortBy
         req = SearchRequest(
             query="Test", search_type=SearchType.ALL,
             sort_by=SearchSortBy.CREATED_AT,
@@ -513,7 +513,7 @@ class TestElasticsearchSearch:
         svc.client.search = AsyncMock(
             return_value=_make_search_response([], total=0)
         )
-        from pyrate.schemas.search import SearchSortBy
+        from streamarr.schemas.search import SearchSortBy
         req = SearchRequest(
             query="Test", search_type=SearchType.SHOWS,
             sort_by=SearchSortBy.RELEASE_DATE,
@@ -735,8 +735,8 @@ class TestElasticsearchBulkIndex:
 def _make_search_service():
     """Create a SearchService with mocked dependencies."""
     db = AsyncMock()
-    with patch("pyrate.services.search.SettingsService"):
-        from pyrate.services.search import SearchService
+    with patch("streamarr.services.search.SettingsService"):
+        from streamarr.services.search import SearchService
         svc = SearchService(db)
     svc._settings_service = AsyncMock()
     return svc
@@ -745,8 +745,8 @@ def _make_search_service():
 class TestSearchServiceInit:
     def test_init(self):
         db = AsyncMock()
-        with patch("pyrate.services.search.SettingsService"):
-            from pyrate.services.search import SearchService
+        with patch("streamarr.services.search.SettingsService"):
+            from streamarr.services.search import SearchService
             svc = SearchService(db)
         assert svc.db is db
         assert svc._tmdb is None
@@ -760,7 +760,7 @@ class TestSearchServiceGetRedis:
     @pytest.mark.asyncio
     async def test_get_redis_creates_connection(self):
         svc = _make_search_service()
-        with patch("pyrate.services.search.aioredis") as mock_redis:
+        with patch("streamarr.services.search.aioredis") as mock_redis:
             mock_conn = AsyncMock()
             mock_redis.from_url.return_value = mock_conn
             result = await svc._get_redis()
@@ -810,7 +810,7 @@ class TestSearchServiceGetClients:
         svc._settings_service.get_tmdb_api_key = AsyncMock(
             return_value="test-api-key-12345678"
         )
-        with patch("pyrate.services.search.TMDB") as MockTMDB:
+        with patch("streamarr.services.search.TMDB") as MockTMDB:
             mock_tmdb = MagicMock()
             MockTMDB.return_value = mock_tmdb
             result = await svc._get_tmdb_client()
@@ -840,7 +840,7 @@ class TestSearchServiceGetClients:
         svc._settings_service.get_igdb_credentials = AsyncMock(
             return_value=("client_id", "client_secret")
         )
-        with patch("pyrate.services.search.IGDB") as MockIGDB:
+        with patch("streamarr.services.search.IGDB") as MockIGDB:
             mock_igdb = MagicMock()
             MockIGDB.return_value = mock_igdb
             result = await svc._get_igdb_client()
@@ -869,7 +869,7 @@ class TestSearchServiceGetClients:
         svc._settings_service.get_spotify_credentials = AsyncMock(
             return_value=("client_id", "client_secret")
         )
-        with patch("pyrate.services.search.Spotify") as MockSpotify:
+        with patch("streamarr.services.search.Spotify") as MockSpotify:
             mock_spotify = MagicMock()
             MockSpotify.return_value = mock_spotify
             result = await svc._get_spotify_client()
@@ -1373,7 +1373,7 @@ class TestSearchServiceSearchLocal:
         mock_es.search_movies = AsyncMock(
             return_value={"hits": [], "total": 0}
         )
-        with patch("pyrate.services.search.elasticsearch_service", mock_es):
+        with patch("streamarr.services.search.elasticsearch_service", mock_es):
             req = SearchRequest(query="Test", search_type=SearchType.MOVIES)
             result = await svc._search_local(req)
         assert result["source"] == "local"
@@ -1386,7 +1386,7 @@ class TestSearchServiceSearchLocal:
         mock_es.search_shows = AsyncMock(
             return_value={"hits": [], "total": 0}
         )
-        with patch("pyrate.services.search.elasticsearch_service", mock_es):
+        with patch("streamarr.services.search.elasticsearch_service", mock_es):
             req = SearchRequest(query="Test", search_type=SearchType.SHOWS)
             result = await svc._search_local(req)
         assert result["source"] == "local"
@@ -1398,7 +1398,7 @@ class TestSearchServiceSearchLocal:
         mock_es.search_all = AsyncMock(
             return_value={"hits": [], "total": 0}
         )
-        with patch("pyrate.services.search.elasticsearch_service", mock_es):
+        with patch("streamarr.services.search.elasticsearch_service", mock_es):
             req = SearchRequest(query="Test", search_type=SearchType.ALL)
             result = await svc._search_local(req)
         assert result["source"] == "local"
@@ -1408,7 +1408,7 @@ class TestSearchServiceSearchLocal:
         svc = _make_search_service()
         mock_es = AsyncMock()
         mock_es.search_all = AsyncMock(side_effect=ConnectionError("ES down"))
-        with patch("pyrate.services.search.elasticsearch_service", mock_es):
+        with patch("streamarr.services.search.elasticsearch_service", mock_es):
             req = SearchRequest(query="Test", search_type=SearchType.ALL)
             result = await svc._search_local(req)
         assert result["total"] == 0

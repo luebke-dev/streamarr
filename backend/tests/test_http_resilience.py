@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from pyrate.utils.http import (
+from streamarr.utils.http import (
     CircuitOpenError,
     call_with_resilience,
     request_with_resilience,

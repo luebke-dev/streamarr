@@ -52,7 +52,7 @@ Each section is one content block on the page. When adding a section you pick a 
 
 ## Inline edit mode
 
-Administrators do not have to use the admin area at all: on the home page and every browse page, admins see a **pencil button** in the top toolbar (**Edit Layout** / **Exit Edit Mode**). In edit mode you can add a section at any position, edit, reorder, enable/disable, and delete sections directly on the live page. If a page has no layout of its own yet, pyrate.media offers to create one on the spot.
+Administrators do not have to use the admin area at all: on the home page and every browse page, admins see a **pencil button** in the top toolbar (**Edit Layout** / **Exit Edit Mode**). In edit mode you can add a section at any position, edit, reorder, enable/disable, and delete sections directly on the live page. If a page has no layout of its own yet, streamarr.media offers to create one on the spot.
 
 !!! note "Admin-only"
     The pencil only appears for administrators, and inline edits change the shared layout for everyone — it is not per-user personalization. Regular users never see edit controls; they only browse the result (see [Dashboard & Home](../user-guide/dashboard.md)).

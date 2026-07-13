@@ -1,10 +1,10 @@
-# Welcome to Pyrate.Media
+# Welcome to Streamarr
 
 **Your all-in-one platform for media management, streaming, and automation.**
 
-## What is Pyrate.Media?
+## What is Streamarr?
 
-Pyrate.Media combines what usually takes half a dozen tools: a streaming media center (like Jellyfin or Plex), download automation (like Sonarr/Radarr), and a WebRTC cloud-gaming service — in a single application, with one library, one user system, and one UI. Your media, your rules.
+Streamarr combines what usually takes half a dozen tools: a streaming media center (like Jellyfin or Plex), download automation (like Sonarr/Radarr), and a WebRTC cloud-gaming service — in a single application, with one library, one user system, and one UI. Your media, your rules.
 
 ## One library, six media types
 
@@ -91,7 +91,7 @@ graph TB
 
 === "As an administrator"
 
-    1. [Install](getting-started/installation.md) Pyrate.Media — one-line installer, Docker Compose, Helm, or Podman quadlets
+    1. [Install](getting-started/installation.md) Streamarr — one-line installer, Docker Compose, Helm, or Podman quadlets
     2. Follow the [quick start](getting-started/quick-start.md) through the setup wizard
     3. Create [libraries](administration/libraries.md) and configure [indexers](administration/indexers.md) and [download clients](administration/downloaders.md)
     4. Curate with [smart collections](administration/smart-collections.md), then set up [backups](administration/maintenance.md) and [monitoring](administration/monitoring.md)
@@ -102,4 +102,4 @@ graph TB
 - [User Guide](user-guide/dashboard.md) — get to know the app
 - [Administration](administration/overview.md) — configure the system
 - [Deployment](deployment/overview.md) — Compose, Kubernetes, and quadlets in depth
-- [Development](developer-guide/overview.md) — hack on Pyrate.Media itself
+- [Development](developer-guide/overview.md) — hack on Streamarr itself

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 import pytest
 import pytest_asyncio
 
-from pyrate.services.elasticsearch import ElasticsearchService
+from streamarr.services.elasticsearch import ElasticsearchService
 
 
 # ---------------------------------------------------------------------------
@@ -17,7 +17,7 @@ from pyrate.services.elasticsearch import ElasticsearchService
 @pytest_asyncio.fixture
 async def service() -> ElasticsearchService:
     svc = ElasticsearchService()
-    svc.index_prefix = "test_pyrate"
+    svc.index_prefix = "test_streamarr"
 
     mock_client = AsyncMock()
     mock_client.ping = AsyncMock(return_value=True)
@@ -134,7 +134,7 @@ class TestIndexing:
 class TestSearch:
     @pytest.mark.asyncio
     async def test_search_movies(self, service: ElasticsearchService):
-        from pyrate.schemas.search import SearchRequest, SearchType
+        from streamarr.schemas.search import SearchRequest, SearchType
 
         request = SearchRequest(query="Test", search_type=SearchType.MOVIES)
         results = await service.search_movies(request)
@@ -143,7 +143,7 @@ class TestSearch:
 
     @pytest.mark.asyncio
     async def test_search_shows(self, service: ElasticsearchService):
-        from pyrate.schemas.search import SearchRequest, SearchType
+        from streamarr.schemas.search import SearchRequest, SearchType
 
         request = SearchRequest(query="Breaking", search_type=SearchType.SHOWS)
         results = await service.search_shows(request)
@@ -154,7 +154,7 @@ class TestSearch:
     async def test_search_no_client(self):
         svc = ElasticsearchService()
         svc.client = None
-        from pyrate.schemas.search import SearchRequest, SearchType
+        from streamarr.schemas.search import SearchRequest, SearchType
 
         request = SearchRequest(query="Test", search_type=SearchType.MOVIES)
         results = await svc.search_movies(request)

@@ -40,7 +40,7 @@ pub struct ServerConfig {
     pub turn_username: String,
     pub turn_password: String,
     /// Allowed CORS origins.  Each entry is a full origin string, e.g.
-    /// `https://pyrate.example.com`.  The special value `*` permits any origin.
+    /// `https://streamarr.example.com`.  The special value `*` permits any origin.
     /// Multiple origins are separated by commas.
     /// Defaults to `*` (allow all) when the variable is unset.
     pub cors_origins: Vec<String>,

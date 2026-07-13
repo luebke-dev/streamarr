@@ -1,13 +1,13 @@
-# pyrate-wine
+# streamarr-wine
 
-Image #1 of the **pyrate game-container** library: a lean, self-built
+Image #1 of the **streamarr game-container** library: a lean, self-built
 Wine + gamescope runtime for streaming Windows games through
 [lightrays](../../lightrays). Deliberately **not** based on
 games-on-whales — no s6 supervision, no `/opt/gow` launch scaffolding, no
 desktop. Just gamescope, Wine, DXVK and the Intel Vulkan/GL userspace, with
 one small entrypoint script.
 
-Tag: `ghcr.io/luebke-dev/pyrate-wine:latest` (built locally; **not pushed** —
+Tag: `ghcr.io/luebke-dev/streamarr-wine:latest` (built locally; **not pushed** —
 the `ghcr.io` prefix only exists to satisfy lightrays' registry allowlist).
 
 ## Why Arch Linux
@@ -17,7 +17,7 @@ Intel Vulkan/GL userspace are all in the official Arch repos at current
 versions, so the whole stack assembles with one `pacman -S` on a rolling
 base. Only DXVK isn't packaged — it's baked from the upstream release.
 
-## The pyrate game-container contract
+## The streamarr game-container contract
 
 lightrays runs a headless Wayland compositor (`gst-wayland-display`)
 **outside** the container and captures/encodes/streams its output over
@@ -57,8 +57,8 @@ WebRTC. This image is a Wayland **client** of that compositor.
 | `WINEPREFIX` | no | `/home/retro/.wine` | persisted via the mounted state dir |
 | `WINEARCH` | no | `win64` | runs 32-bit apps (e.g. WoW 3.3.5) via WoW64. **`win32` is not supported** by this new-WoW64 Wine build (no `i386-unix`) and is coerced to `win64` by the entrypoint |
 | `GAMESCOPE_ARGS` | no | — | extra flags appended to gamescope (word-split) |
-| `PYRATE_SKIP_DXVK` | no | `0` | `1` = keep built-in wined3d instead of DXVK |
-| `PYRATE_INIT_ONLY` | no | `0` | `1` = build prefix + install DXVK, then exit (warmup) |
+| `STREAMARR_SKIP_DXVK` | no | `0` | `1` = keep built-in wined3d instead of DXVK |
+| `STREAMARR_INIT_ONLY` | no | `0` | `1` = build prefix + install DXVK, then exit (warmup) |
 
 The game directory itself is **not** baked into the image — lightrays
 bind-mounts it read-write at launch and points `GAME_EXE` at it.
@@ -66,7 +66,7 @@ bind-mounts it read-write at launch and points `GAME_EXE` at it.
 ## Files
 
 - `Dockerfile` — Arch base + multilib packages + baked DXVK.
-- `run.sh` — the ENTRYPOINT (`/opt/pyrate/run.sh`); implements the contract above.
+- `run.sh` — the ENTRYPOINT (`/opt/streamarr/run.sh`); implements the contract above.
 - `setup_dxvk` — dependency-free DXVK installer (`/usr/local/bin/setup_dxvk`);
   copies the baked DLLs into the prefix and registers native DLL overrides.
   Auto-detects a win32 vs win64 (WoW64) prefix.
@@ -74,7 +74,7 @@ bind-mounts it read-write at launch and points `GAME_EXE` at it.
 ## Build
 
 ```sh
-docker build -t ghcr.io/luebke-dev/pyrate-wine:latest containers/wine/
+docker build -t ghcr.io/luebke-dev/streamarr-wine:latest containers/wine/
 ```
 
 Do **not** push — a local image with the `ghcr.io` tag satisfies lightrays'
@@ -87,7 +87,7 @@ and game launch can't be exercised here — only tool presence + prefix/DXVK
 setup:
 
 ```sh
-docker run --rm --entrypoint bash ghcr.io/luebke-dev/pyrate-wine:latest -c '
+docker run --rm --entrypoint bash ghcr.io/luebke-dev/streamarr-wine:latest -c '
   wine --version; wine64 --version; gamescope --version;
   Xwayland -version 2>&1 | head -1; winetricks --version;
   command -v setup_dxvk; vulkaninfo --summary 2>&1 | head'

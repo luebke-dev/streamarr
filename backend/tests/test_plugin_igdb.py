@@ -14,7 +14,7 @@ def mock_client():
 
 @pytest.fixture
 def igdb(mock_client):
-    from pyrate.metadata.igdb import IGDB
+    from streamarr.metadata.igdb import IGDB
 
     return IGDB(
         client_id="test-client-id",
@@ -332,7 +332,7 @@ class TestValidateConfig:
         assert len(result["errors"]) == 2
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.igdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.igdb.httpx.AsyncClient")
     async def test_validate_success(self, mock_client_cls, igdb):
         mock_instance = AsyncMock()
         resp = MagicMock()
@@ -346,7 +346,7 @@ class TestValidateConfig:
         assert result["valid"] is True
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.igdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.igdb.httpx.AsyncClient")
     async def test_validate_bad_credentials_400(self, mock_client_cls, igdb):
         mock_instance = AsyncMock()
         resp = MagicMock()
@@ -360,7 +360,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.igdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.igdb.httpx.AsyncClient")
     async def test_validate_bad_credentials_401(self, mock_client_cls, igdb):
         mock_instance = AsyncMock()
         resp = MagicMock()
@@ -374,7 +374,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.igdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.igdb.httpx.AsyncClient")
     async def test_validate_other_status(self, mock_client_cls, igdb):
         mock_instance = AsyncMock()
         resp = MagicMock()
@@ -388,7 +388,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.igdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.igdb.httpx.AsyncClient")
     async def test_validate_timeout(self, mock_client_cls, igdb):
         mock_instance = AsyncMock()
         mock_instance.post.side_effect = httpx.TimeoutException("timeout")
@@ -399,7 +399,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.igdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.igdb.httpx.AsyncClient")
     async def test_validate_http_error(self, mock_client_cls, igdb):
         mock_instance = AsyncMock()
         mock_instance.post.side_effect = httpx.HTTPError("connection error")
@@ -410,7 +410,7 @@ class TestValidateConfig:
         assert result["valid"] is False
 
     @pytest.mark.asyncio
-    @patch("pyrate.metadata.igdb.httpx.AsyncClient")
+    @patch("streamarr.metadata.igdb.httpx.AsyncClient")
     async def test_validate_unexpected_error(self, mock_client_cls, igdb):
         mock_instance = AsyncMock()
         mock_instance.post.side_effect = RuntimeError("unexpected")
@@ -434,21 +434,21 @@ class TestCloseAndSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_success(self):
-        from pyrate.metadata.igdb import async_setup
+        from streamarr.metadata.igdb import async_setup
 
         result = await async_setup({"client_id": "id", "client_secret": "secret"})
         assert result is True
 
     @pytest.mark.asyncio
     async def test_async_setup_missing_field(self):
-        from pyrate.metadata.igdb import async_setup
+        from streamarr.metadata.igdb import async_setup
 
         result = await async_setup({"client_id": "id"})
         assert result is False
 
     @pytest.mark.asyncio
     async def test_async_setup_empty(self):
-        from pyrate.metadata.igdb import async_setup
+        from streamarr.metadata.igdb import async_setup
 
         result = await async_setup({})
         assert result is False

@@ -7,13 +7,13 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.downloader import Downloader
-from pyrate.downloaders.deluge import Deluge
-from pyrate.downloaders.sabnzbd import Sabnzbd
-from pyrate.downloaders.spotdl import Spotdl
-from pyrate.schemas.downloader import DownloaderCreate, DownloaderUpdate
-from pyrate.services.downloader import DownloaderService
-from pyrate.utils.http import reset_circuit_breakers
+from streamarr.models.downloader import Downloader
+from streamarr.downloaders.deluge import Deluge
+from streamarr.downloaders.sabnzbd import Sabnzbd
+from streamarr.downloaders.spotdl import Spotdl
+from streamarr.schemas.downloader import DownloaderCreate, DownloaderUpdate
+from streamarr.services.downloader import DownloaderService
+from streamarr.utils.http import reset_circuit_breakers
 
 
 class TestDownloaderCRUD:
@@ -281,7 +281,7 @@ class TestDownloaderResilience:
 
         # Backoff would sleep; neutralise it for the test.
         monkeypatch.setattr(
-            "pyrate.utils.http._backoff_delay", lambda *a, **k: 0.0
+            "streamarr.utils.http._backoff_delay", lambda *a, **k: 0.0
         )
 
         healthy = await service.health_check(downloader)
@@ -303,7 +303,7 @@ class TestDownloaderResilience:
         client.close = AsyncMock()
         monkeypatch.setattr(service, "get_client", lambda d: client)
         monkeypatch.setattr(
-            "pyrate.utils.http._backoff_delay", lambda *a, **k: 0.0
+            "streamarr.utils.http._backoff_delay", lambda *a, **k: 0.0
         )
 
         healthy = await service.health_check(downloader)

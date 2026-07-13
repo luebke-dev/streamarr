@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pyrate.models.library import Library
-from pyrate.models.media import (
+from streamarr.models.library import Library
+from streamarr.models.media import (
     AvailabilityStatus,
     MediaItem,
     MediaRelease,
     MediaType,
 )
-from pyrate.services.library import LibraryService
+from streamarr.services.library import LibraryService
 
 
 class MockPlugin:
@@ -271,7 +271,7 @@ class TestRescoreReleases:
         mock_plugin.score_release = AsyncMock(return_value=75)
 
         with patch.object(service, "get_plugin", return_value=mock_plugin), \
-             patch("pyrate.services.library.SettingsService") as MockSS:
+             patch("streamarr.services.library.SettingsService") as MockSS:
             mock_ss = MagicMock()
             mock_ss.get = AsyncMock(side_effect=[None, ["en", "de"]])
             MockSS.return_value = mock_ss
@@ -298,7 +298,7 @@ class TestRescoreReleases:
         mock_plugin.score_release = AsyncMock(return_value=80)
 
         with patch.object(service, "get_plugin", return_value=mock_plugin), \
-             patch("pyrate.services.library.SettingsService") as MockSS:
+             patch("streamarr.services.library.SettingsService") as MockSS:
             mock_ss = MagicMock()
             mock_ss.get = AsyncMock(return_value=None)
             MockSS.return_value = mock_ss
@@ -326,7 +326,7 @@ class TestRescoreReleases:
         mock_plugin.score_release = AsyncMock(return_value=80)
 
         with patch.object(service, "get_plugin", return_value=mock_plugin), \
-             patch("pyrate.services.library.SettingsService") as MockSS:
+             patch("streamarr.services.library.SettingsService") as MockSS:
             mock_ss = MagicMock()
             mock_ss.get = AsyncMock(return_value=None)
             MockSS.return_value = mock_ss

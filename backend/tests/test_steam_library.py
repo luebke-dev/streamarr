@@ -1,8 +1,8 @@
-"""Tests for the local Steam library reader (pyrate.services.steam_library)."""
+"""Tests for the local Steam library reader (streamarr.services.steam_library)."""
 
 from pathlib import Path
 
-from pyrate.services.steam_library import (
+from streamarr.services.steam_library import (
     _iter_library_paths,
     _parse_appmanifest,
     _parse_vdf,
