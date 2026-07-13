@@ -1880,7 +1880,6 @@ export default {
     resultsFound: '{count} Ergebnis gefunden | {count} Ergebnisse gefunden',
 
     // Loading
-    searching: 'Suche läuft...',
 
     // Errors
     searchFailed: 'Suche fehlgeschlagen. Bitte erneut versuchen.',
@@ -1920,7 +1919,6 @@ export default {
     filters: 'Filter',
     advancedFilters: 'Erweiterte Filter',
     excludeFilters: 'Ausschlussfilter',
-    filterType: 'Typ',
     filterGenre: 'Genre',
     filterGenres: 'Genres',
     filterExcludeGenres: 'Genres ausschließen',
@@ -1944,8 +1942,7 @@ export default {
     filterBackdrop: 'Hintergrund',
     filterFavorite: 'Favorit',
     filterPlayed: 'Gesehen',
-    sortBy: 'Sortieren nach',
-    sortOrder: 'Reihenfolge',
+    sortBy: 'Sortieren',
     availLocal: 'Lokal vorhanden',
     availReleases: 'Releases gefunden',
     availNone: 'Nichts gefunden',
@@ -1961,12 +1958,6 @@ export default {
     playedOnly: 'Nur gesehen',
     unplayedOnly: 'Nur ungesehen',
     sortRelevance: 'Relevanz',
-    sortTitle: 'Titel',
-    sortReleaseDate: 'Erscheinungsdatum',
-    sortCreated: 'Hinzugefügt',
-    sortUpdated: 'Aktualisiert',
-    sortAscending: 'Aufsteigend',
-    sortDescending: 'Absteigend',
     noGenresFound: 'Keine Genres gefunden',
     noPersonsFound: 'Keine Personen gefunden',
     noYearsFound: 'Keine Jahre gefunden',
@@ -1985,6 +1976,14 @@ export default {
     cannotNavigate: 'Kann nicht navigieren - keine gültige ID gefunden',
     importingItem: 'Metadaten werden importiert...',
     importFailed: 'Import fehlgeschlagen',
+
+    // Tabs & Sortierung
+    tabAll: 'Alle',
+    loadMore: 'Mehr laden',
+    sortTitleAsc: 'Titel A–Z',
+    sortNewest: 'Neueste zuerst',
+    sortOldest: 'Älteste zuerst',
+    sortAdded: 'Zuletzt hinzugefügt',
   },
 
   // Auth Guard

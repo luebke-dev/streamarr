@@ -19,6 +19,16 @@ logger = logging.getLogger(__name__)
 class LocalSearchService:
     """Search local media rows without provider or import side effects."""
 
+    #: Media type each facet key counts. Mirrors :meth:`_media_type_from_string`
+    #: so a facet count matches what selecting that type tab actually returns.
+    FACET_TYPES: dict[str, MediaType] = {
+        "movies": MediaType.MOVIES,
+        "shows": MediaType.SHOWS,
+        "games": MediaType.GAMES,
+        "music": MediaType.ARTISTS,
+        "books": MediaType.BOOKS,
+    }
+
     def __init__(self, db: AsyncSession):
         self.db = db
         self._library_service = LibraryService(db)
@@ -55,7 +65,7 @@ class LocalSearchService:
         )
         total = await self._library_service.count_media_items(**filter_kwargs)
 
-        return {
+        response: dict[str, Any] = {
             "hits": [self._to_search_hit(item) for item in items],
             "total": total,
             "page": request.page,
@@ -67,6 +77,26 @@ class LocalSearchService:
             "source": "local",
             "provider": "database",
         }
+        if request.with_facets:
+            response["facets"] = {"types": await self._type_facets(filter_kwargs)}
+        return response
+
+    async def _type_facets(self, filter_kwargs: dict[str, Any]) -> list[dict[str, Any]]:
+        """Count matches per media type for the search page's type tabs.
+
+        Counted with the active filters but *without* the media-type filter, so
+        selecting one tab does not zero out the others. The counts run
+        sequentially: they share one AsyncSession, which is not safe to use
+        concurrently.
+        """
+        facets = []
+        for key, media_type in self.FACET_TYPES.items():
+            count = await self._library_service.count_media_items(
+                **{**filter_kwargs, "media_type": media_type}
+            )
+            if count:
+                facets.append({"key": key, "doc_count": count})
+        return facets
 
     async def _resolve_media_type(self, request: SearchRequest) -> MediaType | None:
         """Resolve explicit or implied media type filters."""
@@ -77,7 +107,7 @@ class LocalSearchService:
                 SearchType.MOVIES: MediaType.MOVIES,
                 SearchType.SHOWS: MediaType.SHOWS,
                 SearchType.GAMES: MediaType.GAMES,
-                SearchType.MUSIC: MediaType.ALBUMS,
+                SearchType.MUSIC: MediaType.ARTISTS,
                 SearchType.BOOKS: MediaType.BOOKS,
             }
             media_type_enum = search_type_map.get(request.search_type)
@@ -101,7 +131,9 @@ class LocalSearchService:
             "MOVIES": MediaType.MOVIES,
             "SHOWS": MediaType.SHOWS,
             "GAMES": MediaType.GAMES,
-            "MUSIC": MediaType.ALBUMS,
+            # Browsing is top-level only, and an album hangs below its artist —
+            # mapping MUSIC to ALBUMS therefore always matched zero rows.
+            "MUSIC": MediaType.ARTISTS,
             "BOOKS": MediaType.BOOKS,
         }
         return type_map.get(media_type.upper())

@@ -62,23 +62,6 @@ export function buildPlayedOptions(t) {
   ]
 }
 
-export function buildSortByOptions(t) {
-  return [
-    { label: t('searchResultsPage.sortRelevance'), value: '_score' },
-    { label: t('searchResultsPage.sortTitle'), value: 'title.keyword' },
-    { label: t('searchResultsPage.sortReleaseDate'), value: 'release_date' },
-    { label: t('searchResultsPage.sortCreated'), value: 'created_at' },
-    { label: t('searchResultsPage.sortUpdated'), value: 'updated_at' },
-  ]
-}
-
-export function buildSortOrderOptions(t) {
-  return [
-    { label: t('searchResultsPage.sortDescending'), value: 'desc' },
-    { label: t('searchResultsPage.sortAscending'), value: 'asc' },
-  ]
-}
-
 /**
  * Per-media-type section configuration (icon, color, i18n label key).
  * Use buildSectionConfig(t) to materialize translated labels.
@@ -103,6 +86,35 @@ export function buildSectionConfig(t) {
 
 /** Display order for media-type sections in the result list. */
 export const SECTION_ORDER = ['movies', 'shows', 'music', 'games', 'books']
+
+/**
+ * Media type each result-type tab filters on. The keys are the `type` values
+ * search hits carry (and the facet keys the API returns); the values are what
+ * the `media_type` filter expects.
+ */
+export const TYPE_TO_MEDIA_TYPE = {
+  movies: 'MOVIES',
+  shows: 'SHOWS',
+  music: 'MUSIC',
+  games: 'GAMES',
+  books: 'BOOKS',
+}
+
+/**
+ * Sort options for the results toolbar.
+ *
+ * `value` is the `sort_by:sort_order` pair the API expects, kept as one string
+ * so a single q-select can drive both URL params.
+ */
+export function buildSortOptions(t) {
+  return [
+    { label: t('searchResultsPage.sortRelevance'), value: '_score:desc' },
+    { label: t('searchResultsPage.sortTitleAsc'), value: 'title.keyword:asc' },
+    { label: t('searchResultsPage.sortNewest'), value: 'release_date:desc' },
+    { label: t('searchResultsPage.sortOldest'), value: 'release_date:asc' },
+    { label: t('searchResultsPage.sortAdded'), value: 'created_at:desc' },
+  ]
+}
 
 /** URL query keys recognized as filter parameters. */
 export const FILTER_KEYS = [
@@ -134,3 +146,20 @@ export const FILTER_KEYS = [
   'sort_order',
   'genres',
 ]
+
+/**
+ * Keys that express sort order rather than a filter. They live in the URL
+ * alongside the filters, but the UI treats them separately: sorting is a
+ * toolbar control, not a removable filter chip, and it must not count towards
+ * "how many filters are active".
+ */
+export const SORT_KEYS = ['sort_by', 'sort_order']
+
+/** Filter keys proper — everything the user can narrow results with. */
+export const FILTER_ONLY_KEYS = FILTER_KEYS.filter((key) => !SORT_KEYS.includes(key))
+
+/**
+ * The type tabs drive the `media_type` filter, so it is shown as a tab rather
+ * than duplicated as a chip and a select inside the filter panel.
+ */
+export const PANEL_FILTER_KEYS = FILTER_ONLY_KEYS.filter((key) => key !== 'media_type')

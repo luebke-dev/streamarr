@@ -25,6 +25,7 @@ client classes …) remain importable from ``streamarr.services.search``.
 import asyncio
 import logging
 import uuid
+from collections import Counter
 from typing import Any
 
 import redis.asyncio as aioredis
@@ -567,13 +568,60 @@ class SearchService(ProviderSearchMixin, SearchImportQueueMixin):
         return hits, errors
 
     @staticmethod
+    def _sort_provider_hits(request: SearchRequest, hits: list[dict]) -> None:
+        """Order provider hits in place according to the requested sort.
+
+        Providers return their own relevance order, so anything other than
+        relevance has to be applied here — the local paths do it in SQL/ES.
+        Sort keys the provider payload does not carry (created_at, updated_at)
+        leave the relevance order untouched rather than sorting on nothing.
+        """
+        sort_by = request.sort_by.value
+        descending = request.sort_order.value == "desc"
+
+        if sort_by == "_score":
+            if request.search_type == SearchType.ALL:
+                hits.sort(key=lambda hit: hit.get("score", 0), reverse=True)
+            return
+
+        if sort_by == "title.keyword":
+            hits.sort(key=lambda hit: (hit.get("title") or "").casefold(), reverse=descending)
+            return
+
+        if sort_by in ("release_date", "first_air_date"):
+            def hit_date(hit: dict) -> str:
+                return hit.get("release_date") or hit.get("first_air_date") or ""
+
+            # Sort by date, then push undated hits to the end — a stable sort
+            # keeps the date order intact, and undated hits land last in both
+            # directions instead of clumping at the top as empty strings.
+            hits.sort(key=hit_date, reverse=descending)
+            hits.sort(key=lambda hit: not hit_date(hit))
+
+    @staticmethod
     def _provider_response(
         request: SearchRequest,
         hits: list[dict],
         errors: list[str] | None = None,
     ) -> dict[str, Any]:
-        if request.search_type == SearchType.ALL:
-            hits.sort(key=lambda x: x.get("score", 0), reverse=True)
+        SearchService._sort_provider_hits(request, hits)
+
+        # Facets are counted over every hit the providers returned, *before* the
+        # media-type filter below narrows them — otherwise picking one type tab
+        # would zero out the counts of all the others.
+        facets = None
+        if request.with_facets:
+            counts = Counter(str(hit.get("type")) for hit in hits if hit.get("type"))
+            facets = {
+                "types": [
+                    {"key": key, "doc_count": count}
+                    for key, count in sorted(counts.items(), key=lambda kv: -kv[1])
+                ]
+            }
+
+        if request.media_type:
+            wanted = request.media_type.strip().lower()
+            hits = [hit for hit in hits if str(hit.get("type", "")).lower() == wanted]
 
         total = len(hits)
         start_idx = (request.page - 1) * request.per_page
@@ -590,6 +638,8 @@ class SearchService(ProviderSearchMixin, SearchImportQueueMixin):
             "source": "provider",
             "provider": "tmdb",
         }
+        if facets is not None:
+            response["facets"] = facets
         if errors:
             response["partial"] = True
             response["errors"] = errors
