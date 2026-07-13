@@ -82,12 +82,15 @@ export default defineBoot(({ app, router }) => {
         originalRequest._retry = true
 
         try {
-          // Attempt a refresh when we might have a live session: native holds a
-          // JS refresh token; web relies on the httpOnly refresh cookie, so we
-          // try whenever an access token was in play (the cookie decides).
-          const canRefresh = isNative
-            ? Boolean(authStore?.refreshToken)
-            : Boolean(authStore?.accessToken)
+          // Attempt a refresh when we might have a live session. Native holds a
+          // JS refresh token, so we can check for it. Web keeps only an
+          // in-memory access token and an httpOnly refresh cookie that JS cannot
+          // read — so we must always *try*: on a cold load the access token has
+          // not been minted from the cookie yet, and gating on it would let those
+          // first requests fail instead of being retried. The cookie decides; if
+          // there is none the refresh 401s and we fall through to logout below.
+          // Concurrent 401s share one refresh via the store's refreshPromise.
+          const canRefresh = isNative ? Boolean(authStore?.refreshToken) : true
           if (authStore && canRefresh) {
             await authStore.refreshAccessToken()
 
