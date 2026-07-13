@@ -147,6 +147,11 @@ class DockerComputingProvider(ComputingBase):
         if entrypoint:
             config["Entrypoint"] = list(entrypoint)
 
+        # Run as an explicit user instead of the image default.
+        user = kwargs.get("user")
+        if user:
+            config["User"] = str(user)
+
         # Build command
         if command or args:
             cmd = []
@@ -196,6 +201,12 @@ class DockerComputingProvider(ComputingBase):
         # Device mounts (for hardware acceleration)
         if devices:
             host_config["Devices"] = devices
+
+        # Supplementary groups — a container running as a non-root user needs
+        # the render/video group to open the hardware-acceleration device.
+        group_add = kwargs.get("group_add")
+        if group_add:
+            host_config["GroupAdd"] = [str(gid) for gid in group_add]
 
         # GPU support (requires nvidia-docker). Clamp to a sane upper bound so
         # a bogus value surfaces as a local error rather than a late docker

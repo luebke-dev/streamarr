@@ -83,6 +83,51 @@ def _ffmpeg_runtime_user() -> dict[str, str]:
     return {"PUID": puid, "PGID": pgid}
 
 
+def _ffmpeg_container_user() -> str:
+    """UID:GID the FFmpeg sibling container runs as.
+
+    The PUID/PGID env vars above are *not* enough: linuxserver's ffmpeg image
+    wraps the binary in a script that derives its runtime UID from the owner of
+    the input file (``PUID=$(stat -c %u "$INPUT_FILE")``) and ignores the env.
+    A file owned by anyone other than the backend then produces a transcode
+    that cannot write its own output directory. We therefore bypass the wrapper
+    (see ``_FFMPEG_ENTRYPOINT``) and pin the user here instead.
+    """
+    ids = _ffmpeg_runtime_user()
+    return f"{ids['PUID']}:{ids['PGID']}"
+
+
+def _ffmpeg_device_groups(hw_accel: dict | None) -> list[str]:
+    """Supplementary GIDs the pinned FFmpeg user needs for hardware devices.
+
+    Bypassing the image's wrapper also bypasses the group juggling it did for
+    ``/dev/dri``, so a non-root FFmpeg would get "permission denied" on the
+    render node. The GID is read from the device when the backend can see it,
+    and can be pinned with FFMPEG_DEVICE_GIDS (comma-separated) when it cannot
+    — which is the norm, since the backend has no reason to mount /dev/dri.
+    """
+    configured = os.environ.get("FFMPEG_DEVICE_GIDS", "").strip()
+    if configured:
+        return [gid.strip() for gid in configured.split(",") if gid.strip()]
+
+    gids: list[str] = []
+    for device_path in (hw_accel or {}).get("devices", []):
+        try:
+            gids.append(str(os.stat(device_path).st_gid))
+        except OSError:
+            logger.warning(
+                "Cannot read the group of %s — set FFMPEG_DEVICE_GIDS if "
+                "hardware acceleration fails with a permission error.",
+                device_path,
+            )
+    return gids
+
+
+#: The image's default entrypoint is a wrapper that re-derives the runtime user
+#: from the input file; we call the binary directly and pin the user ourselves.
+_FFMPEG_ENTRYPOINT = ["/usr/local/bin/ffmpeg"]
+
+
 def _running_in_kubernetes() -> bool:
     """True when the process can see the projected service-account token.
 
@@ -381,13 +426,14 @@ class ComputingService:
         return await self.start_task(
             image=DEFAULT_FFMPEG_IMAGE,
             command=[
-                "ffmpeg",
                 "-i",
                 input_file,
                 *(ffmpeg_args or []),
                 output_file,
             ],
             env=_ffmpeg_runtime_user(),
+            entrypoint=_FFMPEG_ENTRYPOINT,
+            user=_ffmpeg_container_user(),
             volumes=build_media_volumes(
                 include_writable_temp=True,
                 include_cache=True,
@@ -818,6 +864,9 @@ class ComputingService:
             env=env,
             volumes=volumes,
             devices=devices,
+            entrypoint=_FFMPEG_ENTRYPOINT,
+            user=_ffmpeg_container_user(),
+            group_add=_ffmpeg_device_groups(hw_accel),
             labels={
                 "transcode.session_id": session_id,
                 "transcode.type": "hls",
@@ -931,6 +980,8 @@ class ComputingService:
             env=env,
             volumes=volumes,
             devices=None,
+            entrypoint=_FFMPEG_ENTRYPOINT,
+            user=_ffmpeg_container_user(),
             labels={
                 "trickplay.session_id": session_id,
                 "trickplay.type": "sprite",

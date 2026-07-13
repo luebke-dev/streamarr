@@ -1245,7 +1245,12 @@ class TestComputingServiceFFmpegTasks:
 
         assert result == "ffmpeg-task-1"
         call_kwargs = mock_provider.start_task.call_args.kwargs
-        assert call_kwargs["command"] == ["ffmpeg", "-i", "/input.mkv", "-c:v", "libx264", "/output.mp4"]
+        # The image's wrapper entrypoint is bypassed (it would re-derive the
+        # runtime UID from the input file's owner), so the binary is invoked
+        # directly and the user is pinned to the backend's.
+        assert call_kwargs["command"] == ["-i", "/input.mkv", "-c:v", "libx264", "/output.mp4"]
+        assert call_kwargs["entrypoint"] == ["/usr/local/bin/ffmpeg"]
+        assert call_kwargs["user"]
         assert call_kwargs["labels"]["streamarr.task_type"] == "transcode"
 
     @pytest.mark.asyncio
