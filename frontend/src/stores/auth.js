@@ -224,7 +224,15 @@ export const useAuthStore = defineStore('auth', () => {
 
       return response.data
     } catch (error) {
-      logger.error('Failed to refresh token:', error)
+      // A 401 here just means "no valid session" — the expected outcome for an
+      // anonymous visitor or an expired cookie, and the normal end of the
+      // silent refresh we attempt on every web load. Log it quietly; only a
+      // genuine failure (network/5xx) is worth an error.
+      if (error.response?.status === 401) {
+        logger.debug('No refreshable session (refresh cookie absent or expired)')
+      } else {
+        logger.error('Failed to refresh token:', error)
+      }
       clearAuthState()
       throw error
     }
