@@ -235,6 +235,12 @@ services:
   usenet-downloader:
     image: ${REGISTRY:-registry.gitlab.com/streamarr.media}/downloaders/usenet:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # Downloaded files must end up owned by the backend's UID: the ffmpeg image
+    # runs the transcode as the *input file's* owner (its wrapper derives
+    # PUID/PGID from the file), and only that UID may write the transcode temp
+    # dir. A mismatch here fails playback with "Permission denied", not a
+    # download error.
+    user: "${MEDIA_UID:-1001}:${MEDIA_GID:-1001}"
     environment:
       WEBHOOK_URL: http://backend:8000/api/webhooks/usenet
       WEBHOOK_SECRET: ${DOWNLOADER_WEBHOOK_SECRET}

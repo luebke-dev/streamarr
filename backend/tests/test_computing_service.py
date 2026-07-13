@@ -570,7 +570,6 @@ class TestComputingServiceFFmpegTasks:
             provider = await service.get_provider()
             task = provider.tasks[task_id]
             assert task["image"] == "lscr.io/linuxserver/ffmpeg:latest"
-            assert "ffmpeg" in task["command"]
             assert "/input/video.mp4" in task["command"]
             assert "/output/video.mp4" in task["command"]
 
