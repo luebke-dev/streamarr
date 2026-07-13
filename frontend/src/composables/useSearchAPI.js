@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { api } from 'boot/axios'
 import { useQuasar } from 'quasar'
 import { useI18n } from 'vue-i18n'
@@ -35,6 +35,15 @@ export function useSearchAPI(router) {
   const searchSource = ref(null)
   const loading = ref(false)
 
+  // Pagination / facets
+  const PER_PAGE = 50
+  const currentPage = ref(1)
+  const totalPages = ref(0)
+  const loadingMore = ref(false)
+  /** Media-type counts for the type tabs: { movies: 12, shows: 3, … } */
+  const typeCounts = ref({})
+  let lastSearch = { query: null, filters: {} }
+
   // Lookup tables / option lists
   const genreNames = ref({})
   const allGenreOptions = ref([])
@@ -60,27 +69,56 @@ export function useSearchAPI(router) {
     })
   }
 
-  async function performSearch(query, filters = {}) {
+  /**
+   * Run a search.
+   *
+   * @param {string|null} query
+   * @param {Object} filters
+   * @param {Object} [opts]
+   * @param {number} [opts.page=1]      Page to fetch.
+   * @param {boolean} [opts.append=false]  Append to the current results (load more)
+   *                                       instead of replacing them.
+   */
+  async function performSearch(query, filters = {}, { page = 1, append = false } = {}) {
     if (searchAbortController) searchAbortController.abort()
     searchAbortController = new AbortController()
     const signal = searchAbortController.signal
 
-    loading.value = true
+    lastSearch = { query, filters }
+    if (append) loadingMore.value = true
+    else loading.value = true
     try {
       // The search page keeps the URL-derived contract: string/array filters,
-      // per_page 50, search_type always 'all', and the trimmed text query.
-      const payload = buildSearchPayload({ ...filters, query: query?.trim() })
+      // search_type always 'all', and the trimmed text query. Facets are opt-in
+      // and drive the type tabs.
+      const payload = buildSearchPayload(
+        { ...filters, query: query?.trim() },
+        { page, perPage: PER_PAGE, withFacets: true },
+      )
 
       const response = await api.post('/api/search/', payload, { signal })
-      if (response.data?.hits) {
-        searchResults.value = response.data.hits
-        totalResults.value = response.data.total || response.data.hits.length
-        searchSource.value = response.data.source || null
+      const hits = response.data?.hits || []
+      if (append) {
+        searchResults.value = [...searchResults.value, ...hits]
       } else {
-        searchResults.value = []
-        totalResults.value = 0
+        searchResults.value = hits
       }
-      listResults.value = response.data?.list_hits || []
+      totalResults.value = response.data?.total ?? hits.length
+      currentPage.value = response.data?.page ?? page
+      totalPages.value = response.data?.total_pages ?? 0
+      searchSource.value = response.data?.source || null
+
+      // Facets come back only from paths that can count exactly. When they are
+      // absent the tabs simply render without counts rather than guessing.
+      const typeFacets = response.data?.facets?.types
+      if (!append) {
+        typeCounts.value = Array.isArray(typeFacets)
+          ? Object.fromEntries(typeFacets.map((f) => [f.key, f.doc_count]))
+          : {}
+      }
+
+      // List hits belong to the query, not to a page of media results.
+      if (!append) listResults.value = response.data?.list_hits || []
 
       // Lazy-load genre names if we filter by an unknown genre id.
       if (filters.genre_id && !genreNames.value[filters.genre_id]) {
@@ -98,13 +136,30 @@ export function useSearchAPI(router) {
         return
       }
       notifyError('searchResultsPage.searchFailed', error)
-      searchResults.value = []
-      totalResults.value = 0
+      // A failed "load more" keeps the results the user already has.
+      if (!append) {
+        searchResults.value = []
+        totalResults.value = 0
+        totalPages.value = 0
+      }
     } finally {
       if (searchAbortController?.signal === signal) {
         loading.value = false
+        loadingMore.value = false
       }
     }
+  }
+
+  /** True while more pages exist for the current search. */
+  const hasMore = computed(() => currentPage.value < totalPages.value)
+
+  /** Fetch the next page and append it to the current results. */
+  async function loadMore() {
+    if (!hasMore.value || loading.value || loadingMore.value) return
+    await performSearch(lastSearch.query, lastSearch.filters, {
+      page: currentPage.value + 1,
+      append: true,
+    })
   }
 
   async function navigateToResult(result) {
@@ -255,6 +310,9 @@ export function useSearchAPI(router) {
     totalResults,
     searchSource,
     loading,
+    loadingMore,
+    hasMore,
+    typeCounts,
     genreOptions,
     platformOptions,
     personOptions,
@@ -265,6 +323,7 @@ export function useSearchAPI(router) {
     genreNames,
     // actions
     performSearch,
+    loadMore,
     navigateToResult,
     filterGenreOptions,
     filterPersonOptions,

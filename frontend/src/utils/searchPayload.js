@@ -46,6 +46,9 @@ const coerceBool = (value) => (typeof value === 'string' ? value === 'true' : va
  * @param {boolean} [options.deriveSearchType=false]  Derive search_type from media_type.
  * @param {boolean} [options.extendedFilters=true]    Emit the search-page-only filter family.
  * @param {boolean} [options.genresFilter=false]      Emit the section-only `genres` array.
+ * @param {boolean} [options.withFacets=false]        Request media-type facet counts
+ *                                                    (the search page's type tabs need them;
+ *                                                    page sections would only pay for them).
  */
 export function buildSearchPayload(filters = {}, options = {}) {
   const {
@@ -55,10 +58,12 @@ export function buildSearchPayload(filters = {}, options = {}) {
     deriveSearchType = false,
     extendedFilters = true,
     genresFilter = false,
+    withFacets = false,
   } = options
   const f = filters || {}
 
   const payload = { search_type: 'all', per_page: perPage, page }
+  if (withFacets) payload.with_facets = true
   if (deriveSearchType && f.media_type) payload.search_type = f.media_type.toLowerCase()
 
   if (f.query) payload.query = f.query

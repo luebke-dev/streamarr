@@ -156,6 +156,12 @@ class SearchRequest(BaseSchema):
         default=SortOrder.DESC, description="Sort order"
     )
 
+    # Facets are opt-in: the browse path pays one COUNT per media type for
+    # them, which page sections do not need.
+    with_facets: bool = Field(
+        default=False, description="Include media-type facet counts in the response"
+    )
+
     # Filters
     genres: list[str] = Field(default_factory=list, description="Genre filter")
     years: list[int] = Field(default_factory=list, description="Release years filter")

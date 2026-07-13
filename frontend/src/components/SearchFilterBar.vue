@@ -25,429 +25,371 @@
       </q-btn>
     </div>
 
-    <div class="filter-grid">
-      <q-select
-        class="filter-control"
-        :model-value="modelValue.media_type"
-        :options="mediaTypeOptions"
-        :label="$t('searchResultsPage.filterType')"
-        emit-value
-        map-options
-        dense
-        outlined
-        clearable
-        dark
-        @update:model-value="(v) => emitField('media_type', v)"
-      />
-      <q-select
-        class="filter-control filter-control--wide"
-        :model-value="listValue('genre_ids', 'genre_id')"
-        :options="genreOptions"
-        :label="$t('searchResultsPage.filterGenres')"
-        emit-value
-        map-options
-        multiple
-        use-chips
-        dense
-        outlined
-        clearable
-        dark
-        use-input
-        input-debounce="200"
-        :input-class="'text-white'"
-        @filter="onGenreFilter"
-        @update:model-value="(v) => emitListField('genre_ids', v, 'genre_id')"
-      >
-        <template v-slot:no-option>
-          <q-item>
-            <q-item-section class="text-grey">{{
-              $t('searchResultsPage.noGenresFound')
-            }}</q-item-section>
-          </q-item>
-        </template>
-      </q-select>
-      <q-select
-        class="filter-control"
-        :model-value="listValue('platform_ids', 'platform_id')"
-        :options="platformOptions"
-        :label="$t('searchResultsPage.filterPlatforms')"
-        emit-value
-        map-options
-        multiple
-        use-chips
-        dense
-        outlined
-        clearable
-        dark
-        @update:model-value="(v) => emitListField('platform_ids', v, 'platform_id')"
-      />
-      <q-select
-        class="filter-control"
-        :model-value="modelValue.availability"
-        :options="availabilityOptions"
-        :label="$t('searchResultsPage.filterAvailability')"
-        emit-value
-        map-options
-        dense
-        outlined
-        clearable
-        dark
-        @update:model-value="(v) => emitField('availability', v)"
-      />
-      <q-select
-        class="filter-control"
-        :model-value="modelValue.sort_by"
-        :options="sortByOptions"
-        :label="$t('searchResultsPage.sortBy')"
-        emit-value
-        map-options
-        dense
-        outlined
-        clearable
-        dark
-        @update:model-value="(v) => emitField('sort_by', v)"
-      />
-      <q-select
-        class="filter-control"
-        :model-value="modelValue.sort_order"
-        :options="sortOrderOptions"
-        :label="$t('searchResultsPage.sortOrder')"
-        emit-value
-        map-options
-        dense
-        outlined
-        clearable
-        dark
-        @update:model-value="(v) => emitField('sort_order', v)"
-      />
-      <div class="filter-range">
-        <q-input
-          :model-value="modelValue.year_from"
-          :label="$t('searchResultsPage.yearFrom')"
-          type="number"
-          dense
-          outlined
-          dark
-          debounce="500"
-          @update:model-value="(v) => emitField('year_from', v)"
-        />
-        <q-input
-          :model-value="modelValue.year_to"
-          :label="$t('searchResultsPage.yearTo')"
-          type="number"
-          dense
-          outlined
-          dark
-          debounce="500"
-          @update:model-value="(v) => emitField('year_to', v)"
-        />
-      </div>
-    </div>
+    <q-slide-transition>
+      <div v-show="expanded" class="filter-panel">
+        <div class="filter-grid">
+          <q-select
+            class="filter-control filter-control--wide"
+            :model-value="listValue('genre_ids', 'genre_id')"
+            :options="genreOptions"
+            :label="$t('searchResultsPage.filterGenres')"
+            emit-value
+            map-options
+            multiple
+            use-chips
+            dense
+            outlined
+            clearable
+            use-input
+            input-debounce="200"
+            @filter="onGenreFilter"
+            @update:model-value="(v) => emitListField('genre_ids', v, 'genre_id')"
+          >
+            <template v-slot:no-option>
+              <q-item>
+                <q-item-section class="text-grey">{{
+                  $t('searchResultsPage.noGenresFound')
+                }}</q-item-section>
+              </q-item>
+            </template>
+          </q-select>
+          <q-select
+            class="filter-control"
+            :model-value="listValue('platform_ids', 'platform_id')"
+            :options="platformOptions"
+            :label="$t('searchResultsPage.filterPlatforms')"
+            emit-value
+            map-options
+            multiple
+            use-chips
+            dense
+            outlined
+            clearable
+            @update:model-value="(v) => emitListField('platform_ids', v, 'platform_id')"
+          />
+          <q-select
+            class="filter-control"
+            :model-value="modelValue.availability"
+            :options="availabilityOptions"
+            :label="$t('searchResultsPage.filterAvailability')"
+            emit-value
+            map-options
+            dense
+            outlined
+            clearable
+            @update:model-value="(v) => emitField('availability', v)"
+          />
+          <div class="filter-range">
+            <q-input
+              :model-value="modelValue.year_from"
+              :label="$t('searchResultsPage.yearFrom')"
+              type="number"
+              dense
+              outlined
+              debounce="500"
+              @update:model-value="(v) => emitField('year_from', v)"
+            />
+            <q-input
+              :model-value="modelValue.year_to"
+              :label="$t('searchResultsPage.yearTo')"
+              type="number"
+              dense
+              outlined
+              debounce="500"
+              @update:model-value="(v) => emitField('year_to', v)"
+            />
+          </div>
+        </div>
 
-    <q-expansion-item
-      v-model="detailsOpen"
-      dense
-      expand-separator
-      icon="mdi-filter-plus"
-      :label="$t('searchResultsPage.advancedFilters')"
-      class="advanced-filters q-mt-sm"
-    >
-      <div class="filter-grid q-pt-sm">
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.studio_name"
-          :options="studioOptions"
-          :label="$t('searchResultsPage.filterStudio')"
-          emit-value
-          map-options
+        <q-expansion-item
+          v-model="detailsOpen"
           dense
-          outlined
-          clearable
-          dark
-          use-input
-          input-debounce="200"
-          @filter="onStudioFilter"
-          @update:model-value="(v) => emitField('studio_name', v)"
+          expand-separator
+          icon="mdi-filter-plus"
+          :label="$t('searchResultsPage.advancedFilters')"
+          class="advanced-filters q-mt-sm"
         >
-          <template v-slot:no-option>
-            <q-item>
-              <q-item-section class="text-grey">{{
-                $t('searchResultsPage.noStudiosFound')
-              }}</q-item-section>
-            </q-item>
-          </template>
-        </q-select>
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.person_guid"
-          :options="personOptions"
-          :label="$t('searchResultsPage.filterPerson')"
-          emit-value
-          map-options
-          dense
-          outlined
-          clearable
-          dark
-          use-input
-          input-debounce="200"
-          @filter="onPersonFilter"
-          @update:model-value="(v) => emitField('person_guid', v)"
-        >
-          <template v-slot:no-option>
-            <q-item>
-              <q-item-section class="text-grey">{{
-                $t('searchResultsPage.noPersonsFound')
-              }}</q-item-section>
-            </q-item>
-          </template>
-        </q-select>
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.container"
-          :options="containerOptions"
-          :label="$t('searchResultsPage.filterContainer')"
-          emit-value
-          map-options
-          dense
-          outlined
-          clearable
-          dark
-          @update:model-value="(v) => emitField('container', v)"
-        />
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.content_rating"
-          :options="contentRatingOptions"
-          :label="$t('searchResultsPage.filterRating')"
-          emit-value
-          map-options
-          dense
-          outlined
-          clearable
-          dark
-          @update:model-value="(v) => emitField('content_rating', v)"
-        >
-          <template v-slot:no-option>
-            <q-item>
-              <q-item-section class="text-grey">{{
-                $t('searchResultsPage.noRatingsFound')
-              }}</q-item-section>
-            </q-item>
-          </template>
-        </q-select>
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.has_poster"
-          :options="posterOptions"
-          :label="$t('searchResultsPage.filterPoster')"
-          emit-value
-          map-options
-          dense
-          outlined
-          clearable
-          dark
-          @update:model-value="(v) => emitField('has_poster', v)"
-        />
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.has_backdrop"
-          :options="backdropOptions"
-          :label="$t('searchResultsPage.filterBackdrop')"
-          emit-value
-          map-options
-          dense
-          outlined
-          clearable
-          dark
-          @update:model-value="(v) => emitField('has_backdrop', v)"
-        />
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.has_description"
-          :options="descriptionOptions"
-          :label="$t('searchResultsPage.filterDescription')"
-          emit-value
-          map-options
-          dense
-          outlined
-          clearable
-          dark
-          @update:model-value="(v) => emitField('has_description', v)"
-        />
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.is_favorite"
-          :options="favoriteOptions"
-          :label="$t('searchResultsPage.filterFavorite')"
-          emit-value
-          map-options
-          dense
-          outlined
-          clearable
-          dark
-          @update:model-value="(v) => emitField('is_favorite', v)"
-        />
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.is_played"
-          :options="playedOptions"
-          :label="$t('searchResultsPage.filterPlayed')"
-          emit-value
-          map-options
-          dense
-          outlined
-          clearable
-          dark
-          @update:model-value="(v) => emitField('is_played', v)"
-        />
-        <q-select
-          class="filter-control filter-control--wide"
-          :model-value="modelValue.years"
-          :options="yearOptions"
-          :label="$t('searchResultsPage.filterYears')"
-          emit-value
-          map-options
-          multiple
-          use-chips
-          dense
-          outlined
-          clearable
-          dark
-          @update:model-value="(v) => emitListField('years', v)"
-        />
-      </div>
-    </q-expansion-item>
+          <div class="filter-grid q-pt-sm">
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.studio_name"
+              :options="studioOptions"
+              :label="$t('searchResultsPage.filterStudio')"
+              emit-value
+              map-options
+              dense
+              outlined
+              clearable
+              use-input
+              input-debounce="200"
+              @filter="onStudioFilter"
+              @update:model-value="(v) => emitField('studio_name', v)"
+            >
+              <template v-slot:no-option>
+                <q-item>
+                  <q-item-section class="text-grey">{{
+                    $t('searchResultsPage.noStudiosFound')
+                  }}</q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.person_guid"
+              :options="personOptions"
+              :label="$t('searchResultsPage.filterPerson')"
+              emit-value
+              map-options
+              dense
+              outlined
+              clearable
+              use-input
+              input-debounce="200"
+              @filter="onPersonFilter"
+              @update:model-value="(v) => emitField('person_guid', v)"
+            >
+              <template v-slot:no-option>
+                <q-item>
+                  <q-item-section class="text-grey">{{
+                    $t('searchResultsPage.noPersonsFound')
+                  }}</q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.container"
+              :options="containerOptions"
+              :label="$t('searchResultsPage.filterContainer')"
+              emit-value
+              map-options
+              dense
+              outlined
+              clearable
+              @update:model-value="(v) => emitField('container', v)"
+            />
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.content_rating"
+              :options="contentRatingOptions"
+              :label="$t('searchResultsPage.filterRating')"
+              emit-value
+              map-options
+              dense
+              outlined
+              clearable
+              @update:model-value="(v) => emitField('content_rating', v)"
+            >
+              <template v-slot:no-option>
+                <q-item>
+                  <q-item-section class="text-grey">{{
+                    $t('searchResultsPage.noRatingsFound')
+                  }}</q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.has_poster"
+              :options="posterOptions"
+              :label="$t('searchResultsPage.filterPoster')"
+              emit-value
+              map-options
+              dense
+              outlined
+              clearable
+              @update:model-value="(v) => emitField('has_poster', v)"
+            />
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.has_backdrop"
+              :options="backdropOptions"
+              :label="$t('searchResultsPage.filterBackdrop')"
+              emit-value
+              map-options
+              dense
+              outlined
+              clearable
+              @update:model-value="(v) => emitField('has_backdrop', v)"
+            />
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.has_description"
+              :options="descriptionOptions"
+              :label="$t('searchResultsPage.filterDescription')"
+              emit-value
+              map-options
+              dense
+              outlined
+              clearable
+              @update:model-value="(v) => emitField('has_description', v)"
+            />
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.is_favorite"
+              :options="favoriteOptions"
+              :label="$t('searchResultsPage.filterFavorite')"
+              emit-value
+              map-options
+              dense
+              outlined
+              clearable
+              @update:model-value="(v) => emitField('is_favorite', v)"
+            />
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.is_played"
+              :options="playedOptions"
+              :label="$t('searchResultsPage.filterPlayed')"
+              emit-value
+              map-options
+              dense
+              outlined
+              clearable
+              @update:model-value="(v) => emitField('is_played', v)"
+            />
+            <q-select
+              class="filter-control filter-control--wide"
+              :model-value="modelValue.years"
+              :options="yearOptions"
+              :label="$t('searchResultsPage.filterYears')"
+              emit-value
+              map-options
+              multiple
+              use-chips
+              dense
+              outlined
+              clearable
+              @update:model-value="(v) => emitListField('years', v)"
+            />
+          </div>
+        </q-expansion-item>
 
-    <q-expansion-item
-      v-model="exclusionsOpen"
-      dense
-      expand-separator
-      icon="mdi-filter-minus"
-      :label="$t('searchResultsPage.excludeFilters')"
-      class="advanced-filters q-mt-sm"
-    >
-      <div class="filter-grid q-pt-sm">
-        <q-select
-          class="filter-control filter-control--wide"
-          :model-value="modelValue.exclude_genre_ids"
-          :options="genreOptions"
-          :label="$t('searchResultsPage.filterExcludeGenres')"
-          emit-value
-          map-options
-          multiple
-          use-chips
+        <q-expansion-item
+          v-model="exclusionsOpen"
           dense
-          outlined
-          clearable
-          dark
-          use-input
-          input-debounce="200"
-          :input-class="'text-white'"
-          @filter="onGenreFilter"
-          @update:model-value="(v) => emitListField('exclude_genre_ids', v)"
+          expand-separator
+          icon="mdi-filter-minus"
+          :label="$t('searchResultsPage.excludeFilters')"
+          class="advanced-filters q-mt-sm"
         >
-          <template v-slot:no-option>
-            <q-item>
-              <q-item-section class="text-grey">{{
-                $t('searchResultsPage.noGenresFound')
-              }}</q-item-section>
-            </q-item>
-          </template>
-        </q-select>
-        <q-select
-          class="filter-control filter-control--wide"
-          :model-value="modelValue.exclude_platform_ids"
-          :options="platformOptions"
-          :label="$t('searchResultsPage.filterExcludePlatforms')"
-          emit-value
-          map-options
-          multiple
-          use-chips
-          dense
-          outlined
-          clearable
-          dark
-          @update:model-value="(v) => emitListField('exclude_platform_ids', v)"
-        />
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.exclude_person_guid"
-          :options="personOptions"
-          :label="$t('searchResultsPage.filterExcludePerson')"
-          emit-value
-          map-options
-          dense
-          outlined
-          clearable
-          dark
-          use-input
-          input-debounce="200"
-          @filter="onPersonFilter"
-          @update:model-value="(v) => emitField('exclude_person_guid', v)"
-        >
-          <template v-slot:no-option>
-            <q-item>
-              <q-item-section class="text-grey">{{
-                $t('searchResultsPage.noPersonsFound')
-              }}</q-item-section>
-            </q-item>
-          </template>
-        </q-select>
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.exclude_containers"
-          :options="containerOptions"
-          :label="$t('searchResultsPage.filterExcludeContainers')"
-          emit-value
-          map-options
-          multiple
-          use-chips
-          dense
-          outlined
-          clearable
-          dark
-          @update:model-value="(v) => emitListField('exclude_containers', v)"
-        />
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.exclude_content_ratings"
-          :options="contentRatingOptions"
-          :label="$t('searchResultsPage.filterExcludeRatings')"
-          emit-value
-          map-options
-          multiple
-          use-chips
-          dense
-          outlined
-          clearable
-          dark
-          @update:model-value="(v) => emitListField('exclude_content_ratings', v)"
-        >
-          <template v-slot:no-option>
-            <q-item>
-              <q-item-section class="text-grey">{{
-                $t('searchResultsPage.noRatingsFound')
-              }}</q-item-section>
-            </q-item>
-          </template>
-        </q-select>
-        <q-select
-          class="filter-control"
-          :model-value="modelValue.exclude_years"
-          :options="yearOptions"
-          :label="$t('searchResultsPage.filterExcludeYears')"
-          emit-value
-          map-options
-          multiple
-          use-chips
-          dense
-          outlined
-          clearable
-          dark
-          @update:model-value="(v) => emitListField('exclude_years', v)"
-        />
+          <div class="filter-grid q-pt-sm">
+            <q-select
+              class="filter-control filter-control--wide"
+              :model-value="modelValue.exclude_genre_ids"
+              :options="genreOptions"
+              :label="$t('searchResultsPage.filterExcludeGenres')"
+              emit-value
+              map-options
+              multiple
+              use-chips
+              dense
+              outlined
+              clearable
+              use-input
+              input-debounce="200"
+              @filter="onGenreFilter"
+              @update:model-value="(v) => emitListField('exclude_genre_ids', v)"
+            >
+              <template v-slot:no-option>
+                <q-item>
+                  <q-item-section class="text-grey">{{
+                    $t('searchResultsPage.noGenresFound')
+                  }}</q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+            <q-select
+              class="filter-control filter-control--wide"
+              :model-value="modelValue.exclude_platform_ids"
+              :options="platformOptions"
+              :label="$t('searchResultsPage.filterExcludePlatforms')"
+              emit-value
+              map-options
+              multiple
+              use-chips
+              dense
+              outlined
+              clearable
+              @update:model-value="(v) => emitListField('exclude_platform_ids', v)"
+            />
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.exclude_person_guid"
+              :options="personOptions"
+              :label="$t('searchResultsPage.filterExcludePerson')"
+              emit-value
+              map-options
+              dense
+              outlined
+              clearable
+              use-input
+              input-debounce="200"
+              @filter="onPersonFilter"
+              @update:model-value="(v) => emitField('exclude_person_guid', v)"
+            >
+              <template v-slot:no-option>
+                <q-item>
+                  <q-item-section class="text-grey">{{
+                    $t('searchResultsPage.noPersonsFound')
+                  }}</q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.exclude_containers"
+              :options="containerOptions"
+              :label="$t('searchResultsPage.filterExcludeContainers')"
+              emit-value
+              map-options
+              multiple
+              use-chips
+              dense
+              outlined
+              clearable
+              @update:model-value="(v) => emitListField('exclude_containers', v)"
+            />
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.exclude_content_ratings"
+              :options="contentRatingOptions"
+              :label="$t('searchResultsPage.filterExcludeRatings')"
+              emit-value
+              map-options
+              multiple
+              use-chips
+              dense
+              outlined
+              clearable
+              @update:model-value="(v) => emitListField('exclude_content_ratings', v)"
+            >
+              <template v-slot:no-option>
+                <q-item>
+                  <q-item-section class="text-grey">{{
+                    $t('searchResultsPage.noRatingsFound')
+                  }}</q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+            <q-select
+              class="filter-control"
+              :model-value="modelValue.exclude_years"
+              :options="yearOptions"
+              :label="$t('searchResultsPage.filterExcludeYears')"
+              emit-value
+              map-options
+              multiple
+              use-chips
+              dense
+              outlined
+              clearable
+              @update:model-value="(v) => emitListField('exclude_years', v)"
+            />
+          </div>
+        </q-expansion-item>
       </div>
-    </q-expansion-item>
+    </q-slide-transition>
   </div>
 </template>
 
@@ -455,16 +397,13 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  buildMediaTypeOptions,
   buildAvailabilityOptions,
   buildPosterOptions,
   buildBackdropOptions,
   buildDescriptionOptions,
   buildFavoriteOptions,
   buildPlayedOptions,
-  buildSortByOptions,
-  buildSortOrderOptions,
-  FILTER_KEYS,
+  PANEL_FILTER_KEYS,
 } from 'src/utils/searchOptions'
 
 const props = defineProps({
@@ -476,6 +415,8 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  /** Whether the filter panel is open. The active-filter chips stay visible either way. */
+  expanded: { type: Boolean, default: false },
   genreOptions: { type: Array, default: () => [] },
   platformOptions: { type: Array, default: () => [] },
   personOptions: { type: Array, default: () => [] },
@@ -488,15 +429,12 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'genre-filter', 'person-filter', 'studio-filter'])
 
 const { t } = useI18n()
-const mediaTypeOptions = buildMediaTypeOptions(t)
 const availabilityOptions = buildAvailabilityOptions(t)
 const posterOptions = buildPosterOptions(t)
 const backdropOptions = buildBackdropOptions(t)
 const descriptionOptions = buildDescriptionOptions(t)
 const favoriteOptions = buildFavoriteOptions(t)
 const playedOptions = buildPlayedOptions(t)
-const sortByOptions = buildSortByOptions(t)
-const sortOrderOptions = buildSortOrderOptions(t)
 const detailsOpen = ref(false)
 const exclusionsOpen = ref(false)
 
@@ -515,7 +453,7 @@ const ARRAY_FILTER_KEYS = new Set([
 
 const activeFilterChips = computed(() => {
   const chips = []
-  for (const key of FILTER_KEYS) {
+  for (const key of PANEL_FILTER_KEYS) {
     const value = props.modelValue[key]
     if (isEmptyValue(value)) continue
     const values = Array.isArray(value) ? value : [value]
@@ -561,7 +499,6 @@ function optionLabel(options, value) {
 
 function optionsForKey(key) {
   const map = {
-    media_type: mediaTypeOptions,
     genre_id: props.genreOptions,
     genre_ids: props.genreOptions,
     exclude_genre_ids: props.genreOptions,
@@ -583,8 +520,6 @@ function optionsForKey(key) {
     has_description: descriptionOptions,
     is_favorite: favoriteOptions,
     is_played: playedOptions,
-    sort_by: sortByOptions,
-    sort_order: sortOrderOptions,
   }
   return map[key] || []
 }
@@ -597,7 +532,6 @@ function filterLabel(key) {
     platform_id: t('searchResultsPage.filterPlatform'),
     platform_ids: t('searchResultsPage.filterPlatforms'),
     exclude_platform_ids: t('searchResultsPage.filterExcludePlatforms'),
-    media_type: t('searchResultsPage.filterType'),
     availability: t('searchResultsPage.filterAvailability'),
     has_poster: t('searchResultsPage.filterPoster'),
     has_backdrop: t('searchResultsPage.filterBackdrop'),
@@ -615,8 +549,6 @@ function filterLabel(key) {
     exclude_years: t('searchResultsPage.filterExcludeYears'),
     year_from: t('searchResultsPage.yearFrom'),
     year_to: t('searchResultsPage.yearTo'),
-    sort_by: t('searchResultsPage.sortBy'),
-    sort_order: t('searchResultsPage.sortOrder'),
   }
   return map[key] || key
 }
@@ -639,7 +571,7 @@ function removeFilterChip(chip) {
 
 function clearFilters() {
   const next = { ...props.modelValue }
-  for (const key of FILTER_KEYS) next[key] = ARRAY_FILTER_KEYS.has(key) ? [] : null
+  for (const key of PANEL_FILTER_KEYS) next[key] = ARRAY_FILTER_KEYS.has(key) ? [] : null
   emit('update:modelValue', next)
 }
 
