@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from streamarr.models.downloads import Download
 from streamarr.models.list import List, ListItem
 from streamarr.models.media import MediaFile, MediaItem
+from streamarr.services import trickplay
 
 logger = logging.getLogger(__name__)
 
@@ -583,6 +584,7 @@ class StorageCleanupService:
                 if path.exists():
                     size = mf.file_size or path.stat().st_size
                     path.unlink()  # rclone SFTP → deletes on remote
+                    trickplay.purge(str(path))
                     files_deleted += 1
                     bytes_freed += size
                 await self.db.delete(mf)

@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import shutil
 from functools import lru_cache
 from typing import Any
 
@@ -910,26 +911,43 @@ class ComputingService:
         input_path: str,
         session_id: str,
         library_path: str,
-    ) -> str:
+    ) -> str | None:
         """
         Start a trickplay sprite sheet generation container.
 
         Runs FFmpeg to extract thumbnails every 10 seconds and tile them into
         sprite sheets (10x10 = 100 thumbnails per sheet, WebP format).
 
+        The sheets are cached per source file, so a file that was played before
+        needs no container at all. Returns None in that case, and whenever a
+        run is already in flight for the same file.
+
         Args:
             input_path: Path to the source video file
-            session_id: Session ID to associate sprites with
+            session_id: Session the playback belongs to (for labelling only)
             library_path: Base path for library volumes
 
         Returns:
-            Task ID of the sprite generation container
+            Task ID of the sprite generation container, or None if not started
         """
         import os
+        import shlex
 
+        from streamarr.services import trickplay
         from streamarr.services.system_settings import SystemSettingsService
 
-        logger.info("Starting trickplay generation for session %s", session_id)
+        if trickplay.is_complete(input_path):
+            logger.info("Trickplay sprites already cached for %s", input_path)
+            return None
+
+        running = await self.get_tasks_by_label(
+            "trickplay.cache_key", trickplay.cache_key(input_path)
+        )
+        if running:
+            logger.info("Trickplay generation already running for %s", input_path)
+            return None
+
+        logger.info("Starting trickplay generation for %s", input_path)
 
         settings_service = SystemSettingsService(self.db)
         transcoding_settings = await settings_service.get_transcoding_settings()
@@ -937,9 +955,8 @@ class ComputingService:
             "ffmpeg_image", "lscr.io/linuxserver/ffmpeg:latest"
         )
 
-        # Build FFmpeg command for sprite generation
-        output_dir = f"/temp/{session_id}_trickplay"
-        cmd = [
+        output_dir = f"/cache/trickplay/{trickplay.cache_key(input_path)}"
+        ffmpeg_args = [
             "-i", input_path,
             "-vf", "fps=1/10,scale=320:-1,tile=10x10",
             "-c:v", "libwebp",
@@ -948,25 +965,35 @@ class ComputingService:
             f"{output_dir}/sprite_%03d.webp",
         ]
 
-        logger.info("Trickplay FFmpeg command: ffmpeg %s", " ".join(cmd))
+        # The marker is what makes a cache entry trustworthy: it is written only
+        # after FFmpeg exits cleanly, so an interrupted run leaves the partial
+        # sheets unmarked and they get regenerated instead of reused.
+        command = (
+            f"/usr/local/bin/ffmpeg {shlex.join(ffmpeg_args)} "
+            f"&& touch {shlex.quote(f'{output_dir}/{trickplay.COMPLETE_MARKER}')}"
+        )
+        logger.info("Trickplay FFmpeg command: %s", command)
 
         provider = await self.get_provider()
 
-        # Same volume setup as transcoding (cache not needed for sprites).
+        # The sprites live in the cache volume now, not in the session temp dir.
         volumes = build_media_volumes(
-            include_writable_temp=True,
-            include_cache=False,
+            include_writable_temp=False,
+            include_cache=True,
             include_downloads=True,
             read_only=False,
         )
 
-        # Ensure trickplay output directory exists
-        in_docker = os.path.exists("/.dockerenv")
-        if in_docker:
-            host_trickplay_dir = f"/temp/{session_id}_trickplay"
-        else:
-            host_trickplay_dir = f"{_data_root()}/temp/{session_id}_trickplay"
+        # A stale, incomplete directory from an aborted run must not survive:
+        # FFmpeg would keep its sheets and only overwrite the ones it rewrites.
+        host_trickplay_dir = (
+            output_dir
+            if os.path.exists("/.dockerenv")
+            else trickplay.host_cache_dir(input_path, _data_root())
+        )
         try:
+            if os.path.isdir(host_trickplay_dir):
+                shutil.rmtree(host_trickplay_dir)
             os.makedirs(host_trickplay_dir, exist_ok=True)
             os.chmod(host_trickplay_dir, 0o700)
         except Exception as e:
@@ -976,20 +1003,21 @@ class ComputingService:
 
         task_id = await provider.start_task(
             image=ffmpeg_image,
-            command=cmd,
+            command=["-c", command],
             env=env,
             volumes=volumes,
             devices=None,
-            entrypoint=_FFMPEG_ENTRYPOINT,
+            entrypoint=["/bin/sh"],
             user=_ffmpeg_container_user(),
             labels={
                 "trickplay.session_id": session_id,
+                "trickplay.cache_key": trickplay.cache_key(input_path),
                 "trickplay.type": "sprite",
             },
             **_kubernetes_scheduling_kwargs(),
         )
 
-        logger.info("Started trickplay generation task: %s for session %s", task_id, session_id)
+        logger.info("Started trickplay generation task: %s for %s", task_id, input_path)
         return task_id
 
     @staticmethod

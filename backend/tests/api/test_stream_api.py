@@ -26,6 +26,22 @@ def _mock_token_service(session_id="test-session", file_path="/path/to/file.mp3"
     return mock_service, mock_play_token
 
 
+def _mock_session_input_path(input_path: str):
+    """Patch the transcoding-session lookup to report one source file.
+
+    The trickplay endpoints resolve the session to the file it plays, because
+    the sprite cache is keyed by file rather than by session.
+    """
+    session = MagicMock()
+    session.input_path = input_path
+    service = MagicMock()
+    service.get_session = AsyncMock(return_value=session)
+    return patch(
+        "streamarr.api.v1.stream.get_transcoding_session_service",
+        return_value=service,
+    )
+
+
 def _mock_token_service_invalid():
     """Build a mock play token service that returns None (invalid token)."""
     mock_service = AsyncMock()
@@ -227,9 +243,10 @@ class TestGetTrickplayManifest:
         resp = await client.get("/api/stream/test-session/trickplay")
         assert resp.status_code == 401
 
-    async def test_lists_generated_sprites(self, client: AsyncClient):
+    async def test_lists_generated_sprites(self, client: AsyncClient, tmp_path):
         session_id = f"test-{uuid.uuid4().hex}"
-        trickplay_dir = Path(f"/temp/{session_id}_trickplay")
+        # Sprites are cached per source file; the session only says which file.
+        trickplay_dir = tmp_path / "cache"
         trickplay_dir.mkdir(parents=True, exist_ok=True)
         try:
             (trickplay_dir / "sprite_001.webp").write_bytes(b"second")
@@ -237,9 +254,16 @@ class TestGetTrickplayManifest:
             (trickplay_dir / "bad.webp").write_bytes(b"ignored")
 
             mock_service, _ = _mock_token_service(session_id=session_id)
-            with patch(
-                "streamarr.api.v1.stream.get_play_token_service",
-                return_value=mock_service,
+            with (
+                patch(
+                    "streamarr.api.v1.stream.get_play_token_service",
+                    return_value=mock_service,
+                ),
+                _mock_session_input_path("/library/movies/x.mkv"),
+                patch(
+                    "streamarr.api.v1.stream.trickplay.cache_dir",
+                    return_value=trickplay_dir,
+                ),
             ):
                 resp = await client.get(
                     f"/api/stream/{session_id}/trickplay?token=tok"
@@ -264,14 +288,19 @@ class TestGetTrickplayManifest:
         finally:
             shutil.rmtree(trickplay_dir, ignore_errors=True)
 
-    async def test_no_sprites(self, client: AsyncClient):
+    async def test_no_sprites(self, client: AsyncClient, tmp_path):
         session_id = f"test-{uuid.uuid4().hex}"
-        trickplay_dir = Path(f"/temp/{session_id}_trickplay")
-        shutil.rmtree(trickplay_dir, ignore_errors=True)
         mock_service, _ = _mock_token_service(session_id=session_id)
-        with patch(
-            "streamarr.api.v1.stream.get_play_token_service",
-            return_value=mock_service,
+        with (
+            patch(
+                "streamarr.api.v1.stream.get_play_token_service",
+                return_value=mock_service,
+            ),
+            _mock_session_input_path("/library/movies/x.mkv"),
+            patch(
+                "streamarr.api.v1.stream.trickplay.cache_dir",
+                return_value=tmp_path / "missing",
+            ),
         ):
             resp = await client.get(f"/api/stream/{session_id}/trickplay?token=tok")
 
