@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -838,6 +839,48 @@ class TestAddMediaDownload:
             )
 
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_failed_dispatch_records_why_on_the_pending_download(
+        self,
+        db_session: AsyncSession,
+        downloader: Downloader,
+        release_link: MediaReleaseLink,
+    ):
+        """A hand-off that fails must not leave a silent pending row behind.
+
+        The download is created as pending before the downloader is asked; when
+        the ask fails, the reason has to land on the row — otherwise it just
+        sits in the queue looking like it is still working.
+        """
+        from streamarr.models.downloads import Download
+
+        pending = Download(
+            downloader_id=downloader.guid,
+            external_id=None,
+            title="Some release",
+            type="MOVIES",
+            status="pending",
+            media_release_link_guid=release_link.guid,
+        )
+        db_session.add(pending)
+        await db_session.commit()
+
+        mock_client = AsyncMock()
+        # A read timeout carries an empty message — the case that used to make
+        # this failure look like it had no reason at all.
+        mock_client.add_by_url = AsyncMock(side_effect=httpx.ReadTimeout(""))
+
+        with patch.object(svc := _download_service(db_session), "get_downloader_client", return_value=mock_client):
+            result = await svc.add_media_download(
+                release_link.guid, [downloader], "movie"
+            )
+
+        assert result is None
+        await db_session.refresh(pending)
+        assert pending.status == "pending"  # still retryable
+        assert pending.error_reason
+        assert "ReadTimeout" in pending.error_reason
 
 
 # ===========================================================================

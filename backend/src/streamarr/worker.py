@@ -1098,6 +1098,91 @@ async def cleanup_orphaned_temp_files() -> dict:
         raise
 
 
+#: A dispatch that fails is usually transient (the downloader was busy fetching
+#: an NZB and the request timed out), so give it a while before retrying.
+_STUCK_DOWNLOAD_MIN_AGE_MINUTES = 10
+#: ...but do not retry forever: an indexer whose host is gone will never accept
+#: its links, and a download that pretends to be queued for days is worse than
+#: one that admits it failed.
+_STUCK_DOWNLOAD_MAX_AGE_HOURS = 6
+
+
+@broker.task(schedule=[{"cron": "*/15 * * * *"}])  # Every 15 minutes
+async def retry_stuck_downloads() -> dict:
+    """
+    Re-dispatch downloads that were never handed to a downloader.
+
+    A download is created as `pending` and only gets its `external_id` once a
+    downloader accepts it. When that hand-off failed — a timeout, a dead
+    indexer host — the row stayed pending with no job behind it and nothing
+    ever looked at it again: it sat in the queue forever, looking like it was
+    still working.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from streamarr.models.downloads import Download, DownloadStatus
+
+    now = datetime.now(UTC)
+    result = {"stuck": 0, "retried": 0, "failed": 0}
+
+    async with sessionmanager.session() as db:
+        rows = await db.execute(
+            select(Download)
+            .where(Download.status == DownloadStatus.PENDING)
+            .where(Download.external_id.is_(None))
+            .where(
+                Download.created_at
+                < now - timedelta(minutes=_STUCK_DOWNLOAD_MIN_AGE_MINUTES)
+            )
+        )
+        stuck = rows.scalars().all()
+        result["stuck"] = len(stuck)
+
+        for download in stuck:
+            age = now - download.created_at
+            link_guid = download.media_release_link_guid
+
+            if age > timedelta(hours=_STUCK_DOWNLOAD_MAX_AGE_HOURS) or not link_guid:
+                download.status = DownloadStatus.FAILED
+                download.error_reason = (
+                    download.error_reason
+                    or "No downloader accepted this release (gave up retrying)"
+                )
+                result["failed"] += 1
+                logger.warning(
+                    "Giving up on stuck download %s (%s), pending for %s",
+                    download.guid, download.title, age,
+                )
+                continue
+
+            media_type = str(download.type or "").upper()
+            if media_type in ("SONGS", "ALBUMS", "MUSIC"):
+                task = add_music_download
+            elif media_type == "SHOWS":
+                task = add_show_download
+            else:
+                task = add_download
+
+            await task.kiq(
+                str(link_guid),
+                str(download.user_guid) if download.user_guid else None,
+            )
+            result["retried"] += 1
+            logger.info(
+                "Retrying stuck download %s (%s)", download.guid, download.title
+            )
+
+        await db.commit()
+
+    logger.info(
+        "Stuck download check: %s stuck, %s retried, %s failed",
+        result["stuck"], result["retried"], result["failed"],
+    )
+    return result
+
+
 @broker.task(schedule=[{"cron": "30 4 * * *"}])  # Daily at 04:30
 async def cleanup_trickplay_cache() -> dict:
     """
