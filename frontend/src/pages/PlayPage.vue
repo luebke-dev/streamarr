@@ -87,6 +87,7 @@
         :media-state="mediaControlState"
         :navigation-state="navigationControlState"
         :stream-state="streamControlState"
+        :trickplay="trickplayManifest"
         @seek="handleSeek"
         @change-audio-track="handleAudioTrackChange"
         @toggle-play="togglePlayPause"
@@ -766,7 +767,7 @@ const { isPositionBuffered, setupXhrAuth, swapStreamSource } = useStreamSwap({
 })
 
 // Player event handlers (mounted/ready/timeupdate/ended/pause)
-const { onPlayerMounted, onPlayerReady, onTimeUpdate, onVideoEnded, onVideoPause } =
+const { onPlayerMounted, onPlayerReady, onTimeUpdate, onVideoEnded, onVideoPause, trickplayManifest } =
   useVideoPlayerEvents({
     videoJsPlayer,
     playerState,
