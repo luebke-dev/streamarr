@@ -437,14 +437,18 @@ class DownloadService:
             compatible = downloaders
 
         # Try each compatible downloader until one succeeds
+        last_error: str | None = None
         for downloader in compatible:
             client = self.get_downloader_client(downloader)
             try:
                 status = await client.add_by_url(release_link.link)
             except Exception as exc:
+                # Repr, not str: a read timeout carries an empty message, which
+                # used to make this failure look like it had no reason at all.
+                last_error = f"{type(exc).__name__}: {exc}".strip(": ")
                 logger.warning(
                     "Downloader %s failed to accept %s: %s",
-                    downloader.guid, media_item.title, exc,
+                    downloader.guid, media_item.title, last_error,
                 )
                 continue
             finally:
@@ -489,9 +493,18 @@ class DownloadService:
                 )
                 return download
 
+        reason = last_error or "No downloader accepted the release"
         logger.error(
-            "Failed to add %s download for release link %s", media_type, release_link_guid
+            "Failed to add %s download for release link %s: %s",
+            media_type, release_link_guid, reason,
         )
+        if existing_download:
+            # The row stays pending so the retry task can pick it up, but the
+            # reason is recorded: a dispatch that failed used to leave a pending
+            # download with no job behind it and nothing to explain why — it
+            # simply sat in the queue forever, looking like it was still working.
+            existing_download.error_reason = reason
+            await self.db.commit()
         return None
 
     async def add_music_download(
