@@ -15,6 +15,7 @@ import hashlib
 import logging
 import os
 import shutil
+from collections.abc import Iterable
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -81,3 +82,47 @@ def purge(file_path: str) -> bool:
     except OSError as e:
         logger.warning("Failed to drop trickplay cache %s: %s", directory, e)
         return False
+
+
+def purge_orphans(known_paths: Iterable[str]) -> dict[str, int]:
+    """Drop cache entries that no longer belong to any known media file.
+
+    Deleting a file drops its sprites right away (see :func:`purge`); this
+    catches the entries no deletion hook ever sees — a file moved or renamed
+    outside the app, or one removed while the backend was down. The key is
+    derived from the path, so those entries are simply no longer claimed by
+    anybody.
+
+    Args:
+        known_paths: Every media file path currently in the library.
+    """
+    result = {"scanned": 0, "deleted": 0, "bytes_freed": 0, "failed": 0}
+
+    root = _root()
+    if not root.is_dir():
+        return result
+
+    keep = {cache_key(path) for path in known_paths if path}
+
+    for entry in root.iterdir():
+        if not entry.is_dir():
+            continue
+        result["scanned"] += 1
+        if entry.name in keep:
+            continue
+        try:
+            size = sum(f.stat().st_size for f in entry.glob("*") if f.is_file())
+            shutil.rmtree(entry)
+            result["deleted"] += 1
+            result["bytes_freed"] += size
+        except OSError as e:
+            result["failed"] += 1
+            logger.warning("Failed to drop orphaned trickplay cache %s: %s", entry, e)
+
+    if result["deleted"]:
+        logger.info(
+            "Dropped %s orphaned trickplay cache entries (%.1f MB)",
+            result["deleted"],
+            result["bytes_freed"] / 1_048_576,
+        )
+    return result

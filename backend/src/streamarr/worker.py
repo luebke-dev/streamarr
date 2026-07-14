@@ -1098,6 +1098,42 @@ async def cleanup_orphaned_temp_files() -> dict:
         raise
 
 
+@broker.task(schedule=[{"cron": "30 4 * * *"}])  # Daily at 04:30
+async def cleanup_trickplay_cache() -> dict:
+    """
+    Drop cached trickplay sprites that no longer belong to a media file.
+
+    Deleting a file drops its sprites immediately, so this only collects what
+    no hook can see: files moved or renamed outside the app, or removed while
+    the backend was down.
+    """
+    from sqlalchemy import select
+
+    from streamarr.models.media import MediaFile
+    from streamarr.services import trickplay
+
+    logger.info("Starting trickplay cache cleanup")
+
+    try:
+        async with sessionmanager.session() as db:
+            rows = await db.execute(select(MediaFile.file_path))
+            known_paths = [path for (path,) in rows.all() if path]
+
+        result = await asyncio.to_thread(trickplay.purge_orphans, known_paths)
+
+        logger.info(
+            "Trickplay cache cleanup complete: scanned %s, deleted %s, freed %.1f MB",
+            result["scanned"],
+            result["deleted"],
+            result["bytes_freed"] / 1_048_576,
+        )
+        return result
+
+    except Exception as e:
+        logger.error("Trickplay cache cleanup failed: %s", e, exc_info=True)
+        raise
+
+
 @broker.task(schedule=[{"cron": "*/5 * * * *"}])  # Every 5 minutes
 async def cleanup_orphaned_transcode_containers() -> dict:
     """
