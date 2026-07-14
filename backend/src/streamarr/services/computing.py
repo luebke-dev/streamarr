@@ -937,6 +937,8 @@ class ComputingService:
         from streamarr.services.system_settings import SystemSettingsService
 
         if trickplay.is_complete(input_path):
+            # Records the hit so the size-based eviction can order by last play.
+            trickplay.mark_used(input_path)
             logger.info("Trickplay sprites already cached for %s", input_path)
             return None
 

@@ -1,6 +1,6 @@
 """Pydantic schemas for Settings API."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # Subscription settings
@@ -116,6 +116,8 @@ class TranscodingSettingsResponse(BaseModel):
     temp_path: str
     max_concurrent_transcodes: int
     prefer_compatible_codecs: bool
+    #: Budget for cached seek-bar thumbnails, in GB. 0 = unlimited.
+    trickplay_cache_max_gb: float
 
 
 class TranscodingSettingsUpdate(BaseModel):
@@ -134,6 +136,7 @@ class TranscodingSettingsUpdate(BaseModel):
     temp_path: str | None = None
     max_concurrent_transcodes: int | None = None
     prefer_compatible_codecs: bool | None = None
+    trickplay_cache_max_gb: float | None = Field(default=None, ge=0, le=1000)
 
 
 # Subtitle settings

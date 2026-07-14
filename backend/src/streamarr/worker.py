@@ -1111,6 +1111,7 @@ async def cleanup_trickplay_cache() -> dict:
 
     from streamarr.models.media import MediaFile
     from streamarr.services import trickplay
+    from streamarr.services.system_settings import SystemSettingsService
 
     logger.info("Starting trickplay cache cleanup")
 
@@ -1119,12 +1120,22 @@ async def cleanup_trickplay_cache() -> dict:
             rows = await db.execute(select(MediaFile.file_path))
             known_paths = [path for (path,) in rows.all() if path]
 
+            settings = await SystemSettingsService(db).get_transcoding_settings()
+            budget = trickplay.bytes_for_gb(settings.get("trickplay_cache_max_gb"))
+
         result = await asyncio.to_thread(trickplay.purge_orphans, known_paths)
 
+        # Orphans first: they are worthless, so evicting a usable entry before
+        # dropping them would be wasted work.
+        evicted = await asyncio.to_thread(trickplay.enforce_size_limit, budget)
+        result["evicted"] = evicted["deleted"]
+        result["bytes_freed"] += evicted["bytes_freed"]
+
         logger.info(
-            "Trickplay cache cleanup complete: scanned %s, deleted %s, freed %.1f MB",
+            "Trickplay cache cleanup complete: scanned %s, orphans %s, evicted %s, freed %.1f MB",
             result["scanned"],
             result["deleted"],
+            result["evicted"],
             result["bytes_freed"] / 1_048_576,
         )
         return result
