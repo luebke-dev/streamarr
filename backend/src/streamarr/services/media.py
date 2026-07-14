@@ -21,6 +21,7 @@ from streamarr.models.media import (
     MediaRelease,
     MediaType,
 )
+from streamarr.services import trickplay
 
 logger = logging.getLogger(__name__)
 
@@ -784,11 +785,16 @@ class MediaService:
         if not media_file:
             return False
 
+        file_path = media_file.file_path
+
         await self.db.delete(media_file)
         if commit:
             await self.db.commit()
         else:
             await self.db.flush()
+
+        if file_path:
+            trickplay.purge(file_path)
 
         return True
 
@@ -1144,17 +1150,9 @@ class MediaService:
                     result["errors"].append(f"Failed to delete {temp_file}: {e}")
                     logger.warning("Failed to delete temp file %s: %s", temp_file, e)
 
-        # Clean up trickplay sprite directory
-        import shutil
-
-        trickplay_dir = Path(f"/temp/{session_id}_trickplay")
-        if trickplay_dir.exists():
-            try:
-                shutil.rmtree(trickplay_dir)
-                logger.debug("Deleted trickplay directory: %s", trickplay_dir)
-            except Exception as e:
-                result["errors"].append(f"Failed to delete trickplay dir: {e}")
-                logger.warning("Failed to delete trickplay dir %s: %s", trickplay_dir, e)
+        # Trickplay sprites are deliberately *not* cleaned up here: they are
+        # cached per source file, not per session, and are dropped together with
+        # the file they describe (streamarr.services.trickplay.purge).
 
         logger.info(
             "Temp cleanup for session %s: deleted %s, failed %s",
@@ -1238,6 +1236,7 @@ class MediaService:
                 if file_path_obj.exists():
                     try:
                         file_path_obj.unlink()
+                        trickplay.purge(str(file_path_obj))
                         result["files_deleted_from_disk"] += 1
                         logger.info("Deleted media file from disk: %s", file_path_obj)
                         # Also try to remove empty parent directories

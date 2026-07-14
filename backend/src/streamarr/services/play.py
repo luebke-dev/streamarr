@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from streamarr.services import trickplay
 from streamarr.services.download_status import download_phase
 
 # ---------------------------------------------------------------------------
@@ -636,6 +637,9 @@ async def report_stream_problem(
                 logger.warning("File already missing: %s", media_file.file_path)
             except OSError as e:
                 logger.error("Failed to delete file %s: %s", media_file.file_path, e)
+            # Drop the cached sprites even when the file was already gone —
+            # otherwise they would outlive the media they describe.
+            trickplay.purge(media_file.file_path)
         await db.delete(media_file)
 
     # Reset availability

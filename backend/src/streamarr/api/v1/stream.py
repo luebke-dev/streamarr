@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 
 from streamarr.api.dependencies import DatabaseSession
+from streamarr.services import trickplay
 from streamarr.services.computing import ComputingService
 from streamarr.services.play_token import get_play_token_service
 from streamarr.services.transcoding_session import get_transcoding_session_service
@@ -31,6 +32,25 @@ _SEGMENT_RE = re.compile(r"^[a-zA-Z0-9_-]+_\d{3}\.ts$")
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
 # Regex for valid trickplay sprite filenames: sprite_NNN.webp
 _SPRITE_RE = re.compile(r"^sprite_\d{3}\.webp$")
+
+
+async def _trickplay_dir(session_id: str) -> Path | None:
+    """Cached sprite directory for the file a session is playing.
+
+    Sprites are cached per source file, so the session only serves to look up
+    which file that is. Thumbnails are a nicety: if the session cannot be
+    resolved, say "no sprites" rather than failing the request.
+    """
+    try:
+        session = await get_transcoding_session_service().get_session(session_id)
+    except Exception as e:
+        logger.warning("Could not resolve session %s for trickplay: %s", session_id, e)
+        return None
+
+    input_path = getattr(session, "input_path", None) if session else None
+    return trickplay.cache_dir(input_path) if input_path else None
+
+
 _PLAYLIST_STARTUP_WAIT_SECONDS = 12
 _PLAYLIST_STARTUP_POLL_SECONDS = 0.25
 
@@ -196,8 +216,12 @@ async def get_stream_status(session_id: str, request: Request, db: DatabaseSessi
     is_ready = playlist_exists and segment_count > 0
 
     # Check trickplay sprite availability
-    trickplay_dir = Path(f"/temp/{session_id}_trickplay")
-    trickplay_files = list(trickplay_dir.glob("sprite_*.webp")) if trickplay_dir.exists() else []
+    trickplay_dir = await _trickplay_dir(session_id)
+    trickplay_files = (
+        list(trickplay_dir.glob(trickplay.SPRITE_GLOB))
+        if trickplay_dir and trickplay_dir.is_dir()
+        else []
+    )
     trickplay_count = len(trickplay_files)
 
     return {
@@ -410,12 +434,12 @@ async def get_trickplay_manifest(
         request, session_id, token
     )
 
-    trickplay_dir = Path(f"/temp/{session_id}_trickplay")
+    trickplay_dir = await _trickplay_dir(session_id)
     sprite_paths = []
-    if trickplay_dir.exists():
+    if trickplay_dir and trickplay_dir.is_dir():
         sprite_paths = sorted(
             path
-            for path in trickplay_dir.glob("sprite_*.webp")
+            for path in trickplay_dir.glob(trickplay.SPRITE_GLOB)
             if _SPRITE_RE.match(path.name)
         )
 
@@ -478,9 +502,10 @@ async def get_trickplay_sprite(
     if not _SPRITE_RE.match(filename):
         raise HTTPException(status_code=400, detail="Invalid sprite filename")
 
-    sprite_path = Path(f"/temp/{session_id}_trickplay/{filename}")
+    trickplay_dir = await _trickplay_dir(session_id)
+    sprite_path = trickplay_dir / filename if trickplay_dir else None
 
-    if not sprite_path.exists():
+    if not sprite_path or not sprite_path.exists():
         raise HTTPException(
             status_code=404,
             detail="Sprite not yet generated",
