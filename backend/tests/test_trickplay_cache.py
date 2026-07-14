@@ -68,3 +68,32 @@ def test_purge_drops_the_cache_for_that_file_only(tmp_path):
 def test_purge_of_uncached_file_is_a_no_op(tmp_path):
     with _cache_root(tmp_path):
         assert trickplay.purge("/library/movies/never-played.mkv") is False
+
+
+def test_purge_orphans_keeps_known_files_and_drops_the_rest(tmp_path):
+    """A file moved or renamed outside the app leaves an entry nobody claims."""
+    with _cache_root(tmp_path):
+        known = "/library/movies/keep.mkv"
+        moved_away = "/library/movies/old-name.mkv"
+        for path in (known, moved_away):
+            directory = trickplay.cache_dir(path)
+            directory.mkdir(parents=True)
+            (directory / "sprite_000.webp").write_bytes(b"x" * 10)
+
+        result = trickplay.purge_orphans([known])
+
+        assert result["scanned"] == 2
+        assert result["deleted"] == 1
+        assert result["bytes_freed"] == 10
+        assert trickplay.cache_dir(known).exists()
+        assert not trickplay.cache_dir(moved_away).exists()
+
+
+def test_purge_orphans_on_empty_cache_is_a_no_op(tmp_path):
+    with _cache_root(tmp_path):
+        assert trickplay.purge_orphans(["/library/movies/heat.mkv"]) == {
+            "scanned": 0,
+            "deleted": 0,
+            "bytes_freed": 0,
+            "failed": 0,
+        }

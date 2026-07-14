@@ -164,6 +164,12 @@ AVAILABLE_TASKS: list[TaskInfo] = [
         category="cleanup",
     ),
     TaskInfo(
+        id="cleanup_trickplay_cache",
+        name="Clean Trickplay Cache",
+        description="Drop cached seek-bar thumbnails whose source file no longer exists in the library.",
+        category="cleanup",
+    ),
+    TaskInfo(
         id="cleanup_stale_transcoding_sessions",
         name="Clean Stale Transcoding Sessions",
         description="Remove stale transcoding sessions from Redis whose containers are no longer running.",
@@ -401,6 +407,7 @@ async def run_task(
             "import_trending_games",
             "import_trending_music",
             "cleanup_orphaned_temp_files",
+            "cleanup_trickplay_cache",
             "cleanup_stale_transcoding_sessions",
             "cleanup_storage",
             "backfill_age_ratings",
