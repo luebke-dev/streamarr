@@ -47,13 +47,14 @@
               @touchstart.prevent="startDragging"
             ></div>
           </div>
-          <!-- Preview tooltip -->
+          <!-- Preview tooltip: trickplay frame (once the sprites exist) + timestamp -->
           <div
             v-if="hoverTime !== null"
             class="progress-preview"
             :style="{ left: hoverPercent + '%' }"
           >
-            {{ formatTime(hoverTime) }}
+            <div v-if="hoverThumbnail" class="progress-preview__thumb" :style="hoverThumbnail"></div>
+            <span class="progress-preview__time">{{ formatTime(hoverTime) }}</span>
           </div>
         </div>
         <!-- Time Display next to progress bar -->
@@ -307,6 +308,15 @@ const props = defineProps({
     type: Object,
     default: null,
   },
+  /**
+   * Trickplay manifest from GET /api/stream/{session}/trickplay, or null while
+   * the sprites are still being rendered. Shape: { ready, sprites[{url}],
+   * interval_seconds, columns, rows, thumbnail_width, thumbnail_height }.
+   */
+  trickplay: {
+    type: Object,
+    default: null,
+  },
 })
 
 const emit = defineEmits([
@@ -485,6 +495,40 @@ const { hoverTime, hoverPercent, handleProgressClick, handleProgressTouch, start
     getTotalDuration: () => totalDuration.value,
     onSeek: (position) => emit('seek', position),
   })
+
+/**
+ * Background style that crops the hovered frame out of its sprite sheet.
+ *
+ * The frames sit in a `columns × rows` grid per sheet, one frame every
+ * `interval_seconds`, so the hovered time picks a sheet and a cell inside it.
+ */
+const hoverThumbnail = computed(() => {
+  const manifest = props.trickplay
+  if (hoverTime.value === null || !manifest?.ready || !manifest.sprites?.length) return null
+
+  const interval = manifest.interval_seconds || 10
+  const columns = manifest.columns || 10
+  const rows = manifest.rows || 10
+  const width = manifest.thumbnail_width || 160
+  const height = manifest.thumbnail_height || 90
+  const perSheet = columns * rows
+
+  const frame = Math.floor(Math.max(0, hoverTime.value) / interval)
+  const sheet = manifest.sprites[Math.floor(frame / perSheet)]
+  if (!sheet?.url) return null
+
+  const cell = frame % perSheet
+  const column = cell % columns
+  const row = Math.floor(cell / columns)
+
+  return {
+    width: `${width}px`,
+    height: `${height}px`,
+    backgroundImage: `url(${sheet.url})`,
+    backgroundPosition: `-${column * width}px -${row * height}px`,
+    backgroundSize: `${columns * width}px ${rows * height}px`,
+  }
+})
 
 // Volume helper: clamp + apply + emit
 const adjustVolume = (delta) => {
@@ -721,13 +765,28 @@ watch(
   position: absolute;
   bottom: 100%;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   background: rgba(0, 0, 0, 0.8);
   color: white;
-  padding: 4px 8px;
+  padding: 4px;
   border-radius: 4px;
   font-size: 12px;
   white-space: nowrap;
   margin-bottom: 8px;
+  pointer-events: none;
+}
+
+.progress-preview__thumb {
+  border-radius: 2px;
+  background-repeat: no-repeat;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.progress-preview__time {
+  padding: 0 4px;
 }
 
 .controls-row {

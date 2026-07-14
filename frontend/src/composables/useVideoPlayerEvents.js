@@ -1,16 +1,6 @@
-import { api } from 'boot/axios'
-import { watch } from 'vue'
+import { ref, onUnmounted, watch } from 'vue'
 import { getTrickplayManifest } from 'src/composables/usePlay'
 import { logger } from 'src/utils/logger'
-
-let spriteThumbnailsPluginPromise = null
-
-async function loadSpriteThumbnailsPlugin() {
-  if (!spriteThumbnailsPluginPromise) {
-    spriteThumbnailsPluginPromise = import('videojs-sprite-thumbnails')
-  }
-  return spriteThumbnailsPluginPromise
-}
 
 /**
  * Bundles the @mounted / @ready / @timeupdate / @ended / @pause handlers
@@ -66,33 +56,73 @@ export function useVideoPlayerEvents({
   shouldAutoAdvanceOnEnded,
   playNextEpisode,
 }) {
-  const absoluteApiUrl = (path) => {
-    if (!path) return ''
-    if (/^https?:\/\//i.test(path)) return path
-    const baseUrl = api.defaults.baseURL || window.location.origin
-    return `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`
+  // Trickplay manifest for the seek-bar preview. Rendered by our own controls
+  // (the player runs with `controls: false`), so it is exposed as state rather
+  // than fed to a video.js plugin.
+  const trickplayManifest = ref(null)
+  const TRICKPLAY_POLL_INTERVAL_MS = 5000
+  // Generation runs at roughly 30-60x realtime, so a feature-length film needs
+  // a few minutes' worth of polling before its last sheet lands.
+  const TRICKPLAY_MAX_ATTEMPTS = 120 // ~10 minutes, then stop asking
+  let trickplayTimer = null
+
+  function cancelTrickplayPolling() {
+    if (trickplayTimer) {
+      clearTimeout(trickplayTimer)
+      trickplayTimer = null
+    }
   }
 
-  async function setupTrickplaySprites(vjsPlayer) {
+  /** Seconds of the timeline the manifest's sprite sheets actually cover. */
+  function coveredSeconds(manifest) {
+    const sheets = manifest.sprites || []
+    if (!sheets.length) return 0
+    const perSheet = (manifest.columns || 10) * (manifest.rows || 10)
+    const last = sheets[sheets.length - 1]
+    return last.end_seconds ?? sheets.length * perSheet * (manifest.interval_seconds || 10)
+  }
+
+  async function setupTrickplaySprites(attempt = 0) {
+    cancelTrickplayPolling()
     if (!sessionId.value || !playToken.value) return
 
+    const forSession = sessionId.value
+    const pollAgain = (nextAttempt) => {
+      if (nextAttempt <= TRICKPLAY_MAX_ATTEMPTS) {
+        trickplayTimer = setTimeout(
+          () => setupTrickplaySprites(nextAttempt),
+          TRICKPLAY_POLL_INTERVAL_MS,
+        )
+      } else {
+        logger.debug('Stopped polling for trickplay sprites.')
+      }
+    }
+
     try {
-      await loadSpriteThumbnailsPlugin()
-      if (!vjsPlayer?.spriteThumbnails) return
+      const manifest = await getTrickplayManifest(forSession, playToken.value)
+      // The session may have been swapped while the request was in flight.
+      if (sessionId.value !== forSession) return
 
-      const manifest = await getTrickplayManifest(sessionId.value, playToken.value)
-      if (!manifest.ready || !manifest.sprites?.length) return
+      if (!manifest.ready || !manifest.sprites?.length) {
+        // The sprites are rendered by a sibling container that starts together
+        // with playback, so the first manifest is normally still empty. Without
+        // this retry we would ask exactly once — at the one moment the answer is
+        // guaranteed to be "not yet" — and never show a thumbnail.
+        pollAgain(attempt + 1)
+        return
+      }
 
-      vjsPlayer.spriteThumbnails({
-        interval: manifest.interval_seconds || 10,
-        urlArray: manifest.sprites.map((sprite) => absoluteApiUrl(sprite.url)),
-        width: manifest.thumbnail_width || 160,
-        height: manifest.thumbnail_height || 90,
-        columns: manifest.columns || 10,
-        rows: manifest.rows || 10,
-      })
+      // Show what exists already, but keep polling: FFmpeg writes one sheet per
+      // 100 frames, so an early manifest covers only the start of the timeline
+      // and the tail of the seek bar would stay blank forever.
+      trickplayManifest.value = manifest
+
+      const runtime = videoDuration.value || duration.value || 0
+      if (runtime && coveredSeconds(manifest) < runtime) {
+        pollAgain(attempt + 1)
+      }
     } catch (error) {
-      logger.debug('Failed to initialize trickplay thumbnails from manifest:', error)
+      logger.debug('Failed to load the trickplay manifest:', error)
     }
   }
 
@@ -105,7 +135,7 @@ export function useVideoPlayerEvents({
       setupXhrAuth('Mount')
     }
 
-    setupTrickplaySprites(vjsPlayer)
+    setupTrickplaySprites()
 
     // Wire Watch Party host poller + inbound sync watcher
     partySync.attachToPlayer(vjsPlayer)
@@ -259,11 +289,11 @@ export function useVideoPlayerEvents({
   watch(
     () => [sessionId.value, playToken.value],
     () => {
-      if (videoJsPlayer.value) {
-        setupTrickplaySprites(videoJsPlayer.value)
-      }
+      setupTrickplaySprites()
     },
   )
+
+  onUnmounted(cancelTrickplayPolling)
 
   return {
     onPlayerMounted,
@@ -271,5 +301,6 @@ export function useVideoPlayerEvents({
     onTimeUpdate,
     onVideoEnded,
     onVideoPause,
+    trickplayManifest,
   }
 }

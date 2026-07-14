@@ -32,7 +32,6 @@
     "qrcode": "^1.5.4",
     "quasar": "^2.16.0",
     "video.js": "^8.23.4",
-    "videojs-sprite-thumbnails": "^2.2.4",
     "vue": "^3.5.20",
     "vue-i18n": "^11.0.0",
     "vue-router": "^4.0.0"
