@@ -97,3 +97,91 @@ def test_purge_orphans_on_empty_cache_is_a_no_op(tmp_path):
             "bytes_freed": 0,
             "failed": 0,
         }
+
+
+def _entry(path, *, size, age_seconds, complete=True):
+    """Create a cache entry of a given size, last used `age_seconds` ago."""
+    import os
+
+    directory = trickplay.cache_dir(path)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "sprite_000.webp").write_bytes(b"x" * size)
+    if complete:
+        (directory / trickplay.COMPLETE_MARKER).touch()
+    used_at = 1_000_000.0 - age_seconds
+    os.utime(directory, (used_at, used_at))
+    return directory
+
+
+def test_under_budget_evicts_nothing(tmp_path):
+    with _cache_root(tmp_path):
+        _entry("/library/a.mkv", size=100, age_seconds=99999)
+
+        result = trickplay.enforce_size_limit(1000, now=1_000_000.0)
+
+        assert result["deleted"] == 0
+        assert trickplay.cache_dir("/library/a.mkv").exists()
+
+
+def test_evicts_least_recently_used_first(tmp_path):
+    with _cache_root(tmp_path):
+        _entry("/library/old.mkv", size=100, age_seconds=90000)
+        _entry("/library/recent.mkv", size=100, age_seconds=7200)
+
+        result = trickplay.enforce_size_limit(150, now=1_000_000.0)
+
+        assert result["deleted"] == 1
+        assert not trickplay.cache_dir("/library/old.mkv").exists()
+        assert trickplay.cache_dir("/library/recent.mkv").exists()
+
+
+def test_never_evicts_an_entry_that_is_in_use(tmp_path):
+    """A film being watched must keep its thumbnails, budget or not."""
+    with _cache_root(tmp_path):
+        _entry("/library/playing-now.mkv", size=5000, age_seconds=5)
+
+        result = trickplay.enforce_size_limit(100, now=1_000_000.0)
+
+        assert result["deleted"] == 0
+        assert trickplay.cache_dir("/library/playing-now.mkv").exists()
+
+
+def test_never_evicts_a_run_still_generating(tmp_path):
+    """No .complete marker means FFmpeg is still writing sheets."""
+    with _cache_root(tmp_path):
+        _entry("/library/generating.mkv", size=5000, age_seconds=90000, complete=False)
+
+        result = trickplay.enforce_size_limit(100, now=1_000_000.0)
+
+        assert result["deleted"] == 0
+        assert trickplay.cache_dir("/library/generating.mkv").exists()
+
+
+def test_a_long_film_always_fits_the_default_budget():
+    """The budget must never be so tight that one film cannot be cached.
+
+    A 4-hour film needs ~1440 thumbnails = 15 sheets; even at a generous
+    600 KB per sheet that is ~9 MB, far below the default budget.
+    """
+    sheets_for_four_hours = (4 * 3600 // 10 + 99) // 100
+    worst_case_bytes = sheets_for_four_hours * 600 * 1024
+
+    assert worst_case_bytes < trickplay.bytes_for_gb(None) / 100
+
+
+def test_budget_comes_from_the_configured_value():
+    assert trickplay.bytes_for_gb(2) == 2 * 1024**3
+    assert trickplay.bytes_for_gb(0.5) == int(0.5 * 1024**3)
+    # Unset falls back to the default, 0 disables the limit entirely.
+    assert trickplay.bytes_for_gb(None) == int(trickplay.DEFAULT_MAX_CACHE_GB * 1024**3)
+    assert trickplay.bytes_for_gb(0) == 0
+
+
+def test_unlimited_budget_evicts_nothing(tmp_path):
+    with _cache_root(tmp_path):
+        _entry("/library/a.mkv", size=5000, age_seconds=99999)
+
+        result = trickplay.enforce_size_limit(0, now=1_000_000.0)
+
+        assert result["deleted"] == 0
+        assert trickplay.cache_dir("/library/a.mkv").exists()

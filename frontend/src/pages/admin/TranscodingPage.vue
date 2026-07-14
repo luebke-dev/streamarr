@@ -288,6 +288,28 @@
 
           <q-separator class="q-my-md" />
 
+          <!-- Trickplay cache budget -->
+          <div class="q-mb-md">
+            <q-input
+              v-model.number="settings.trickplay_cache_max_gb"
+              type="number"
+              min="0"
+              max="1000"
+              step="0.5"
+              :label="$t('transcodingPage.trickplayCacheMax')"
+              :suffix="$t('transcodingPage.gigabytes')"
+              outlined
+              dense
+              :disable="saving"
+              style="max-width: 260px"
+            />
+            <p class="text-grey-6 text-caption q-mt-xs q-mb-none">
+              {{ $t('transcodingPage.trickplayCacheMaxHint') }}
+            </p>
+          </div>
+
+          <q-separator class="q-my-md" />
+
           <!-- HLS Segment Duration -->
           <div>
             <div class="text-subtitle2 q-mb-xs">
@@ -363,6 +385,7 @@ const defaultSettings = {
   thread_count: 0,
   temp_path: '/temp',
   prefer_compatible_codecs: false,
+  trickplay_cache_max_gb: 5,
 }
 
 const settings = reactive({ ...defaultSettings })

@@ -1922,6 +1922,10 @@ export default {
     preferCompatibleCodecs: 'Prefer compatible codecs for downloads',
     preferCompatibleCodecsHint:
       'When enabled, the automatic download selection considers codecs that users can play natively. When disabled, downloads are selected purely by quality and transcoded if needed.',
+
+    trickplayCacheMax: 'Thumbnail preview cache',
+    trickplayCacheMaxHint: 'Maximum size of the trickplay cache (seek-bar preview thumbnails). Roughly 2 MB per hour of runtime, so a 3-hour film takes ~6 MB. Once the limit is exceeded, the least recently played entries are evicted — never one that is being watched. 0 = no limit.',
+    gigabytes: 'GB',
   },
 
   // Episode Play Page

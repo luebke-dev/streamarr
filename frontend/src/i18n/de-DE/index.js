@@ -2243,6 +2243,10 @@ export default {
     preferCompatibleCodecs: 'Kompatible Codecs beim Download bevorzugen',
     preferCompatibleCodecsHint:
       'Wenn aktiviert, berücksichtigt die automatische Download-Auswahl Codecs, die Nutzer nativ abspielen können. Wenn deaktiviert, werden Downloads rein nach Qualität ausgewählt und bei Bedarf transcodiert.',
+
+    trickplayCacheMax: 'Cache für Vorschaubilder',
+    trickplayCacheMaxHint: 'Maximale Größe des Trickplay-Caches (Vorschaubilder in der Zeitleiste). Etwa 2 MB pro Stunde Laufzeit; ein 3-Stunden-Film belegt ~6 MB. Wird das Limit überschritten, werden die am längsten ungenutzten Einträge entfernt — laufende Wiedergaben nie. 0 = kein Limit.',
+    gigabytes: 'GB',
   },
 
   // Admin Create User Page

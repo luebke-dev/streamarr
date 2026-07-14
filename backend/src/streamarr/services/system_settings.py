@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from streamarr.services import trickplay
 from streamarr.services.settings import SettingsService
 
 logger = logging.getLogger(__name__)
@@ -324,6 +325,9 @@ class SystemSettingsService:
             "prefer_compatible_codecs": await self._settings_service.get(
                 "transcoding.prefer_compatible_codecs", False
             ),
+            "trickplay_cache_max_gb": await self._settings_service.get(
+                "transcoding.trickplay_cache_max_gb", trickplay.DEFAULT_MAX_CACHE_GB
+            ),
         }
 
     async def update_transcoding_settings(
@@ -343,6 +347,7 @@ class SystemSettingsService:
         temp_path: str | None = None,
         max_concurrent_transcodes: int | None = None,
         prefer_compatible_codecs: bool | None = None,
+        trickplay_cache_max_gb: float | None = None,
     ) -> dict[str, Any]:
         """Update transcoding settings."""
         logger.info("Updating transcoding settings")
@@ -397,6 +402,10 @@ class SystemSettingsService:
         if prefer_compatible_codecs is not None:
             await self._settings_service.set(
                 "transcoding.prefer_compatible_codecs", prefer_compatible_codecs
+            )
+        if trickplay_cache_max_gb is not None:
+            await self._settings_service.set(
+                "transcoding.trickplay_cache_max_gb", trickplay_cache_max_gb
             )
         return await self.get_transcoding_settings()
 
