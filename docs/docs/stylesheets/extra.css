@@ -1,0 +1,26 @@
+/* Streamarr brand colors, taken from the app logo:
+   navy #050a14, cyan #00b4ff */
+
+:root {
+  /* Header / primary surfaces: navy */
+  --md-primary-fg-color: #0a1424;
+  --md-primary-fg-color--light: #16263f;
+  --md-primary-fg-color--dark: #050a14;
+  /* Accent (hover, focus, active states): brand cyan */
+  --md-accent-fg-color: #00b4ff;
+  --md-accent-fg-color--transparent: #00b4ff1a;
+}
+
+/* Light mode: brand cyan is too light for text on white,
+   so links use a darkened cyan that keeps WCAG AA contrast */
+[data-md-color-scheme="default"] {
+  --md-typeset-a-color: #0076ad;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-hue: 215;
+  --md-typeset-a-color: #00b4ff;
+  --md-default-bg-color: #0b131f;
+  --md-footer-bg-color: #050a14;
+  --md-footer-bg-color--dark: #030710;
+}
