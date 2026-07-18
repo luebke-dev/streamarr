@@ -9,18 +9,20 @@ repo_url: https://github.com/luebke-dev/streamarr
 theme:
   name: material
   language: en
+  logo: assets/logo.png
+  favicon: assets/favicon.ico
   palette:
     # Palette toggle for light mode
     - scheme: default
-      primary: deep purple
-      accent: purple
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     # Palette toggle for dark mode
     - scheme: slate
-      primary: deep purple
-      accent: purple
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
@@ -118,3 +120,6 @@ extra:
       link: https://github.com/luebke-dev/streamarr
 
 copyright: Copyright &copy; 2024&ndash;2026 Streamarr Team
+
+extra_css:
+  - stylesheets/extra.css
