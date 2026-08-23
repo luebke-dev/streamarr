@@ -202,6 +202,8 @@ export const MediaTypes = {
   MOVIES: 'MOVIES',
   SHOWS: 'SHOWS', // Backend uses SHOWS not SERIES
   SERIES: 'SHOWS', // Alias for backward compatibility
+  SEASONS: 'SEASONS',
+  EPISODES: 'EPISODES',
   GAMES: 'GAMES',
   MUSIC: 'MUSIC',
   ARTISTS: 'ARTISTS',

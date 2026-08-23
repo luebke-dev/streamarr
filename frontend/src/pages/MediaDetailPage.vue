@@ -644,8 +644,9 @@ export default {
         releases.value = data.releases || []
         externalLinks.value = data.external_links || []
 
-        // For shows and seasons, load children (seasons/episodes)
-        if (data.media_type === 'SHOWS') {
+        // Shows contain seasons; explicit SEASONS items contain episodes.
+        // Older databases represented both levels as SHOWS, hence the fallback.
+        if (data.media_type === 'SHOWS' || data.media_type === 'SEASONS') {
           const childrenData = await mediaService.loadMediaChildren(guid, true)
           if (isStale()) return
           children.value = childrenData || []
