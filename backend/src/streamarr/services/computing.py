@@ -147,6 +147,9 @@ def _data_root() -> str:
     exist inside the backend container otherwise.
     """
     if os.path.exists("/.dockerenv"):
+        host_data_root = os.environ.get("STREAMARR_DATA_HOST_PATH", "").rstrip("/")
+        if host_data_root:
+            return host_data_root
         project_root = os.environ.get("PROJECT_ROOT", "").rstrip("/")
         if not project_root:
             # No personal-path fallback: a wrong host root silently breaks every
@@ -177,7 +180,7 @@ def build_media_volumes(
     include_cache: bool = False,
     include_downloads: bool = True,
     include_books: bool = False,
-    read_only: bool = True,
+    read_only: bool = True,  # noqa: ARG001 - retained for provider-compatible API
 ) -> dict[str, str]:
     """Build the standard set of bind mounts for ffmpeg/ffprobe.
 
@@ -211,13 +214,21 @@ def build_media_volumes(
         return volumes
 
     root = _data_root()
+    # Sibling FFmpeg containers need paths from the Docker *host* namespace.
+    # The backend's own /library bind targets are not valid host paths when a
+    # library lives on a separately mounted dataset.
     volumes = {
-        f"{root}/library/movies": "/library/movies",
-        f"{root}/library/shows": "/library/shows",
-        f"{root}/library/music": "/library/music",
+        os.environ.get("STREAMARR_MOVIES_HOST_PATH", f"{root}/library/movies"):
+            "/library/movies",
+        os.environ.get("STREAMARR_SHOWS_HOST_PATH", f"{root}/library/shows"):
+            "/library/shows",
+        os.environ.get("STREAMARR_MUSIC_HOST_PATH", f"{root}/library/music"):
+            "/library/music",
     }
     if include_books:
-        volumes[f"{root}/library/books"] = "/library/books"
+        volumes[
+            os.environ.get("STREAMARR_BOOKS_HOST_PATH", f"{root}/library/books")
+        ] = "/library/books"
     if include_downloads:
         volumes[f"{root}/usenet-remote/downloads"] = "/downloads"
     if include_cache:
@@ -747,12 +758,13 @@ class ComputingService:
         Returns:
             Task ID of the transcoding task
         """
-        import os
         import uuid
 
         from streamarr.schemas.transcoding import TranscodingSessionCreate
         from streamarr.services.system_settings import SystemSettingsService
-        from streamarr.services.transcoding_session import get_transcoding_session_service
+        from streamarr.services.transcoding_session import (
+            get_transcoding_session_service,
+        )
 
         logger.info("Starting transcoding for session %s", session_id)
 

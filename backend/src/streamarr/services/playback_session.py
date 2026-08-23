@@ -52,6 +52,9 @@ _TRANSCODE_LOCK_TTL_SECONDS = 10
 _MIN_TRANSCODE_TAIL_SECONDS = 10.0
 _background_tasks: set[asyncio.Task] = set()
 
+_HLS_TS_COPY_VIDEO_CODECS = {"h264", "avc", "avc1"}
+_HLS_TS_COPY_AUDIO_CODECS = {"aac", "mp3"}
+
 
 @dataclass(frozen=True)
 class PlayMediaRequest:
@@ -248,6 +251,50 @@ def _normalize_transcode_start_position(
     return start_position
 
 
+def _enforce_hls_ts_compatibility(decision: PlaybackSourceDecision) -> None:
+    """Avoid codecs that browsers cannot consume from MPEG-TS HLS segments.
+
+    Codec capability detection only says that a browser can decode a codec; it
+    does not mean that HLS.js can demux that codec from MPEG-TS. Directly copied
+    AV1/VP9 video and Opus/FLAC audio therefore produce a valid playlist that no
+    supported browser can play. Direct-file playback is unaffected.
+    """
+    if decision.can_direct_file_play or decision.codec_result is None:
+        return
+
+    source_video = str(decision.source_info.get("video_codec") or "").lower()
+    source_audio = str(decision.source_info.get("audio_codec") or "").lower()
+    changed = False
+
+    if (
+        decision.codec_result.video_codec == "copy"
+        and source_video not in _HLS_TS_COPY_VIDEO_CODECS
+    ):
+        decision.codec_result.video_codec = "h264"
+        decision.effective_video_codec = "h264"
+        decision.transcode_reasons.append(
+            f"Video: {source_video or 'unknown'} -> h264 for HLS MPEG-TS"
+        )
+        changed = True
+
+    if (
+        decision.codec_result.audio_codec == "copy"
+        and source_audio not in _HLS_TS_COPY_AUDIO_CODECS
+    ):
+        decision.codec_result.audio_codec = "aac"
+        decision.effective_audio_codec = "aac"
+        decision.transcode_reasons.append(
+            f"Audio: {source_audio or 'unknown'} -> aac for HLS MPEG-TS"
+        )
+        changed = True
+
+    if changed:
+        decision.needs_transcode = True
+        decision.can_direct_stream = False
+        decision.can_transcode = True
+        decision.playback_method = "transcode"
+
+
 async def _enforce_playback_rate_limit(current_user, permissions) -> None:
     if permissions is None:
         return
@@ -407,6 +454,7 @@ class PlaybackSessionService:
             request=request,
             context=context,
         )
+        _enforce_hls_ts_compatibility(decision)
         needs_transcode = await self._effective_transcode_requirement(
             media_id=media_id,
             request=request,
