@@ -27,19 +27,21 @@ export function useMediaTypeFlags({ mediaItem, children }) {
   const isShow = computed(
     () => mediaType.value === MediaTypes.SERIES && !mediaItem.value?.parent_guid,
   )
-  // A season is series type WITH a parent but HAS children (episodes)
+  // Newer backends expose explicit SEASONS/EPISODES types. Keep the SHOWS
+  // hierarchy fallback for databases created by older releases.
   const isSeason = computed(
     () =>
-      mediaType.value === MediaTypes.SERIES &&
-      mediaItem.value?.parent_guid &&
-      children.value.length > 0,
+      mediaType.value === MediaTypes.SEASONS ||
+      (mediaType.value === MediaTypes.SERIES &&
+        mediaItem.value?.parent_guid &&
+        children.value.length > 0),
   )
-  // An episode is series type WITH a parent but has NO children
   const isEpisode = computed(
     () =>
-      mediaType.value === MediaTypes.SERIES &&
-      mediaItem.value?.parent_guid &&
-      children.value.length === 0,
+      mediaType.value === MediaTypes.EPISODES ||
+      (mediaType.value === MediaTypes.SERIES &&
+        mediaItem.value?.parent_guid &&
+        children.value.length === 0),
   )
   const isGame = computed(() => mediaType.value === MediaTypes.GAMES)
   const isMusic = computed(() => mediaType.value === MediaTypes.MUSIC)
