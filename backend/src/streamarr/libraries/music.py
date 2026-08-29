@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -95,6 +96,51 @@ class MusicLibraryPlugin(LibraryBase):
 
         return stats
 
+    async def scan_library(self, path: str) -> list[dict[str, Any]]:
+        """Discover Artist/Album/Track layouts for periodic reconciliation."""
+        root = Path(path)
+        if not root.exists():
+            return []
+        extensions = {
+            ".mp3",
+            ".flac",
+            ".m4a",
+            ".aac",
+            ".ogg",
+            ".opus",
+            ".wav",
+            ".wma",
+            ".ape",
+            ".alac",
+        }
+        items = []
+        for file_path in sorted(root.rglob("*")):
+            if file_path.is_file() and file_path.suffix.lower() in extensions:
+                stat = file_path.stat()
+                relative = file_path.relative_to(root)
+                artist = (
+                    relative.parts[0] if len(relative.parts) >= 3 else "Unknown Artist"
+                )
+                album = (
+                    relative.parts[1] if len(relative.parts) >= 3 else "Unknown Album"
+                )
+                track_match = re.match(r"^(\d+)", file_path.stem)
+                title = re.sub(r"^\d+(?:-\d+)?\s*[-._ ]+\s*", "", file_path.stem)
+                items.append(
+                    {
+                        "title": title or file_path.stem,
+                        "media_type": "SONGS",
+                        "artist": artist,
+                        "album": album,
+                        "track": int(track_match.group(1)) if track_match else None,
+                        "path": str(file_path),
+                        "name": file_path.name,
+                        "size": stat.st_size,
+                        "format": file_path.suffix.lstrip("."),
+                    }
+                )
+        return items
+
     async def handle_completed_download(
         self,
         *,
@@ -123,7 +169,11 @@ class MusicLibraryPlugin(LibraryBase):
         disc_number = 1
         if media_item.extra_data:
             try:
-                ed = json.loads(media_item.extra_data) if isinstance(media_item.extra_data, str) else media_item.extra_data
+                ed = (
+                    json.loads(media_item.extra_data)
+                    if isinstance(media_item.extra_data, str)
+                    else media_item.extra_data
+                )
                 disc_number = ed.get("disc_number", 1)
             except (json.JSONDecodeError, TypeError):
                 pass
@@ -182,7 +232,9 @@ class MusicLibraryPlugin(LibraryBase):
             db.add(media_file)
             await db.commit()
             files_imported += 1
-            logger.info("Imported music file: %s -> %s%s", file.name, new_file_name, extension)
+            logger.info(
+                "Imported music file: %s -> %s%s", file.name, new_file_name, extension
+            )
 
         if files_imported > 0:
             media_item.availability_status = AvailabilityStatus.AVAILABLE

@@ -903,7 +903,7 @@ class SystemSettingsService:
             )
         return await self.get_favorites_settings()
 
-    # Favorites automation (auto-download / upgrades / RSS sync)
+    # Automation (library scans / auto-download / upgrades / RSS sync)
     _AUTOMATION_KEYS = {
         "favorites_autodownload_enabled": (
             "automation.favorites_autodownload_enabled",
@@ -922,6 +922,14 @@ class SystemSettingsService:
         "max_concurrent_upgrade_downloads": (
             "automation.max_concurrent_upgrade_downloads",
             3,
+        ),
+        "library_scan_interval_hours": (
+            "automation.library_scan_interval_hours",
+            12,
+        ),
+        "realtime_library_monitor": (
+            "automation.realtime_library_monitor",
+            True,
         ),
     }
 

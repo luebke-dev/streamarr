@@ -176,6 +176,19 @@ EVENT_DEFINITIONS: list[NotificationEventDefinition] = [
             "library_guid": {"type": "string", "required": False},
             "library_type": {"type": "string", "required": False},
             "discovered_count": {"type": "integer", "required": False},
+            "added": {"type": "integer", "required": False},
+            "updated": {"type": "integer", "required": False},
+            "removed": {"type": "integer", "required": False},
+        },
+    ),
+    NotificationEventDefinition(
+        event_type="library.scan_failed",
+        name="Library Scan Failed",
+        description="A library scan failed without removing existing assignments.",
+        payload_schema={
+            "library_guid": {"type": "string", "required": False},
+            "library_type": {"type": "string", "required": False},
+            "error": {"type": "string", "required": False},
         },
     ),
     NotificationEventDefinition(

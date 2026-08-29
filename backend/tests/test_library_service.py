@@ -748,17 +748,21 @@ class TestLibraryScanAndMatch:
     """Test library scanning and metadata matching."""
 
     @pytest.mark.asyncio
-    async def test_scan_library_for_media(self, db_session: AsyncSession):
+    async def test_scan_library_for_media(self, db_session: AsyncSession, tmp_path):
         """Test scanning library for media files."""
         service = LibraryService(db_session)
 
         # Create library
+        library_path = tmp_path / "movies"
+        library_path.mkdir()
+        (library_path / "movie1.mp4").write_bytes(b"1")
+        (library_path / "movie2.mp4").write_bytes(b"2")
         with patch.object(service, "get_plugin", return_value=MockPlugin("MOVIES")):
             library = await service.create_library(
                 name="Test Library",
                 type="MOVIES",
                 plugin_id="movies",
-                path="/data/movies",
+                path=str(library_path),
             )
 
         # Scan library
@@ -766,8 +770,8 @@ class TestLibraryScanAndMatch:
             discovered = await service.scan_library_for_media(library.guid)
 
         assert len(discovered) == 2
-        assert discovered[0]["path"] == "/data/movies/movie1.mp4"
-        assert discovered[1]["path"] == "/data/movies/movie2.mp4"
+        assert discovered[0]["path"] == f"{library_path}/movie1.mp4"
+        assert discovered[1]["path"] == f"{library_path}/movie2.mp4"
 
     @pytest.mark.asyncio
     async def test_scan_library_not_found(self, db_session: AsyncSession):

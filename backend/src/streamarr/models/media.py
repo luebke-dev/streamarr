@@ -315,6 +315,28 @@ class MediaFile(Base):
         nullable=False,
     )
 
+    # Owning physical library. Nullable for legacy/rclone-backed files that do
+    # not live below a configured library root.
+    library_guid: Mapped[uuid.UUID | None] = mapped_column(
+        types.Uuid,
+        ForeignKey("libraries.guid", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+
+    # Physical source root and stable filesystem identity used by the library
+    # reconciler. ``library_root`` is deliberately stored on the file rather
+    # than inferred from the current path so a configured multi-root library
+    # can reconcile every mount independently and fail closed per mount.
+    library_root: Mapped[str | None] = mapped_column(index=True, nullable=True)
+    filesystem_device: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    filesystem_inode: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    modified_ns: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    identity_key: Mapped[str | None] = mapped_column(index=True, nullable=True)
+    last_seen_scan_id: Mapped[uuid.UUID | None] = mapped_column(
+        types.Uuid, index=True, nullable=True
+    )
+
     # File location
     file_path: Mapped[str] = mapped_column(index=True, nullable=False)
     file_name: Mapped[str | None] = mapped_column()
@@ -358,6 +380,10 @@ class MediaFile(Base):
 
     # Relationships
     media_item = relationship("MediaItem", back_populates="files")
+
+    __table_args__ = (
+        Index("ix_media_file_library_identity", "library_guid", "identity_key"),
+    )
 
 
 class MediaRelease(Base):

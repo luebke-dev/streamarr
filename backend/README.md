@@ -28,6 +28,7 @@ API (FastAPI)
   └── WebSocket    Real-time events, remote control, device tracking
 
 Worker (Taskiq)
+  ├── Library scanning    Scheduled reconciliation, safe removals, probe queueing
   ├── Metadata import    TMDB, IGDB, Spotify → unified media items
   ├── Release search     Sonarr-inspired matching, quality scoring, language filtering
   ├── Download handling  Queue, monitor, import completed downloads

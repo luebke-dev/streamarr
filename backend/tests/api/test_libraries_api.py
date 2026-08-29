@@ -3,6 +3,7 @@
 import json
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -679,8 +680,21 @@ class TestLibraryScanRefresh:
         ]
 
         with patch(
-            "streamarr.api.v1.libraries.LibraryService.scan_library_for_media",
-            AsyncMock(return_value=discovered),
+            "streamarr.api.v1.libraries.LibraryService.scan_library_with_result",
+            AsyncMock(
+                return_value=(
+                    discovered,
+                    SimpleNamespace(
+                        discovered=2,
+                        added=0,
+                        updated=0,
+                        removed=0,
+                        skipped=0,
+                        probe_file_guids=[],
+                        media_item_guids=[],
+                    ),
+                )
+            ),
         ):
             resp = await client.post(
                 f"/api/libraries/{lib.guid}/scan",
@@ -706,8 +720,21 @@ class TestLibraryScanRefresh:
         lib = await _create_library(db_session)
 
         with patch(
-            "streamarr.api.v1.libraries.LibraryService.scan_library_for_media",
-            AsyncMock(return_value=[]),
+            "streamarr.api.v1.libraries.LibraryService.scan_library_with_result",
+            AsyncMock(
+                return_value=(
+                    [],
+                    SimpleNamespace(
+                        discovered=0,
+                        added=0,
+                        updated=0,
+                        removed=0,
+                        skipped=0,
+                        probe_file_guids=[],
+                        media_item_guids=[],
+                    ),
+                )
+            ),
         ):
             resp = await client.post(
                 f"/api/libraries/{lib.guid}/refresh",
