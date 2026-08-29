@@ -1,0 +1,114 @@
+name: Backend CI
+
+# Lint and test the FastAPI backend.
+#
+# Baseline measured on 5a15eb1 with the pinned tool versions from
+# backend/uv.lock (ruff 0.13.3, mypy 1.18.2, pytest 8.4.2):
+#
+#   uv run ruff check .   -> 970 findings (195 in src/, 472 in tests/, 303 in alembic/)
+#   uv run mypy src       -> 746 errors in 139 of 350 files
+#   uv run pytest         -> 4276 passed / 70 failed / 172 skipped (~13 min),
+#                            with the redis service container defined below.
+#                            Without a Redis, 186 fail instead: 116 of the
+#                            failures were nothing but "Error 111 connecting to
+#                            localhost:6379". The 70 that are left are spread
+#                            over 21 files (13 of them tests/api/test_cast_api.py)
+#                            and fail on a clean HEAD checkout too, so they are
+#                            a real backlog rather than a CI artefact.
+#
+# Because none of those three is green today, they run as reporting steps
+# (continue-on-error) so this workflow can be merged without wedging every pull
+# request red. Drop `continue-on-error` per step as each backlog is cleared --
+# that is the point at which the step becomes a real gate. Until then the only
+# blocking check here is `uv sync --locked`, which fails if uv.lock has drifted
+# out of sync with pyproject.toml.
+#
+# `ruff format --check` is deliberately absent: the tree is not ruff-formatted
+# (394 of 573 files would be reformatted), so the step would only ever be noise.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Ruff + mypy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+      - name: Install Python
+        # Reads backend/.python-version (3.13).
+        run: uv python install
+      - name: Sync dependencies
+        run: uv sync --locked --all-groups
+      - name: Ruff lint
+        continue-on-error: true # 970 findings on the current tree -- see header
+        run: uv run ruff check --output-format=github .
+      - name: mypy
+        continue-on-error: true # 746 errors on the current tree -- see header
+        run: uv run mypy src
+
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      # tests/conftest.py points DATABASE_URL at in-memory SQLite, but a large
+      # part of the suite talks to a real Redis (db 15) and fails with
+      # "Error 111 connecting to localhost:6379" without one. Image matches the
+      # redis service in docker-compose.yml.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+      - name: Install Python
+        run: uv python install
+      - name: Sync dependencies
+        run: uv sync --locked --all-groups
+      - name: pytest
+        continue-on-error: true # see header -- flip to a gate once the suite is green
+        env:
+          # streamarr.config calls sys.exit(1) at import time without this.
+          # CI-only throwaway value; the real key lives in the deployment env.
+          SECRET_KEY: github-actions-throwaway-secret-not-used-for-anything
+          PYTEST_REDIS_URL: redis://localhost:6379/15
+        # pytest.ini already sets asyncio_mode=auto, testpaths=tests and
+        # pythonpath=src, so no extra flags are needed here.
+        run: uv run pytest
