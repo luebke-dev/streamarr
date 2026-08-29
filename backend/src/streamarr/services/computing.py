@@ -171,6 +171,20 @@ _PVC_CACHE = lambda: os.environ.get("STREAMARR_PVC_CACHE", "streamarr-cache")  #
 _PVC_TEMP = lambda: os.environ.get("STREAMARR_PVC_TEMP", "streamarr-temp")  # noqa: E731
 
 
+def _library_host_path(kind: str, root: str) -> str:
+    """Return the host path of one library subdirectory.
+
+    A library may live outside the project tree — compose exposes
+    ``MOVIES_DIR``/``SHOWS_DIR``/… for exactly that and forwards the resolved
+    value as ``LIBRARY_<KIND>_HOST``. Sibling FFmpeg containers have to bind
+    the same host path the backend already mounts, so the override has to be
+    honoured here too: without it a relocated library resolves to the empty
+    default directory and every transcode fails to find its source file.
+    """
+    override = os.environ.get(f"LIBRARY_{kind.upper()}_HOST", "").strip().rstrip("/")
+    return override or f"{root}/library/{kind}"
+
+
 def build_media_volumes(
     *,
     include_writable_temp: bool = False,
@@ -212,12 +226,12 @@ def build_media_volumes(
 
     root = _data_root()
     volumes = {
-        f"{root}/library/movies": "/library/movies",
-        f"{root}/library/shows": "/library/shows",
-        f"{root}/library/music": "/library/music",
+        _library_host_path("movies", root): "/library/movies",
+        _library_host_path("shows", root): "/library/shows",
+        _library_host_path("music", root): "/library/music",
     }
     if include_books:
-        volumes[f"{root}/library/books"] = "/library/books"
+        volumes[_library_host_path("books", root)] = "/library/books"
     if include_downloads:
         volumes[f"{root}/usenet-remote/downloads"] = "/downloads"
     if include_cache:
