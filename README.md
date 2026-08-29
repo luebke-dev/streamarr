@@ -4,7 +4,7 @@
 
 Streamarr combines what usually takes half a dozen tools: a streaming media center (à la Jellyfin/Plex), release automation (à la Sonarr/Radarr), and a WebRTC cloud-gaming service — with one library, one user system, and one UI.
 
-📚 **Documentation:** <https://docs.streamarr.luebke.dev>
+📚 **Documentation:** <https://streamarr.luebke.dev>
 
 ## Features
 
@@ -100,7 +100,7 @@ graph TB
 
 ## Deployment
 
-Four supported models (see [`deployment/`](deployment/) and the [docs](https://docs.streamarr.luebke.dev)):
+Four supported models (see [`deployment/`](deployment/) and the [docs](https://streamarr.luebke.dev)):
 
 - **Local dev** — `docker-compose.yml` in the repo root (locally built images)
 - **Single host** — `deployment/docker/docker-compose.yml` with pre-built registry images, or the interactive installer: `curl -fsSL https://get.streamarr.media | sudo bash`

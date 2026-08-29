@@ -49,3 +49,6 @@ frontend/src-capacitor/ios/
 
 # --- Docs ---
 docs/site/
+
+# Lokale Compose-Overrides (Hardware, Pfade dieser Maschine)
+docker-compose.override.yml
