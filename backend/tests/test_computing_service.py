@@ -11,6 +11,7 @@ from streamarr.computing.base import ComputingBase, TaskResult, TaskStatus
 from streamarr.services.computing import (
     ComputingService,
     _kubernetes_scheduling_kwargs,
+    build_media_volumes,
 )
 
 
@@ -1085,3 +1086,60 @@ class TestSchedulingKwargsForwarded:
             stored = provider.tasks[task_id]
             # Explicit caller value wins over the env default.
             assert stored["kwargs"]["node_selector"] == {"role": "explicit"}
+
+
+class TestLibraryHostPaths:
+    """``build_media_volumes`` must follow relocated libraries.
+
+    A library can be mounted from anywhere on the host (compose exposes
+    ``MOVIES_DIR`` and friends). Sibling FFmpeg containers only find their
+    source file if they bind the same host path the backend does, so the
+    ``LIBRARY_<KIND>_HOST`` overrides have to win over the derived default.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _in_docker(self, monkeypatch):
+        # build_media_volumes takes the Docker branch, not the Kubernetes one.
+        monkeypatch.setattr(
+            "streamarr.services.computing._running_in_kubernetes", lambda: False
+        )
+        monkeypatch.setattr(
+            "streamarr.services.computing._data_root", lambda: "/srv/streamarr/data"
+        )
+        for kind in ("MOVIES", "SHOWS", "MUSIC", "BOOKS"):
+            monkeypatch.delenv(f"LIBRARY_{kind}_HOST", raising=False)
+
+    def test_defaults_to_the_data_root(self):
+        volumes = build_media_volumes(include_downloads=False)
+        assert volumes["/srv/streamarr/data/library/movies"] == "/library/movies"
+        assert volumes["/srv/streamarr/data/library/shows"] == "/library/shows"
+
+    def test_override_relocates_a_single_library(self, monkeypatch):
+        monkeypatch.setenv("LIBRARY_MOVIES_HOST", "/media/Filme")
+        volumes = build_media_volumes(include_downloads=False)
+        assert volumes["/media/Filme"] == "/library/movies"
+        # Untouched libraries keep the derived default.
+        assert volumes["/srv/streamarr/data/library/shows"] == "/library/shows"
+        assert "/srv/streamarr/data/library/movies" not in volumes
+
+    def test_trailing_slash_is_normalised(self, monkeypatch):
+        monkeypatch.setenv("LIBRARY_SHOWS_HOST", "/media/Serien/")
+        volumes = build_media_volumes(include_downloads=False)
+        assert volumes["/media/Serien"] == "/library/shows"
+
+    def test_blank_override_falls_back(self, monkeypatch):
+        monkeypatch.setenv("LIBRARY_MUSIC_HOST", "   ")
+        volumes = build_media_volumes(include_downloads=False)
+        assert volumes["/srv/streamarr/data/library/music"] == "/library/music"
+
+    def test_books_override_applies_when_requested(self, monkeypatch):
+        monkeypatch.setenv("LIBRARY_BOOKS_HOST", "/media/Buecher")
+        volumes = build_media_volumes(include_books=True, include_downloads=False)
+        assert volumes["/media/Buecher"] == "/library/books"
+
+    def test_non_library_mounts_stay_on_the_data_root(self, monkeypatch):
+        monkeypatch.setenv("LIBRARY_MOVIES_HOST", "/media/Filme")
+        volumes = build_media_volumes(include_downloads=True)
+        assert (
+            volumes["/srv/streamarr/data/usenet-remote/downloads"] == "/downloads"
+        )

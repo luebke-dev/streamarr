@@ -74,20 +74,27 @@ services:
       - LIGHTRAYS_STATE_DIR=/state/lightrays
       # Host path of the games library (container /library/games), so the retro
       # launch can bind-mount a game's ROM into the sibling game container.
-      - LIGHTRAYS_GAMES_LIBRARY_HOST=${PROJECT_ROOT:-/root/streamarr.media}/data/library/games
+      - LIGHTRAYS_GAMES_LIBRARY_HOST=${GAMES_DIR:-${DATA_DIR:-./data}/library/games}
       - LIGHTRAYS_GAMING_STORAGE_CONTAINER=/user-data
       - LIGHTRAYS_GAMING_STORAGE_HOST=${PROJECT_ROOT:-/root/streamarr.media}/data/users
-      - PROJECT_ROOT=${PROJECT_ROOT:-/data/}
+      - PROJECT_ROOT=${PROJECT_ROOT:-/root/streamarr.media/}
+      # Host paths of the library mounts below, so sibling FFmpeg containers
+      # bind the same directories this service does. Same expressions as the
+      # volumes, so the two can never drift apart.
+      - LIBRARY_MOVIES_HOST=${MOVIES_DIR:-${DATA_DIR:-./data}/library/movies}
+      - LIBRARY_SHOWS_HOST=${SHOWS_DIR:-${DATA_DIR:-./data}/library/shows}
+      - LIBRARY_MUSIC_HOST=${MUSIC_DIR:-${DATA_DIR:-./data}/library/music}
+      - LIBRARY_BOOKS_HOST=${BOOKS_DIR:-${DATA_DIR:-./data}/library/books}
       - STREAMARR_ARTWORK_CACHE_ENABLED=${STREAMARR_ARTWORK_CACHE_ENABLED:-true}
       - STREAMARR_ARTWORK_CACHE_DIR=/cache/artwork
     volumes:
       - ./backend/src:/app/src:rw,z
       - ./backend/alembic:/app/alembic:rw,z
-      - ${DATA_DIR:-./data}/library/movies:/library/movies:rw,z
-      - ${DATA_DIR:-./data}/library/shows:/library/shows:rw,z
-      - ${DATA_DIR:-./data}/library/music:/library/music:rw,z
-      - ${DATA_DIR:-./data}/library/books:/library/books:rw,z
-      - ${DATA_DIR:-./data}/library/games:/library/games:rw,z
+      - ${MOVIES_DIR:-${DATA_DIR:-./data}/library/movies}:/library/movies:rw,z
+      - ${SHOWS_DIR:-${DATA_DIR:-./data}/library/shows}:/library/shows:rw,z
+      - ${MUSIC_DIR:-${DATA_DIR:-./data}/library/music}:/library/music:rw,z
+      - ${BOOKS_DIR:-${DATA_DIR:-./data}/library/books}:/library/books:rw,z
+      - ${GAMES_DIR:-${DATA_DIR:-./data}/library/games}:/library/games:rw,z
       - ${DATA_DIR:-./data}/usenet-remote/downloads:/downloads:rw,z
       - ${DATA_DIR:-./data}/spotdl/downloads:/spotdl-downloads:rw,z
       - ${DATA_DIR:-./data}/torrent/downloads:/torrent-downloads:rw,z
@@ -128,13 +135,20 @@ services:
       - ELASTICSEARCH_PORT=9200
       - SECRET_KEY=${SECRET_KEY}
       - PROJECT_ROOT=${PROJECT_ROOT:-/root/streamarr.media/}
+      # Host paths of the library mounts below, so sibling FFmpeg containers
+      # bind the same directories this service does. Same expressions as the
+      # volumes, so the two can never drift apart.
+      - LIBRARY_MOVIES_HOST=${MOVIES_DIR:-${DATA_DIR:-./data}/library/movies}
+      - LIBRARY_SHOWS_HOST=${SHOWS_DIR:-${DATA_DIR:-./data}/library/shows}
+      - LIBRARY_MUSIC_HOST=${MUSIC_DIR:-${DATA_DIR:-./data}/library/music}
+      - LIBRARY_BOOKS_HOST=${BOOKS_DIR:-${DATA_DIR:-./data}/library/books}
     volumes:
       - ./backend/src:/app/src:rw,z
-      - ${DATA_DIR:-./data}/library/movies:/library/movies:rw,z
-      - ${DATA_DIR:-./data}/library/shows:/library/shows:rw,z
-      - ${DATA_DIR:-./data}/library/music:/library/music:rw,z
-      - ${DATA_DIR:-./data}/library/books:/library/books:rw,z
-      - ${DATA_DIR:-./data}/library/games:/library/games:rw,z
+      - ${MOVIES_DIR:-${DATA_DIR:-./data}/library/movies}:/library/movies:rw,z
+      - ${SHOWS_DIR:-${DATA_DIR:-./data}/library/shows}:/library/shows:rw,z
+      - ${MUSIC_DIR:-${DATA_DIR:-./data}/library/music}:/library/music:rw,z
+      - ${BOOKS_DIR:-${DATA_DIR:-./data}/library/books}:/library/books:rw,z
+      - ${GAMES_DIR:-${DATA_DIR:-./data}/library/games}:/library/games:rw,z
       - ${DATA_DIR:-./data}/usenet-remote/downloads:/downloads:rw,z
       - ${DATA_DIR:-./data}/spotdl/downloads:/spotdl-downloads:rw,z
       - ${DATA_DIR:-./data}/torrent/downloads:/torrent-downloads:rw,z
