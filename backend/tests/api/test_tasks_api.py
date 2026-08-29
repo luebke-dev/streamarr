@@ -21,6 +21,7 @@ class TestListTasks:
         assert "refresh_downloads" in task_ids
         assert "reindex_all" in task_ids
         assert "cleanup_storage" in task_ids
+        assert "scan_media_libraries" in task_ids
 
     async def test_list_tasks_unauthorized(self, client: AsyncClient):
         resp = await client.get("/api/tasks")
@@ -166,6 +167,21 @@ class TestRunTask:
         assert resp.status_code == 404
         assert "not found" in resp.json()["detail"]
 
+    async def test_run_scan_media_libraries(
+        self, client: AsyncClient, test_superuser: User, admin_headers
+    ):
+        mock_task = AsyncMock()
+        mock_task.kiq = AsyncMock()
+
+        with patch("streamarr.worker.scan_media_libraries", mock_task, create=True):
+            resp = await client.post(
+                "/api/tasks/scan_media_libraries/run", headers=admin_headers
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["task_id"] == "scan_media_libraries"
+        mock_task.kiq.assert_awaited_once()
+
     async def test_run_refresh_downloads(
         self, client: AsyncClient, test_superuser: User, admin_headers
     ):
@@ -282,13 +298,14 @@ class TestRunTask:
 
         mock_user = MagicMock()
 
-        with patch("streamarr.api.v1.tasks._spawn_background") as spawn_background:
+        mock_task = MagicMock()
+        mock_task.kiq = AsyncMock()
+        with patch("streamarr.worker.reindex_all", mock_task):
             result = await run_task("reindex_all", mock_user)
 
         assert result.task_id == "reindex_all"
         assert "queued successfully" in result.message
-        spawn_background.assert_called_once()
-        spawn_background.call_args.args[0].close()
+        mock_task.kiq.assert_awaited_once_with()
 
     async def test_run_reindex_movies(
         self, client: AsyncClient, test_superuser: User, admin_headers
@@ -297,12 +314,13 @@ class TestRunTask:
 
         mock_user = MagicMock()
 
-        with patch("streamarr.api.v1.tasks._spawn_background") as spawn_background:
+        mock_task = MagicMock()
+        mock_task.kiq = AsyncMock()
+        with patch("streamarr.worker.reindex_movies", mock_task):
             result = await run_task("reindex_movies", mock_user)
 
         assert result.task_id == "reindex_movies"
-        spawn_background.assert_called_once()
-        spawn_background.call_args.args[0].close()
+        mock_task.kiq.assert_awaited_once_with()
 
     async def test_run_reindex_shows(
         self, client: AsyncClient, test_superuser: User, admin_headers
@@ -311,12 +329,13 @@ class TestRunTask:
 
         mock_user = MagicMock()
 
-        with patch("streamarr.api.v1.tasks._spawn_background") as spawn_background:
+        mock_task = MagicMock()
+        mock_task.kiq = AsyncMock()
+        with patch("streamarr.worker.reindex_shows", mock_task):
             result = await run_task("reindex_shows", mock_user)
 
         assert result.task_id == "reindex_shows"
-        spawn_background.assert_called_once()
-        spawn_background.call_args.args[0].close()
+        mock_task.kiq.assert_awaited_once_with()
 
     async def test_run_task_worker_exception(
         self, client: AsyncClient, test_superuser: User, admin_headers

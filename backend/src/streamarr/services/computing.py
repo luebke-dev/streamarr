@@ -620,6 +620,7 @@ class ComputingService:
                 "json",
                 "-show_format",
                 "-show_streams",
+                "-show_chapters",
                 file_path,
             ]
 

@@ -760,13 +760,15 @@ export default {
         'When enabled, media favorited by at least one user is skipped by automatic library cleanup.',
     },
     automation: {
-      title: 'Favorites Automation',
+      title: 'Automation',
       description:
-        'Auto-download favorited media and keep it upgraded. All switches are off by default.',
+        'Automatically keep libraries, favorites, and releases up to date.',
       autodownload: 'Auto-download favorites (backwards search)',
       upgrades: 'Upgrade favorites to better releases',
       rssSync: 'RSS sync (poll indexers for new releases)',
       rssInterval: 'RSS interval (min)',
+      libraryScanInterval: 'Library scan (hours)',
+      realtimeLibraryMonitor: 'Monitor library folders in real time',
       batchSize: 'Upgrade batch size',
       maxConcurrent: 'Max concurrent upgrades',
       info: 'Requires "Protect Favorites" and per-user "keep favorites" permission. Enable RSS per indexer in Indexer settings.',

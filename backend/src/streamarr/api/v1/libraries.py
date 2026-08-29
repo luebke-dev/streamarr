@@ -16,22 +16,24 @@ Routes:
     POST   /libraries/{type}/preview-naming     - Preview naming templates
 """
 
-import logging
-import json
-import uuid
+import importlib
 import inspect
+import json
+import logging
+import uuid
 from pathlib import Path
 
-import streamarr.plugins as plugin_facade
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import streamarr.plugins as plugin_facade
 from streamarr.api.dependencies import DatabaseSession, get_db_session
+from streamarr.api.utils import get_user_locale
 from streamarr.auth.dependencies import get_current_superuser, get_current_user
 from streamarr.libraries import get_plugin_instance
 from streamarr.models.user import User
-from streamarr.plugins import get_registry, get_registered_plugins
+from streamarr.plugins import get_registered_plugins, get_registry
 from streamarr.schemas.activity_log import ActivityLogCreate
 from streamarr.schemas.scoring import (
     MovieScoringConfig,
@@ -41,9 +43,10 @@ from streamarr.schemas.scoring import (
 from streamarr.services.activity_log import ActivityLogService
 from streamarr.services.library import LibraryConfigService, LibraryService
 from streamarr.services.library_imports import LibraryImportError, LibraryImportService
+from streamarr.services.library_paths import library_root_paths, parse_library_settings
+from streamarr.services.library_post_scan import PostScanEnqueuers, dispatch_post_scan
+from streamarr.services.library_scanner import LibraryScanIncompleteError
 from streamarr.services.settings import SettingsService
-from streamarr.api.utils import get_user_locale
-
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +250,11 @@ class LibraryScanResponse(BaseModel):
     library_guid: uuid.UUID
     status: str
     discovered_count: int
+    added_count: int = 0
+    updated_count: int = 0
+    removed_count: int = 0
+    skipped_count: int = 0
+    probes_queued: int = 0
     files: list[dict] = Field(default_factory=list)
 
 
@@ -798,10 +806,7 @@ def _resolve_library_subpath(library_path: str, relative_path: str | None = None
 
 
 def _parse_library_settings(raw_settings) -> dict:
-    # Settings-blob parsing lives on the service; the router keeps this thin
-    # alias so the response-shaping helpers below read the same view the
-    # service does.
-    return LibraryService.parse_settings(raw_settings)
+    return parse_library_settings(raw_settings)
 
 
 def _library_options_from_settings(raw_settings) -> LibraryOptions:
@@ -821,8 +826,7 @@ def _library_folder_policy_from_settings(raw_settings) -> LibraryFolderPolicy:
 
 
 def _library_media_folder_paths(library) -> list[str]:
-    # Media-folder computation/dedup is owned by the service.
-    return LibraryService.media_folder_paths(library)
+    return library_root_paths(library)
 
 
 async def _media_folder_response(
@@ -1277,21 +1281,27 @@ async def _run_library_scan(
         )
 
     try:
-        discovered = await service.scan_library_for_media(library_guid)
+        discovered, result = await service.scan_library_with_result(library_guid)
+    except LibraryScanIncompleteError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     await ActivityLogService(db).create(
         ActivityLogCreate(
             event_type=event_type,
-            message=f"{status_value.title()} library {library.name}; discovered {len(discovered)} files",
+            message=f"{status_value.title()} library {library.name}; discovered {result.discovered} files",
             entity_type="library",
             entity_guid=library.guid,
             extra_data=json.dumps(
                 {
                     "library_type": library.type,
                     "path": library.path,
-                    "discovered_count": len(discovered),
+                    "discovered_count": result.discovered,
+                    "added_count": result.added,
+                    "updated_count": result.updated,
+                    "removed_count": result.removed,
+                    "skipped_count": result.skipped,
                     "status": status_value,
                 },
                 sort_keys=True,
@@ -1299,10 +1309,29 @@ async def _run_library_scan(
         ),
         actor_guid=current_user.guid,
     )
+    worker_module = importlib.import_module("streamarr.worker")
+    search_worker = importlib.import_module("streamarr.workers.search_index_worker")
+    queued = await dispatch_post_scan(
+        library,
+        result,
+        PostScanEnqueuers(
+            probe=worker_module.probe_media_file.kiq,
+            metadata=worker_module.refresh_media_item_metadata.kiq,
+            subtitles=worker_module.download_missing_subtitles.kiq,
+            search_index=search_worker.reindex_media_item.kiq,
+        ),
+    )
+    probes_queued = queued["probes"]
+
     return LibraryScanResponse(
         library_guid=library.guid,
         status=status_value,
-        discovered_count=len(discovered),
+        discovered_count=result.discovered,
+        added_count=result.added,
+        updated_count=result.updated,
+        removed_count=result.removed,
+        skipped_count=result.skipped,
+        probes_queued=probes_queued,
         files=discovered[: body.max_files] if body.include_files else [],
     )
 

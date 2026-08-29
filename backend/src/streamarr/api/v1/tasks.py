@@ -1,5 +1,5 @@
-import asyncio
 import importlib
+import inspect
 import json
 import logging
 import math
@@ -7,11 +7,11 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from streamarr.api.dependencies import CurrentSuperuser, DatabaseSession
-from streamarr.database import get_db_session, sessionmanager
+from streamarr.database import get_db_session
 from streamarr.models.activity_log import ActivityLog
 from streamarr.schemas.activity_log import (
     ActivityLogCreate,
@@ -24,12 +24,6 @@ from streamarr.services.observability import record_worker_task_event
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Strong refs for fire-and-forget reindex tasks — without this, the asyncio
-# event loop only keeps weak refs and the task can be garbage-collected
-# mid-flight.
-_background_tasks: set[asyncio.Task] = set()
-
 
 async def _record_task_event(
     db: AsyncSession,
@@ -66,39 +60,6 @@ async def _record_task_event(
     )
 
 
-def _spawn_background(coro, name: str, task_info: "TaskInfo", actor_guid, run_id: str) -> None:
-    async def _runner():
-        try:
-            await coro
-
-            async with sessionmanager.session() as db:
-                await _record_task_event(
-                    db,
-                    event_type="task.completed",
-                    task_info=task_info,
-                    actor_guid=actor_guid,
-                    run_id=run_id,
-                    message=f"Task '{task_info.name}' completed",
-                )
-        except Exception:
-            logger.exception("Background task %s failed", name)
-
-            async with sessionmanager.session() as db:
-                await _record_task_event(
-                    db,
-                    event_type="task.failed",
-                    task_info=task_info,
-                    actor_guid=actor_guid,
-                    run_id=run_id,
-                    message=f"Task '{task_info.name}' failed",
-                    error="Background task failed",
-                )
-
-    task = asyncio.create_task(_runner(), name=name)
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-
-
 class TaskInfo(BaseModel):
     id: str
     name: str
@@ -127,6 +88,12 @@ class TaskRunStatusResponse(BaseModel):
 
 
 AVAILABLE_TASKS: list[TaskInfo] = [
+    TaskInfo(
+        id="scan_media_libraries",
+        name="Scan Media Libraries",
+        description="Discover and reconcile files in every enabled media library.",
+        category="library",
+    ),
     TaskInfo(
         id="refresh_downloads",
         name="Refresh Downloads",
@@ -337,11 +304,16 @@ async def get_task_run_history(
     # Narrow the scan to rows whose serialized ``extra_data`` carries this
     # run_id instead of pulling a fixed 3000-row window (which made older runs
     # unreachable). ``extra_data`` is ``json.dumps(..., sort_keys=True)`` so the
-    # run_id renders as ``"run_id": "<id>"``; escape LIKE metacharacters.
+    # run_id normally renders as ``"run_id": "<id>"``; accept compact JSON
+    # too because older/imported activity records omitted separator spaces.
+    # Escape LIKE metacharacters in the externally supplied run id.
     escaped_run_id = (
         run_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     )
-    like_pattern = f'%"run_id": "{escaped_run_id}"%'
+    like_patterns = (
+        f'%"run_id": "{escaped_run_id}"%',
+        f'%"run_id":"{escaped_run_id}"%',
+    )
     result = await db.execute(
         select(ActivityLog)
         .where(
@@ -349,7 +321,9 @@ async def get_task_run_history(
             ActivityLog.event_type.in_(
                 ("task.queued", "task.completed", "task.failed")
             ),
-            ActivityLog.extra_data.like(like_pattern, escape="\\"),
+            or_(
+                *(ActivityLog.extra_data.like(pattern, escape="\\") for pattern in like_patterns)
+            ),
         )
         .order_by(ActivityLog.created_at.asc())
     )
@@ -404,9 +378,11 @@ async def run_task(
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
 
     run_id = str(uuid.uuid4())
+    queued_by_middleware = False
 
     try:
         worker_task_ids = {
+            "scan_media_libraries",
             "refresh_downloads",
             "import_trending_movies",
             "import_trending_shows",
@@ -418,24 +394,34 @@ async def run_task(
             "cleanup_stale_transcoding_sessions",
             "cleanup_storage",
             "backfill_age_ratings",
-        }
-        reindex_tasks = {
-            "reindex_all": "reindex_all_task",
-            "reindex_movies": "reindex_movies_task",
-            "reindex_shows": "reindex_shows_task",
+            "reindex_all",
+            "reindex_movies",
+            "reindex_shows",
         }
         if task_id in worker_task_ids:
             worker_module = importlib.import_module("streamarr.worker")
-            await getattr(worker_module, task_id).kiq()
-        elif task_id in reindex_tasks:
-            reindex_module = importlib.import_module("streamarr.api.v1.reindex")
-            reindex_task = getattr(reindex_module, reindex_tasks[task_id])
-
-            async def _run():
-                async with sessionmanager.session() as reindex_db:
-                    await reindex_task(reindex_db)
-
-            _spawn_background(_run(), task_id, task_info, current_user.guid, run_id)
+            worker_task = getattr(worker_module, task_id)
+            kicker_factory = getattr(worker_task, "kicker", None)
+            if inspect.ismethod(kicker_factory):
+                kicker = (
+                    kicker_factory()
+                    .with_task_id(run_id)
+                    .with_labels(
+                        streamarr_task_id=task_info.id,
+                        streamarr_category=task_info.category,
+                        streamarr_run_id=run_id,
+                        streamarr_actor_guid=str(current_user.guid),
+                    )
+                )
+                message = await kicker.kiq()
+                queued_by_middleware = True
+            else:
+                # Compatibility for tests and third-party decorated tasks
+                # built against an older Taskiq surface.
+                message = await worker_task.kiq()
+            broker_run_id = getattr(message, "task_id", None)
+            if broker_run_id:
+                run_id = str(broker_run_id)
         else:
             raise HTTPException(
                 status_code=400, detail=f"Task '{task_id}' is not runnable"
@@ -459,7 +445,7 @@ async def run_task(
             status_code=500, detail="Failed to start task"
         ) from e
 
-    if isinstance(db, AsyncSession):
+    if isinstance(db, AsyncSession) and not queued_by_middleware:
         await _record_task_event(
             db,
             event_type="task.queued",

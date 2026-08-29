@@ -603,6 +603,35 @@ class TestMovieNamingSettings:
 # ============================================================================
 
 
+class TestAutomationSettings:
+    async def test_get_and_update_library_scan_interval(
+        self, client: AsyncClient, admin_headers
+    ):
+        get_response = await client.get(
+            "/api/settings/automation", headers=admin_headers
+        )
+        assert get_response.status_code == 200
+        assert get_response.json()["library_scan_interval_hours"] == 12
+
+        update_response = await client.put(
+            "/api/settings/automation",
+            headers=admin_headers,
+            json={"library_scan_interval_hours": 6},
+        )
+        assert update_response.status_code == 200
+        assert update_response.json()["library_scan_interval_hours"] == 6
+
+    async def test_rejects_invalid_library_scan_interval(
+        self, client: AsyncClient, admin_headers
+    ):
+        response = await client.put(
+            "/api/settings/automation",
+            headers=admin_headers,
+            json={"library_scan_interval_hours": 0},
+        )
+        assert response.status_code == 422
+
+
 class TestStorageSettings:
     async def test_get_storage_unauthenticated(self, client: AsyncClient):
         resp = await client.get("/api/settings/storage")

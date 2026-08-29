@@ -36,6 +36,7 @@ dependencies = [
     "prometheus-fastapi-instrumentator>=7.0.0",
     "pillow>=11.0.0",
     "croniter>=2.0.0",
+    "watchfiles>=1.1.0",
 ]
 
 [project.scripts]

@@ -132,12 +132,14 @@ class ShowLibraryPlugin(LibraryBase):
         name = Path(filename).stem
 
         # Try standard SxxExx pattern
-        se_pattern = r"[Ss](\d{1,2})[Ee](\d{1,2})"
+        se_pattern = r"[Ss](\d{1,2})[Ee](\d{1,2})(?:[-Ee]+(\d{1,2}))?"
         se_match = re.search(se_pattern, name)
 
         if se_match:
             metadata["season"] = int(se_match.group(1))
             metadata["episode"] = int(se_match.group(2))
+            if se_match.group(3):
+                metadata["episode_end"] = int(se_match.group(3))
         else:
             # Try alternative 1x01 pattern
             alt_pattern = r"(\d{1,2})x(\d{1,2})"
@@ -793,9 +795,7 @@ class ShowLibraryPlugin(LibraryBase):
         """Import completed episode download into the library."""
         from streamarr.models.media import AvailabilityStatus, MediaFile, MediaItem
 
-        download = download_context["download"]
         episode = download_context["media_item"]
-        _ = download_context.get("release_metadata", {})  # noqa: F841 — used by library copy flow
 
         if not episode.parent_guid:
             logger.error("Episode %s has no parent (season)", episode.guid)
