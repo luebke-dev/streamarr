@@ -7,10 +7,11 @@ from types import SimpleNamespace
 
 from streamarr.libraries import get_registered_plugins as _library_plugins
 from streamarr.metadata.igdb import IGDB
+from streamarr.metadata.local import LocalMetadataProvider
 from streamarr.metadata.tmdb import TMDB
 
-
 _METADATA_PLUGINS = {
+    "local": LocalMetadataProvider,
     "tmdb": TMDB,
     "igdb": IGDB,
 }

@@ -23,7 +23,7 @@ async def test_worker_task_event_middleware_records_queued_and_completed(monkeyp
     middleware = task_events.WorkerTaskEventMiddleware()
     message = SimpleNamespace(
         task_name="streamarr.worker.import_trending_movies",
-        labels={"streamarr_category": "metadata"},
+        labels={"streamarr_category": "metadata", "streamarr_actor_guid": "actor-1"},
     )
 
     returned_message = await middleware.pre_send(message)
@@ -33,6 +33,7 @@ async def test_worker_task_event_middleware_records_queued_and_completed(monkeyp
     assert recorded[0]["status"] == "queued"
     assert recorded[0]["task_id"] == "streamarr.worker.import_trending_movies"
     assert recorded[0]["category"] == "metadata"
+    assert recorded[0]["actor_guid"] == "actor-1"
     assert recorded[1]["status"] == "completed"
     assert recorded[1]["run_id"] == recorded[0]["run_id"]
 

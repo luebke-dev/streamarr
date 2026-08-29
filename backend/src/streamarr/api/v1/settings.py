@@ -22,8 +22,8 @@ from streamarr.schemas.settings import (
     LyricsSettingsResponse,
     LyricsSettingsUpdate,
     NamingSettingsUpdate,
-    NetworkSettingsResponse,
     NetworkRuntimeResponse,
+    NetworkSettingsResponse,
     NetworkSettingsUpdate,
     OIDCSettingsResponse,
     OIDCSettingsUpdate,
@@ -32,19 +32,19 @@ from streamarr.schemas.settings import (
     StorageOverviewResponse,
     StorageSettingsResponse,
     StorageSettingsUpdate,
-    SubtitleSettingsResponse,
-    SubtitleSettingsUpdate,
     SubscriptionSettingsResponse,
     SubscriptionSettingsUpdate,
+    SubtitleSettingsResponse,
+    SubtitleSettingsUpdate,
     SystemSettingsResponse,
     SystemSettingsUpdate,
     TranscodingSettingsResponse,
     TranscodingSettingsUpdate,
 )
-from streamarr.services.settings import SettingsService
-from streamarr.services.network_runtime import get_network_runtime_config
 from streamarr.schemas.activity_log import ActivityLogCreate
 from streamarr.services.activity_log import ActivityLogService
+from streamarr.services.network_runtime import get_network_runtime_config
+from streamarr.services.settings import SettingsService
 from streamarr.services.system_settings import SystemSettingsService
 
 logger = logging.getLogger(__name__)
@@ -225,13 +225,13 @@ async def update_favorites_settings(
     return FavoritesSettingsResponse(**settings)
 
 
-# Favorites automation (auto-download / upgrades / RSS sync) endpoints
+# Automation (library scans / auto-download / upgrades / RSS sync) endpoints
 @router.get("/automation", response_model=AutomationSettingsResponse)
 async def get_automation_settings(
     session: AsyncSession = Depends(get_db_session),
     current_user=Depends(get_current_superuser),
 ):
-    """Get favorites-automation settings (admin only)"""
+    """Get automation settings (admin only)."""
     service = SystemSettingsService(session)
     settings = await service.get_automation_settings()
     return AutomationSettingsResponse(**settings)
@@ -243,7 +243,7 @@ async def update_automation_settings(
     session: AsyncSession = Depends(get_db_session),
     current_user=Depends(get_current_superuser),
 ):
-    """Update favorites-automation settings (admin only)"""
+    """Update automation settings (admin only)."""
     service = SystemSettingsService(session)
     settings = await service.update_automation_settings(
         **automation_settings.model_dump(exclude_none=True)

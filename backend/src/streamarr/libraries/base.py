@@ -58,6 +58,7 @@ def structure_probe_data(raw_ffprobe: dict) -> dict:
     """
     structured = {
         "format": raw_ffprobe.get("format", {}),
+        "chapters": raw_ffprobe.get("chapters", []),
         "video_streams": [],
         "audio_streams": [],
         "subtitle_streams": [],

@@ -764,13 +764,15 @@ export default {
         'Wenn aktiviert, werden Medien, die von mindestens einem Benutzer als Favorit markiert sind, beim automatischen Library-Cleanup nicht geloescht.',
     },
     automation: {
-      title: 'Favoriten-Automatisierung',
+      title: 'Automatisierung',
       description:
-        'Favorisierte Medien automatisch laden und aktuell halten. Alle Schalter sind standardmaessig aus.',
+        'Bibliotheken, Favoriten und Releases automatisch aktuell halten.',
       autodownload: 'Favoriten automatisch laden (Backwards-Search)',
       upgrades: 'Favoriten auf bessere Releases upgraden',
       rssSync: 'RSS-Sync (Indexer auf neue Releases pollen)',
       rssInterval: 'RSS-Intervall (Min)',
+      libraryScanInterval: 'Bibliotheks-Scan (Std.)',
+      realtimeLibraryMonitor: 'Bibliotheksordner in Echtzeit überwachen',
       batchSize: 'Upgrade-Batch-Groesse',
       maxConcurrent: 'Max. parallele Upgrades',
       info: 'Erfordert „Favoriten ausnehmen“ und die Nutzerberechtigung „Favoriten behalten“. RSS pro Indexer in den Indexer-Einstellungen aktivieren.',

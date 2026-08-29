@@ -12,7 +12,9 @@ from taskiq.abc.middleware import TaskiqMiddleware
 from streamarr.database import sessionmanager
 from streamarr.schemas.activity_log import ActivityLogCreate
 from streamarr.services.activity_log import ActivityLogService
-from streamarr.services.observability import record_worker_task_event as record_task_metric
+from streamarr.services.observability import (
+    record_worker_task_event as record_task_metric,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,8 @@ def _message_category(task_id: str, labels: dict) -> str:
         return "downloads"
     if any(token in task_id_lower for token in ("metadata", "trending", "rating")):
         return "metadata"
+    if "library" in task_id_lower and "scan" in task_id_lower:
+        return "library"
     if any(token in task_id_lower for token in ("cleanup", "storage")):
         return "cleanup"
     if any(token in task_id_lower for token in ("recommendation", "similarity")):
@@ -48,6 +52,8 @@ def _message_category(task_id: str, labels: dict) -> str:
 
 def _message_run_id(message: Any, labels: dict) -> str:
     run_id = labels.get("streamarr_run_id") or labels.get("run_id")
+    if not run_id:
+        run_id = getattr(message, "task_id", None)
     if run_id:
         return str(run_id)
     run_id = str(uuid.uuid4())
@@ -82,6 +88,7 @@ class WorkerTaskEventMiddleware(TaskiqMiddleware):
             status="queued",
             run_id=run_id,
             message=f"Queued worker task {task_id}",
+            actor_guid=labels.get("streamarr_actor_guid"),
         )
         return message
 
@@ -99,6 +106,7 @@ class WorkerTaskEventMiddleware(TaskiqMiddleware):
             run_id=run_id,
             message=f"{status.title()} worker task {task_id}",
             error=error,
+            actor_guid=labels.get("streamarr_actor_guid"),
         )
 
 
@@ -110,6 +118,7 @@ async def record_worker_task_event(
     message: str,
     run_id: str | None = None,
     error: str | None = None,
+    actor_guid: str | None = None,
 ) -> str:
     """Record a worker task event and return the run id used."""
     if status not in {"queued", "completed", "failed"}:
@@ -136,7 +145,8 @@ async def record_worker_task_event(
                     severity="error" if status == "failed" else "info",
                     entity_type="task",
                     extra_data=json.dumps(extra_data, sort_keys=True),
-                )
+                ),
+                actor_guid=actor_guid,
             )
     except Exception:
         logger.warning("Failed to record worker task event", exc_info=True)

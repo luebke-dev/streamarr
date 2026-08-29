@@ -7,15 +7,14 @@ large ``api/v1/media.py`` so that module carries endpoints, not cache plumbing.
 
 import hashlib
 import json
-import os
-import tempfile
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import HTTPException
 
+from streamarr.services.artwork_storage import artwork_storage_root
 from streamarr.services.cache_control import (
-    artwork_cache_enabled as _artwork_cache_enabled,
+    artwork_cache_enabled as _artwork_cache_enabled,  # noqa: F401 - re-export
 )
 from streamarr.services.cache_control import (
     artwork_cache_root as _artwork_cache_root_base,
@@ -96,7 +95,4 @@ def _artwork_headers(cache_key: str, cache_status: str) -> dict[str, str]:
 
 
 def _artwork_storage_root() -> Path:
-    configured = os.getenv("STREAMARR_ARTWORK_DIR")
-    root = Path(configured) if configured else Path(tempfile.gettempdir()) / "streamarr-artwork"
-    root.mkdir(parents=True, exist_ok=True)
-    return root.resolve()
+    return artwork_storage_root()

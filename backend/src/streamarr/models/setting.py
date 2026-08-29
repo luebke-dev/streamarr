@@ -224,6 +224,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "automation.rss_min_interval_minutes": 15,
     "automation.upgrade_scan_batch_size": 25,
     "automation.max_concurrent_upgrade_downloads": 3,
+    "automation.library_scan_interval_hours": 12,
+    "automation.realtime_library_monitor": True,
     "automation.rss_seen_ttl_seconds": 1209600,  # 14 days
     "favorites.monitor_enabled": True,
     # Overlay rendering settings

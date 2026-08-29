@@ -19,6 +19,7 @@ from streamarr.libraries.video_helpers import (
     validate_library_path,
     video_file_info,
 )
+from streamarr.metadata.local import clean_provider_ids, provider_ids_from_name
 from streamarr.parsers.release_parser import ReleaseParser
 
 logger = logging.getLogger(__name__)
@@ -107,6 +108,27 @@ class MovieLibraryPlugin(LibraryBase):
 
         # Remove extension
         name = Path(filename).stem
+        provider_ids = provider_ids_from_name(name)
+        if provider_ids:
+            metadata["external_ids"] = provider_ids
+        name = clean_provider_ids(name)
+
+        # Jellyfin/Kodi-style versions and multi-part suffixes resolve to the
+        # same MediaItem while remaining separate MediaFile sources.
+        version_match = re.search(
+            r"\s+-\s+(?P<label>\[?[^\]]+\]?)$", name
+        )
+        if version_match:
+            metadata["version_label"] = version_match.group("label").strip("[]")
+            name = name[: version_match.start()].strip()
+        part_match = re.search(
+            r"(?:[ ._-])(?P<kind>cd|dvd|part|pt|disc|disk)[ ._-]?(?P<number>[0-9a-d]+)$",
+            name,
+            re.IGNORECASE,
+        )
+        if part_match:
+            metadata["part_number"] = part_match.group("number")
+            name = name[: part_match.start()].strip()
 
         # Try to extract year
         year_pattern = r"\b(19\d{2}|20\d{2})\b"
@@ -114,7 +136,7 @@ class MovieLibraryPlugin(LibraryBase):
         if year_match:
             metadata["year"] = int(year_match.group(1))
             # Remove year and everything after for title extraction
-            name_for_title = name[: year_match.start()].strip()
+            name_for_title = name[: year_match.start()].strip().rstrip("([{").strip()
         else:
             name_for_title = name
 
@@ -788,9 +810,7 @@ class MovieLibraryPlugin(LibraryBase):
         """Import completed movie download into the library."""
         from streamarr.models.media import AvailabilityStatus, MediaFile
 
-        download = download_context["download"]
         media_item = download_context["media_item"]
-        _ = download_context.get("release_metadata", {})  # noqa: F841 — used by library copy flow
 
         # Register files in-place on the rclone mount. Favoriting triggers the
         # library copy separately; non-favorited items stay on the remote.

@@ -11,6 +11,23 @@ logger = logging.getLogger(__name__)
 
 # Registry of all metadata providers
 METADATA_PROVIDERS: dict[str, dict[str, Any]] = {
+    "local": {
+        "name": "Local NFO / Artwork",
+        "description": "Local sidecar metadata and artwork next to media files",
+        "icon": "mdi-folder-information",
+        "module": "streamarr.metadata.local",
+        "class_name": "LocalMetadataProvider",
+        "media_types": ["movies", "shows", "music", "books"],
+        "capabilities": {
+            "search": False,
+            "details": True,
+            "identify": True,
+            "remote_images": False,
+            "translations": False,
+            "trending": False,
+            "audio_identification": False,
+        },
+    },
     "tmdb": {
         "name": "TMDB",
         "description": "The Movie Database — metadata for movies and TV shows",

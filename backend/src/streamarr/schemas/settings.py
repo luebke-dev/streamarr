@@ -28,6 +28,8 @@ class AutomationSettingsResponse(BaseModel):
     rss_min_interval_minutes: int
     upgrade_scan_batch_size: int
     max_concurrent_upgrade_downloads: int
+    library_scan_interval_hours: int
+    realtime_library_monitor: bool = True
 
 
 class AutomationSettingsUpdate(BaseModel):
@@ -37,6 +39,8 @@ class AutomationSettingsUpdate(BaseModel):
     rss_min_interval_minutes: int | None = None
     upgrade_scan_batch_size: int | None = None
     max_concurrent_upgrade_downloads: int | None = None
+    library_scan_interval_hours: int | None = Field(default=None, ge=1, le=168)
+    realtime_library_monitor: bool | None = None
 
 
 # Friends settings

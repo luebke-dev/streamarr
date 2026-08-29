@@ -5,8 +5,8 @@ import json
 import logging
 import os
 import uuid
-from pathlib import Path
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import String, cast, extract, func, or_, select
@@ -23,6 +23,7 @@ from streamarr.models.media import (
     MediaRelease,
     MediaType,
 )
+from streamarr.services.library_paths import library_root_paths, parse_library_settings
 from streamarr.services.media import MediaService
 from streamarr.services.settings import SettingsService
 
@@ -364,35 +365,12 @@ class LibraryService:
     @staticmethod
     def parse_settings(raw_settings: Any) -> dict:
         """Parse a library's ``settings`` blob (dict or JSON string) into a dict."""
-        if not raw_settings:
-            return {}
-        if isinstance(raw_settings, dict):
-            return dict(raw_settings)
-        if isinstance(raw_settings, str):
-            try:
-                parsed = json.loads(raw_settings)
-            except json.JSONDecodeError:
-                return {}
-            return parsed if isinstance(parsed, dict) else {}
-        return {}
+        return parse_library_settings(raw_settings)
 
     @staticmethod
     def media_folder_paths(library: Library) -> list[str]:
         """Return the primary path plus configured media folders, de-duplicated."""
-        settings = LibraryService.parse_settings(library.settings)
-        raw_paths = settings.get("media_folders")
-        paths = [str(library.path)]
-        if isinstance(raw_paths, list):
-            paths.extend(str(path) for path in raw_paths if path)
-        deduped: list[str] = []
-        seen: set[str] = set()
-        for path in paths:
-            normalized = str(Path(path).expanduser())
-            if normalized in seen:
-                continue
-            seen.add(normalized)
-            deduped.append(normalized)
-        return deduped
+        return library_root_paths(library)
 
     @staticmethod
     def serialize_library(library: Library, *, is_admin: bool) -> dict:
@@ -484,7 +462,7 @@ class LibraryService:
                 "is_directory": probe["is_directory"],
                 "primary": index == 0,
             }
-            for index, (path, probe) in enumerate(zip(paths, probes))
+            for index, (path, probe) in enumerate(zip(paths, probes, strict=True))
         ]
 
     async def list_directory_entries(
@@ -1398,6 +1376,14 @@ class LibraryService:
         Returns:
             List of discovered media files
         """
+        discovered_files, _ = await self.scan_library_with_result(library_guid)
+        return discovered_files
+
+    async def scan_library_with_result(
+        self,
+        library_guid: uuid.UUID,
+    ):
+        """Discover and reconcile one library, returning files and counters."""
         library = await self.get_library(library_guid)
         if not library:
             raise ValueError(f"Library not found: {library_guid}")
@@ -1406,72 +1392,38 @@ class LibraryService:
         if not plugin:
             raise ValueError(f"No plugin found for library type: {library.type}")
 
-        logger.info("Scanning library: %s at %s", library.name, library.path)
-        discovered_files = await plugin.scan_library(library.path)
+        from streamarr.services.library_scanner import (
+            LibraryReconcileResult,
+            LibraryScanner,
+        )
 
+        discovered_files: list[dict[str, Any]] = []
+        combined = LibraryReconcileResult()
+        scan_id = uuid.uuid4()
+        scanner = LibraryScanner(self.db)
+        for root in library_root_paths(library):
+            logger.info("Scanning library: %s at %s", library.name, root)
+            root_files = await plugin.scan_library(root)
+            root_result = await scanner.reconcile(
+                library,
+                root_files,
+                root_path=root,
+                scan_id=scan_id,
+            )
+            discovered_files.extend(root_files)
+            for field_name in ("discovered", "added", "updated", "removed", "skipped"):
+                setattr(
+                    combined,
+                    field_name,
+                    getattr(combined, field_name) + getattr(root_result, field_name),
+                )
+            combined.probe_file_guids.extend(root_result.probe_file_guids)
+            combined.media_item_guids.extend(root_result.media_item_guids)
+
+        combined.probe_file_guids = list(dict.fromkeys(combined.probe_file_guids))
+        combined.media_item_guids = list(dict.fromkeys(combined.media_item_guids))
         logger.info("Found %s media files in %s", len(discovered_files), library.name)
-
-        # Games libraries PERSIST scanned ROMs as MediaItem(GAMES)+MediaFile so
-        # they become first-class library media (all other types are
-        # discovery-only today, importing via the download-completion path).
-        # Scoped to GAMES so movie/show/music/book behaviour is unchanged.
-        if library.type == "GAMES":
-            await self._ingest_scanned_games(discovered_files)
-
-        return discovered_files
-
-    async def _ingest_scanned_games(
-        self, discovered_files: list[dict[str, Any]]
-    ) -> dict[str, int]:
-        """Upsert scanned ROM files into GAMES MediaItems + MediaFiles.
-
-        Deduplicated on ``MediaFile.file_path`` (an already-ingested ROM is
-        skipped). Each new item is stamped with
-        ``extra_data.lightrays.profile = "retro"`` so the launch resolver picks
-        the retro container profile and derives the ROM bind mount from the
-        file. Commits once; returns created/skipped counts.
-        """
-        created = 0
-        skipped = 0
-        for info in discovered_files:
-            file_path = str(info.get("path") or "").strip()
-            if not file_path:
-                skipped += 1
-                continue
-            existing = await self.db.execute(
-                select(MediaFile).where(MediaFile.file_path == file_path).limit(1)
-            )
-            if existing.scalars().first() is not None:
-                skipped += 1
-                continue
-
-            title = str(info.get("title") or Path(file_path).stem).strip()
-            platform = info.get("platform")
-            extra_data: dict[str, Any] = {"lightrays": {"profile": "retro"}}
-            if platform:
-                extra_data["platform"] = platform
-
-            item = await self.media.create_media_item(
-                media_type=MediaType.GAMES,
-                title=title,
-                commit=False,
-                extra_data=extra_data,
-                availability_status=AvailabilityStatus.AVAILABLE,
-            )
-            await self.media.create_media_file(
-                media_item_guid=item.guid,
-                file_path=file_path,
-                file_name=Path(file_path).name,
-                file_size=info.get("size"),
-                format=str(info.get("extension") or "").lstrip("."),
-                commit=False,
-            )
-            created += 1
-
-        if created:
-            await self.db.commit()
-        logger.info("Games scan ingest: created=%d skipped=%d", created, skipped)
-        return {"created": created, "skipped": skipped}
+        return discovered_files, combined
 
     async def match_media_with_metadata(
         self,
