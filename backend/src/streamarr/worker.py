@@ -1,7 +1,6 @@
 # worker.py
 import asyncio
 import logging
-import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -11,23 +10,21 @@ from sqlalchemy.orm import selectinload
 
 from streamarr.config import settings
 from streamarr.database import sessionmanager
+from streamarr.libraries import get_plugin_instance
+from streamarr.metadata.tmdb import TMDB
 from streamarr.models.downloads import Download
 
 # Unified media models
 from streamarr.models.media import (
     MediaFile,
     MediaItem,
-    MediaRelease,
     MediaReleaseLink,
     MediaType,
 )
 from streamarr.models.user import User
-from streamarr.libraries import get_plugin_instance
-from streamarr.metadata.tmdb import TMDB
 from streamarr.services import (
     DownloaderService,
     DownloadService,
-    IndexerService,
     NotificationService,
     get_tmdb_api_key,
 )
@@ -39,10 +36,18 @@ from streamarr.services.task_events import (
     record_worker_task_event,
 )
 from streamarr.services.trending import TrendingService
+
+# Registers the incremental/delta Elasticsearch sync tasks (and their
+# schedule) on the broker so the worker process consumes them.
+from streamarr.workers import search_index_worker  # noqa: F401
 from streamarr.workers.cleanup import StorageCleanupWorker
 from streamarr.workers.downloads import DownloadRefreshWorker
-from streamarr.workers.playback import TranscodeMonitorWorker
-from streamarr.workers.runtime import broker, create_scheduler
+from streamarr.workers.favorites_monitor_worker import (
+    backfill_favorite_monitored_impl,
+    tick_favorites_reconcile_impl,
+    unmonitor_favorite_impl,
+)
+from streamarr.workers.library_scan_worker import scan_all_libraries_impl
 from streamarr.workers.mass_operation_worker import (
     run_mass_operation_rule_impl,
     tick_mass_operations_impl,
@@ -52,22 +57,92 @@ from streamarr.workers.overlay_worker import (
     render_overlay_for_item_impl,
     tick_render_missing_overlays_impl,
 )
-from streamarr.workers.favorites_monitor_worker import (
-    backfill_favorite_monitored_impl,
-    tick_favorites_reconcile_impl,
-    unmonitor_favorite_impl,
-)
+from streamarr.workers.playback import TranscodeMonitorWorker
 from streamarr.workers.rss_sync_worker import rss_sync_impl
-from streamarr.workers.upgrade_scan_worker import tick_upgrade_scan_impl
-# Registers the incremental/delta Elasticsearch sync tasks (and their
-# schedule) on the broker so the worker process consumes them.
-from streamarr.workers import search_index_worker  # noqa: F401
+from streamarr.workers.runtime import broker, create_scheduler
 from streamarr.workers.smart_collection_worker import (
     run_smart_collection_rule_impl,
     tick_smart_collections_impl,
 )
+from streamarr.workers.upgrade_scan_worker import tick_upgrade_scan_impl
 
 logger = logging.getLogger(__name__)
+
+
+@broker.task
+async def scan_media_libraries() -> dict:
+    """Explicitly reconcile all enabled media directories."""
+    return await scan_all_libraries_impl(
+        probe_media_file.kiq,
+        enqueue_metadata=refresh_media_item_metadata.kiq,
+        enqueue_subtitles=download_missing_subtitles.kiq,
+        enqueue_search_index=search_index_worker.reindex_media_item.kiq,
+    )
+
+
+@broker.task(schedule=[{"cron": "*/15 * * * *"}])
+async def tick_media_library_scans() -> dict:
+    """Run due library scans using the configured interval."""
+    from streamarr.workers.library_scan_worker import scan_libraries_impl
+
+    return await scan_libraries_impl(
+        force=False,
+        enqueue_probe=probe_media_file.kiq,
+        enqueue_metadata=refresh_media_item_metadata.kiq,
+        enqueue_subtitles=download_missing_subtitles.kiq,
+        enqueue_search_index=search_index_worker.reindex_media_item.kiq,
+    )
+
+
+@broker.task(retry_on_error=True, delay=15)
+async def scan_changed_library(library_guid: str) -> dict:
+    """Reconcile one watcher-affected library with a distributed lock."""
+    import redis.asyncio as redis_async
+
+    from streamarr.services.library_post_scan import (
+        PostScanEnqueuers,
+        dispatch_post_scan,
+    )
+
+    redis_client = redis_async.from_url(settings.redis_url, decode_responses=True)
+    lock_key = f"library_scan:library:{library_guid}:lock"
+    token = uuid.uuid4().hex
+    acquired = bool(await redis_client.set(lock_key, token, nx=True, ex=3600))
+    if not acquired:
+        await redis_client.aclose()
+        return {"status": "already_running"}
+    try:
+        async with sessionmanager.session() as db:
+            service = LibraryService(db)
+            library = await service.get_library(uuid.UUID(library_guid))
+            if not library or not library.enabled:
+                return {"status": "skipped"}
+            _files, result = await service.scan_library_with_result(library.guid)
+            await db.commit()
+            await dispatch_post_scan(
+                library,
+                result,
+                PostScanEnqueuers(
+                    probe=probe_media_file.kiq,
+                    metadata=refresh_media_item_metadata.kiq,
+                    subtitles=download_missing_subtitles.kiq,
+                    search_index=search_index_worker.reindex_media_item.kiq,
+                ),
+            )
+            return {
+                "status": "completed",
+                "added": result.added,
+                "updated": result.updated,
+                "removed": result.removed,
+            }
+    finally:
+        await redis_client.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            lock_key,
+            token,
+        )
+        await redis_client.aclose()
 
 
 def _get_external_id(media_item: MediaItem, provider: str) -> str | None:
@@ -221,7 +296,10 @@ async def _maybe_trigger_credits_detection(result: dict) -> None:
 @broker.task
 async def promote_favorite_to_library(media_item_guid: str) -> None:
     """Copy an rclone-registered media_file into /library after favoriting."""
-    from streamarr.libraries import get_library_type_for_media_item_type, get_plugin_instance
+    from streamarr.libraries import (
+        get_library_type_for_media_item_type,
+        get_plugin_instance,
+    )
     from streamarr.models.media import MediaFile, MediaItem
 
     try:
@@ -703,7 +781,7 @@ async def send_notification_email(notification_id: str) -> None:
                 return
 
             # Resolve i18n for notification email
-            from streamarr.services.auth import _get_email_i18n, _get_app_url
+            from streamarr.services.auth import _get_email_i18n
             from streamarr.services.settings import SettingsService
 
             i18n = _get_email_i18n("notification", user)
@@ -800,6 +878,21 @@ async def probe_media_file(media_file_guid: str) -> dict:
                         exc,
                     )
 
+            # Chapters belong to the canonical item metadata. Trickplay stays
+            # in the existing playback-triggered persistent cache subsystem.
+            if file and file.media_item_guid:
+                from streamarr.services.trickplay import chapters_from_probe
+                from streamarr.utils.extra_data import load_extra_data
+
+                chapters = chapters_from_probe(probe_data)
+                if chapters:
+                    item = await db.get(MediaItem, file.media_item_guid)
+                    if item:
+                        extra = load_extra_data(item)
+                        extra["chapters"] = chapters
+                        item.extra_data = extra
+                        await db.commit()
+
             result = {
                 "success": True,
                 "file_guid": media_file_guid,
@@ -848,6 +941,47 @@ async def search_media_item_releases(
     except Exception as e:
         logger.error("Failed to search releases for media item %s: %s", media_item_guid, e)
         raise
+
+
+@broker.task(retry_on_error=True, delay=30)
+async def download_missing_subtitles(
+    media_item_guid: str,
+    languages: list[str],
+) -> dict:
+    """Download the best configured missing subtitle per requested language."""
+    from streamarr.services.subtitle_provider import download_best_missing_subtitles
+
+    async with sessionmanager.session() as db:
+        item = await db.get(MediaItem, media_item_guid)
+        if not item:
+            return {"success": False, "error": "Media item not found"}
+        added = await download_best_missing_subtitles(db, item, languages)
+        await db.commit()
+        return {"success": True, "added": added}
+
+
+@broker.task(retry_on_error=True, delay=30)
+async def reindex_all() -> dict:
+    from streamarr.api.v1.reindex import reindex_all_task
+
+    async with sessionmanager.session() as db:
+        return await reindex_all_task(db)
+
+
+@broker.task(retry_on_error=True, delay=30)
+async def reindex_movies() -> dict:
+    from streamarr.api.v1.reindex import reindex_movies_task
+
+    async with sessionmanager.session() as db:
+        return await reindex_movies_task(db)
+
+
+@broker.task(retry_on_error=True, delay=30)
+async def reindex_shows() -> dict:
+    from streamarr.api.v1.reindex import reindex_shows_task
+
+    async with sessionmanager.session() as db:
+        return await reindex_shows_task(db)
 
 
 @broker.task()
@@ -1077,7 +1211,6 @@ async def cleanup_orphaned_temp_files() -> dict:
 
     Files older than 2 hours are considered orphaned.
     """
-    from streamarr.services.media import MediaService
 
     logger.info("Starting cleanup of orphaned temp files")
 
@@ -1122,7 +1255,7 @@ async def retry_stuck_downloads() -> dict:
 
     from sqlalchemy import select
 
-    from streamarr.models.downloads import Download, DownloadStatus
+    from streamarr.models.downloads import DownloadStatus
 
     now = datetime.now(UTC)
     result = {"stuck": 0, "retried": 0, "failed": 0}
@@ -1277,7 +1410,9 @@ async def cleanup_orphaned_transcode_containers() -> dict:
                             await computing_service.stop_task(task_id, force=True)
                             await computing_service.delete_task(task_id)
                             if session_id:
-                                from streamarr.services.storage_cleanup import cleanup_session_temp_files
+                                from streamarr.services.storage_cleanup import (
+                                    cleanup_session_temp_files,
+                                )
                                 temp_result = cleanup_session_temp_files(session_id)
                                 if temp_result["deleted"]:
                                     logger.info(
@@ -1578,9 +1713,8 @@ async def warm_external_similarity_cache() -> None:
     """Pre-warm the TMDB similar/recommendations Redis cache for the top
     ~500 most-viewed owned movies + shows."""
     async def _run() -> None:
-        from streamarr.services.recommendation import RecommendationService
-
         from streamarr.models.viewing_history import ViewingHistory
+        from streamarr.services.recommendation import RecommendationService
 
         async with sessionmanager.session() as db:
             top = await db.execute(
@@ -1752,4 +1886,6 @@ async def scheduled_database_backup() -> dict:
 
 
 # Create scheduler with Redis source after task registration.
+from streamarr.workers import library_monitor as _library_monitor  # noqa: E402,F401
+
 scheduler = create_scheduler()

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
 from streamarr.models.media import MediaItem
+from streamarr.services.settings import SettingsService
 from streamarr.utils.extra_data import load_extra_data
 from streamarr.utils.net import UnsafeUrlError, assert_safe_url, safe_get
 
@@ -518,3 +518,55 @@ class SubtitleProviderService:
 
         candidate["match_score"] = round(score, 2)
         candidate["match_reasons"] = reasons
+
+
+async def download_best_missing_subtitles(
+    db,
+    media_item: MediaItem,
+    languages: list[str],
+) -> int:
+    """Attach the best configured provider result for every missing language."""
+    extra = load_media_extra_data(media_item)
+    tracks = list(extra.get("subtitles") or extra.get("subtitle_tracks") or [])
+    existing_languages = {
+        str(track.get("language") or track.get("lang") or "").casefold()
+        for track in tracks
+        if isinstance(track, dict)
+    }
+    settings = SettingsService(db)
+    enabled = await settings.get("subtitles.providers", [])
+    urls = await settings.get("subtitles.provider_urls", {})
+    api_keys = await settings.get("subtitles.provider_api_keys", {})
+    service = SubtitleProviderService(
+        enabled if isinstance(enabled, list) else [],
+        urls if isinstance(urls, dict) else {},
+        api_keys if isinstance(api_keys, dict) else {},
+    )
+    added = 0
+    for language in languages:
+        language_key = language.casefold()
+        if language_key in existing_languages:
+            continue
+        candidates = await service.search_async(media_item, language=language)
+        if not candidates:
+            continue
+        candidate = await service.resolve_download_async(candidates[0])
+        tracks.append(
+            {
+                "id": f"{candidate['provider']}:{candidate['provider_id']}",
+                "language": candidate["language"],
+                "title": candidate.get("title") or candidate.get("file_name"),
+                "format": candidate.get("format"),
+                "path": candidate.get("path"),
+                "url": candidate.get("url"),
+                "is_forced": bool(candidate.get("is_forced")),
+                "is_default": False,
+            }
+        )
+        existing_languages.add(language_key)
+        added += 1
+    if added:
+        extra["subtitles"] = tracks
+        media_item.extra_data = extra
+        await db.flush()
+    return added

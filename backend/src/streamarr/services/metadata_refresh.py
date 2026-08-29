@@ -287,17 +287,27 @@ class MetadataService:
 
     @staticmethod
     def _apply_normalized(media_item: MediaItem, n: NormalizedMetadata) -> None:
-        media_item.title = n.title or media_item.title
-        media_item.original_title = n.original_title or media_item.original_title
-        media_item.description = n.description or media_item.description
-        media_item.tagline = n.tagline or media_item.tagline
-        media_item.release_date = n.release_date or media_item.release_date
-        media_item.poster_path = n.poster_path or media_item.poster_path
-        media_item.backdrop_path = n.backdrop_path or media_item.backdrop_path
-        if n.content_rating:
-            media_item.content_rating = n.content_rating
-        if n.min_age is not None:
-            media_item.min_age = n.min_age
+        extra = dict(media_item.extra_data or {})
+        locked = set(extra.get("locked_fields") or [])
+        provenance = dict(extra.get("metadata_provenance") or {})
+        values = {
+            "title": n.title,
+            "original_title": n.original_title,
+            "description": n.description,
+            "tagline": n.tagline,
+            "release_date": n.release_date,
+            "poster_path": n.poster_path,
+            "backdrop_path": n.backdrop_path,
+            "content_rating": n.content_rating,
+            "min_age": n.min_age,
+        }
+        for attribute, value in values.items():
+            if value is None or attribute in locked:
+                continue
+            setattr(media_item, attribute, value)
+            provenance[attribute] = "remote"
+        extra["metadata_provenance"] = provenance
+        media_item.extra_data = extra
         media_item.updated_at = datetime.now(UTC)
 
     @staticmethod

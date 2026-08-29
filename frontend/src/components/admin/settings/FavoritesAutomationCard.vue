@@ -33,8 +33,28 @@
           @update:model-value="updateAutomationSettings"
           :disable="savingAutomation"
         />
+        <q-toggle
+          v-model="automation.realtime_library_monitor"
+          :label="$t('adminSettings.automation.realtimeLibraryMonitor')"
+          color="primary"
+          class="block q-mt-sm"
+          @update:model-value="updateAutomationSettings"
+          :disable="savingAutomation"
+        />
 
         <div class="row q-col-gutter-md q-mt-sm">
+          <q-input
+            class="col-12 col-sm-4"
+            v-model.number="automation.library_scan_interval_hours"
+            type="number"
+            min="1"
+            max="168"
+            dense
+            :label="$t('adminSettings.automation.libraryScanInterval')"
+            :rules="[automationNumberRule(1)]"
+            @blur="updateAutomationSettings"
+            :disable="savingAutomation"
+          />
           <q-input
             class="col-12 col-sm-4"
             v-model.number="automation.rss_min_interval_minutes"
@@ -102,6 +122,8 @@ const automation = ref({
   rss_min_interval_minutes: 15,
   upgrade_scan_batch_size: 25,
   max_concurrent_upgrade_downloads: 3,
+  library_scan_interval_hours: 12,
+  realtime_library_monitor: true,
 })
 
 // Minimum allowed value for each numeric automation field. Used both for the
@@ -111,6 +133,7 @@ const AUTOMATION_NUMERIC_MINIMUMS = {
   rss_min_interval_minutes: 1,
   upgrade_scan_batch_size: 1,
   max_concurrent_upgrade_downloads: 1,
+  library_scan_interval_hours: 1,
 }
 
 const automationNumberRule = (min) => (val) => {

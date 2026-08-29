@@ -28,7 +28,6 @@ ENV XDG_DATA_HOME=/home/appuser/.local/share
 
 # Install the application dependencies with explicit cache dir
 RUN UV_CACHE_DIR=/home/appuser/.cache/uv uv sync --frozen --no-cache
-RUN chown -R appuser:appgroup /app
 # Expose port 8000 (non-privileged port)
 EXPOSE 8000
 

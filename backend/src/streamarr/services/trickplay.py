@@ -18,6 +18,7 @@ import shutil
 import time
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +50,39 @@ def bytes_for_gb(limit_gb: float | None) -> int:
 
 
 def cache_key(file_path: str) -> str:
-    """Stable per-file cache key.
+    """Content-versioned per-file cache key.
 
     Derived from the path rather than the media-file GUID so that the cache can
     be located (and purged) by callers that only hold a path — every deletion
     site does, not all of them hold the row.
     """
-    return hashlib.sha256(str(file_path).encode()).hexdigest()[:32]
+    path = Path(file_path).resolve(strict=False)
+    try:
+        stat = path.stat()
+        identity = f"{path}:{stat.st_size}:{stat.st_mtime_ns}"
+    except OSError:
+        identity = str(path)
+    return hashlib.sha256(identity.encode()).hexdigest()[:32]
+
+
+def chapters_from_probe(probe_data: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Normalize chapters produced by the canonical ffprobe pipeline."""
+    chapters: list[dict[str, Any]] = []
+    for index, chapter in enumerate((probe_data or {}).get("chapters") or []):
+        try:
+            start = float(chapter.get("start_time", 0))
+            end = float(chapter["end_time"]) if chapter.get("end_time") else None
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+        tags = chapter.get("tags") or {}
+        chapters.append(
+            {
+                "title": tags.get("title") or f"Chapter {index + 1}",
+                "start_seconds": start,
+                "end_seconds": end,
+            }
+        )
+    return chapters
 
 
 def _root() -> Path:
