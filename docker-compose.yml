@@ -123,7 +123,13 @@ services:
     build:
       context: ./backend
       dockerfile: Containerfile
-    command: ["uv", "run", "taskiq", "worker", "streamarr.worker:broker", "--reload"]
+    # No --reload here. The watcher restarts the worker on every change under
+    # the bind-mounted ./backend/src; a branch switch touches hundreds of files
+    # at once and the process manager has been observed to lose its only child
+    # in the resulting restart storm, leaving the container "up" while nothing
+    # consumes the task stream. --reload also pins the pool to a single worker
+    # process. Restart the service to pick up code changes.
+    command: ["uv", "run", "taskiq", "worker", "streamarr.worker:broker"]
     restart: unless-stopped
     privileged: true
     user: "0:0"
