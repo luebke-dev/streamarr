@@ -35,8 +35,15 @@ result_backend = RedisAsyncResultBackend(
     redis_url=settings.redis_url,
 )
 
+# The task stream is unbounded by default: every cron tick is appended and
+# nothing ever removes an acknowledged entry, so the key grows without limit
+# (it had reached ~138k entries before this cap was added). ``maxlen`` makes
+# Redis trim on write. The bound is generous enough to hold a scan's fan-out
+# of per-file probe/index tasks while a slow consumer catches up.
+_STREAM_MAXLEN = 50_000
+
 broker = (
-    RedisStreamBroker(url=settings.redis_url)
+    RedisStreamBroker(url=settings.redis_url, maxlen=_STREAM_MAXLEN)
     .with_result_backend(result_backend)
     .with_middlewares(
         WorkerTaskEventMiddleware(),
