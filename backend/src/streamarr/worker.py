@@ -1152,6 +1152,26 @@ async def refresh_media_item_metadata(media_item_guid_str: str) -> None:
             await metadata_plugin.close()
 
 
+# ==================== Metadata Matching ====================
+
+
+@broker.task
+async def match_unidentified_media(dry_run: bool = True, limit: int = 200) -> dict:
+    """Attach TMDB ids to items the scanner left without one.
+
+    Defaults to a dry run: it reports what it would attach and writes
+    nothing. Pass ``dry_run=False`` to apply, which also queues a metadata
+    refresh for every item it identified.
+    """
+    from streamarr.workers.metadata_match_worker import match_media_items_impl
+
+    return await match_media_items_impl(
+        dry_run=dry_run,
+        limit=limit,
+        enqueue_metadata=refresh_media_item_metadata.kiq,
+    )
+
+
 # ==================== Auto Metadata Refresh ====================
 
 

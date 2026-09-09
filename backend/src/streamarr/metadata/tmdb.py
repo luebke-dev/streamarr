@@ -348,6 +348,25 @@ class TMDB(MetadataBase):
         result = await self._request(endpoint="search/movie", params=params)
         return result
 
+    async def search_shows(self, query: str, year: int | None = None):
+        """Search TV series by title, optionally pinned to a first-air year."""
+        params = {"query": query}
+        if year:
+            params["first_air_date_year"] = year
+        return await self._request(endpoint="search/tv", params=params)
+
+    async def find_by_external_id(self, external_id: str, source: str):
+        """Resolve a foreign provider id to TMDB entries.
+
+        ``source`` is a TMDB ``external_source`` value (``tvdb_id``,
+        ``imdb_id``, ...). Unlike a title search this is an exact lookup, so
+        it is the preferred path whenever the library already carries such an
+        id — Sonarr-style folder names embed ``[tvdbid-...]``, for instance.
+        """
+        return await self._request(
+            endpoint=f"find/{external_id}", params={"external_source": source}
+        )
+
     async def get_person_details(self, person_id: str):
         """Get detailed person info including biography, birthday, etc."""
         result = await self._request(endpoint=f"person/{person_id}")
