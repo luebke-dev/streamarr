@@ -295,7 +295,11 @@ class MetadataService:
             "original_title": n.original_title,
             "description": n.description,
             "tagline": n.tagline,
-            "release_date": n.release_date,
+            # Providers hand dates back as ISO strings ("2017-07-11"), but the
+            # column is a timestamp — asyncpg rejects the raw string outright.
+            # ``import_media`` already parses it; the refresh path did not, so
+            # every refresh of an item that has a release date died here.
+            "release_date": MetadataService._parse_date(n.release_date),
             "poster_path": n.poster_path,
             "backdrop_path": n.backdrop_path,
             "content_rating": n.content_rating,

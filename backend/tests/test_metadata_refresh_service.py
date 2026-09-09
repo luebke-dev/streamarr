@@ -164,3 +164,53 @@ async def test_worker_refreshes_season_with_parent_show_tmdb_id():
         3,
     )
     tmdb_plugin.close.assert_awaited_once()
+
+
+class TestApplyNormalizedReleaseDate:
+    """A provider hands dates back as ISO strings; the column is a timestamp."""
+
+    def _item(self):
+        return MediaItem(
+            guid=uuid.uuid4(),
+            media_type=MediaType.MOVIES,
+            title="War for the Planet of the Apes",
+        )
+
+    def test_iso_string_becomes_a_date(self):
+        from datetime import date
+
+        from streamarr.metadata.base import NormalizedMetadata
+
+        item = self._item()
+        MetadataService._apply_normalized(
+            item,
+            NormalizedMetadata(title="Planet der Affen - Survival", release_date="2017-07-11"),
+        )
+        # asyncpg rejects the raw string outright, so every refresh of an item
+        # carrying a release date used to die before writing anything.
+        assert item.release_date == date(2017, 7, 11)
+
+    def test_an_unparsable_date_is_dropped_rather_than_written(self):
+        from streamarr.metadata.base import NormalizedMetadata
+
+        item = self._item()
+        MetadataService._apply_normalized(
+            item, NormalizedMetadata(title="Something", release_date="tba")
+        )
+        assert item.release_date is None
+
+    def test_other_fields_still_come_through(self):
+        from streamarr.metadata.base import NormalizedMetadata
+
+        item = self._item()
+        MetadataService._apply_normalized(
+            item,
+            NormalizedMetadata(
+                title="Planet der Affen - Survival",
+                original_title="War for the Planet of the Apes",
+                release_date="2017-07-11",
+                poster_path="/poster.jpg",
+            ),
+        )
+        assert item.title == "Planet der Affen - Survival"
+        assert item.poster_path == "/poster.jpg"
