@@ -18,7 +18,11 @@ from typing import Any
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from streamarr.metadata.local import clean_provider_ids, read_local_metadata
+from streamarr.metadata.local import (
+    clean_provider_ids,
+    provider_ids_from_name,
+    read_local_metadata,
+)
 from streamarr.models.library import Library
 from streamarr.models.media import (
     AvailabilityStatus,
@@ -507,6 +511,73 @@ class LibraryScanner:
             },
         }
 
+    async def _show_by_provider_id(self, folder_name: str) -> MediaItem | None:
+        """Resolve a series through an id embedded in its folder name.
+
+        Sonarr writes ``[tvdbid-...]`` into the series folder, which pins the
+        identity of the show far more reliably than its title does. Going by
+        title alone is what let a scan create a second "The Walking Dead
+        (2010)" alongside the "The Walking Dead" an earlier import had
+        already produced: the year is part of the folder name but not of the
+        imported title, so the two never compared equal.
+        """
+        ids = provider_ids_from_name(folder_name)
+        if not ids:
+            return None
+        return await self.db.scalar(
+            select(MediaItem)
+            .join(
+                MediaExternalId,
+                MediaExternalId.media_item_guid == MediaItem.guid,
+            )
+            .where(
+                MediaItem.media_type == MediaType.SHOWS,
+                MediaItem.parent_guid.is_(None),
+                or_(
+                    *[
+                        and_(
+                            MediaExternalId.provider == provider,
+                            MediaExternalId.external_id == value,
+                        )
+                        for provider, value in ids.items()
+                    ]
+                ),
+            )
+            .limit(1)
+        )
+
+    async def _resolve_show(self, folder_name: str) -> MediaItem:
+        """Find the series this folder belongs to, or start a new one.
+
+        A newly created show keeps the ids from its folder name, so the next
+        scan resolves it by id instead of by title even if a metadata refresh
+        has renamed it in the meantime.
+        """
+        show = await self._show_by_provider_id(folder_name)
+        if show is not None:
+            return show
+
+        show = await self._get_or_create(
+            MediaType.SHOWS, clean_provider_ids(folder_name)
+        )
+        for provider, value in provider_ids_from_name(folder_name).items():
+            taken = await self.db.scalar(
+                select(MediaExternalId).where(
+                    MediaExternalId.provider == provider,
+                    MediaExternalId.external_id == value,
+                )
+            )
+            if taken is None:
+                self.db.add(
+                    MediaExternalId(
+                        media_item_guid=show.guid,
+                        provider=provider,
+                        external_id=value,
+                    )
+                )
+        await self.db.flush()
+        return show
+
     async def _resolve_item(self, library_type: str, info: dict[str, Any], path: Path):
         info = self._enrich_local(info, path, library_type)
         kind = library_type.upper()
@@ -514,7 +585,7 @@ class LibraryScanner:
             show_title = str(info.get("show_name") or path.parent.parent.name)
             season_no = int(info.get("season") or 0)
             episode_no = int(info.get("episode") or 0)
-            show = await self._get_or_create(MediaType.SHOWS, clean_provider_ids(show_title))
+            show = await self._resolve_show(show_title)
             season = await self._get_or_create(
                 MediaType.SEASONS, f"Season {season_no}", show.guid, season_no
             )
