@@ -325,3 +325,115 @@ async def test_reconcile_imports_local_nfo_ids_and_locks(db_session, tmp_path):
         ("imdb", "tt2543164"),
         ("tmdb", "329865"),
     }
+
+
+class TestShowResolutionByProviderId:
+    """A series folder carries its own identity; the title is only a fallback."""
+
+    @pytest.mark.asyncio
+    async def test_an_id_in_the_folder_wins_over_a_differing_title(self, db_session):
+        from streamarr.models.media import MediaExternalId, MediaItem, MediaType
+        from streamarr.services.library_scanner import LibraryScanner
+
+        # What an *arr import leaves behind: the plain title, plus the id.
+        show = MediaItem(media_type=MediaType.SHOWS, title="The Walking Dead")
+        db_session.add(show)
+        await db_session.flush()
+        db_session.add(
+            MediaExternalId(
+                media_item_guid=show.guid, provider="tvdb", external_id="153021"
+            )
+        )
+        await db_session.flush()
+
+        scanner = LibraryScanner(db_session)
+        resolved = await scanner._resolve_show("The Walking Dead (2010) [tvdbid-153021]")
+
+        # Without the id lookup the year in the folder name makes the titles
+        # differ, and the scan would start a second copy of the same series.
+        assert resolved.guid == show.guid
+
+    @pytest.mark.asyncio
+    async def test_a_new_show_keeps_the_ids_from_its_folder(self, db_session):
+        from sqlalchemy import select
+
+        from streamarr.models.media import MediaExternalId, MediaType
+        from streamarr.services.library_scanner import LibraryScanner
+
+        scanner = LibraryScanner(db_session)
+        show = await scanner._resolve_show("Severance (2022) [tvdbid-371980]")
+
+        assert show.title == "Severance (2022)"
+        stored = (
+            await db_session.execute(
+                select(MediaExternalId).where(
+                    MediaExternalId.media_item_guid == show.guid
+                )
+            )
+        ).scalars().all()
+        assert {(e.provider, e.external_id) for e in stored} == {("tvdb", "371980")}
+
+    @pytest.mark.asyncio
+    async def test_the_same_folder_resolves_to_one_show_across_scans(self, db_session):
+        from streamarr.services.library_scanner import LibraryScanner
+
+        scanner = LibraryScanner(db_session)
+        first = await scanner._resolve_show("Devs (2020) [tvdbid-359274]")
+        second = await scanner._resolve_show("Devs (2020) [tvdbid-359274]")
+        assert first.guid == second.guid
+
+    @pytest.mark.asyncio
+    async def test_a_renamed_show_is_still_found_by_its_id(self, db_session):
+        from streamarr.services.library_scanner import LibraryScanner
+
+        scanner = LibraryScanner(db_session)
+        show = await scanner._resolve_show("Das Damengambit (2020) [tvdbid-374305]")
+        # A metadata refresh routinely rewrites the title to the localised one.
+        show.title = "The Queen's Gambit"
+        await db_session.flush()
+
+        assert (
+            await scanner._resolve_show("Das Damengambit (2020) [tvdbid-374305]")
+        ).guid == show.guid
+
+    @pytest.mark.asyncio
+    async def test_a_folder_without_ids_still_matches_on_title(self, db_session):
+        from streamarr.models.media import MediaItem, MediaType
+        from streamarr.services.library_scanner import LibraryScanner
+
+        show = MediaItem(media_type=MediaType.SHOWS, title="Some Series")
+        db_session.add(show)
+        await db_session.flush()
+
+        scanner = LibraryScanner(db_session)
+        assert (await scanner._resolve_show("Some Series")).guid == show.guid
+
+    @pytest.mark.asyncio
+    async def test_an_id_already_held_elsewhere_is_not_duplicated(self, db_session):
+        from sqlalchemy import func, select
+
+        from streamarr.models.media import MediaExternalId, MediaItem, MediaType
+        from streamarr.services.library_scanner import LibraryScanner
+
+        # (provider, external_id) is globally unique, so a movie holding the
+        # same id must not make the scan fail on an integrity error.
+        other = MediaItem(media_type=MediaType.MOVIES, title="Unrelated")
+        db_session.add(other)
+        await db_session.flush()
+        db_session.add(
+            MediaExternalId(
+                media_item_guid=other.guid, provider="imdb", external_id="tt0903747"
+            )
+        )
+        await db_session.flush()
+
+        scanner = LibraryScanner(db_session)
+        show = await scanner._resolve_show("Breaking Bad (2008) [imdbid-tt0903747]")
+
+        assert show.guid != other.guid
+        count = await db_session.scalar(
+            select(func.count())
+            .select_from(MediaExternalId)
+            .where(MediaExternalId.external_id == "tt0903747")
+        )
+        assert count == 1
