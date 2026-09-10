@@ -50,8 +50,17 @@ _YEAR_SLACK = 1
 # the title from a folder name that carried the year.
 _TRAILING_YEAR_RE = re.compile(r"\s*\((?P<year>(19|20)\d{2})\)\s*$")
 
+# English only, and only at the start. German articles are left alone because
+# "Die Hard" is not a German title and stripping "Die" from it would be wrong
+# in a way that is hard to see later.
+_LEADING_ARTICLE_RE = re.compile(r"^(?:the|a|an)\s+")
+
 # TMDB external_source values, in the order we trust them.
 _FIND_SOURCES = (("tvdb", "tvdb_id"), ("imdb", "imdb_id"))
+
+# Each alternative-title lookup is its own request, so only the handful of
+# candidates whose year already fits are worth asking about.
+_ALTERNATIVE_TITLE_LOOKUPS = 5
 
 
 def _normalise(title: str) -> str:
@@ -63,7 +72,15 @@ def _normalise(title: str) -> str:
     """
     decomposed = unicodedata.normalize("NFKD", title)
     stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
-    return re.sub(r"[^a-z0-9]+", "", stripped.casefold())
+    # "21 & Over" and "21 and Over" are the same film, and dropping the
+    # ampersand as punctuation would leave "21over" against "21andover".
+    # Radarr folds it the same way.
+    folded = stripped.casefold().replace("&", " and ")
+    # A leading article is decoration that catalogues disagree about: TMDB
+    # files the film the folder calls "Bicycle Thieves" as "The Bicycle
+    # Thieves". Dropping it on both sides keeps the comparison symmetric.
+    folded = _LEADING_ARTICLE_RE.sub("", folded.strip())
+    return re.sub(r"[^a-z0-9]+", "", folded)
 
 
 def _title_and_year(item: MediaItem) -> tuple[str, int | None]:
@@ -93,11 +110,41 @@ def _candidate_titles(entry: dict[str, Any]) -> set[str]:
     localised while ``original_title``/``original_name`` stay in the source
     language. A German library legitimately matches either one.
     """
+    # A title in a non-Latin script normalises to nothing; keeping the empty
+    # string would make it look like a spelling we can compare against.
     return {
-        _normalise(str(entry.get(key)))
+        normalised
         for key in ("title", "original_title", "name", "original_name")
         if entry.get(key)
+        for normalised in [_normalise(str(entry.get(key)))]
+        if normalised
     }
+
+
+async def _accept_via_alternative_titles(
+    tmdb: TMDB, candidates: list[dict[str, Any]], wanted: str, media_type: MediaType
+) -> list[dict[str, Any]]:
+    """Second look at candidates whose year fits but whose titles did not.
+
+    Search hands back one localised and one original title per entry, and a
+    library regularly uses neither — an English release name against a German
+    catalogue, or a Japanese original that carries no Latin spelling at all.
+    TMDB keeps the rest in its alternative titles, which is the same list
+    Sonarr and Radarr consult before giving up.
+    """
+    segment = "movie" if media_type == MediaType.MOVIES else "tv"
+    key = "titles" if media_type == MediaType.MOVIES else "results"
+    accepted = []
+    for entry in candidates[:_ALTERNATIVE_TITLE_LOOKUPS]:
+        payload = await tmdb.alternative_titles(entry.get("id"), segment)
+        names = {
+            _normalise(str(row.get("title")))
+            for row in (payload or {}).get(key) or []
+            if row.get("title")
+        }
+        if wanted in names:
+            accepted.append(entry)
+    return accepted
 
 
 @dataclass(slots=True)
@@ -240,12 +287,20 @@ async def _match_via_search(
 
     results = (payload or {}).get("results") or []
     wanted = _normalise(title)
-    accepted = [
+    # The year is the cheap discriminator, so narrow on it first and only
+    # then argue about spelling.
+    right_year = [
         entry
         for entry in results
-        if wanted in _candidate_titles(entry)
-        and any(abs(y - year) <= _YEAR_SLACK for y in _candidate_years(entry))
+        if any(abs(y - year) <= _YEAR_SLACK for y in _candidate_years(entry))
     ]
+    accepted = [entry for entry in right_year if wanted in _candidate_titles(entry)]
+    if not accepted and right_year:
+        accepted = await _accept_via_alternative_titles(
+            tmdb, right_year, wanted, media_type
+        )
+        if accepted:
+            base.source = "search+alt"
 
     if not accepted:
         base.detail = f"{len(results)} Treffer, keiner mit passendem Titel und Jahr"

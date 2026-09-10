@@ -139,6 +139,7 @@ class TestSearchMatching:
         tmdb.search_movies.return_value = {
             "results": [{"id": 604, "title": "The Matrix Reloaded", "release_date": "2003-05-15"}]
         }
+        tmdb.alternative_titles.return_value = {"titles": [{"title": "Matrix Reloaded"}]}
         outcome = await _match_via_search(tmdb, _item("The Matrix", year=2003), MediaType.MOVIES)
         assert outcome.status == "not_found"
 
@@ -269,3 +270,84 @@ class TestExactOnlyMode:
         )
         assert outcome.status == "matched"
         assert outcome.source == "find:tvdb"
+
+
+class TestNormalisationEdgeCases:
+    """Spellings the two catalogues genuinely disagree about."""
+
+    def test_an_ampersand_reads_as_and(self):
+        # TMDB files it as "21 & Over", the folder says "21 and Over".
+        assert _normalise("21 and Over") == _normalise("21 & Over")
+
+    def test_a_leading_article_is_dropped(self):
+        # TMDB: "The Bicycle Thieves". Folder: "Bicycle Thieves".
+        assert _normalise("Bicycle Thieves") == _normalise("The Bicycle Thieves")
+        assert _normalise("A Quiet Place") == _normalise("Quiet Place")
+
+    def test_an_article_inside_the_title_stays(self):
+        assert _normalise("This Is the End") != _normalise("This Is End")
+
+    def test_a_german_article_is_left_alone(self):
+        # "Die Hard" is not German, and stripping "Die" would be wrong in a
+        # way that is hard to notice later.
+        assert _normalise("Die Hard") != _normalise("Hard")
+
+    def test_a_title_in_a_non_latin_script_is_not_a_usable_spelling(self):
+        # It normalises to nothing, which must not count as a match.
+        assert _candidate_titles({"title": "Given: The Movie", "original_title": "映画 ギヴン"}) == {
+            _normalise("Given: The Movie")
+        }
+
+
+class TestAlternativeTitles:
+    @pytest.mark.asyncio
+    async def test_a_title_only_in_the_alternatives_still_matches(self):
+        # de-DE gives "Fahrraddiebe", the original is Italian, and the folder
+        # uses the English name that only the alternative titles carry.
+        tmdb = AsyncMock()
+        tmdb.search_movies.return_value = {
+            "results": [
+                {
+                    "id": 5156,
+                    "title": "Fahrraddiebe",
+                    "original_title": "Ladri di biciclette",
+                    "release_date": "1948-07-21",
+                }
+            ]
+        }
+        tmdb.alternative_titles.return_value = {
+            "titles": [{"title": "The Bicycle Thieves"}, {"title": "Fietsendieven"}]
+        }
+        outcome = await _match_via_search(
+            tmdb, _item("Bicycle Thieves", year=1948), MediaType.MOVIES
+        )
+        assert outcome.status == "matched"
+        assert outcome.tmdb_id == "5156"
+        assert outcome.source == "search+alt"
+
+    @pytest.mark.asyncio
+    async def test_the_alternatives_are_only_consulted_when_the_year_fits(self):
+        tmdb = AsyncMock()
+        tmdb.search_movies.return_value = {
+            "results": [{"id": 1, "title": "Etwas Anderes", "release_date": "1999-01-01"}]
+        }
+        outcome = await _match_via_search(
+            tmdb, _item("Bicycle Thieves", year=1948), MediaType.MOVIES
+        )
+        assert outcome.status == "not_found"
+        tmdb.alternative_titles.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_shows_read_the_tv_shaped_response(self):
+        tmdb = AsyncMock()
+        tmdb.search_shows.return_value = {
+            "results": [{"id": 42, "name": "Irgendwas", "first_air_date": "2020-01-01"}]
+        }
+        # The TV endpoint returns its rows under "results", not "titles".
+        tmdb.alternative_titles.return_value = {"results": [{"title": "Real Name"}]}
+        outcome = await _match_via_search(
+            tmdb, _item("Real Name (2020)", media_type=MediaType.SHOWS), MediaType.SHOWS
+        )
+        assert outcome.status == "matched"
+        assert outcome.tmdb_id == "42"
+        tmdb.alternative_titles.assert_awaited_once_with(42, "tv")
