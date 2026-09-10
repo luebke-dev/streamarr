@@ -35,6 +35,8 @@ async def test_post_scan_reuses_existing_pipelines_and_library_options():
 
     assert counts == {
         "probes": 1,
+        # Nothing was added, so there is nothing new to identify.
+        "identify": 0,
         "metadata": 1,
         "subtitles": 1,
         "search": 1,
