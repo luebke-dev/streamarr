@@ -377,12 +377,19 @@ class MetadataService:
         await self.db.flush()
 
         if credits_data:
+            # Read the title before handing the session to another service.
+            # Importing cast issues its own queries, and once the instance has
+            # been expired along the way this attribute is no longer loaded —
+            # reading it here then tries to emit a SELECT from outside
+            # SQLAlchemy's greenlet context and raises MissingGreenlet,
+            # failing a refresh that had otherwise already succeeded.
+            title = media_item.title
             person_service = PersonService(self.db)
             entries = await person_service.import_cast_from_tmdb(
                 media_item_guid=media_item.guid,
                 credits_data=credits_data,
             )
-            logger.info("Set %s cast/crew for %s", len(entries), media_item.title)
+            logger.info("Set %s cast/crew for %s", len(entries), title)
 
     async def _refresh_seasons(
         self, show: MediaItem, plugin: MetadataBase, external_id: str,
