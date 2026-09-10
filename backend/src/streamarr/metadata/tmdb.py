@@ -355,6 +355,17 @@ class TMDB(MetadataBase):
             params["first_air_date_year"] = year
         return await self._request(endpoint="search/tv", params=params)
 
+    async def alternative_titles(self, media_id: str | int, media_type: str = "movie"):
+        """Every regional title TMDB knows for one entry.
+
+        Search returns only the localised and the original title. A library
+        often uses neither — "Bicycle Thieves" is "Fahrraddiebe" in de-DE and
+        "Ladri di biciclette" in the original — and the name it does use lives
+        in this list.
+        """
+        segment = "movie" if media_type == "movie" else "tv"
+        return await self._request(endpoint=f"{segment}/{media_id}/alternative_titles")
+
     async def find_by_external_id(self, external_id: str, source: str):
         """Resolve a foreign provider id to TMDB entries.
 
