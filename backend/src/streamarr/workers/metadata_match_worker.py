@@ -106,7 +106,8 @@ class MatchOutcome:
     title: str
     year: int | None
     media_type: str
-    status: str  # matched | ambiguous | not_found | taken | no_title
+    # matched | ambiguous | not_found | taken | no_title | no_id_on_disk
+    status: str
     tmdb_id: str | None = None
     source: str | None = None  # "find:tvdb" | "search"
     matched_title: str | None = None
@@ -270,9 +271,17 @@ async def match_media_items_impl(
     dry_run: bool = True,
     limit: int = 200,
     media_types: tuple[MediaType, ...] = (MediaType.MOVIES, MediaType.SHOWS),
+    allow_search: bool = True,
     enqueue_metadata: Enqueue | None = None,
 ) -> dict[str, Any]:
-    """Attach TMDB ids to top-level items that do not have one yet."""
+    """Attach TMDB ids to top-level items that do not have one yet.
+
+    ``allow_search=False`` restricts the run to ids that are already on
+    disk, which is the only mode safe to run unattended: it resolves an id
+    the library itself supplied instead of picking a candidate out of a
+    search. An item with no such id is passed over without costing a
+    request.
+    """
     report = MatchReport(dry_run=dry_run)
 
     async with sessionmanager.session() as db:
@@ -303,8 +312,16 @@ async def match_media_items_impl(
                 report.considered += 1
                 path = await _representative_path(db, item)
                 outcome = await _match_via_path_id(tmdb, item, path, item.media_type)
-                if outcome is None:
+                if outcome is None and allow_search:
                     outcome = await _match_via_search(tmdb, item, item.media_type)
+                if outcome is None:
+                    title, year = _title_and_year(item)
+                    outcome = MatchOutcome(
+                        media_item_guid=str(item.guid), title=title, year=year,
+                        media_type=item.media_type.value, status="no_id_on_disk",
+                        detail="keine Provider-ID im Pfad; Titelsuche ist hier "
+                               "abgeschaltet",
+                    )
 
                 if outcome.status == "matched" and not await _tmdb_id_is_free(
                     db, outcome.tmdb_id

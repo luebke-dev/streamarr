@@ -228,3 +228,44 @@ class TestPathIdMatching:
     @pytest.mark.asyncio
     async def test_no_path_falls_through(self):
         assert await _match_via_path_id(AsyncMock(), _item("X", year=2000), None, MediaType.MOVIES) is None
+
+
+class TestExactOnlyMode:
+    """`allow_search=False` is what runs unattended after a scan."""
+
+    @pytest.mark.asyncio
+    async def test_search_is_not_even_attempted(self, monkeypatch):
+        import streamarr.workers.metadata_match_worker as mod
+
+        called = False
+
+        async def _boom(*args, **kwargs):
+            nonlocal called
+            called = True
+            raise AssertionError("die Titelsuche darf hier nicht laufen")
+
+        monkeypatch.setattr(mod, "_match_via_search", _boom)
+
+        outcome = await mod._match_via_path_id(
+            AsyncMock(), _item("Parasite", year=2019),
+            "/library/movies/Parasite (2019)/f.mkv", MediaType.MOVIES,
+        )
+        # No id on disk, so the caller would fall through to the search — and
+        # in exact-only mode that fall-through must not happen.
+        assert outcome is None
+        assert called is False
+
+    @pytest.mark.asyncio
+    async def test_an_id_on_disk_still_resolves(self):
+        tmdb = AsyncMock()
+        tmdb.find_by_external_id.return_value = {
+            "tv_results": [{"id": 95396, "name": "Severance", "first_air_date": "2022-02-18"}]
+        }
+        outcome = await _match_via_path_id(
+            tmdb,
+            _item("Severance (2022)", media_type=MediaType.SHOWS),
+            "/library/shows/Severance (2022) [tvdbid-371980]/Season 01/ep.mkv",
+            MediaType.SHOWS,
+        )
+        assert outcome.status == "matched"
+        assert outcome.source == "find:tvdb"

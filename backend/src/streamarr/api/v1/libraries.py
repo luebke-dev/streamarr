@@ -1316,6 +1316,7 @@ async def _run_library_scan(
         result,
         PostScanEnqueuers(
             probe=worker_module.probe_media_file.kiq,
+            identify=worker_module.identify_scanned_media.kiq,
             metadata=worker_module.refresh_media_item_metadata.kiq,
             subtitles=worker_module.download_missing_subtitles.kiq,
             search_index=search_worker.reindex_media_item.kiq,

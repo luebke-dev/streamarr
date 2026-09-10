@@ -86,6 +86,7 @@ async def scan_libraries_impl(
     *,
     force: bool,
     enqueue_probe: ProbeEnqueuer | None = None,
+    enqueue_identify=None,
     enqueue_metadata=None,
     enqueue_subtitles=None,
     enqueue_search_index=None,
@@ -145,6 +146,7 @@ async def scan_libraries_impl(
                         result,
                         PostScanEnqueuers(
                             probe=enqueue_probe,
+                            identify=enqueue_identify,
                             metadata=enqueue_metadata,
                             subtitles=enqueue_subtitles,
                             search_index=enqueue_search_index,
