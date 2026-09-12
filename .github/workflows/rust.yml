@@ -84,6 +84,14 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
           cache-workspaces: ${{ matrix.path }}
+          # The action exports RUSTFLAGS="-D warnings" unless told otherwise,
+          # which turns every warning into a compile error for all later steps
+          # -- `cargo test` included. With it, three of the four crates fail
+          # to build on dead-code warnings (and a lint expectation inside the
+          # vendored librespot-core) before a single test runs. Warnings are
+          # clippy's job below, where `-D warnings` is passed explicitly and
+          # the step only reports.
+          rustflags: ""
       - name: cargo fmt
         continue-on-error: true # all four crates are unformatted today -- see header
         run: cargo fmt --all --check
