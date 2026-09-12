@@ -1,0 +1,353 @@
+"""Tests for the TMDB matcher that identifies items the scanner left bare."""
+
+import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from streamarr.models.media import MediaType
+from streamarr.workers.metadata_match_worker import (
+    _candidate_titles,
+    _match_via_path_id,
+    _match_via_search,
+    _normalise,
+    _title_and_year,
+)
+
+
+def _item(title, *, year=None, media_type=MediaType.MOVIES):
+    return SimpleNamespace(
+        guid=uuid.uuid4(),
+        title=title,
+        media_type=media_type,
+        release_date=datetime(year, 1, 1, tzinfo=UTC) if year else None,
+    )
+
+
+class TestNormalise:
+    @pytest.mark.parametrize(
+        "left,right",
+        [
+            ("Top Gun Maverick", "Top Gun: Maverick"),
+            ("Terminator 3 Rise of the Machines", "Terminator 3: Rise of the Machines"),
+            ("Anchorman The Legend of Ron Burgundy", "Anchorman - The Legend of Ron Burgundy"),
+            ("Wall-E", "WALL·E"),
+            ("Amelie", "Amélie"),
+        ],
+    )
+    def test_punctuation_spacing_and_diacritics_do_not_separate_titles(self, left, right):
+        assert _normalise(left) == _normalise(right)
+
+    def test_different_films_stay_different(self):
+        assert _normalise("The Matrix") != _normalise("The Matrix Reloaded")
+
+
+class TestTitleAndYear:
+    def test_year_comes_from_the_release_date(self):
+        assert _title_and_year(_item("Parasite", year=2019)) == ("Parasite", 2019)
+
+    def test_trailing_year_is_split_off_the_title(self):
+        # The scanner derives show titles from folder names, so the year ends
+        # up inside the title and there is no release_date at all.
+        assert _title_and_year(_item("Better Call Saul (2015)")) == (
+            "Better Call Saul",
+            2015,
+        )
+
+    def test_release_date_wins_over_a_title_suffix(self):
+        assert _title_and_year(_item("Devs (2020)", year=2020)) == ("Devs", 2020)
+
+    def test_a_year_inside_the_title_is_left_alone(self):
+        assert _title_and_year(_item("Blade Runner 2049", year=2017)) == (
+            "Blade Runner 2049",
+            2017,
+        )
+
+
+class TestCandidateTitles:
+    def test_localised_and_original_spelling_both_count(self):
+        # The client asks TMDB for de-DE, so a German library matches on the
+        # translated title while the folder carries the original.
+        titles = _candidate_titles(
+            {"title": "Der König der Löwen", "original_title": "The Lion King"}
+        )
+        assert _normalise("The Lion King") in titles
+        assert _normalise("Der König der Löwen") in titles
+
+
+class TestSearchMatching:
+    @pytest.mark.asyncio
+    async def test_exact_title_and_year_is_accepted(self):
+        tmdb = AsyncMock()
+        tmdb.search_movies.return_value = {
+            "results": [{"id": 496243, "title": "Parasite", "release_date": "2019-05-30"}]
+        }
+        outcome = await _match_via_search(tmdb, _item("Parasite", year=2019), MediaType.MOVIES)
+        assert outcome.status == "matched"
+        assert outcome.tmdb_id == "496243"
+
+    @pytest.mark.asyncio
+    async def test_match_on_the_original_title_of_a_localised_entry(self):
+        tmdb = AsyncMock()
+        tmdb.search_movies.return_value = {
+            "results": [
+                {
+                    "id": 8587,
+                    "title": "Der König der Löwen",
+                    "original_title": "The Lion King",
+                    "release_date": "1994-06-24",
+                }
+            ]
+        }
+        outcome = await _match_via_search(
+            tmdb, _item("The Lion King", year=1994), MediaType.MOVIES
+        )
+        assert outcome.status == "matched"
+        assert outcome.tmdb_id == "8587"
+
+    @pytest.mark.asyncio
+    async def test_a_year_one_off_still_counts(self):
+        # Release years differ between regions; Radarr tolerates ±1 too.
+        tmdb = AsyncMock()
+        tmdb.search_movies.return_value = {
+            "results": [{"id": 42, "title": "Some Film", "release_date": "2011-12-30"}]
+        }
+        outcome = await _match_via_search(tmdb, _item("Some Film", year=2012), MediaType.MOVIES)
+        assert outcome.status == "matched"
+
+    @pytest.mark.asyncio
+    async def test_several_equally_good_hits_are_refused(self):
+        # Three unrelated films called "Obsession" came out that year. A wrong
+        # id is worse than none, because every later refresh would rewrite the
+        # item with someone else's film.
+        tmdb = AsyncMock()
+        tmdb.search_movies.return_value = {
+            "results": [
+                {"id": 1339713, "title": "Obsession", "release_date": "2026-02-01"},
+                {"id": 1615708, "title": "Obsession", "release_date": "2026-07-01"},
+            ]
+        }
+        outcome = await _match_via_search(tmdb, _item("Obsession", year=2026), MediaType.MOVIES)
+        assert outcome.status == "ambiguous"
+        assert outcome.tmdb_id is None
+
+    @pytest.mark.asyncio
+    async def test_a_near_miss_title_is_not_accepted(self):
+        tmdb = AsyncMock()
+        tmdb.search_movies.return_value = {
+            "results": [{"id": 604, "title": "The Matrix Reloaded", "release_date": "2003-05-15"}]
+        }
+        tmdb.alternative_titles.return_value = {"titles": [{"title": "Matrix Reloaded"}]}
+        outcome = await _match_via_search(tmdb, _item("The Matrix", year=2003), MediaType.MOVIES)
+        assert outcome.status == "not_found"
+
+    @pytest.mark.asyncio
+    async def test_the_year_must_line_up(self):
+        tmdb = AsyncMock()
+        tmdb.search_movies.return_value = {
+            "results": [{"id": 603, "title": "The Matrix", "release_date": "1999-03-30"}]
+        }
+        outcome = await _match_via_search(tmdb, _item("The Matrix", year=2015), MediaType.MOVIES)
+        assert outcome.status == "not_found"
+
+    @pytest.mark.asyncio
+    async def test_without_a_year_nothing_is_written(self):
+        tmdb = AsyncMock()
+        outcome = await _match_via_search(tmdb, _item("Heat"), MediaType.MOVIES)
+        assert outcome.status == "ambiguous"
+        tmdb.search_movies.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_shows_use_the_tv_search(self):
+        tmdb = AsyncMock()
+        tmdb.search_shows.return_value = {
+            "results": [{"id": 60059, "name": "Better Call Saul", "first_air_date": "2015-02-08"}]
+        }
+        outcome = await _match_via_search(
+            tmdb, _item("Better Call Saul (2015)", media_type=MediaType.SHOWS), MediaType.SHOWS
+        )
+        assert outcome.status == "matched"
+        assert outcome.tmdb_id == "60059"
+        tmdb.search_movies.assert_not_awaited()
+
+
+class TestPathIdMatching:
+    @pytest.mark.asyncio
+    async def test_a_tvdb_id_in_the_path_resolves_exactly(self):
+        tmdb = AsyncMock()
+        tmdb.find_by_external_id.return_value = {
+            "tv_results": [{"id": 60059, "name": "Better Call Saul", "first_air_date": "2015-02-08"}]
+        }
+        outcome = await _match_via_path_id(
+            tmdb,
+            _item("Better Call Saul (2015)", media_type=MediaType.SHOWS),
+            "/library/shows/Better Call Saul (2015) [tvdbid-273181]/Season 01/ep.mkv",
+            MediaType.SHOWS,
+        )
+        assert outcome is not None
+        assert outcome.status == "matched"
+        assert outcome.tmdb_id == "60059"
+        assert outcome.source == "find:tvdb"
+        tmdb.find_by_external_id.assert_awaited_once_with("273181", "tvdb_id")
+
+    @pytest.mark.asyncio
+    async def test_a_tmdb_id_in_the_path_needs_no_lookup_at_all(self):
+        tmdb = AsyncMock()
+        outcome = await _match_via_path_id(
+            tmdb,
+            _item("Dune (2021)"),
+            "/library/movies/Dune (2021) [tmdbid-438631]/Dune.mkv",
+            MediaType.MOVIES,
+        )
+        assert outcome.tmdb_id == "438631"
+        assert outcome.source == "path:tmdb"
+        tmdb.find_by_external_id.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_an_ambiguous_find_result_is_not_used(self):
+        tmdb = AsyncMock()
+        tmdb.find_by_external_id.return_value = {"tv_results": [{"id": 1}, {"id": 2}]}
+        outcome = await _match_via_path_id(
+            tmdb,
+            _item("Whatever (2020)", media_type=MediaType.SHOWS),
+            "/library/shows/Whatever (2020) [tvdbid-999]/S01/ep.mkv",
+            MediaType.SHOWS,
+        )
+        assert outcome is None
+
+    @pytest.mark.asyncio
+    async def test_a_path_without_ids_falls_through(self):
+        tmdb = AsyncMock()
+        outcome = await _match_via_path_id(
+            tmdb, _item("Parasite", year=2019), "/library/movies/Parasite (2019)/f.mkv",
+            MediaType.MOVIES,
+        )
+        assert outcome is None
+
+    @pytest.mark.asyncio
+    async def test_no_path_falls_through(self):
+        assert await _match_via_path_id(AsyncMock(), _item("X", year=2000), None, MediaType.MOVIES) is None
+
+
+class TestExactOnlyMode:
+    """`allow_search=False` is what runs unattended after a scan."""
+
+    @pytest.mark.asyncio
+    async def test_search_is_not_even_attempted(self, monkeypatch):
+        import streamarr.workers.metadata_match_worker as mod
+
+        called = False
+
+        async def _boom(*args, **kwargs):
+            nonlocal called
+            called = True
+            raise AssertionError("die Titelsuche darf hier nicht laufen")
+
+        monkeypatch.setattr(mod, "_match_via_search", _boom)
+
+        outcome = await mod._match_via_path_id(
+            AsyncMock(), _item("Parasite", year=2019),
+            "/library/movies/Parasite (2019)/f.mkv", MediaType.MOVIES,
+        )
+        # No id on disk, so the caller would fall through to the search — and
+        # in exact-only mode that fall-through must not happen.
+        assert outcome is None
+        assert called is False
+
+    @pytest.mark.asyncio
+    async def test_an_id_on_disk_still_resolves(self):
+        tmdb = AsyncMock()
+        tmdb.find_by_external_id.return_value = {
+            "tv_results": [{"id": 95396, "name": "Severance", "first_air_date": "2022-02-18"}]
+        }
+        outcome = await _match_via_path_id(
+            tmdb,
+            _item("Severance (2022)", media_type=MediaType.SHOWS),
+            "/library/shows/Severance (2022) [tvdbid-371980]/Season 01/ep.mkv",
+            MediaType.SHOWS,
+        )
+        assert outcome.status == "matched"
+        assert outcome.source == "find:tvdb"
+
+
+class TestNormalisationEdgeCases:
+    """Spellings the two catalogues genuinely disagree about."""
+
+    def test_an_ampersand_reads_as_and(self):
+        # TMDB files it as "21 & Over", the folder says "21 and Over".
+        assert _normalise("21 and Over") == _normalise("21 & Over")
+
+    def test_a_leading_article_is_dropped(self):
+        # TMDB: "The Bicycle Thieves". Folder: "Bicycle Thieves".
+        assert _normalise("Bicycle Thieves") == _normalise("The Bicycle Thieves")
+        assert _normalise("A Quiet Place") == _normalise("Quiet Place")
+
+    def test_an_article_inside_the_title_stays(self):
+        assert _normalise("This Is the End") != _normalise("This Is End")
+
+    def test_a_german_article_is_left_alone(self):
+        # "Die Hard" is not German, and stripping "Die" would be wrong in a
+        # way that is hard to notice later.
+        assert _normalise("Die Hard") != _normalise("Hard")
+
+    def test_a_title_in_a_non_latin_script_is_not_a_usable_spelling(self):
+        # It normalises to nothing, which must not count as a match.
+        assert _candidate_titles({"title": "Given: The Movie", "original_title": "映画 ギヴン"}) == {
+            _normalise("Given: The Movie")
+        }
+
+
+class TestAlternativeTitles:
+    @pytest.mark.asyncio
+    async def test_a_title_only_in_the_alternatives_still_matches(self):
+        # de-DE gives "Fahrraddiebe", the original is Italian, and the folder
+        # uses the English name that only the alternative titles carry.
+        tmdb = AsyncMock()
+        tmdb.search_movies.return_value = {
+            "results": [
+                {
+                    "id": 5156,
+                    "title": "Fahrraddiebe",
+                    "original_title": "Ladri di biciclette",
+                    "release_date": "1948-07-21",
+                }
+            ]
+        }
+        tmdb.alternative_titles.return_value = {
+            "titles": [{"title": "The Bicycle Thieves"}, {"title": "Fietsendieven"}]
+        }
+        outcome = await _match_via_search(
+            tmdb, _item("Bicycle Thieves", year=1948), MediaType.MOVIES
+        )
+        assert outcome.status == "matched"
+        assert outcome.tmdb_id == "5156"
+        assert outcome.source == "search+alt"
+
+    @pytest.mark.asyncio
+    async def test_the_alternatives_are_only_consulted_when_the_year_fits(self):
+        tmdb = AsyncMock()
+        tmdb.search_movies.return_value = {
+            "results": [{"id": 1, "title": "Etwas Anderes", "release_date": "1999-01-01"}]
+        }
+        outcome = await _match_via_search(
+            tmdb, _item("Bicycle Thieves", year=1948), MediaType.MOVIES
+        )
+        assert outcome.status == "not_found"
+        tmdb.alternative_titles.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_shows_read_the_tv_shaped_response(self):
+        tmdb = AsyncMock()
+        tmdb.search_shows.return_value = {
+            "results": [{"id": 42, "name": "Irgendwas", "first_air_date": "2020-01-01"}]
+        }
+        # The TV endpoint returns its rows under "results", not "titles".
+        tmdb.alternative_titles.return_value = {"results": [{"title": "Real Name"}]}
+        outcome = await _match_via_search(
+            tmdb, _item("Real Name (2020)", media_type=MediaType.SHOWS), MediaType.SHOWS
+        )
+        assert outcome.status == "matched"
+        assert outcome.tmdb_id == "42"
+        tmdb.alternative_titles.assert_awaited_once_with(42, "tv")

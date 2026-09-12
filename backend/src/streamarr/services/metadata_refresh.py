@@ -295,7 +295,11 @@ class MetadataService:
             "original_title": n.original_title,
             "description": n.description,
             "tagline": n.tagline,
-            "release_date": n.release_date,
+            # Providers hand dates back as ISO strings ("2017-07-11"), but the
+            # column is a timestamp — asyncpg rejects the raw string outright.
+            # ``import_media`` already parses it; the refresh path did not, so
+            # every refresh of an item that has a release date died here.
+            "release_date": MetadataService._parse_date(n.release_date),
             "poster_path": n.poster_path,
             "backdrop_path": n.backdrop_path,
             "content_rating": n.content_rating,
@@ -373,12 +377,19 @@ class MetadataService:
         await self.db.flush()
 
         if credits_data:
+            # Read the title before handing the session to another service.
+            # Importing cast issues its own queries, and once the instance has
+            # been expired along the way this attribute is no longer loaded —
+            # reading it here then tries to emit a SELECT from outside
+            # SQLAlchemy's greenlet context and raises MissingGreenlet,
+            # failing a refresh that had otherwise already succeeded.
+            title = media_item.title
             person_service = PersonService(self.db)
             entries = await person_service.import_cast_from_tmdb(
                 media_item_guid=media_item.guid,
                 credits_data=credits_data,
             )
-            logger.info("Set %s cast/crew for %s", len(entries), media_item.title)
+            logger.info("Set %s cast/crew for %s", len(entries), title)
 
     async def _refresh_seasons(
         self, show: MediaItem, plugin: MetadataBase, external_id: str,
