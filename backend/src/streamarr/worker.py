@@ -74,6 +74,7 @@ async def scan_media_libraries() -> dict:
     """Explicitly reconcile all enabled media directories."""
     return await scan_all_libraries_impl(
         probe_media_file.kiq,
+        enqueue_identify=identify_scanned_media.kiq,
         enqueue_metadata=refresh_media_item_metadata.kiq,
         enqueue_subtitles=download_missing_subtitles.kiq,
         enqueue_search_index=search_index_worker.reindex_media_item.kiq,
@@ -88,6 +89,7 @@ async def tick_media_library_scans() -> dict:
     return await scan_libraries_impl(
         force=False,
         enqueue_probe=probe_media_file.kiq,
+        enqueue_identify=identify_scanned_media.kiq,
         enqueue_metadata=refresh_media_item_metadata.kiq,
         enqueue_subtitles=download_missing_subtitles.kiq,
         enqueue_search_index=search_index_worker.reindex_media_item.kiq,
@@ -124,6 +126,7 @@ async def scan_changed_library(library_guid: str) -> dict:
                 result,
                 PostScanEnqueuers(
                     probe=probe_media_file.kiq,
+                    identify=identify_scanned_media.kiq,
                     metadata=refresh_media_item_metadata.kiq,
                     subtitles=download_missing_subtitles.kiq,
                     search_index=search_index_worker.reindex_media_item.kiq,
@@ -1150,6 +1153,46 @@ async def refresh_media_item_metadata(media_item_guid_str: str) -> None:
     finally:
         if metadata_plugin and hasattr(metadata_plugin, "close"):
             await metadata_plugin.close()
+
+
+# ==================== Metadata Matching ====================
+
+
+@broker.task
+async def match_unidentified_media(dry_run: bool = True, limit: int = 200) -> dict:
+    """Attach TMDB ids to items the scanner left without one.
+
+    Defaults to a dry run: it reports what it would attach and writes
+    nothing. Pass ``dry_run=False`` to apply, which also queues a metadata
+    refresh for every item it identified.
+    """
+    from streamarr.workers.metadata_match_worker import match_media_items_impl
+
+    return await match_media_items_impl(
+        dry_run=dry_run,
+        limit=limit,
+        enqueue_metadata=refresh_media_item_metadata.kiq,
+    )
+
+
+@broker.task
+async def identify_scanned_media(limit: int = 500) -> dict:
+    """Resolve TMDB ids for freshly scanned items, exact matches only.
+
+    Runs unattended after every scan, so it deliberately skips the title
+    search: it only follows ids the library already carries in its paths
+    (Sonarr's ``[tvdbid-...]``, an NFO's ``[tmdbid-...]``), which resolve
+    exactly. Items needing a search are left for ``match_unidentified_media``,
+    where a human sees the candidates first.
+    """
+    from streamarr.workers.metadata_match_worker import match_media_items_impl
+
+    return await match_media_items_impl(
+        dry_run=False,
+        limit=limit,
+        allow_search=False,
+        enqueue_metadata=refresh_media_item_metadata.kiq,
+    )
 
 
 # ==================== Auto Metadata Refresh ====================
