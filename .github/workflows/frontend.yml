@@ -1,0 +1,63 @@
+name: Frontend CI
+
+# Lint, unit-test and build the Quasar (Vue 3 + Vite) app.
+#
+# Baseline measured on 5a15eb1 against the committed frontend/node_modules
+# tree with Node 22.20.0:
+#
+#   yarn lint       -> clean (0 findings)          => real gate
+#   yarn test:unit  -> 313 passed / 24 failed      => reporting only, for now
+#                      (9 of 21 spec files red: auth.store, useMediaFormatters,
+#                       storageQuota, boot/axios, offline.store, settings.store,
+#                       remoteControl.store, watchParty.store, useSearchAPI)
+#   yarn build      -> succeeds (spa, ~2.7 MB JS)  => real gate
+#
+# Only the scripts that actually exist in package.json are used here.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # package.json engines allows ^20 || ^22 || ^24 || ^25 || ^26 || ^28;
+          # quasar.config.js targets node20 for the build. 22 is the LTS in range.
+          node-version: "22"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - name: Install dependencies
+        # frontend/yarn.lock is a Yarn classic (v1) lockfile, so --frozen-lockfile
+        # is the right immutability flag. `postinstall` runs `quasar prepare`.
+        run: yarn install --frozen-lockfile
+      - name: ESLint
+        run: yarn lint
+      - name: Unit tests
+        continue-on-error: true # 24 failing specs on the current tree -- see header
+        run: yarn test:unit
+      - name: Build
+        run: yarn build
