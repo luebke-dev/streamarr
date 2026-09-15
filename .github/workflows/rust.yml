@@ -1,0 +1,104 @@
+name: Rust CI
+
+# There is no cargo workspace: lightrays/ and the three downloaders/ services are
+# four independent crates, each with its own Cargo.toml and committed Cargo.lock.
+# Hence a matrix rather than one `cargo --workspace` invocation.
+#
+# System dependencies were derived from each crate's own build recipe and the
+# `*-sys` crates in its Cargo.lock:
+#
+#   lightrays   gstreamer-{,app,sdp,video,webrtc}-sys, glib/gobject/gio-sys
+#               -> exactly the apt list from lightrays/docker/Dockerfile's
+#                  ubuntu:24.04 builder stage, which is what ubuntu-latest is.
+#   torrent     openssl-sys, libsqlite3-sys (bundled) -> pkg-config + libssl-dev
+#   spotify     openssl-sys, libsqlite3-sys (bundled) -> pkg-config + libssl-dev
+#   usenet      aws-lc-sys, libsqlite3-sys (bundled)  -> cc/cmake, preinstalled
+#
+# `cargo fmt --all --check` currently fails on all four crates (verified locally
+# with rustfmt 1.9.0: lightrays 19 hunks/6 files, torrent 17/6, usenet 106/11,
+# spotify 19/7), so it reports rather than gates until someone runs `cargo fmt`.
+# clippy is likewise reporting-only because its warning baseline has never been
+# measured. `cargo test` is the real gate -- it compiles the lib, the bin and the
+# test targets, and these sources are what the production images build.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lightrays/**"
+      - "downloaders/**"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    paths:
+      - "lightrays/**"
+      - "downloaders/**"
+      - ".github/workflows/rust.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  crate:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: lightrays
+            path: lightrays
+            apt: >-
+              pkg-config
+              libssl-dev
+              libglib2.0-dev
+              libgstreamer1.0-dev
+              libgstreamer-plugins-base1.0-dev
+              libgstreamer-plugins-bad1.0-dev
+          - name: torrent-downloader
+            path: downloaders/torrent
+            apt: pkg-config libssl-dev
+          - name: usenet-downloader
+            path: downloaders/usenet
+            apt: ""
+          - name: spotify-downloader
+            path: downloaders/spotify
+            apt: pkg-config libssl-dev
+    defaults:
+      run:
+        working-directory: ${{ matrix.path }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        if: matrix.apt != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${{ matrix.apt }}
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+          cache-workspaces: ${{ matrix.path }}
+          # The action exports RUSTFLAGS="-D warnings" unless told otherwise,
+          # which turns every warning into a compile error for all later steps
+          # -- `cargo test` included. With it, three of the four crates fail
+          # to build on dead-code warnings (and a lint expectation inside the
+          # vendored librespot-core) before a single test runs. Warnings are
+          # clippy's job below, where `-D warnings` is passed explicitly and
+          # the step only reports.
+          rustflags: ""
+      - name: cargo fmt
+        continue-on-error: true # all four crates are unformatted today -- see header
+        run: cargo fmt --all --check
+      - name: cargo clippy
+        continue-on-error: true # warning baseline not yet measured -- see header
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: cargo test
+        # `cargo test` compiles the lib, the bin and the test targets, so this
+        # doubles as the "it still builds" gate.
+        run: cargo test --locked --all-targets
