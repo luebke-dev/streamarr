@@ -67,6 +67,34 @@ async def render_overlay_for_item_impl(
     }
 
 
+async def _scoped_media_types(db, target: OverlayTarget) -> tuple[str, ...]:
+    """Media types some enabled template could actually apply to.
+
+    An OverlayApplication row only exists once a template has really been
+    rendered onto an item, so "has no row yet" is the backstop's only
+    notion of outstanding work. That makes it blind in one direction: an
+    item no template can apply to never gets a row, and so stays
+    outstanding forever. Narrowing the candidates to what enabled
+    templates target keeps the backstop from re-queueing work it has
+    already established there is nothing to do about.
+    """
+    scopes = (
+        await db.execute(
+            select(OverlayTemplate.media_scope)
+            .where(OverlayTemplate.enabled.is_(True))
+            .where(OverlayTemplate.target == target)
+            .distinct()
+        )
+    ).scalars().all()
+    return tuple(
+        dict.fromkeys(
+            media_type
+            for scope in scopes
+            for media_type in _SCOPE_TO_MEDIA_TYPES.get(scope, ())
+        )
+    )
+
+
 async def tick_render_missing_overlays_impl(batch: int = 200) -> int:
     """Backstop: queue overlay renders for items that don't have one yet.
 
@@ -79,6 +107,16 @@ async def tick_render_missing_overlays_impl(batch: int = 200) -> int:
         return 0
 
     async with sessionmanager.session() as db:
+        # ``overlays.enabled`` defaults to true, so the switch alone says
+        # nothing about whether there is any overlay to draw. With every
+        # template disabled each render returns "no-applicable-templates"
+        # and writes no row, which left this tick re-queueing the same
+        # items every half hour indefinitely.
+        media_types = await _scoped_media_types(db, OverlayTarget.POSTER)
+        if not media_types:
+            logger.debug("overlay backstop tick: no enabled POSTER template")
+            return 0
+
         # Items that *should* have an overlay (movie/show, top-level,
         # have a poster) but for which we've never written an
         # OverlayApplication row.
@@ -88,7 +126,7 @@ async def tick_render_missing_overlays_impl(batch: int = 200) -> int:
                 OverlayApplication,
                 OverlayApplication.media_item_guid == MediaItem.guid,
             )
-            .where(MediaItem.media_type.in_(("MOVIES", "SHOWS")))
+            .where(MediaItem.media_type.in_(media_types))
             .where(MediaItem.parent_guid.is_(None))
             .where(MediaItem.poster_path.isnot(None))
             .where(OverlayApplication.media_item_guid.is_(None))
