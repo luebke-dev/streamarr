@@ -1,88 +1,47 @@
 # Streamarr
 
-**Your media, your rules.** A self-hosted, all-in-one platform for media management, streaming, and automation — media server, download automation, and cloud gaming in a single application.
+**Your media, your rules.** A self-hosted, all-in-one platform for media management, streaming, and automation: media server, download automation, and cloud gaming in one application.
 
-Streamarr combines what usually takes half a dozen tools: a streaming media center (à la Jellyfin/Plex), release automation (à la Sonarr/Radarr), and a WebRTC cloud-gaming service — with one library, one user system, and one UI.
+Streamarr replaces what usually takes half a dozen tools. A streaming media center (à la Jellyfin/Plex), release automation (à la Sonarr/Radarr), and a WebRTC cloud-gaming service share one library, one user system, and one UI.
 
 📚 **Documentation:** <https://streamarr.luebke.dev>
 
 ## Features
 
-### One library for every media type
+**One library for every media type.** Movies & TV (TMDB/TVDB), Music (MusicBrainz, Spotify import, Shazam song identification), Games (IGDB, Steam import), Books (OpenLibrary, in-app EPUB reader), and Photos, all on a unified parent/child media model.
 
-- **Movies & TV shows** with TMDB/TVDB metadata, cast, trailers, and localized translations
-- **Music** — artists, albums, songs (MusicBrainz, Spotify import), persistent audio player with queue, shuffle, lyrics, and Shazam-based song identification
-- **Games** — IGDB metadata, Steam library import, playable in the browser via cloud streaming
-- **Books** — OpenLibrary metadata and an in-app EPUB reader
-- **Photos** — plus a unified parent/child media model shared by all library types
+**Streaming & playback.** On-demand FFmpeg transcoding in disposable containers (Docker or Kubernetes Jobs) with Intel QuickSync acceleration, delivered as HLS. Direct-play vs. transcode negotiation, playback profiles, trickplay thumbnails, skip intro/outro markers, chapters, subtitles (embedded, provider search, upload), lyrics via LRCLIB, and resume everywhere.
 
-### Streaming & playback
+**Smart Play & downloads.** Press play on something you don't have yet: it is searched on your indexers, downloaded, and streamed automatically. Newznab/Torznab indexers, quality and language release scoring, SABnzbd and Deluge, plus three built-in Rust services:
 
-- On-demand FFmpeg transcoding in disposable containers (Docker or Kubernetes Jobs) with VA-API/NVENC hardware acceleration, delivered as HLS
-- Direct-play vs. transcode negotiation per client, with configurable playback profiles
-- Trickplay scrubbing thumbnails, skip intro/outro/credits markers, chapters
-- Subtitles: embedded track selection, provider search & download, upload; lyrics via LRCLIB
-- Resume everywhere: viewing history, continue watching, deterministic next-up
+- **usenet-downloader**: multi-server NNTP, yEnc + CRC32, PAR2 verify/repair, unpack while downloading
+- **torrent-downloader**: magnet/.torrent via librqbit with DHT and seed-ratio control
+- **spotify-downloader**: native OGG Vorbis via librespot (Spotify Premium required)
 
-### Smart Play & download automation
+**Watch together, cast, take it offline.** Watch parties with a party code, Chromecast (Cast V2), AirPlay, and DLNA, remote control across signed-in devices, and per-device offline downloads.
 
-- Press play on something you don't have yet — it is searched on your indexers, downloaded, and streamed automatically
-- Newznab/Torznab indexer support with tier-based search (ID-first, title fallback) and configurable quality/language release scoring
-- Download clients: SABnzbd and Deluge, plus three built-in Rust downloader services:
-  - **usenet-downloader** — multi-server NNTP with failover, yEnc + CRC32, PAR2 verify/repair, and direct unpack while still downloading
-  - **torrent-downloader** — magnet/.torrent downloads via librqbit with DHT and seed-ratio control
-  - **spotify-downloader** — native OGG Vorbis downloads via librespot (Spotify Premium required)
-- Auto-download for monitored favorites, quality-upgrade scans, RSS sync, live download queue
+**Cloud gaming (Lightrays).** A Rust WebRTC server runs games in per-session containers (Steam via Games-on-Whales, Wine/DXVK, RetroArch) on a virtual Wayland compositor, with hardware H.264/H.265 encoding and low-latency input over WebRTC data channels.
 
-### Watch together, cast, take it offline
+**Discovery & curation.** Elasticsearch-backed search with typed autocomplete, trending imports, recommendations, playlists, collections, favorites, rule-based smart collections (Trakt/IMDb/Letterboxd/AniList/MyAnimeList/MDBList/TMDB), conditional poster overlays, mass edit operations, and configurable page layouts.
 
-- **Watch parties** — synchronized playback with friends via a simple party code
-- **Casting** — Chromecast (Cast V2), AirPlay, and DLNA with network discovery
-- **Remote control** — control playback on any of your signed-in devices
-- **Offline** — per-device offline downloads with subtitle manifests
-
-### Cloud gaming (Lightrays)
-
-- Rust WebRTC streaming server that runs games in per-session containers (Steam via Games-on-Whales, Wine/DXVK, RetroArch) on a virtual Wayland compositor
-- Hardware H.264/H.265 encoding, low-latency input over WebRTC data channels, Docker or Kubernetes session runtimes
-
-### Discovery & curation
-
-- Elasticsearch-backed search with typed autocomplete, saved filters, genre/person/platform browsing
-- Trending imports, recommendations, similar media, instant mix
-- Playlists, collections, favorites — plus rule-based **smart collections** (cron-scheduled, fed by Trakt/IMDb/Letterboxd/AniList/MyAnimeList/MDBList/TMDB lists), conditional **poster overlays**, and **mass edit operations**
-- Fully configurable home page layouts and banners, managed from the admin UI
-
-### Multi-user & administration
-
-- Local JWT auth and OIDC SSO, invite-based registration, email verification, friends
-- Groups with granular permissions, parental controls (age ratings, per-library access), API keys
-- Optional Stripe-backed memberships with plans and vouchers
-- Admin UI for libraries, indexers, downloaders, metadata providers, transcoding, background tasks, backups, activity logs, branding/theming, and more
-- Prometheus metrics with a fully provisioned Grafana dashboard
+**Multi-user & administration.** Local JWT auth and OIDC SSO, invites, friends, groups with granular permissions, parental controls, API keys, optional Stripe memberships, an admin UI for every subsystem, and Prometheus metrics with a Grafana dashboard.
 
 ## Clients
 
-| Platform | Delivery |
-|----------|----------|
-| Web | Quasar SPA (Vue 3) |
-| Desktop (Linux/macOS/Windows) | Tauri 2 |
-| Android | Capacitor 7 |
-
-UI available in English and German.
+Web (Quasar SPA, Vue 3), Desktop for Linux/macOS/Windows (Tauri 2), and Android (Capacitor 7). UI available in English and German.
 
 ## Architecture
 
 ```mermaid
 graph TB
-    A[Web / Desktop / Android clients] --> B[Quasar Frontend]
+    A[Clients: web, desktop, Android] --> B[Quasar Frontend]
     B --> C[FastAPI Backend]
     C --> D[(PostgreSQL)]
     C --> E[(Redis)]
     C --> G[(Elasticsearch)]
     C --> F[TaskIQ Workers]
-    F --> H[Metadata providers<br/>TMDB · TVDB · IGDB · MusicBrainz · OpenLibrary · Spotify]
-    F --> I[Downloaders<br/>usenet · torrent · spotify · SABnzbd · Deluge]
+    F --> H[Metadata providers]
+    F --> I[Downloaders]
     F --> J[Newznab/Torznab indexers]
     C --> K[FFmpeg transcode containers]
     A -.->|WebRTC| L[Lightrays game streaming]
@@ -93,26 +52,26 @@ graph TB
 | Backend | Python 3.13, FastAPI, SQLModel/SQLAlchemy async, TaskIQ, Alembic |
 | Frontend | Vue 3, Quasar 2, Pinia, Video.js, epub.js |
 | Data | PostgreSQL 16, Redis 7, Elasticsearch |
-| Transcoding | jellyfin-ffmpeg in per-task containers (VA-API/Vulkan/OpenCL) |
-| Game streaming | Lightrays — Rust, GStreamer, WebRTC |
-| Downloaders | Rust — axum, librqbit, librespot, native NNTP |
+| Transcoding | jellyfin-ffmpeg in per-task containers (Intel QSV) |
+| Game streaming | Rust, GStreamer, WebRTC |
+| Downloaders | Rust, axum, librqbit, librespot, native NNTP |
 | Deployment | Docker Compose, Helm/Kubernetes, Podman quadlets |
 
 ## Deployment
 
-Four supported models (see [`deployment/`](deployment/) and the [docs](https://streamarr.luebke.dev)):
+Four supported models, see [`deployment/`](deployment/) and the [docs](https://streamarr.luebke.dev):
 
-- **Local dev** — `docker-compose.yml` in the repo root (locally built images)
-- **Single host** — `deployment/docker/docker-compose.yml` with pre-built registry images, or the interactive installer: `curl -fsSL https://get.streamarr.media | sudo bash`
-- **Kubernetes** — Helm chart at `deployment/helm/streamarr` (also published as an OCI artifact), with K8s-native transcode Jobs
-- **Podman quadlets** — lean systemd-managed single-host variant
+- **Local dev**: `docker-compose.yml` in the repo root, with locally built images
+- **Single host**: `deployment/docker/docker-compose.yml` with pre-built images, or the installer: `curl -fsSL https://get.streamarr.media | sudo bash`
+- **Kubernetes**: Helm chart at `deployment/helm/streamarr`, also published as an OCI artifact, with K8s-native transcode Jobs
+- **Podman quadlets**: lean systemd-managed single-host variant
 
 ## Repository layout
 
 | Path | Contents |
 |------|----------|
 | `backend/` | FastAPI API + TaskIQ workers (Python) |
-| `frontend/` | Quasar/Vue app — web, Tauri desktop, Capacitor Android |
+| `frontend/` | Quasar/Vue app: web, Tauri desktop, Capacitor Android |
 | `lightrays/` | WebRTC game-streaming server (Rust) |
 | `downloaders/` | torrent / spotify / usenet downloader services (Rust) |
 | `deployment/` | Docker Compose, Helm chart, quadlets, installer, backup tooling |
@@ -120,7 +79,7 @@ Four supported models (see [`deployment/`](deployment/) and the [docs](https://s
 | `observability/` | Prometheus + Grafana provisioning |
 | `docs/` | MkDocs Material documentation site |
 
-Each component has its own README with development instructions. Secrets are never committed — create `.env` files from the `.env.example` templates in each subproject.
+Secrets are never committed. Create `.env` files from the `.env.example` templates in each subproject.
 
 ## License
 

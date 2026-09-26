@@ -22,7 +22,7 @@ FROM archlinux:latest
 # suffix). Add a system here + a row in the backend SYSTEMS registry to
 # support it — nothing else changes. beetle_psx_hw is the HW/GL PSX core;
 # the rest are software-rendered and run on any GPU.
-ARG CORES="nestopia snes9x mupen64plus_next gambatte mgba genesis_plus_gx mednafen_pce_fast pcsx_rearmed mednafen_psx_hw fbneo"
+ARG CORES="nestopia snes9x mupen64plus_next gambatte mgba genesis_plus_gx mednafen_pce_fast pcsx_rearmed mednafen_psx_hw fbneo stella opera"
 ARG LIBRETRO_BUILDBOT=https://buildbot.libretro.com/nightly/linux/x86_64/latest
 
 # ---------------------------------------------------------------------------

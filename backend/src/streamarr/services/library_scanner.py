@@ -30,6 +30,7 @@ from streamarr.models.media import (
     MediaFile,
     MediaItem,
     MediaType,
+    media_platform_table,
 )
 from streamarr.services.artwork_storage import store_local_artwork
 
@@ -636,4 +637,45 @@ class LibraryScanner:
             }
         item = await self._get_or_create(media_type, title, **kwargs)
         await self._apply_local_metadata(item, info)
+        if kind == "GAMES":
+            # Persist the platform as a real Platform row too, not just an
+            # extra_data hint: the platform picker, the "Platforms" section and
+            # ``?platform_id=`` filters all read the association table, so a
+            # hint-only game is invisible to every platform-driven surface.
+            await self._attach_game_platform(item, info, path)
         return item
+
+    async def _attach_game_platform(
+        self, item: MediaItem, info: dict[str, Any], path: Path
+    ) -> None:
+        """Link a game to its canonical ``Platform`` row (idempotent)."""
+        from streamarr.models.platform import Platform
+        from streamarr.services.game_platforms import (
+            normalize_platform,
+            platform_from_path,
+            platform_label,
+        )
+
+        slug = normalize_platform(info.get("platform")) or platform_from_path(str(path))
+        if not slug:
+            return
+
+        name = platform_label(slug)
+        platform = await self.db.scalar(select(Platform).where(Platform.name == name))
+        if platform is None:
+            platform = Platform(name=name)
+            self.db.add(platform)
+            await self.db.flush()
+
+        already = await self.db.scalar(
+            select(media_platform_table.c.platform_id).where(
+                media_platform_table.c.media_item_guid == item.guid,
+                media_platform_table.c.platform_id == platform.id,
+            )
+        )
+        if already is None:
+            await self.db.execute(
+                media_platform_table.insert().values(
+                    media_item_guid=item.guid, platform_id=platform.id
+                )
+            )
