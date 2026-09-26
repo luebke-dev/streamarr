@@ -240,6 +240,21 @@ class GameLibraryPlugin(LibraryBase):
             "platform": platform_match.group(1) if platform_match else None,
         }
 
+    async def extract_metadata_from_path(self, path: str) -> dict[str, Any]:
+        """Parse title + canonical platform from a ROM's full path.
+
+        Preferred over :meth:`extract_metadata_from_filename` during a scan: ROM
+        collections are laid out one directory per system, which is the only way
+        to tell the systems that share an extension apart (an ``.bin`` under
+        ``atari2600/`` is not a Mega Drive ROM).
+        """
+        from streamarr.services.game_platforms import platform_from_path
+
+        return {
+            "title": _clean_rom_title(Path(path).name),
+            "platform": platform_from_path(path),
+        }
+
     async def scan_library(self, path: str) -> list[dict[str, Any]]:
         """Scan the games library path for retro ROM files.
 
@@ -248,8 +263,16 @@ class GameLibraryPlugin(LibraryBase):
         and ``platform``). Persistence into MediaItem/MediaFile happens in
         ``LibraryService.scan_library_for_media`` (games are ingested, not just
         discovered).
+
+        BIOS/firmware images are skipped: ROM sets ship them alongside the ROMs
+        with the same extensions (``roms/bios/psx/scph1001.bin``), and they are
+        not playable titles — ingesting them filled the library with entries
+        like "scph1001".
         """
+        from streamarr.services.game_platforms import is_non_game_path
+
         discovered: list[dict[str, Any]] = []
+        skipped_support_files = 0
         try:
             path_obj = Path(path)
             if not path_obj.exists():
@@ -261,16 +284,24 @@ class GameLibraryPlugin(LibraryBase):
                     continue
                 if file_path.suffix.lower() not in _rom_extensions():
                     continue
+                if is_non_game_path(str(file_path)):
+                    skipped_support_files += 1
+                    continue
                 file_info: dict[str, Any] = {
                     "path": str(file_path),
                     "filename": file_path.name,
                     "size": file_path.stat().st_size,
                     "extension": file_path.suffix.lower(),
                 }
-                file_info.update(await self.extract_metadata_from_filename(file_path.name))
+                file_info.update(await self.extract_metadata_from_path(str(file_path)))
                 discovered.append(file_info)
 
-            logger.info("Found %s ROM files in %s", len(discovered), path)
+            logger.info(
+                "Found %s ROM files in %s (skipped %s BIOS/firmware files)",
+                len(discovered),
+                path,
+                skipped_support_files,
+            )
 
         except Exception as e:
             logger.error("Error scanning game library %s: %s", path, e)
