@@ -195,6 +195,44 @@ class TestBrowserWebSocketUrl:
             "wss://streamarr.example/api/lightrays-ws/sess_1"
         )
 
+    @patch("streamarr.services.lightrays.LIGHTRAYS_PUBLIC_URL", "")
+    def test_empty_public_url_stays_domain_agnostic(self):
+        """An unset public URL must stay relative so ANY host can stream.
+
+        Regression: a configured ``LIGHTRAYS_PUBLIC_URL`` pins every session's
+        WebSocket to that one host, so opening the app on a second valid
+        hostname handed the browser a cross-origin ``wss://other-host/...`` and
+        the stream died with a WebSocket error. Relative is the safe default:
+        the WS is proxied same-origin by the backend's nginx, so the browser
+        resolves it against whichever host the user actually came in on.
+        """
+        url = _browser_websocket_url("/api/lightrays-ws/s")
+        assert url == "/api/lightrays-ws/s"
+        assert not url.startswith(("ws://", "wss://"))
+
+    @patch(
+        "streamarr.services.lightrays.LIGHTRAYS_PUBLIC_URL",
+        "https://configured.example",
+    )
+    def test_absolute_url_from_lightrays_is_never_rewritten(self):
+        # If lightrays ever hands back an absolute URL itself, it wins as-is.
+        assert _browser_websocket_url("wss://explicit.example/ws/s") == (
+            "wss://explicit.example/ws/s"
+        )
+
+    @patch(
+        "streamarr.services.lightrays.LIGHTRAYS_PUBLIC_URL",
+        "https://configured.example",
+    )
+    def test_empty_ws_url_stays_empty(self):
+        assert _browser_websocket_url("") == ""
+
+    @patch("streamarr.services.lightrays.LIGHTRAYS_PUBLIC_URL", "http://plain.example")
+    def test_http_public_url_downgrades_to_ws(self):
+        assert _browser_websocket_url("/api/lightrays-ws/s") == (
+            "ws://plain.example/api/lightrays-ws/s"
+        )
+
 
 class TestStopSession:
     @pytest.mark.asyncio
