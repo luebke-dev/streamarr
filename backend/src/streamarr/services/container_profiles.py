@@ -229,6 +229,15 @@ def _apply_app_ref(env: dict[str, str], app_ref: str | None) -> dict[str, str]:
 # Where the ROM directory is bind-mounted inside the retro container.
 RETRO_ROM_CONTAINER_DIR = "/rom"
 
+# Where the BIOS/firmware directory is bind-mounted inside the retro container.
+# RetroArch's ``system_directory`` points here (see retroarch-kiosk.cfg), and
+# cores look their BIOS up by bare filename inside it.
+RETRO_SYSTEM_CONTAINER_DIR = "/system"
+
+# ROM-set sub-directory holding the per-system BIOS folders. Overridable for
+# collections that keep BIOS images elsewhere.
+GAMES_BIOS_SUBDIR = os.environ.get("LIGHTRAYS_GAMES_BIOS_SUBDIR", "roms/bios")
+
 # The games-library path as the BACKEND sees it (the plugin default).
 GAMES_LIBRARY_CONTAINER = os.environ.get(
     "LIGHTRAYS_GAMES_LIBRARY_CONTAINER", "/library/games"
@@ -282,7 +291,7 @@ async def available_platforms(db: AsyncSession, media_item: Any) -> list[dict[st
     from streamarr.services.game_platforms import (
         is_retro_platform,
         normalize_platforms,
-        platform_from_extension,
+        platform_from_path,
         platform_from_release_title,
         platform_label,
         profile_for_platform,
@@ -325,7 +334,7 @@ async def available_platforms(db: AsyncSession, media_item: Any) -> list[dict[st
     file_paths = await _scalars(
         select(MediaFile.file_path).where(MediaFile.media_item_guid == guid)
     )
-    file_slugs = {platform_from_extension(p) for p in file_paths} - {None}
+    file_slugs = {platform_from_path(p) for p in file_paths} - {None}
 
     candidates = {
         s for s in (igdb | release_slugs | file_slugs) if profile_for_platform(s)
@@ -432,43 +441,92 @@ async def _default_profile_name(db: AsyncSession, media_item: Any) -> str:
 
 async def _derive_rom_launch(
     db: AsyncSession, media_item: Any, selected_platform: str | None = None
-) -> tuple[dict[str, Any] | None, str | None]:
-    """Derive ``(rom_mount, app_ref)`` from a game's primary ROM MediaFile.
+) -> tuple[dict[str, Any] | None, str | None, str | None, str | None]:
+    """Derive ``(rom_mount, app_ref, retro_core, platform)`` from a game's ROM.
 
-    Returns ``(None, None)`` when the item has no readable ROM file under the
-    games library, so the caller falls back to no ROM (the container then
-    reports a missing ``RETRO_ROM`` rather than launching something wrong).
+    Returns all-``None`` when the item has no readable ROM file under the games
+    library, so the caller falls back to no ROM (the container then reports a
+    missing ``RETRO_ROM`` rather than launching something wrong).
+
+    The core is resolved here (from the ROM's path, i.e. its ROM-set directory
+    plus extension) instead of leaving it to the container's extension guess:
+    ambiguous extensions like ``.bin`` are Atari 2600 *and* Mega Drive, and only
+    the backend knows which ROM set the file came from.
     """
     guid = getattr(media_item, "guid", None)
     if guid is None:
-        return None, None
+        return None, None, None, None
     result = await db.execute(
         select(MediaFile.file_path).where(MediaFile.media_item_guid == guid)
     )
     paths = [p for p in (_clean_str(p) for p in result.scalars().all()) if p]
     # With a chosen platform, mount the file that matches it (a game may hold
     # several per-platform files); otherwise take the first.
+    from streamarr.services.game_platforms import platform_from_path, retro_core_for
+
     file_path = None
     if selected_platform:
-        from streamarr.services.game_platforms import platform_from_extension
-
         file_path = next(
-            (p for p in paths if platform_from_extension(p) == selected_platform), None
+            (p for p in paths if platform_from_path(p) == selected_platform), None
         )
     if not file_path:
         file_path = paths[0] if paths else None
     if not file_path:
-        return None, None
+        return None, None, None, None
     host_path = _translate_library_path_to_host(file_path)
     if not host_path:
-        return None, None
+        return None, None, None, None
     mount = {
         "host": os.path.dirname(host_path),
         "container": RETRO_ROM_CONTAINER_DIR,
         "ro": True,
     }
     app_ref = f"{RETRO_ROM_CONTAINER_DIR}/{os.path.basename(host_path)}"
-    return mount, app_ref
+    platform = selected_platform or platform_from_path(file_path)
+    core = retro_core_for(platform)
+    return mount, app_ref, core, platform
+
+
+def _bios_mount(platform: str | None) -> dict[str, Any] | None:
+    """Bind mount for a platform's BIOS directory, or ``None`` if not needed.
+
+    PSX / Mega-CD / 3DO cores refuse to boot without their BIOS, and RetroArch
+    looks it up by bare filename in its system directory — so the *per-system*
+    BIOS folder has to be mounted flat at ``/system``. Cartridge systems need
+    nothing and get no mount. Returns ``None`` when the directory is absent, so
+    a collection without BIOS files simply launches without one (the core then
+    reports the missing BIOS) rather than failing on a bad bind.
+
+    Existence is checked through the BACKEND's view of the library
+    (``/library/games/…``); the mount itself carries the HOST path, because the
+    Docker daemon — not this process — resolves bind sources.
+    """
+    from streamarr.services.game_platforms import bios_dir_for
+
+    bios_dir = bios_dir_for(platform)
+    if not bios_dir:
+        return None
+
+    container_dir = os.path.normpath(
+        os.path.join(GAMES_LIBRARY_CONTAINER, GAMES_BIOS_SUBDIR, bios_dir)
+    )
+    if not os.path.isdir(container_dir):
+        logger.info(
+            "Game platform %s needs a BIOS but %s does not exist; launching without it",
+            platform,
+            container_dir,
+        )
+        return None
+
+    host_dir = _translate_library_path_to_host(container_dir)
+    if not host_dir:
+        return None
+
+    return {
+        "host": host_dir,
+        "container": RETRO_SYSTEM_CONTAINER_DIR,
+        "ro": True,
+    }
 
 
 async def resolve_launch_config(
@@ -572,18 +630,29 @@ async def resolve_launch_config(
     # in-container ROM path (app_ref) from the file itself, unless the game
     # already supplies an explicit app_ref (manual override).
     derived_mounts: list[dict[str, Any]] = []
+    derived_env: dict[str, str] = {}
     if _clean_str(getattr(profile, "kind", None)) == "libretro" and not app_ref:
-        rom_mount, rom_app_ref = await _derive_rom_launch(
+        rom_mount, rom_app_ref, rom_core, rom_platform = await _derive_rom_launch(
             db, media_item, selected_platform
         )
         if rom_app_ref:
             app_ref = rom_app_ref
             derived_mounts = [rom_mount]
+            # Pin the core explicitly; the container's extension fallback can't
+            # tell an Atari 2600 .bin from a Mega Drive one.
+            if rom_core:
+                derived_env["RETRO_CORE"] = rom_core
+            # PSX / Mega-CD / 3DO need their BIOS mounted at /system.
+            bios_mount = _bios_mount(rom_platform)
+            if bios_mount:
+                derived_mounts.append(bios_mount)
 
     return {
         "docker_image": per_game_image or profile.docker_image,
         "runtime_profile": profile.runtime_profile,
-        "app_env": _apply_app_ref({**profile_env, **per_game_env}, app_ref),
+        "app_env": _apply_app_ref(
+            {**profile_env, **derived_env, **per_game_env}, app_ref
+        ),
         "app_mounts": [*profile_mounts, *derived_mounts, *per_game_mounts],
         "state_scope": state_scope,
         "profile_name": profile.name,

@@ -31,8 +31,20 @@ _PLATFORMS: dict[str, tuple[tuple[str, ...], str | None]] = {
         "genesis_plus_gx",
     ),
     "mastersystem": (
-        ("sega master system", "master system", "sms", "sega game gear", "game gear", "gamegear", "gg"),
+        ("sega master system", "master system", "sms"),
         "genesis_plus_gx",
+    ),
+    "gamegear": (
+        ("sega game gear", "game gear", "gamegear", "gg"),
+        "genesis_plus_gx",
+    ),
+    "megacd": (
+        ("sega cd", "mega-cd", "mega cd", "megacd", "sega mega-cd", "scd"),
+        "genesis_plus_gx",
+    ),
+    "atari2600": (
+        ("atari 2600", "atari2600", "2600", "vcs", "atari vcs"),
+        "stella",
     ),
     "pcengine": (
         ("pc engine", "turbografx-16", "turbografx", "tg16", "turbografx-16/pc engine", "pce"),
@@ -40,6 +52,7 @@ _PLATFORMS: dict[str, tuple[tuple[str, ...], str | None]] = {
     ),
     "psx": (("playstation", "sony playstation", "ps1", "psx", "ps one", "psone"), "pcsx_rearmed"),
     "arcade": (("arcade", "mame", "neo geo", "neogeo", "fbneo", "fba"), "fbneo"),
+    "3do": (("3do", "3do interactive multiplayer", "panasonic 3do"), "opera"),
     # Non-emulated here (streamed native / modern) — no retro core.
     "pc": (("pc (microsoft windows)", "pc", "microsoft windows", "windows", "win", "linux", "mac", "macos", "dos"), None),
     "ps2": (("playstation 2", "ps2"), None),
@@ -106,7 +119,11 @@ _RELEASE_TAG_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\b(gbc|game[ ._-]?boy[ ._-]?color)\b", re.IGNORECASE), "gbc"),
     (re.compile(r"\b(gb|game[ ._-]?boy)\b", re.IGNORECASE), "gb"),
     (re.compile(r"\b(genesis|mega[ ._-]?drive|megadrive|smd)\b", re.IGNORECASE), "genesis"),
-    (re.compile(r"\b(sms|master[ ._-]?system|game[ ._-]?gear)\b", re.IGNORECASE), "mastersystem"),
+    (re.compile(r"\b(mega[ ._-]?cd|megacd|sega[ ._-]?cd|scd)\b", re.IGNORECASE), "megacd"),
+    (re.compile(r"\b(gg|game[ ._-]?gear|gamegear)\b", re.IGNORECASE), "gamegear"),
+    (re.compile(r"\b(sms|master[ ._-]?system)\b", re.IGNORECASE), "mastersystem"),
+    (re.compile(r"\b(atari[ ._-]?2600|a2600|vcs)\b", re.IGNORECASE), "atari2600"),
+    (re.compile(r"\b(3do)\b", re.IGNORECASE), "3do"),
     (re.compile(r"\b(pc[ ._-]?engine|turbografx|tg16|pce)\b", re.IGNORECASE), "pcengine"),
     (re.compile(r"\b(psx|ps1|playstation)\b", re.IGNORECASE), "psx"),
     (re.compile(r"\b(ps2)\b", re.IGNORECASE), "ps2"),
@@ -155,6 +172,8 @@ _PLATFORM_LABELS: dict[str, str] = {
     "nes": "NES", "snes": "Super Nintendo", "n64": "Nintendo 64",
     "gb": "Game Boy", "gbc": "Game Boy Color", "gba": "Game Boy Advance",
     "genesis": "Sega Genesis", "mastersystem": "Master System",
+    "gamegear": "Game Gear", "megacd": "Sega Mega-CD",
+    "atari2600": "Atari 2600", "3do": "3DO",
     "pcengine": "PC Engine", "psx": "PlayStation", "arcade": "Arcade",
     "pc": "PC", "ps2": "PlayStation 2", "ps3": "PlayStation 3",
     "ps4": "PlayStation 4", "ps5": "PlayStation 5", "xbox": "Xbox",
@@ -180,14 +199,25 @@ _EXT_TO_PLATFORM: dict[str, str] = {
     ".gb": "gb", ".dmg": "gb", ".gbc": "gbc",
     ".gba": "gba",
     ".md": "genesis", ".gen": "genesis", ".smd": "genesis", ".sgd": "genesis",
-    ".68k": "genesis", ".bin": "genesis",
-    ".sms": "mastersystem", ".gg": "mastersystem", ".sg": "mastersystem",
+    ".68k": "genesis",
+    ".sms": "mastersystem", ".sg": "mastersystem",
+    ".gg": "gamegear",
     ".pce": "pcengine", ".sgx": "pcengine",
-    ".cue": "psx", ".chd": "psx", ".pbp": "psx", ".m3u": "psx",
+    ".cue": "psx", ".pbp": "psx", ".m3u": "psx",
     ".nds": "ds", ".3ds": "3ds",
     ".zip": "arcade", ".7z": "arcade",
     ".exe": "pc", ".msi": "pc",
+    # Ambiguous across systems (see _AMBIGUOUS_EXTENSIONS) — these defaults only
+    # apply when the path carries no directory/release platform hint.
+    ".bin": "genesis",
+    ".chd": "psx",
 }
+
+# Extensions shared by several systems, so the extension alone cannot decide the
+# platform: ``.bin`` is an Atari 2600 ROM *and* a Mega Drive ROM *and* a raw PSX
+# track; ``.chd`` is Mega-CD *and* PSX. For these the directory / release context
+# must win — see ``platform_from_path``.
+_AMBIGUOUS_EXTENSIONS: frozenset[str] = frozenset({".bin", ".chd", ".cue", ".iso", ".zip", ".7z"})
 
 # Console-ROM extensions the games library scanner/importer ingests. Derived
 # from _EXT_TO_PLATFORM minus PC installers, so a scannable ROM always has a
@@ -199,12 +229,67 @@ ROM_EXTENSIONS: frozenset[str] = frozenset(
 
 
 def platform_from_extension(path: str | None) -> str | None:
-    """Platform slug implied by a file's extension, or ``None``."""
+    """Platform slug implied by a file's extension, or ``None``.
+
+    Extension-only resolution. For ambiguous extensions (``.bin``, ``.chd``, …)
+    this returns the conservative default; prefer :func:`platform_from_path`,
+    which lets the enclosing ROM-set directory override it.
+    """
     if not path:
         return None
     import os
 
     return _EXT_TO_PLATFORM.get(os.path.splitext(path)[1].lower())
+
+
+# Directory names that must NOT be treated as games at all. ROM sets ship BIOS
+# images next to the ROMs (``roms/bios/megacd/bios_CD_U.bin``, and the variant
+# ``roms/psx/BIOS Files/scph1001.bin``); they are not playable titles and would
+# otherwise land in the library as "bios CD U" / "scph1001".
+_NON_GAME_DIRS: frozenset[str] = frozenset(
+    {"bios", "bioses", "bios files", "firmware", "system", "system files"}
+)
+
+
+def is_non_game_path(path: str | None) -> bool:
+    """Whether a path is support data (BIOS/firmware) rather than a game."""
+    if not path:
+        return False
+
+    # Only *directory* components count, so a game legitimately called
+    # "System.nes" is not mistaken for firmware.
+    dirs = {p.lower() for p in str(path).replace("\\", "/").split("/")[:-1]}
+    return bool(dirs & _NON_GAME_DIRS)
+
+
+def platform_from_path(path: str | None) -> str | None:
+    """Platform slug for a ROM path, using directory context then extension.
+
+    ROM collections are laid out one directory per system
+    (``roms/atari2600/…``, ``roms/megacd/…``), which is far more reliable than
+    the extension for the systems that share one: an ``.bin`` under
+    ``atari2600/`` is an Atari 2600 ROM, not a Mega Drive one. Unambiguous
+    extensions still win over the directory so a stray ``.z64`` in the wrong
+    folder resolves correctly.
+    """
+    if not path:
+        return None
+    import os
+
+    ext = os.path.splitext(path)[1].lower()
+    ext_slug = _EXT_TO_PLATFORM.get(ext)
+
+    # Unambiguous extension: trust it over the directory name.
+    if ext_slug and ext not in _AMBIGUOUS_EXTENSIONS:
+        return ext_slug
+
+    # Ambiguous (or unknown) extension: let the ROM-set directory decide.
+    for part in reversed(str(path).replace("\\", "/").split("/")[:-1]):
+        dir_slug = normalize_platform(part)
+        if dir_slug:
+            return dir_slug
+
+    return ext_slug
 
 
 def profile_for_platform(slug: str | None) -> str | None:
@@ -220,3 +305,35 @@ def profile_for_platform(slug: str | None) -> str | None:
     if slug == "pc":
         return "wine"
     return None
+
+
+# Platforms whose libretro core cannot boot without a BIOS/firmware image, and
+# the ROM-set directory that holds it. Cartridge systems (NES/SNES/N64/GB/…)
+# need none and are absent here on purpose.
+#
+# The value is the sub-directory under the collection's ``bios/`` root, because
+# a core looks its BIOS up by bare filename inside RetroArch's system directory
+# (``scph1001.bin``, ``bios_CD_E.bin``), so each system's files have to be
+# mounted flat — not nested one level down.
+_BIOS_DIRS: dict[str, str] = {
+    "psx": "psx",
+    "megacd": "megacd",
+    "3do": "3do",
+    "arcade": "arcade",
+}
+
+
+def bios_dir_for(slug: str | None) -> str | None:
+    """ROM-set ``bios/`` sub-directory a platform needs, or ``None``.
+
+    ``None`` means the platform boots straight from the ROM (every cartridge
+    system), so no system directory has to be mounted for it.
+    """
+    if not slug:
+        return None
+    return _BIOS_DIRS.get(slug)
+
+
+def requires_bios(slug: str | None) -> bool:
+    """Whether a platform's core needs a BIOS image to boot at all."""
+    return bios_dir_for(slug) is not None
