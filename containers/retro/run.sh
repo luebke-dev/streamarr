@@ -27,8 +27,10 @@ set -euo pipefail
 log() { printf '[streamarr-retro] %s\n' "$*" >&2; }
 
 # Map a ROM file extension → bundled libretro core basename. Keep in sync with
-# the backend's ROM-extension registry. Ambiguous extensions (.bin, .zip) get
-# a best-effort default; set RETRO_CORE to override.
+# the backend's ROM-extension registry. Ambiguous extensions (.bin, .chd, .zip)
+# cannot be resolved from the extension alone (.bin is Atari 2600 *and* Mega
+# Drive), so the backend pins RETRO_CORE from the ROM's path; these are only a
+# last-resort default for a manually launched ROM.
 core_for_ext() {
     case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
         nes|fds|unf|unif)      echo nestopia ;;
@@ -38,6 +40,8 @@ core_for_ext() {
         gba)                   echo mgba ;;
         md|gen|smd|sgd|68k|bin) echo genesis_plus_gx ;;
         sms|gg|sg)             echo genesis_plus_gx ;;
+        a26)                   echo stella ;;
+        iso)                   echo opera ;;
         pce|sgx)               echo mednafen_pce_fast ;;
         cue|chd|pbp|m3u|exe)   echo pcsx_rearmed ;;
         zip|7z)                echo fbneo ;;
