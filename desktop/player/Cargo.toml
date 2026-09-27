@@ -63,6 +63,11 @@ tokio-native-tls = { version = "0.3", optional = true }
 # The local WebRTC proof uses the same GStreamer stack as the real client, so it
 # needs the `spike` feature like spike-webrtc does.
 [[bin]]
+name = "game-pipeline-check"
+path = "src/bin/game-pipeline-check.rs"
+required-features = ["spike"]
+
+[[bin]]
 name = "spike-local-webrtc"
 path = "src/bin/spike-local-webrtc.rs"
 required-features = ["spike"]

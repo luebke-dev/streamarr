@@ -39,6 +39,7 @@ pub mod updater;
 /// Deliberately **not** feature-gated: this is the pure state machine around a
 /// session, and it must be testable on any machine, exactly like the wire
 /// contract.
+pub mod game_pipeline;
 pub mod game_session;
 
 /// Reading physical gamepads and translating them into the wire format.
