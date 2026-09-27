@@ -562,3 +562,148 @@ fn the_refresh_margin_is_far_below_a_typical_token_lifetime() {
          mitten im Request zu verhindern"
     );
 }
+
+// ── Playback contract (plan tasks 2.3, 2.5, 2.9) ──
+
+/// The play response field names. `token` and `playback_method` are the two the client
+/// cannot do without; the rest is metadata.
+#[test]
+fn the_play_response_fields_match_the_server_schema() {
+    let Some(source) = read("backend/src/streamarr/schemas/play_token.py") else {
+        return;
+    };
+    for field in [
+        "token",
+        "session_id",
+        "media_source_id",
+        "playback_method",
+        "direct_stream",
+        "duration",
+        "width",
+        "height",
+    ] {
+        assert!(
+            source.contains(&format!("{field}:")),
+            "PlayTokenRead kennt das Feld {field:?} nicht mehr — der Client würde es \
+             ins Leere lesen"
+        );
+    }
+}
+
+/// `stream_info.transcoding_reasons` is where the server explains itself. If the path
+/// moved, the client's transcode dialog would show an empty list instead of a reason.
+#[test]
+fn transcode_reasons_live_under_stream_info() {
+    let Some(source) = read("backend/src/streamarr/services/playback_decision.py") else {
+        return;
+    };
+    assert!(
+        source.contains("transcoding_reasons"),
+        "der Server baut die Transcode-Gründe nicht mehr unter diesem Namen"
+    );
+    assert!(
+        source.contains("source_file") && source.contains("transcoding"),
+        "die Struktur von stream_info hat sich geändert"
+    );
+}
+
+/// Progress is reported through the playstate endpoints, and the field names are what
+/// the client sends: `position_seconds`, `duration_seconds`, `is_paused`.
+#[test]
+fn the_progress_report_fields_match_the_server() {
+    let Some(source) = read("backend/src/streamarr/api/v1/viewing_history.py") else {
+        return;
+    };
+    for field in [
+        "position_seconds",
+        "duration_seconds",
+        "is_paused",
+        "audio_stream_index",
+        "subtitle_stream_index",
+        "media_source_id",
+    ] {
+        assert!(
+            source.contains(&format!("{field}:")),
+            "ItemPlaystateReport kennt das Feld {field:?} nicht mehr"
+        );
+    }
+    // The four event routes the client uses, with the path parameter the server
+    // declares them under. Checked as the full declaration, not as a bare suffix:
+    // the first version of this test looked for `"/playing"` and failed on a route
+    // that was perfectly present as `"/{content_guid}/playing"` — a test bug that
+    // would have looked like a server change.
+    for route in ["/playing", "/progress", "/stopped", "/playstate"] {
+        assert!(
+            source.contains(&format!("\"/{{content_guid}}{route}\""))
+                || source.contains(&format!("\"{route}\"")),
+            "die Playstate-Route {route} existiert nicht mehr"
+        );
+    }
+    // The prefix the routes are mounted under, from the router table.
+    if let Some(router) = read("backend/src/streamarr/api/router.py") {
+        assert!(
+            router.contains("viewing_history_router") && router.contains("/viewing-history"),
+            "die Playstate-Routen sind nicht mehr unter /viewing-history eingebunden"
+        );
+    }
+}
+
+/// The stored track selection uses an index *and* a language; the client mirrors both
+/// and prefers the index. If either disappeared, a track preference would be lost on
+/// the next launch.
+#[test]
+fn the_stored_track_preferences_match_the_server() {
+    let Some(source) = read("backend/src/streamarr/api/v1/user_data.py") else {
+        return;
+    };
+    for field in [
+        "playback_position_seconds",
+        "duration_seconds",
+        "selected_audio_track_index",
+        "selected_subtitle_track_index",
+        "selected_audio_language",
+        "selected_subtitle_language",
+    ] {
+        assert!(
+            source.contains(&format!("{field}:")),
+            "MediaUserData kennt das Feld {field:?} nicht mehr"
+        );
+    }
+    // The server validates the position as non-negative, which is why the client
+    // clamps it rather than sending what mpv reports.
+    assert!(
+        source.contains("playback_position_seconds: int | None = Field(default=None, ge=0)")
+            || (source.contains("playback_position_seconds") && source.contains("ge=0")),
+        "der Server validiert die Position nicht mehr als >= 0"
+    );
+}
+
+/// The direct-file endpoint from spike 0.3: the token authorises the request. If the
+/// path changed, every playback would 404 while the tests still passed.
+#[test]
+fn the_stream_file_endpoint_still_exists() {
+    let Some(source) = read("backend/src/streamarr/api/v1/stream.py") else {
+        return;
+    };
+    assert!(
+        source.contains("\"/file\""),
+        "der /file-Endpunkt existiert nicht mehr"
+    );
+    assert!(
+        source.contains("Range") || source.contains("range"),
+        "der Endpunkt unterstützt keine Byte-Bereiche mehr — mpv könnte nicht spulen"
+    );
+}
+
+/// The HLS playlist is the transcode path; the client must use it only when direct play
+/// is impossible. Pinning the route keeps that distinction meaningful.
+#[test]
+fn the_transcode_playlist_route_is_unchanged() {
+    let Some(source) = read("backend/src/streamarr/api/v1/stream.py") else {
+        return;
+    };
+    assert!(
+        source.contains("playlist.m3u8"),
+        "die HLS-Route hat sich geändert — die Transcode-URL des Clients wäre falsch"
+    );
+}
