@@ -37,8 +37,9 @@
     "targets": [
       "appimage",
       "deb",
-      "dmg",
-      "nsis"
+      "rpm",
+      "nsis",
+      "msi"
     ],
     "category": "Video",
     "publisher": "Sebastian Lübke",
