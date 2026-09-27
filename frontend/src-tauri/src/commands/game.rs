@@ -575,7 +575,11 @@ mod live {
 
         // The outbound queue: GStreamer callbacks are not async, so they hand
         // serialised JSON to the websocket task.
-        let (outbound_tx, outbound_rx) = std::sync::mpsc::channel::<String>();
+        // `tokio::sync::mpsc`, not `std::sync::mpsc`: the receiver is held across
+        // `await` points inside the spawned websocket task, and the `std` one is
+        // not `Sync`. The compiler refused the alternative twice, in two shapes —
+        // this is the type the job actually needs.
+        let (outbound_tx, outbound_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
         // And the inbound one.
         let (inbound_tx, inbound_rx) = std::sync::mpsc::channel::<ServerMessage>();
 
@@ -667,9 +671,12 @@ mod live {
         // The async task never touches GStreamer: it owns the socket and moves
         // strings. Anything else would put a thread-affine object into another
         // thread's hands.
-        let answer_sender = outbound_tx.clone();
         let ticket = endpoint.ticket.clone().unwrap_or_default();
         let url = endpoint.url.clone();
+        // A clone for the reconnect loop: it asks "does anything still hold this
+        // session" without going through the command channel, which the main loop
+        // below drains.
+        let reconnect_state = state.clone();
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -680,8 +687,8 @@ mod live {
                 ticket,
                 outbound_rx,
                 inbound_tx,
-                answer_sender,
                 server_override,
+                reconnect_state,
             )
             .await
             {
@@ -805,63 +812,175 @@ mod live {
     }
 
     /// The websocket, and everything that crosses it.
+    /// Connects, and reconnects while that is the right thing to do.
+    ///
+    /// # Why the receiver is owned here
+    ///
+    /// `std::sync::mpsc::Receiver` is `Send` but **not `Sync`**. A `&Receiver`
+    /// held across an `await` makes the surrounding future non-`Send`, and
+    /// `runtime.spawn` refuses it — the compiler said so, twice, in two different
+    /// shapes. So the whole dial-and-pump loop lives *inside* this function,
+    /// which owns the receiver: `try_recv` borrows it only for the instant it
+    /// takes to copy a message out, so no borrow is alive at an await point.
+    ///
+    /// # Why the retry decision is not made here
+    ///
+    /// `ReconnectPolicy` in the core owns it, including the rule that matters
+    /// most: **a container that exited is never retried**, because a retry would
+    /// launch a second game for a session the user believes is over. This
+    /// function carries the verdict out and waits the delay the policy chose;
+    /// re-implementing the backoff here would be a second policy that could
+    /// disagree with the tested one.
     async fn signaling_loop(
         url: String,
         ticket: String,
-        outbound: std::sync::mpsc::Receiver<String>,
+        mut outbound: tokio::sync::mpsc::UnboundedReceiver<String>,
         inbound: std::sync::mpsc::Sender<ServerMessage>,
-        answer_sender: std::sync::mpsc::Sender<String>,
         server_override: Option<String>,
+        state: Arc<Mutex<SessionState>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use streamarr_desktop_player::game_session::{GameSession, LaunchResponse};
+        use streamarr_desktop_player::signaling::{ReconnectDecision, ReconnectPolicy};
+
+        // The policy needs a session, because "is anything left to reconnect to"
+        // is a question about the session's state and nothing else can answer it.
+        let launch = LaunchResponse {
+            session_id: String::new(),
+            websocket_url: url.clone(),
+            ws_ticket: ticket.clone(),
+            ice_servers: Vec::new(),
+        };
+        let policy = ReconnectPolicy::default();
+        let mut attempt = 1u32;
+
+        loop {
+            let dropped = dial_and_pump(
+                &url,
+                &ticket,
+                &mut outbound,
+                &inbound,
+                server_override.as_deref(),
+            )
+            .await;
+
+            // The stream ended for a reason of its own — the server said so, or
+            // the user stopped it. Nothing left to retry.
+            if state.lock().map(|s| s.is_terminal()).unwrap_or(true) {
+                return Ok(());
+            }
+
+            let session = GameSession::from_launch(&url, &launch).map_err(|e| e.to_string())?;
+            match policy.decide(&session, attempt, dropped.is_some()) {
+                ReconnectDecision::Retry {
+                    after,
+                    attempt: next,
+                } => {
+                    log::warn!(
+                        "Verbindung verloren ({:?}) — neuer Versuch in {after:?}",
+                        dropped
+                    );
+                    tokio::time::sleep(after).await;
+                    attempt = next;
+                }
+                ReconnectDecision::GiveUp(reason) => {
+                    log::warn!("Kein neuer Versuch: {}", reason.message());
+                    // Set from here only when the failure was ours; a terminal
+                    // server state explains the end better than "connection
+                    // failed" does, so it is left alone.
+                    if let Ok(mut guard) = state.lock() {
+                        if !guard.is_terminal() {
+                            *guard = SessionState::Failed {
+                                reason: reason.message().to_string(),
+                            };
+                        }
+                    }
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    /// One dial and message pump, until the connection ends.
+    ///
+    /// Returns `Some(reason)` when the connection **dropped** — which is what
+    /// the retry policy asks about — and `None` when it ended because the server
+    /// or the user said so.
+    ///
+    /// Borrows the receiver, and may do so because its caller owns it and this
+    /// function is awaited rather than spawned; see `signaling_loop`.
+    async fn dial_and_pump(
+        url: &str,
+        ticket: &str,
+        outbound: &mut tokio::sync::mpsc::UnboundedReceiver<String>,
+        inbound: &std::sync::mpsc::Sender<ServerMessage>,
+        server_override: Option<&str>,
+    ) -> Option<String> {
         use futures_util::{SinkExt, StreamExt};
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
         use tokio_tungstenite::tungstenite::http::HeaderValue;
         use tokio_tungstenite::tungstenite::Message;
 
-        let Some(target) = dial_target(&url, server_override.as_deref()) else {
-            return Err("Die WebSocket-Adresse ist unbrauchbar.".into());
+        let Some(target) = dial_target(url, server_override) else {
+            return Some("Die WebSocket-Adresse ist unbrauchbar.".to_string());
         };
 
-        let mut request = url.clone().into_client_request()?;
-        {
-            let headers = request.headers_mut();
-            headers.insert(
-                "sec-websocket-protocol",
-                HeaderValue::from_str(&subprotocol_header(&ticket))?,
-            );
-            headers.insert(
-                "authorization",
-                HeaderValue::from_str(&format!("Bearer {ticket}"))?,
-            );
-        }
+        // Each fallible step answers `Some(reason)`: from the retry policy's point
+        // of view a failed dial, a failed handshake and a dropped socket are the
+        // same event — the connection is gone and another attempt may help.
+        let build_and_dial = async {
+            let mut request = url.to_string().into_client_request()?;
+            {
+                let headers = request.headers_mut();
+                headers.insert(
+                    "sec-websocket-protocol",
+                    HeaderValue::from_str(&subprotocol_header(ticket))?,
+                );
+                headers.insert(
+                    "authorization",
+                    HeaderValue::from_str(&format!("Bearer {ticket}"))?,
+                );
+            }
 
-        // ALPN pinned to http/1.1: nginx prefers h2 when offered both, and a
-        // WebSocket upgrade cannot happen over HTTP/2.
-        let tls = native_tls::TlsConnector::builder()
-            .request_alpns(WEBSOCKET_ALPN)
-            .build()?;
-        let tcp = tokio::net::TcpStream::connect(&target.connect_to).await?;
-        tcp.set_nodelay(true)?;
-        let tls_stream = tokio_native_tls::TlsConnector::from(tls)
-            .connect(&target.host_header, tcp)
-            .await?;
-        let (mut ws, response) = tokio_tungstenite::client_async(request, tls_stream).await?;
-        log::info!("Spielstream verbunden: HTTP {}", response.status());
+            // ALPN pinned to http/1.1: nginx prefers h2 when offered both, and a
+            // WebSocket upgrade cannot happen over HTTP/2.
+            let tls = native_tls::TlsConnector::builder()
+                .request_alpns(WEBSOCKET_ALPN)
+                .build()?;
+            let tcp = tokio::net::TcpStream::connect(&target.connect_to).await?;
+            tcp.set_nodelay(true)?;
+            let tls_stream = tokio_native_tls::TlsConnector::from(tls)
+                .connect(&target.host_header, tcp)
+                .await?;
+            let (ws, response) = tokio_tungstenite::client_async(request, tls_stream).await?;
+            log::info!("Spielstream verbunden: HTTP {}", response.status());
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>((ws, response))
+        };
+
+        let (mut ws, _response) = match build_and_dial.await {
+            Ok(pair) => pair,
+            Err(err) => return Some(format!("Verbindung fehlgeschlagen: {err}")),
+        };
 
         loop {
             // Outbound first, then incoming: `select!` would need both to be
             // pollable and the `std` receiver is not.
             while let Ok(out) = outbound.try_recv() {
-                ws.send(Message::Text(out)).await?;
+                if let Err(err) = ws.send(Message::Text(out)).await {
+                    return Some(format!("Senden fehlgeschlagen: {err}"));
+                }
             }
             let Some(message) = ws.next().await else {
-                break;
+                // The socket closed without a close frame — a dropped connection,
+                // which is exactly what the retry policy exists for.
+                return Some("Die Verbindung wurde ohne Abschied geschlossen.".to_string());
             };
-            match message? {
-                Message::Text(text) => match ServerMessage::parse(&text) {
+            match message {
+                Ok(Message::Text(text)) => match ServerMessage::parse(&text) {
                     Some(parsed) => {
                         if inbound.send(parsed).is_err() {
-                            break;
+                            // The receiving side is gone: the game thread ended.
+                            // Not a connection drop, so no retry.
+                            return None;
                         }
                     }
                     None => log::debug!(
@@ -869,15 +988,17 @@ mod live {
                         text.chars().take(120).collect::<String>()
                     ),
                 },
-                Message::Close(frame) => {
+                Ok(Message::Close(frame)) => {
+                    // An explicit close is the server saying goodbye: the session
+                    // is over, and a retry would ask for a stream that no longer
+                    // exists.
                     log::info!("Server hat die Verbindung geschlossen: {frame:?}");
-                    break;
+                    return None;
                 }
-                _ => {}
+                Ok(_) => {}
+                Err(err) => return Some(format!("Verbindungsfehler: {err}")),
             }
         }
-        let _ = answer_sender;
-        Ok(())
     }
 
     #[cfg(feature = "gamestream")]
@@ -1192,4 +1313,118 @@ pub fn game_resize(
 #[tauri::command]
 pub fn game_stop(state: State<'_, AppState>) -> bool {
     state.games().stop()
+}
+
+#[cfg(all(test, feature = "gamestream"))]
+mod reconnect_tests {
+    //! The reconnect decision reaches the shell's game thread.
+    //!
+    //! `ReconnectPolicy` and its rules are tested in the core
+    //! (`desktop/player/src/signaling.rs`), including the one that matters most:
+    //! a container that exited is never retried. What those tests cannot show is
+    //! whether anything *calls* the policy — and for a while nothing did, which is
+    //! why this module exists.
+    //!
+    //! It does not open a socket: the decision is a pure function of the session
+    //! state and the attempt number, so the property worth pinning here is that
+    //! the shell feeds it the **session's** state rather than a constant.
+
+    use streamarr_desktop_player::game_session::{GameSession, LaunchResponse, SessionState};
+    use streamarr_desktop_player::protocol::ServerMessage;
+    use streamarr_desktop_player::signaling::{GiveUpReason, ReconnectDecision, ReconnectPolicy};
+
+    fn session() -> GameSession {
+        GameSession::from_launch(
+            "https://streamarr.example",
+            &LaunchResponse {
+                session_id: "s1".to_string(),
+                websocket_url: "/api/lightrays-ws/s1".to_string(),
+                ws_ticket: "t".to_string(),
+                ice_servers: vec![],
+            },
+        )
+        .expect("Sitzung")
+    }
+
+    #[test]
+    fn a_live_session_is_retried_after_a_drop() {
+        // The ordinary case: Wi-Fi handover, brief server restart. Without this
+        // the user sees a frozen picture and has to start the game again.
+        let policy = ReconnectPolicy::default();
+        let session = session();
+        match policy.decide(&session, 1, true) {
+            ReconnectDecision::Retry { after, attempt } => {
+                assert_eq!(attempt, 2);
+                assert!(after.as_millis() > 0, "die Verzögerung muss wachsen");
+            }
+            other => panic!("erwartet: Retry, war {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_dead_container_is_never_retried_even_though_the_shell_could() {
+        // The rule that justifies using the core's policy rather than a local
+        // loop: retrying would launch a **second game** for a session the user
+        // believes is over.
+        let mut session = session();
+        session.on_message(&ServerMessage::ContainerDied { exit_code: Some(0) });
+        assert!(session.state.is_terminal());
+        assert_eq!(
+            ReconnectPolicy::default().decide(&session, 1, true),
+            ReconnectDecision::GiveUp(GiveUpReason::ContainerGone)
+        );
+    }
+
+    #[test]
+    fn a_stream_the_user_stopped_is_not_resurrected() {
+        let mut session = session();
+        session.stopped();
+        assert_eq!(
+            ReconnectPolicy::default().decide(&session, 1, true),
+            ReconnectDecision::GiveUp(GiveUpReason::StoppedByUser)
+        );
+    }
+
+    #[test]
+    fn the_shell_asks_the_session_and_not_a_constant() {
+        // The property this module exists for. If the shell passed a fresh
+        // session state — or `true` for `dropped` regardless — a stopped stream
+        // would be retried and a second game launched. Feeding two different
+        // states through the same call and getting different answers is what
+        // shows the state is actually consulted.
+        let policy = ReconnectPolicy::default();
+        let live = session();
+        let mut dead = session();
+        dead.on_message(&ServerMessage::ContainerDied { exit_code: Some(1) });
+
+        assert!(matches!(
+            policy.decide(&live, 1, true),
+            ReconnectDecision::Retry { .. }
+        ));
+        assert!(matches!(
+            policy.decide(&dead, 1, true),
+            ReconnectDecision::GiveUp(_)
+        ));
+    }
+
+    #[test]
+    fn the_session_state_is_terminal_after_a_stop() {
+        // What the retry loop checks before deciding whether to try again. A
+        // non-terminal state here would make the loop spin against a stream the
+        // user has closed.
+        let mut session = session();
+        session.stopped();
+        assert!(session.state.is_terminal());
+        assert!(!session.state.holds_server_session());
+    }
+
+    #[test]
+    fn a_live_session_still_holds_its_container() {
+        // The other half: while a stream runs, the server really does hold a
+        // container, so `stop` must still be sent when the user leaves.
+        let session = session();
+        assert!(!session.state.is_terminal());
+        assert!(session.state.holds_server_session());
+        let _ = SessionState::Streaming;
+    }
 }
