@@ -32,6 +32,13 @@ pub mod resolve_tunnel;
 pub mod session;
 pub mod updater;
 
+/// Game-session lifecycle: launch, negotiation, teardown.
+///
+/// Deliberately **not** feature-gated: this is the pure state machine around a
+/// session, and it must be testable on any machine, exactly like the wire
+/// contract.
+pub mod game_session;
+
 /// Reading physical gamepads and translating them into the wire format.
 ///
 /// Feature-gated: `gilrs` needs `libudev` on Linux, and this crate must stay
