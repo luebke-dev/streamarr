@@ -54,6 +54,10 @@ native-tls = { version = "0.2", features = ["alpn"], optional = true }
 tokio-native-tls = { version = "0.3", optional = true }
 
 [features]
+# Spike 0.3: media playback via a separate mpv process over its JSON IPC.
+# Deliberately dependency-free beyond serde_json — it drives `mpv` as a child
+# process rather than linking libmpv, which is the very choice being validated.
+mpv = []
 spike = [
     "dep:gstreamer",
     "dep:gstreamer-sdp",

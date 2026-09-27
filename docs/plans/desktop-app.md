@@ -10,7 +10,7 @@ Zielplattformen: Linux (primär), Windows, macOS
 |---|---|---|
 | 0.1 GStreamer-Spike | offen | Crate-Gerüst steht (`desktop/player`) |
 | 0.2 Fenster-Spike | **erledigt** (Linux) | [spike-02-fenster.md](spike-02-fenster.md); Gate bestanden (58–60 fps @4K), Windows-Messung offen |
-| 0.3 libmpv-Spike | offen | |
+| 0.3 libmpv-Spike | **erledigt** | [spike-03-mpv.md](spike-03-mpv.md); Prozess-Weg bestätigt, `--wid` entfällt |
 | 0.4 Gamepad-Spike | offen | |
 | 0.5 Native-Audit | **erledigt** | `isNativePlatform()` kannte nur Capacitor; Tauri-Desktop lief als „web" und persistierte keine Tokens. Behoben + 10 Tests |
 | Shell-Entscheidung | **erledigt** | [ADR 001](adr-001-desktop-shell.md): Tauri bleibt, mit harter Trennung von UI und nativem Player |
@@ -249,7 +249,7 @@ Ziel: Die drei riskantesten Annahmen beweisen, bevor Produktivcode entsteht.
 |---|---|---|
 | 0.1 | **WebRTC-Client-Spike in Rust:** minimales Binary gegen einen laufenden Lightrays-Server, `gstreamer-rs`-Pipeline `webrtcsrc/webrtcbin → h264parse → decode → sink`, Signaling per WS | Bild erscheint, Latenz messbar; Dokumentation der benötigten GStreamer-Plugins pro Plattform |
 | 0.2 | **Fenster-Spike:** natives Video (Dummy-Farbverlauf) in Overlay-Fenster über Tauri-WebView, Linux Wayland **und** X11, plus Windows | Video sichtbar, UI überlagerbar/ausblendbar, kein Flackern beim Fullscreen |
-| 0.3 | **libmpv-Spike:** HLS-URL aus `/api/v1/stream` in separatem mpv-Prozess mit `--wid`, Steuerung (Play/Pause/Seek/Track-Auswahl) und Positionsrückmeldung | Steuerung aus der UI heraus funktioniert, Position wird korrekt zurückgemeldet |
+| 0.3 | **mpv-Spike:** Originaldatei aus `/api/stream/file?token=` in **separatem mpv-Prozess** (JSON-IPC, kein `--wid`), Steuerung (Play/Pause/Seek/Track-Auswahl), Positionsrückmeldung | Steuerung aus der UI heraus funktioniert, Position wird korrekt zurückgemeldet |
 | 0.4 | **Gamepad-Spike:** `gilrs` erkennt Xbox/DS4-Pad nativ, Werte kommen im Datenkanal-Format an | Werte im Spiel sichtbar, Hotplug funktioniert |
 | 0.5 | **`isNativePlatform()`-Audit:** prüfen, wo `Capacitor?.isNativePlatform()` Token-Persistenz steuert (`src/utils/authStorage.js`, `boot/axios.js`) | Entscheidung + Ticket: Tauri muss in dieselbe Verzweigung fallen (`window.__TAURI_INTERNALS__`), sonst kein persistenter Login in der Desktop-App |
 
@@ -362,9 +362,12 @@ Fenster-/Z-Order-Frage aus 0.2 vorher geklärt ist.
 
 ## 9. Offene Entscheidungen (vor Phase 1 zu treffen)
 
-1. **Renderer-Einbettung** — Weg A/B/C aus §4.2; hängt am Ausgang von Spike 0.2.
-2. **libmpv in-process vs. separater Prozess** — Empfehlung: Prozess (HDR,
-   `gpu-next`, Crash-Isolation); bestätigen in 0.3.
+1. **Renderer-Einbettung** — **entschieden** (Spike 0.2): Weg A als
+   Overlay-Toplevel, unter Wayland im Vollbild statt positioniert; Weg B (`--wid`)
+   gestrichen. Siehe [spike-02-fenster.md](spike-02-fenster.md).
+2. **libmpv in-process vs. separater Prozess** — **entschieden** (Spike 0.3):
+   **separater Prozess** über JSON-IPC. 12/12 Prüfungen grün, keine native
+   Link-Abhängigkeit, Crash-Isolation. Siehe [spike-03-mpv.md](spike-03-mpv.md).
 3. **GStreamer im Host vs. Helfer-Binary** — Empfehlung: Helfer-Binary ab
    Phase 3.
 4. **Bündelung von mpv/GStreamer** — Auswirkung auf Bundle-Größe, Lizenzen,
