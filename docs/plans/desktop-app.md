@@ -274,7 +274,7 @@ siehe Phase 2.4).
 | # | Aufgabe | Details |
 |---|---|---|
 | 2.1 | Native-Playback-Vertrag | Neues Tauri-Command-Set: `player_open(url, opts)`, `player_play/pause/seek/stop`, `player_set_audio`, `player_set_subtitle`, `player_set_speed`, `player_state` (Event-Stream) |
-| 2.2 | Codec-/Container-Erkennung | Rust ermittelt `mpv`-Fähigkeiten (`--list-options`, Decoder-Liste) und meldet sie als Client-Capabilities an den Server → Transcoding-Entscheidung wird präziser als im Browser |
+| 2.2 | Codec-/Container-Erkennung | Rust ermittelt `mpv`-Fähigkeiten (`--list-options`, Decoder-Liste) und meldet sie als Client-Capabilities an den Server → Transcoding-Entscheidung wird präziser als im Browser. **Datenschicht erledigt** (`desktop/player/src/capabilities.rs`, Golden-Tests gegen die Serverquellen); offen: Decoder-Liste zur Laufzeit aus mpv lesen statt fester Liste |
 | 2.3 | Direct-Play statt HLS | `/api/v1/play/{id}` mit Desktop-Profil: wenn mpv den Stream direkt kann, wird die Datei-/Direct-Stream-URL übergeben statt HLS-Manifest; sonst HLS wie bisher |
 | 2.4 | Fallback-Pfad | Feature-Flag `native_player = false` → exakt der heutige Web-Player in der WebView. Wichtig für Plattformen/Codecs, die Phase 0 nicht abdeckt |
 | 2.5 | Fortschritt & Resume | Position aus mpv periodisch an die bestehenden Playback-Position-Endpunkte; Resume-Position beim Öffnen setzen; „Skip Intro/Outro" und Kapitel aus den vorhandenen Markern an mpv übergeben |
@@ -282,7 +282,7 @@ siehe Phase 2.4).
 | 2.7 | Watch Party | Sync über die vorhandene WebSocket-Bridge: mpv-Position als Quelle, Drift-Korrektur; Desktop wird als steuerbares Device geführt |
 | 2.8 | Offline (optional) | Heruntergeladene Offline-Items (`/api/v1/devices/{guid}/offline-items`) im Profilordner ablegen, mpv spielt lokale Dateien |
 | 2.9 | **HDR-Passthrough (Medien)** | `--vo=gpu-next`, `--target-colorspace-hint=yes`, HDR-Display-Erkennung, `hdr_format` aus den Metadaten an die UI, korrekte Angabe in den Client-Capabilities. Nur im Direct Play; siehe §10.2 |
-| 2.10 | **HDR-Probe reparieren** | `frontend/src/composables/usePlay.js` fragt HDR mit `type: 'media-source'` ab, obwohl über WebRTC gespielt wird — die Aussage ist falsch. Im Desktop-Modus durch echte Capability-Meldung des nativen Kerns ersetzen |
+| 2.10 | **HDR-Probe reparieren** | `frontend/src/composables/usePlay.js` fragt HDR mit `type: 'media-source'` ab, obwohl über WebRTC gespielt wird — die Aussage ist falsch. **Befund:** Der Server kennt HDR **gar nicht** als Client-Fähigkeit (kein Parameter in `playback_params.py`); die Entscheidung liegt deshalb vollständig beim Client. Native Seite in `capabilities.rs` umgesetzt (`supports_hdr` wird bewusst *nicht* gesendet); offen: Anbindung an die UI |
 
 ### Phase 3 — Spiele-Streaming nativ (3–4 Wochen)
 

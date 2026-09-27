@@ -19,6 +19,7 @@
 //! without any of those dependencies. Reading physical gamepads lives in
 //! [`input`], behind the `gamepad` feature because it needs `libudev`.
 
+pub mod capabilities;
 pub mod protocol;
 
 /// Reading physical gamepads and translating them into the wire format.

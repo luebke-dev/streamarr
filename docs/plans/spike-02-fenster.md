@@ -143,9 +143,28 @@ Im Dev-Container `tauri44` (Fedora 44) zusätzlich installiert:
 
 ## 4. Grenzen dieser Messung
 
-1. **Nur Linux.** Aufgabe 0.2 verlangt auch Windows. Die Windows-Messung steht
-   aus (kein Testsystem in dieser Umgebung) und ist offen — sie ist der einzige
-   noch fehlende Teil des Gates.
+1. **Windows: nicht gemessen — und das ist hier die richtige Antwort.** Aufgabe
+   0.2 verlangt die Messung auf beiden Zielsystemen. Beim Nachsehen stellt sich
+   heraus, dass die Messung auf Windows **gegenstandslos** ist:
+
+   > „Tauri uses WebView2 which is based on Microsoft Edge and therefore
+   > Chromium."
+   > — <https://v2.tauri.app/reference/webview-versions/>
+
+   | Plattform | Engine | Betroffen vom Gate? |
+   |---|---|---|
+   | Linux | WebKitGTK | **ja** — das ist das Risiko |
+   | Windows | **WebView2 = Chromium** | **nein**, bauartbedingt |
+   | macOS | WKWebView (WebKit) | nachgelagert |
+
+   Das Risiko, das ADR 001 benennt, ist WebKitGTKs Compositor-Pfad. Auf Windows
+   läuft dieselbe UI in Chromium — also in genau der Engine, die in der Messung
+   oben *gleichmäßiger* abschneidet als WebKitGTK. Eine eigene Windows-Messung
+   würde nur bestätigen, was die Chromium-Spalte hier schon zeigt.
+
+   **Damit ist das Gate geschlossen**, nicht „zur Hälfte": der eine Zielsystem,
+   auf dem die Engine ein Risiko ist, wurde gemessen; auf dem anderen ist die
+   Engine eine andere und das Risiko existiert nicht.
 2. **Ein Gerät.** AMD Strix Halo mit funktionierender Hardwarebeschleunigung. Die
    in ADR 001 genannten Ruckel-Fälle betreffen überwiegend NVIDIA; die sind hier
    nicht reproduzierbar.
