@@ -443,3 +443,198 @@ mod tests {
         assert_eq!(outcome, RouteOutcome::Ended);
     }
 }
+
+// ---------------------------------------------------------------------------
+// The websocket transport
+// ---------------------------------------------------------------------------
+
+/// Where to dial, and with which headers.
+///
+/// Separated from the dialling so the split-DNS decision is testable without a
+/// socket, and so it is made *once* rather than at each call site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DialTarget {
+    /// The address to open a TCP connection to — possibly a pinned IP.
+    pub connect_to: String,
+    /// The `Host` header and TLS server name — always the real hostname, never
+    /// the pin. Replacing it with the IP fails certificate verification, which
+    /// is what happens when a client "helpfully" rewrites it.
+    pub host_header: String,
+    pub port: u16,
+}
+
+/// Works out where to connect, given a URL and an optional address pin.
+///
+/// # Why a pin exists at all
+///
+/// This deployment's DNS answers `streamarr.luebke.internal` with a Tailscale
+/// address that does not respond, while the real endpoint is elsewhere. The
+/// system resolver cannot be fixed from inside an application, and `curl` solves
+/// it with `--resolve`. A native client needs the same escape hatch, and it has
+/// to be explicit: the pin is configuration, not a silent fallback.
+///
+/// A pin applies only to the host it names. A pin for a *different* host is
+/// ignored rather than used — otherwise a stale entry would redirect every
+/// unrelated host to one address, which is how a client ends up talking to the
+/// wrong server entirely.
+pub fn dial_target(url: &str, pin: Option<&str>) -> Option<DialTarget> {
+    // The scheme and host are parsed by hand rather than with a URL crate: the
+    // only inputs are a `ws(s)://` URL the server itself sent, and pulling in a
+    // full URL parser for this would be more surface than the problem needs.
+    let (scheme, rest) = url.split_once("://")?;
+    if scheme != "ws" && scheme != "wss" {
+        return None;
+    }
+    let (authority, _path) = match rest.find('/') {
+        Some(index) => (&rest[..index], &rest[index..]),
+        None => (rest, ""),
+    };
+    // Userinfo in the authority is not something the server sends; refusing it
+    // avoids parsing `user@host` as a hostname.
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+    let default_port = if scheme == "wss" { 443 } else { 80 };
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) => (host, port.parse::<u16>().ok()?),
+        None => (authority, default_port),
+    };
+    if host.is_empty() {
+        return None;
+    }
+
+    let connect_to = match crate::resolve_tunnel::tunnel_plan(host, port, pin) {
+        // `SocketAddr` rather than `format!("{}:{}", …)`: for an IPv6 target the
+        // naive form is `::1:443`, which cannot be parsed back — the last colon is
+        // ambiguous, so the port is unreadable and connecting fails with a
+        // confusing address error. `SocketAddr` writes `[::1]:443`. Found by a
+        // test that asserted the bracketed form and got the flat one.
+        Some(mapping) => std::net::SocketAddr::new(mapping.target, mapping.port).to_string(),
+        None => format!("{host}:{port}"),
+    };
+
+    Some(DialTarget {
+        connect_to,
+        // The real name, always: the pin redirects the address, not the identity.
+        host_header: host.to_string(),
+        port,
+    })
+}
+
+/// The ALPN protocols to offer, in order.
+///
+/// Pinned to `http/1.1` and nothing else. nginx offers `h2` and prefers it when
+/// the client offers both — and a WebSocket upgrade cannot happen over HTTP/2,
+/// so the handshake fails in a way that looks like a server fault. Verified with
+/// `openssl s_client`: `-alpn h2,http/1.1` negotiates h2, `-alpn http/1.1`
+/// negotiates http/1.1.
+///
+/// A single-element list rather than a preference order, because there is no
+/// second option that works.
+pub const WEBSOCKET_ALPN: &[&str] = &["http/1.1"];
+
+#[cfg(test)]
+mod dial_tests {
+    use super::*;
+
+    #[test]
+    fn a_plain_url_uses_dns_and_the_scheme_default_port() {
+        let target =
+            dial_target("wss://streamarr.example/api/lightrays-ws/s1", None).expect("Ziel");
+        assert_eq!(target.connect_to, "streamarr.example:443");
+        assert_eq!(target.host_header, "streamarr.example");
+        assert_eq!(target.port, 443);
+    }
+
+    #[test]
+    fn an_explicit_port_is_kept() {
+        let target = dial_target("wss://streamarr.example:8443/ws", None).expect("Ziel");
+        assert_eq!(target.connect_to, "streamarr.example:8443");
+        assert_eq!(target.port, 8443);
+    }
+
+    #[test]
+    fn an_unencrypted_url_defaults_to_port_80() {
+        let target = dial_target("ws://localhost/ws", None).expect("Ziel");
+        assert_eq!(target.connect_to, "localhost:80");
+    }
+
+    #[test]
+    fn a_pin_redirects_the_address_but_not_the_name() {
+        // The whole point: connect to the pin, but keep the hostname for TLS and
+        // for the `Host` header. Using the IP as the name fails certificate
+        // verification.
+        let target =
+            dial_target("wss://streamarr.luebke.internal/ws", Some("10.10.60.30")).expect("Ziel");
+        assert_eq!(target.connect_to, "10.10.60.30:443");
+        assert_eq!(
+            target.host_header, "streamarr.luebke.internal",
+            "der Name darf nicht durch die IP ersetzt werden — sonst scheitert TLS"
+        );
+    }
+
+    #[test]
+    fn a_pin_with_a_port_still_uses_the_urls_port() {
+        // The URL's port is where the CONNECT goes, so it wins over the pin's.
+        let target =
+            dial_target("wss://streamarr.example/ws", Some("10.0.0.1:9999")).expect("Ziel");
+        assert_eq!(target.connect_to, "10.0.0.1:443");
+        assert_eq!(target.port, 443);
+    }
+
+    #[test]
+    fn an_empty_pin_is_not_a_pin() {
+        let target = dial_target("wss://streamarr.example/ws", Some("  ")).expect("Ziel");
+        assert_eq!(target.connect_to, "streamarr.example:443");
+    }
+
+    #[test]
+    fn a_nonsense_pin_is_ignored_rather_than_fatal() {
+        // A typo in configuration must not make the client unable to reach its
+        // server at all; falling back to DNS is what a user would try next.
+        let target =
+            dial_target("wss://streamarr.example/ws", Some("nicht-ganz-ip")).expect("Ziel");
+        assert_eq!(target.connect_to, "streamarr.example:443");
+    }
+
+    #[test]
+    fn an_ipv6_pin_is_not_split_at_its_colons() {
+        let target = dial_target("wss://streamarr.example/ws", Some("::1")).expect("Ziel");
+        // `::1` parses as an address as a whole; splitting on the last colon
+        // would give host `::` and port 1 — a wrong destination rather than a
+        // visible failure.
+        assert_eq!(target.connect_to, "[::1]:443");
+    }
+
+    #[test]
+    fn a_url_without_a_path_still_parses() {
+        let target = dial_target("wss://streamarr.example", None).expect("Ziel");
+        assert_eq!(target.host_header, "streamarr.example");
+    }
+
+    #[test]
+    fn a_non_websocket_scheme_is_refused() {
+        assert!(dial_target("https://streamarr.example/ws", None).is_none());
+        assert!(dial_target("ftp://streamarr.example", None).is_none());
+        assert!(dial_target("streamarr.example/ws", None).is_none());
+    }
+
+    #[test]
+    fn a_bad_port_is_refused_rather_than_defaulted() {
+        // Defaulting would silently dial 443 for what is a configuration error.
+        assert!(dial_target("wss://streamarr.example:nein/ws", None).is_none());
+        assert!(dial_target("wss://streamarr.example:99999/ws", None).is_none());
+    }
+
+    #[test]
+    fn userinfo_is_refused() {
+        assert!(dial_target("wss://user:pass@streamarr.example/ws", None).is_none());
+    }
+
+    #[test]
+    fn alpn_offers_http_1_1_and_nothing_else() {
+        // HTTP/2 cannot carry a WebSocket upgrade; offering both makes nginx
+        // choose h2 and the handshake fail.
+        assert_eq!(WEBSOCKET_ALPN, &["http/1.1"]);
+    }
+}
