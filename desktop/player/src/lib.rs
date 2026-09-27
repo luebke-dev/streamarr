@@ -21,6 +21,7 @@
 
 pub mod capabilities;
 pub mod mpv;
+pub mod plan;
 pub mod playback;
 pub mod profile;
 pub mod protocol;

@@ -189,9 +189,16 @@ impl PlayerOptions {
         if !self.config_dir.as_os_str().is_empty() {
             args.push(format!("--config-dir={}", self.config_dir.display()));
         }
-        if self.fullscreen {
-            args.push("--fullscreen=yes".to_string());
-        }
+        // Both directions are stated explicitly, never just the "on" case. The
+        // profile's `mpv.conf` is meant to be edited by hand, so an argument that is
+        // simply absent would let a `fullscreen=yes` in that file override the user's
+        // choice in the app — and the symptom would look like the app ignoring its own
+        // setting. A test found this: `--no-fullscreen` was never emitted.
+        args.push(if self.fullscreen {
+            "--fullscreen=yes".to_string()
+        } else {
+            "--no-fullscreen".to_string()
+        });
         args.extend(self.hdr.to_args());
         // Last, so a user argument can override anything above.
         args.extend(self.extra_args.iter().cloned());
