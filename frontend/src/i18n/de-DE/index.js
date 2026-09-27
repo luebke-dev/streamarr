@@ -3694,4 +3694,21 @@ export default {
     unavailable: 'Der Couch-Modus ist nur in der Desktop-App verfügbar.',
     loading: 'Layout wird vermessen…',
   },
+
+  // Desktop-App: Diagnosebericht senden (Shell-Command `report_problem`)
+  desktopReport: {
+    title: 'Problem melden',
+    subtitle: 'Sendet Diagnoseinformationen an das Server-Protokoll.',
+    appVersion: 'App-Version',
+    platform: 'Plattform',
+    notInstalled: 'nicht installiert',
+    notInBuild: 'nicht in diesem Build',
+    logs: 'Spieler-Protokolle',
+    logCount: '{count} Datei(en), {kb} KB',
+    noLogs: 'keine',
+    excluded:
+      'Es werden keine Token, keine Serveradresse, keine Dateipfade und keine Gerätekennungen übertragen.',
+    collected: 'Gesammelter Bericht',
+    send: 'Bericht senden',
+  },
 }

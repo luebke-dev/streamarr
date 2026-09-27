@@ -3695,4 +3695,21 @@ export default {
     unavailable: 'Couch mode is only available in the desktop app.',
     loading: 'Measuring the layout…',
   },
+
+  // Desktop app: send a diagnostic report (shell command `report_problem`)
+  desktopReport: {
+    title: 'Report a problem',
+    subtitle: 'Sends diagnostic information to your server log.',
+    appVersion: 'App version',
+    platform: 'Platform',
+    notInstalled: 'not installed',
+    notInBuild: 'not in this build',
+    logs: 'Player logs',
+    logCount: '{count} file(s), {kb} KB',
+    noLogs: 'none',
+    excluded:
+      'No tokens, no server address, no file paths and no machine identifiers are included.',
+    collected: 'Collected report',
+    send: 'Send report',
+  },
 }
