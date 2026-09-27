@@ -123,6 +123,47 @@ Without this, firmware images are imported as media items and show up as playabl
 
 Only **directory** names count, so a game legitimately called `System.nes` is not mistaken for firmware.
 
+## Controllers
+
+Two things have to hold for a controller to work: the browser must be able to
+read it, and RetroArch must receive it.
+
+### Browser gamepad
+
+The browser reads the pad with the Gamepad API and forwards its state to
+lightrays, which turns it into RetroArch *remote gamepad* packets. This path
+carries real analog stick values and needs no device access.
+
+**Why not `/dev/uinput`?** Virtual-device creation would be the obvious route,
+but it needs `uinput`/`uhid` on the host, and under a nesting container runtime
+(for example Proxmox LXC with the default AppArmor profile) opening
+`/dev/uinput` fails with `EPERM` even in a `--privileged` child. The remote
+gamepad path sidesteps device access entirely, so it works in that setup.
+
+For this to work, lightrays and the game container must share a Docker network:
+the packets are UDP, and a container on the plain `bridge` network is
+unreachable from the compose network. lightrays detects its own network
+automatically. Set `LIGHTRAYS_SESSION_NETWORK` only if it runs on several
+networks and the automatic choice is wrong.
+
+The pad must be connected **after** the stream starts, or picked up on the next
+frame. Button layout follows the W3C "standard gamepad" mapping; lightrays
+translates it to RetroPad ids in one place (`lightrays/src/input.rs`).
+
+### Deadzone and D-pad
+
+Per-user settings live in **User settings → Gaming**:
+
+| Setting | Effect |
+|---------|--------|
+| Analog stick deadzone | Values inside this range snap to 0, the rest is rescaled. Applied by lightrays to browser gamepads, and written to RetroArch as `input_analog_deadzone` for a locally attached pad |
+| D-pad mode | Whether the D-pad acts as itself or as an analog stick (`input_playerN_analog_dpad_mode`) |
+
+The deadzone is applied at the browser gamepad path by lightrays and at the
+local-pad path by RetroArch, so it is never applied twice to one input. The
+D-pad mode likewise only affects RetroArch's own input drivers: a browser
+gamepad sends RetroPad D-pad ids directly, so its D-pad stays a D-pad.
+
 ## Disc-based games
 
 Mega-CD, PlayStation, and 3DO titles are disc images. Multi-track games should use a `.cue` or `.m3u` file next to the tracks, not a bare `.bin`, so the core sees the whole disc.

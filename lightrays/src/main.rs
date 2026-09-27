@@ -4,6 +4,7 @@ mod auth;
 mod config;
 mod docker;
 mod encoder;
+mod gamepad;
 mod input;
 mod k8s_runtime;
 mod launch;

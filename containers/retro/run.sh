@@ -11,7 +11,14 @@
 #   XDG_RUNTIME_DIR        /tmp/sockets (holds the wayland + pulse sockets)
 #   PULSE_SERVER           unix:/tmp/sockets/pulse/native
 #   GAMESCOPE_WIDTH/HEIGHT/REFRESH   requested session geometry
-#   /dev/dri (Intel render node), /dev/uinput   passed through as devices
+#   /dev/dri (Intel render node) passed through as a device
+#
+# Controller input (browser gamepad) does NOT come through /dev/uinput: the
+# retro container gets no /dev/input and virtual-device creation is not
+# available under a nesting container runtime. Instead lightrays forwards the
+# browser's Gamepad API state as UDP packets to RetroArch's remote-gamepad
+# listener (see lightrays/src/gamepad.rs), which the kiosk config enables via
+# network_remote_*.
 #
 # Our launch env (set by the container profile / per-game app_env):
 #   RETRO_ROM    (required) absolute path to the ROM (game's app_ref)

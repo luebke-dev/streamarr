@@ -150,6 +150,15 @@ pub(crate) struct SessionInner {
     /// and the WebRTC data-channel paths so an actively-played session over
     /// the data channel is never idle-reaped (R-H1).
     pub(crate) input_activity: Arc<AtomicI64>,
+
+    /// Remote-gamepad channel for player 1 (see [`crate::gamepad`]).
+    /// `None` until `configure_gamepad` enables it, which only happens for a
+    /// retro container. Sessions without it drop gamepad messages and never
+    /// open a UDP socket.
+    pub(crate) gamepad: Option<crate::gamepad::RemoteGamepad>,
+    /// Analog deadzone from the player's gaming preferences, applied to
+    /// every incoming axis value before it is sent to the container.
+    pub(crate) gamepad_deadzone: f64,
 }
 
 fn unix_secs_now() -> i64 {
@@ -158,6 +167,10 @@ fn unix_secs_now() -> i64 {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
+
+/// Default analog deadzone when the game does not declare one. Matches the
+/// backend's `analog_deadzone` default so the two ends agree.
+pub const DEFAULT_GAMEPAD_DEADZONE: f64 = 0.15;
 
 impl SessionInner {
     /// Record an input event and return whether it is within the per-session
@@ -174,6 +187,55 @@ impl SessionInner {
         } else {
             false
         }
+    }
+}
+
+/// Route one raw input message from either transport (WebRTC data channel or
+/// the WebSocket fallback) to its destination.
+///
+/// Gamepad messages become UDP packets to RetroArch's remote-gamepad port.
+/// Everything else (key, mouse) becomes a GStreamer upstream event on the
+/// compositor element.
+///
+/// Both transports call this so they cannot drift apart; previously each did
+/// its own dispatch, which is how the data channel silently dropped gamepad
+/// input while the WebSocket fallback accepted it.
+///
+/// The compositor call happens *outside* the lock: it pushes an upstream event
+/// and the original data-channel path deliberately released the lock first to
+/// avoid stalling GStreamer's signal threads. Gamepad handling stays under the
+/// lock only because it is a non-blocking UDP send onto a cached socket.
+pub(crate) fn handle_input_message(inner_arc: &Arc<Mutex<SessionInner>>, json_str: &str) {
+    // Parsed outside the lock: this runs per input event, and the lock is
+    // shared with the compositor and WebRTC signal handlers.
+    let is_gamepad = serde_json::from_str::<serde_json::Value>(json_str)
+        .ok()
+        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
+        .is_some_and(|t| t == "gamepadbutton" || t == "gamepadaxis");
+
+    let mut inner = inner_arc.lock();
+    if !inner.note_and_allow_input() {
+        return;
+    }
+
+    if is_gamepad {
+        let deadzone = inner.gamepad_deadzone;
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(json_str) {
+            if let Some(event) = input::parse_gamepad_event(&data, deadzone) {
+                if let Some(gp) = inner.gamepad.as_mut() {
+                    gp.apply(event);
+                }
+            }
+        }
+        return;
+    }
+
+    let element = inner.compositor.as_ref().and_then(|c| c.element.clone());
+    let (width, height) = (inner.compositor_width, inner.compositor_height);
+    drop(inner);
+
+    if let Some(el) = element {
+        input::handle_input_json(&el, json_str, width, height);
     }
 }
 
@@ -229,6 +291,8 @@ impl StreamSession {
                 input_rate,
                 input_last_refill: Instant::now(),
                 input_activity: Arc::new(AtomicI64::new(unix_secs_now())),
+                gamepad: None,
+                gamepad_deadzone: DEFAULT_GAMEPAD_DEADZONE,
             })),
         })
     }
@@ -577,17 +641,43 @@ impl StreamSession {
     /// input rate budget. Over-budget events are dropped (S-M5). Activity is
     /// recorded so the idle reaper sees data-channel/WS input (R-H1).
     pub fn send_input(&self, json_str: &str) {
+        handle_input_message(&self.inner, json_str);
+    }
+
+    /// Enable browser-gamepad input for this session.
+    ///
+    /// `container_name` is the session container's Docker name. Docker's
+    /// embedded DNS resolves it from inside the shared session network, so
+    /// the packets find the container without pinning an IP that could
+    /// change on restart.
+    ///
+    /// Called once the container is up; a session that never calls this keeps
+    /// `gamepad: None` and silently drops gamepad messages, which is what
+    /// non-retro images want.
+    pub fn configure_gamepad(&self, container_name: &str, deadzone: f64) {
         let mut inner = self.inner.lock();
-        if !inner.note_and_allow_input() {
-            return;
-        }
-        if let Some(el) = inner.compositor.as_ref().and_then(|c| c.element.as_ref()) {
-            input::handle_input_json(
-                el,
-                json_str,
-                inner.compositor_width,
-                inner.compositor_height,
-            );
+        inner.gamepad_deadzone = if deadzone.is_finite() {
+            deadzone.clamp(0.0, 0.95)
+        } else {
+            DEFAULT_GAMEPAD_DEADZONE
+        };
+        inner.gamepad = Some(crate::gamepad::RemoteGamepad::new(container_name, 0));
+        log::info!(
+            "Gamepad enabled for session (target {}:{}, deadzone {:.2})",
+            container_name,
+            crate::gamepad::DEFAULT_REMOTE_GAMEPAD_PORT,
+            inner.gamepad_deadzone,
+        );
+    }
+
+    /// Release every held button and recentre the sticks.
+    ///
+    /// Called when the client goes away so a disconnect cannot leave a game
+    /// holding a direction. Safe to call on a session without a gamepad.
+    pub fn release_gamepad(&self) {
+        let mut inner = self.inner.lock();
+        if let Some(gp) = inner.gamepad.as_mut() {
+            gp.release_all();
         }
     }
 
