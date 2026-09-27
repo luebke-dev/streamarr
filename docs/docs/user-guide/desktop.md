@@ -234,9 +234,28 @@ connected the app announces "no controller found" and the arrow keys still work.
 A pad whose A/B and X/Y are swapped is using a non-standard layout — see
 [Gamepads](#gamepads) above.
 
-## Something is wrong
+## Server address and the IP pin
+
+If your server's hostname does not resolve to the address that actually answers — common
+with internal DNS, split-horizon DNS or a VPN that advertises an address it cannot serve
+— enter the real address under **IP address** in the profile.
+
+This is deliberately *not* the same as typing the IP as the server address:
+
+- Entering the IP as the address **breaks TLS**, because certificates are issued for
+  names, not addresses. The connection is refused rather than silently downgraded.
+- Entering the name plus the IP as a pin **keeps the name** for the TLS check and only
+  changes where the connection goes. The certificate still has to match, and it still
+  does.
+
+Without a pin, a request to a dead address waits for the connection timeout and then
+fails — the app reports this as a timeout with the advice to set the pin, rather than as
+a generic network error.
+
+## Troubleshooting
 
 ### Reporting a problem
+
 
 **Settings → Report a problem** collects what a diagnosis needs and offers to send
 it to your server's log. Before sending, it shows what would be sent: the app
@@ -264,41 +283,6 @@ stream. Redirecting its output produced **0-byte files that looked like working
 diagnostics** — mpv's `--no-terminal` suppresses exactly the messages worth
 keeping — so the log file is the only trustworthy source.
 
-### Common cases
-
-**"mpv is not installed"** — the app starts but cannot play anything. Install mpv;
-it is deliberately not a hard package dependency, because distributions expect to
-provide their own and the app is usable without it for browsing.
-
-**A game shows a black picture** — a decoder or sink element is missing. The app
-names the missing element and a package to install, for example
-`vaapidecodebin` or `vah264dec`. The set differs by hardware: AMD needs
-`gstreamer1-vaapi`, NVIDIA a different plugin, and `wayland` needs
-`gstreamer1-plugins-bad-free` for `waylandsink`.
-
-**The window is black but the audio plays** — the video sink was selected for the
-wrong display server. On Wayland the app uses `waylandsink`; `glimagesink`, which
-the plan originally named, aborts the process when it is handed a Wayland surface.
-
-## Server address and the IP pin
-
-If your server's hostname does not resolve to the address that actually answers — common
-with internal DNS, split-horizon DNS or a VPN that advertises an address it cannot serve
-— enter the real address under **IP address** in the profile.
-
-This is deliberately *not* the same as typing the IP as the server address:
-
-- Entering the IP as the address **breaks TLS**, because certificates are issued for
-  names, not addresses. The connection is refused rather than silently downgraded.
-- Entering the name plus the IP as a pin **keeps the name** for the TLS check and only
-  changes where the connection goes. The certificate still has to match, and it still
-  does.
-
-Without a pin, a request to a dead address waits for the connection timeout and then
-fails — the app reports this as a timeout with the advice to set the pin, rather than as
-a generic network error.
-
-## Troubleshooting
 
 ### "Playback failed" with no further detail
 
@@ -337,6 +321,22 @@ credentials are stored.
 The app reports `Token-Ablage:` on startup. If the keyring is unavailable — a headless
 session or a container without a Secret Service — the app falls back to a file with
 restricted permissions and says so, rather than refusing to run.
+
+### Common cases
+
+**"mpv is not installed"** — the app starts but cannot play anything. Install mpv;
+it is deliberately not a hard package dependency, because distributions expect to
+provide their own and the app is usable without it for browsing.
+
+**A game shows a black picture** — a decoder or sink element is missing. The app
+names the missing element and a package to install, for example
+`vaapidecodebin` or `vah264dec`. The set differs by hardware: AMD needs
+`gstreamer1-vaapi`, NVIDIA a different plugin, and `wayland` needs
+`gstreamer1-plugins-bad-free` for `waylandsink`.
+
+**The window is black but the audio plays** — the video sink was selected for the
+wrong display server. On Wayland the app uses `waylandsink`; `glimagesink`, which
+the plan originally named, aborts the process when it is handed a Wayland surface.
 
 ## Updates
 

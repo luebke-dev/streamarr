@@ -79,6 +79,35 @@ jobs:
       - name: Test (no features)
         working-directory: desktop/player
         run: cargo test --locked
+      # Every feature variant, not just the default. Each one adds code that is
+      # otherwise never compiled: `mpv` brings the player integration, `spike` the
+      # GStreamer pipeline, `gamepad` the controller reader. A change that only
+      # breaks one of them would leave the default build green — and the feature
+      # that is broken is exactly the one a user asked for.
+      # GStreamer's development headers, needed by the `spike` variant below.
+      # Without them that variant cannot be compiled at all — which is also why
+      # this step exists rather than a bare `cargo clippy --all-features`: the
+      # point is to compile each variant on its own, so a failure names the
+      # feature that broke instead of the whole set.
+      - name: GStreamer development libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+          version=$(pkg-config --modversion gstreamer-1.0)
+          echo "GStreamer $version"
+          required=1.22
+          if [ "$(printf '%s\n%s\n' "$required" "$version" | sort -V | head -1)" != "$required" ]; then
+            echo "::error::GStreamer $version ist aelter als $required; das spike-Feature braucht send_string_full"
+            exit 1
+          fi
+      - name: Clippy (every feature variant)
+        working-directory: desktop/player
+        run: |
+          set -euo pipefail
+          for feature in gamepad mpv spike; do
+            echo "--- clippy --features $feature ---"
+            cargo clippy --locked --features "$feature" --all-targets -- -D warnings
+          done
       # The wire-contract tests read ../lightrays/src and ../backend/src. They skip
       # when those are absent, so this asserts the paths really resolved — otherwise
       # the suite could degrade into no-ops that report success.
