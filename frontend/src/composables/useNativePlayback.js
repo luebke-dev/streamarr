@@ -40,7 +40,7 @@ export function reducePlayerEvent(state, eventName, payload) {
     case 'player:started':
       next.active = true
       next.itemGuid = payload?.item_guid ?? state.itemGuid
-      next.notice = payload?.notice ?? null
+      next.notices = payload?.notices ?? []
       next.isTranscode = Boolean(payload?.is_transcode)
       next.isResuming = Boolean(payload?.is_resuming)
       next.startPosition = payload?.start_position ?? 0
@@ -82,7 +82,7 @@ export function initialPlayerState() {
     position: 0,
     duration: 0,
     itemGuid: null,
-    notice: null,
+    notices: [],
     isTranscode: false,
     isResuming: false,
     startPosition: 0,

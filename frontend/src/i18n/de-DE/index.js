@@ -1548,7 +1548,22 @@ export default {
   },
 
   // Episode Play Page
+
   playPage: {
+    // Native (Desktop-)Wiedergabe. Das Video läuft im eigenen mpv-Fenster; diese Texte
+    // beschreiben den Statusbildschirm und die zwei Dinge, die sonst unsichtbar wären:
+    // ob der Server umrechnet und ob die Wiedergabe fortgesetzt wurde.
+    nativePlayback: {
+      hint: 'Die Wiedergabe läuft im eigenen Fenster (mpv). Mit F wird es vollbild, mit Leertaste pausiert.',
+      restart: 'Von vorne beginnen',
+      notice: {
+        resuming: 'Wiedergabe wird bei {position} fortgesetzt.',
+        transcode: 'Der Server rechnet dieses Video um (Transcode) — das kostet Serverleistung.',
+        resolution:
+          'Der Servername zeigt auf eine andere Adresse als das Profil — die Wiedergabe braucht die im Profil hinterlegte Adresse.',
+      },
+    },
+
     loading: 'Wird geladen...',
     checkingAvailability: 'Verfügbarkeit wird geprüft...',
     startingPlayback: 'Wiedergabe wird gestartet...',

@@ -72,7 +72,7 @@
     <native-playback-view
       v-else-if="status === 'native-streaming'"
       :title="contentTitle"
-      :notice="nativePlayer.state.value.notice"
+      :notices="nativePlayer.state.value.notices"
       :is-resuming="nativePlayer.state.value.isResuming"
       @close="goBack"
       @restart="restartNativePlayback"

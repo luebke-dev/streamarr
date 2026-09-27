@@ -8,7 +8,7 @@
 //!   PLAY_CA=/tmp/rt/c.pem cargo run --example play_probe
 
 use streamarr_desktop_player::mpv::{HdrMode, Mpv, PlayerState};
-use streamarr_desktop_player::plan::{notice_for, plan_playback};
+use streamarr_desktop_player::plan::{notices_for, plan_playback};
 use streamarr_desktop_player::playback::PlayResponse;
 use streamarr_desktop_player::profile::{Profile, ServerAddress};
 use streamarr_desktop_player::resolve_tunnel::{tunnel_plan, ResolveTunnel};
@@ -60,7 +60,7 @@ fn main() {
     )
     .expect("Plan");
     println!("2. Plan: {} -> {}", plan.url, plan.start_position);
-    println!("   Hinweis: {:?}", notice_for(&plan));
+    println!("   Hinweise: {:?}", notices_for(&plan));
 
     // 3. Tunnel starten — Name bleibt, Verbindung geht an den Pin.
     let mapping = tunnel_plan(&plan.stream_host, 8443, Some(&pin)).expect("Mapping");

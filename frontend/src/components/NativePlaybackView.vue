@@ -11,13 +11,17 @@
     <div class="native-playback__inner">
       <h2 class="native-playback__title">{{ title }}</h2>
 
-      <p v-if="notice" class="native-playback__notice" data-test="notice">
-        {{ notice }}
+      <p
+        v-for="(notice, index) in notices"
+        :key="index"
+        class="native-playback__notice"
+        data-test="notice"
+      >
+        {{ $t(`playPage.nativePlayback.notice.${notice.kind}`, noticeParams(notice)) }}
       </p>
 
       <p class="native-playback__hint">
-        Die Wiedergabe läuft im eigenen Fenster (mpv). Mit <kbd>F</kbd> wird es
-        vollbild, mit <kbd>Leertaste</kbd> pausiert.
+        {{ $t('playPage.nativePlayback.hint') }}
       </p>
 
       <div class="native-playback__actions">
@@ -31,7 +35,7 @@
           v-if="isResuming"
           outline
           color="primary"
-          label="Von vorne beginnen"
+          :label="$t('playPage.nativePlayback.restart')"
           no-caps
           @click="$emit('restart')"
         />
@@ -41,14 +45,39 @@
 </template>
 
 <script setup>
+/**
+ * What the player has to say, as structured facts.
+ *
+ * The core crate produces these as typed variants rather than sentences, because the
+ * default language here is `en-US` and a sentence assembled in Rust could not be
+ * translated afterwards — the position of a number differs between languages. Each
+ * variant carries a `kind`, which is its translation key, plus whatever data the message
+ * needs.
+ */
 defineProps({
   title: { type: String, default: '' },
-  /** A sentence about resuming or transcoding, produced by the core crate. */
-  notice: { type: String, default: null },
+  notices: { type: Array, default: () => [] },
   isResuming: { type: Boolean, default: false },
 })
 
 defineEmits(['close', 'restart'])
+
+/** The interpolation values for one notice, formatted for the current locale. */
+function noticeParams(notice) {
+  if (notice?.kind !== 'resuming') return {}
+  // Formatted here rather than in Rust: a duration is written differently in different
+  // locales, and `toLocaleTimeString` knows that.
+  const total = Math.max(0, Math.round(notice.position_seconds || 0))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  const pad = (value) => String(value).padStart(2, '0')
+  return {
+    position: hours > 0
+      ? `${hours}:${pad(minutes)}:${pad(seconds)}`
+      : `${minutes}:${pad(seconds)}`,
+  }
+}
 </script>
 
 <style scoped>

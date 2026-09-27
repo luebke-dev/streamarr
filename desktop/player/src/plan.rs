@@ -36,6 +36,8 @@
 //! silent version, where the app knows the working address and streams anyway into a
 //! twenty-second hang.
 
+use serde::{Deserialize, Serialize};
+
 use crate::mpv::{HdrMode, PlayerOptions};
 use crate::playback::{PlayResponse, TrackPreference};
 use crate::profile::{Preferences, Profile, ServerAddress};
@@ -195,42 +197,84 @@ pub fn arguments_for(plan: &PlaybackPlan) -> Vec<String> {
     args
 }
 
-/// What the UI should tell the user before playback starts.
+/// Something the user should be told before or during playback.
 ///
-/// Returning this rather than a bare bool keeps the wording next to the rule that
-/// produced it, so a new case cannot appear without a sentence to show.
-pub fn notice_for(plan: &PlaybackPlan) -> Option<String> {
-    let mut notices = Vec::new();
-    if plan.is_resuming {
-        notices.push(format!(
-            "Wiedergabe wird bei {} fortgesetzt.",
-            format_position(plan.start_position)
-        ));
-    }
-    if plan.is_transcode {
-        notices.push(
-            "Der Server rechnet dieses Video um (Transcode) — das kostet Serverleistung."
-                .to_string(),
-        );
-    }
-    if plan.needs_resolution_help() {
-        // Named plainly, because the symptom is confusing: the stream would simply
-        // never start, with no error, while the rest of the app works.
-        notices.push(
-            "Der Servername zeigt auf eine andere Adresse als das Profil — die Wiedergabe \
-             braucht die im Profil hinterlegte Adresse."
-                .to_string(),
-        );
-    }
-    if notices.is_empty() {
-        None
-    } else {
-        Some(notices.join(" "))
+/// **Why these are variants and not sentences.** The first version returned finished
+/// German sentences from the core crate, which was wrong on two counts: the interface's
+/// default language is `en-US`, so most users would have read German; and a sentence
+/// cannot be translated once it has been assembled, because word order and the position
+/// of the number differ between languages. A variant carries the *fact*; the interface
+/// renders it in the user's language.
+///
+/// Keeping them typed also means a new case cannot be added without the interface's
+/// translation files being visibly incomplete — a stringly-typed `Vec<String>` would
+/// simply show up as untranslated text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum PlaybackNotice {
+    /// Playback continues from a stored position.
+    ///
+    /// The serialised tag is the interface's translation key — see [`Self::key`] — so
+    /// there is exactly **one** name for each case. A second spelling (say
+    /// `resolutionMismatch` on the wire and `resolution` in the key) would be a bug
+    /// waiting to happen, and it nearly was: the first version of this enum had exactly
+    /// that split.
+    #[serde(rename = "resuming")]
+    Resuming {
+        /// Position in seconds; the interface formats it for the locale.
+        position_seconds: f64,
+    },
+    /// The server must re-encode, which costs it capacity.
+    #[serde(rename = "transcode")]
+    Transcode,
+    /// The name mpv would resolve does not lead to the pinned address.
+    ///
+    /// Worth naming plainly, because the symptom is confusing: the stream never starts
+    /// and reports no error, while the rest of the app works normally.
+    #[serde(rename = "resolution")]
+    ResolutionMismatch,
+}
+
+impl PlaybackNotice {
+    /// The key the interface looks up, under `playPage.nativePlayback.notice`.
+    ///
+    /// Kept in step with the serialised tag by a test, because two names for one thing is
+    /// how a translation goes missing without anything failing.
+    pub fn key(&self) -> &'static str {
+        match self {
+            Self::Resuming { .. } => "resuming",
+            Self::Transcode => "transcode",
+            Self::ResolutionMismatch => "resolution",
+        }
     }
 }
 
-/// `H:MM:SS` or `M:SS`, for a notice a person reads.
-fn format_position(seconds: f64) -> String {
+/// What the UI should tell the user about this playback.
+///
+/// Structured rather than textual: see [`PlaybackNotice`]. An empty list means there is
+/// nothing to say, which is the normal case for a direct play from the beginning.
+pub fn notices_for(plan: &PlaybackPlan) -> Vec<PlaybackNotice> {
+    let mut notices = Vec::new();
+    if plan.is_resuming {
+        notices.push(PlaybackNotice::Resuming {
+            position_seconds: plan.start_position,
+        });
+    }
+    if plan.is_transcode {
+        notices.push(PlaybackNotice::Transcode);
+    }
+    if plan.needs_resolution_help() {
+        notices.push(PlaybackNotice::ResolutionMismatch);
+    }
+    notices
+}
+
+/// `H:MM:SS` or `M:SS`.
+///
+/// Used for log lines. The *user-facing* formatting happens in the interface, because the
+/// position must be rendered per locale — this cannot be handed over as a finished
+/// string without fixing the number format.
+pub fn format_position(seconds: f64) -> String {
     let total = seconds.max(0.0).round() as u64;
     let (h, m, s) = (total / 3600, (total % 3600) / 60, total % 60);
     if h > 0 {
@@ -613,17 +657,23 @@ mod tests {
         )
         .unwrap();
 
-        let notice = notice_for(&plan).expect("a notice");
-        assert!(notice.contains("fortgesetzt"), "{notice}");
+        let notices = notices_for(&plan);
+        assert_eq!(notices.len(), 2, "{notices:?}");
+        // The *fact* is reported, with the number as a number: the interface renders it
+        // per locale, so a finished sentence here would be untranslatable.
         assert!(
-            notice.contains("10:00"),
-            "the position is readable: {notice}"
+            matches!(
+                notices[0],
+                PlaybackNotice::Resuming { position_seconds }
+                    if (position_seconds - 600.0).abs() < 0.01
+            ),
+            "{notices:?}"
         );
-        assert!(notice.contains("Transcode"), "{notice}");
+        assert_eq!(notices[1], PlaybackNotice::Transcode);
     }
 
     #[test]
-    fn a_plain_direct_play_from_the_start_has_no_notice() {
+    fn a_plain_direct_play_from_the_start_has_nothing_to_say() {
         let plan = plan_playback(
             &response(PlaybackMethod::DirectPlay),
             &server(),
@@ -635,11 +685,11 @@ mod tests {
             HdrMode::Auto,
         )
         .unwrap();
-        assert_eq!(notice_for(&plan), None, "no news is good news");
+        assert!(notices_for(&plan).is_empty(), "no news is good news");
     }
 
     #[test]
-    fn the_resolution_trouble_is_named_in_the_notice() {
+    fn the_resolution_trouble_is_reported_as_its_own_case() {
         let mut srv = server();
         srv.resolve_override = Some("10.10.60.30:443".to_string());
         let plan = plan_playback(
@@ -653,8 +703,52 @@ mod tests {
             HdrMode::Auto,
         )
         .unwrap();
-        let notice = notice_for(&plan).unwrap();
-        assert!(notice.contains("Adresse"), "{notice}");
+        assert_eq!(notices_for(&plan), vec![PlaybackNotice::ResolutionMismatch]);
+    }
+
+    #[test]
+    fn every_notice_has_a_translation_key() {
+        // The interface looks these up in `playPage.nativePlayback.notice`. A new variant
+        // without a key would render as a missing translation, so the keys are pinned
+        // here — and a frontend test checks each key exists in every locale.
+        for (notice, expected) in [
+            (PlaybackNotice::Transcode, "transcode"),
+            (PlaybackNotice::ResolutionMismatch, "resolution"),
+            (
+                PlaybackNotice::Resuming {
+                    position_seconds: 1.0,
+                },
+                "resuming",
+            ),
+        ] {
+            assert_eq!(notice.key(), expected);
+        }
+    }
+
+    #[test]
+    fn a_notice_serialises_with_its_key_as_the_tag() {
+        // The interface switches on `kind` and then looks up exactly that key, so the two
+        // must be the same string. A rename that touched only one of them would render as
+        // a missing translation with nothing failing.
+        let notices = [
+            PlaybackNotice::Resuming {
+                position_seconds: 300.0,
+            },
+            PlaybackNotice::Transcode,
+            PlaybackNotice::ResolutionMismatch,
+        ];
+        for notice in notices {
+            let json = serde_json::to_value(&notice).unwrap();
+            assert_eq!(json["kind"], notice.key(), "{json}");
+        }
+
+        // The number stays a number under a snake_case name, matching the rest of the
+        // wire contract (`item_guid`, `start_position`).
+        let json = serde_json::to_value(PlaybackNotice::Resuming {
+            position_seconds: 300.0,
+        })
+        .unwrap();
+        assert_eq!(json["position_seconds"], 300.0);
     }
 
     #[test]

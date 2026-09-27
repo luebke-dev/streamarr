@@ -29,7 +29,9 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use streamarr_desktop_player::mpv::{HdrMode, Mpv, PlayerOptions, PlayerState};
-use streamarr_desktop_player::plan::{notice_for, plan_playback, position_to_store, PlaybackPlan};
+use streamarr_desktop_player::plan::{
+    notices_for, plan_playback, position_to_store, PlaybackNotice, PlaybackPlan,
+};
 use streamarr_desktop_player::resolve_tunnel::{tunnel_plan, ResolveTunnel};
 use tauri::{Emitter, State};
 
@@ -60,8 +62,12 @@ pub struct PlaybackSummary {
     pub start_position: f64,
     pub is_resuming: bool,
     pub is_transcode: bool,
-    /// A sentence for the user, or `None` when there is nothing to say.
-    pub notice: Option<String>,
+    /// What the interface should tell the user, as structured facts.
+    ///
+    /// Not sentences: the interface's default language is `en-US`, and a sentence
+    /// assembled here could not be translated afterwards. The interface renders these in
+    /// the user's language.
+    pub notices: Vec<PlaybackNotice>,
 }
 
 /// A running player, shared with the monitor thread.
@@ -309,8 +315,23 @@ fn start_player(
             .push(format!("--http-proxy={}", tunnel.proxy_url()));
     }
 
-    if let Some(notice) = notice_for(&plan) {
-        log::info!("Wiedergabe: {notice}");
+    // Logged in German because it is a log line, not user interface text — and with the
+    // position formatted, so a log reader sees "5:00" rather than "300".
+    if !notices_for(&plan).is_empty() {
+        let described: Vec<String> = notices_for(&plan)
+            .iter()
+            .map(|notice| match notice {
+                PlaybackNotice::Resuming { position_seconds } => format!(
+                    "wird bei {} fortgesetzt",
+                    streamarr_desktop_player::plan::format_position(*position_seconds)
+                ),
+                PlaybackNotice::Transcode => "wird vom Server umgerechnet".to_string(),
+                PlaybackNotice::ResolutionMismatch => {
+                    "Name und Profiladresse weichen ab".to_string()
+                }
+            })
+            .collect();
+        log::info!("Wiedergabe: {}", described.join(", "));
     }
 
     let mpv = Mpv::start(&plan.url, &options)
@@ -329,7 +350,7 @@ fn start_player(
         start_position: plan.start_position,
         is_resuming: plan.is_resuming,
         is_transcode: plan.is_transcode,
-        notice: notice_for(&plan),
+        notices: notices_for(&plan),
     };
 
     let thread_state = Arc::clone(&state_handle);

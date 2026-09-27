@@ -1931,7 +1931,22 @@ export default {
   },
 
   // Episode Play Page
+
   playPage: {
+    // Native (desktop) playback. The video runs in mpv's own window, so these describe
+    // the status screen and the two things that are otherwise invisible: that the server
+    // is transcoding, and that playback resumed from a stored position.
+    nativePlayback: {
+      hint: 'Playback runs in its own window (mpv). Press F for fullscreen and Space to pause.',
+      restart: 'Start from the beginning',
+      notice: {
+        resuming: 'Resuming at {position}.',
+        transcode: 'The server is transcoding this video, which costs server capacity.',
+        resolution:
+          "The server name points to a different address than the profile — playback needs the address stored in the profile.",
+      },
+    },
+
     loading: 'Loading...',
     checkingAvailability: 'Checking availability...',
     startingPlayback: 'Starting playback...',

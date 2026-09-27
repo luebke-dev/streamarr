@@ -49,7 +49,7 @@ describe('reducePlayerEvent', () => {
     expect(state.active).toBe(false)
     expect(state.position).toBe(0)
     expect(state.error).toBeNull()
-    expect(state.notice).toBeNull()
+    expect(state.notices).toEqual([])
   })
 
   it('takes the notice and the transcode flag from the started event', () => {
@@ -57,7 +57,7 @@ describe('reducePlayerEvent', () => {
     // re-encoding, and whether playback resumed from a stored position.
     const state = reducePlayerEvent(initialPlayerState(), 'player:started', {
       item_guid: 'abc',
-      notice: 'Wiedergabe wird bei 5:00 fortgesetzt.',
+      notices: [{ kind: 'resuming', position_seconds: 300 }, { kind: 'transcode' }],
       is_transcode: true,
       is_resuming: true,
       start_position: 300,
@@ -65,7 +65,9 @@ describe('reducePlayerEvent', () => {
 
     expect(state.active).toBe(true)
     expect(state.itemGuid).toBe('abc')
-    expect(state.notice).toContain('fortgesetzt')
+    // Structured facts, not sentences: the interface renders them in the user's language.
+    expect(state.notices).toHaveLength(2)
+    expect(state.notices[0]).toEqual({ kind: 'resuming', position_seconds: 300 })
     expect(state.isTranscode).toBe(true)
     expect(state.isResuming).toBe(true)
     expect(state.startPosition).toBe(300)
