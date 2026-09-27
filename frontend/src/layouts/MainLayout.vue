@@ -19,6 +19,13 @@
 
           <PartyButton />
 
+          <!--
+            Desktop only, and it hides itself in a browser build rather than
+            being disabled: a control that cannot work is worse than an absent
+            one. The web interface is otherwise unchanged.
+          -->
+          <CouchModeButton />
+
           <RemoteControlButton />
 
           <UserMenu />
@@ -208,6 +215,7 @@ import DrawerItem from 'components/DrawerItem.vue'
 import UserMenu from 'components/UserMenu.vue'
 import PartyButton from 'components/PartyButton.vue'
 import RemoteControlButton from 'components/RemoteControlButton.vue'
+import CouchModeButton from 'components/CouchModeButton.vue'
 import GlobalBanners from 'components/GlobalBanners.vue'
 import FriendRequestBanner from 'components/FriendRequestBanner.vue'
 import AudioPlayer from 'components/AudioPlayer.vue'

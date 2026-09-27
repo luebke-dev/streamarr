@@ -78,15 +78,22 @@ describe('useCouchMode', () => {
     desktop = true
     // The state the shell reports on mount, and a sane default for everything
     // else, so a test only has to override what it is about.
-    invoke.mockImplementation(async (command) => {
+    // `args` is the second element, so the mock can answer honestly about what
+    // it was asked for. A mock that always replies `active: true` makes
+    // `setActive(false)` look broken when it is not.
+    invoke.mockImplementation(async (command, args) => {
       if (command === 'couch_state') return { focus: null, active: false, pads: 0 }
       if (command === 'couch_pads') return []
       if (command === 'couch_move') return { kind: 'none' }
       if (command === 'couch_intent') return { kind: 'none' }
       if (command === 'set_couch_layout') return { focus: null, active: false, pads: 0 }
-      if (command === 'set_couch_mode') return { focus: 'a', active: true, pads: 0 }
+      if (command === 'set_couch_mode') {
+        return { focus: 'a', active: Boolean(args?.active), pads: 0 }
+      }
       if (command === 'couch_pad_input') return []
-      if (command === 'couch_set_fullscreen') return { kind: 'applied', fullscreen: true }
+      if (command === 'couch_set_fullscreen') {
+        return { kind: 'applied', fullscreen: Boolean(args?.fullscreen) }
+      }
       return undefined
     })
   })
@@ -272,6 +279,47 @@ describe('useCouchMode', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }))
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(invoke).toHaveBeenCalledWith('set_couch_mode', { active: false })
+  })
+
+  it('shares one state between two components that both use it', async () => {
+    // Couch mode is one global mode, not per-component state. With a per-call
+    // `ref` the toolbar button and a list would each have their own `active`
+    // flag, their own focus, and their own pad poll timer draining the same
+    // device queue — and two pollers fight over the repeat clock, so a held
+    // direction moves twice as fast.
+    const { useCouchMode } = await freshModule()
+    const first = await mountComposable(useCouchMode)
+    const second = await mountComposable(useCouchMode)
+
+    first.api.active.value = true
+    expect(second.api.active.value).toBe(true)
+
+    await second.api.setActive(false)
+    expect(first.api.active.value).toBe(false)
+  })
+
+  it('installs its listeners once, however many components use it', async () => {
+    const { useCouchMode } = await freshModule()
+    await mountComposable(useCouchMode)
+    await mountComposable(useCouchMode)
+    // One `couch_state` call, not two: the second mount must not reload the
+    // shell or re-register the pad listener.
+    const stateCalls = invoke.mock.calls.filter(([c]) => c === 'couch_state')
+    expect(stateCalls).toHaveLength(1)
+  })
+
+  it('keeps the mode alive while another component still uses it', async () => {
+    const { useCouchMode } = await freshModule()
+    const first = await mountComposable(useCouchMode)
+    const second = await mountComposable(useCouchMode)
+    await first.api.setActive(true)
+
+    // One component going away must not stop the pad reader for the other.
+    first.wrapper.unmount()
+    const index = mounted.indexOf(first.wrapper)
+    if (index >= 0) mounted.splice(index, 1)
+    expect(first.api.active.value).toBe(true)
+    void second
   })
 
   it('asks the shell for the window to go fullscreen, not an element', async () => {

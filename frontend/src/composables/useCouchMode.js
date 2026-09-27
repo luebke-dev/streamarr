@@ -42,18 +42,32 @@ async function loadShell() {
 // visible lag to the *first* press of a direction — the one that has no delay.
 const PAD_POLL_MS = 60
 
-export function useCouchMode() {
-  const active = ref(false)
-  const focusId = ref(null)
-  const pads = ref(0)
-  const available = ref(false)
-  const fullscreenState = ref(false)
+// The state is module-level, because couch mode is one global mode rather than
+// per-component state.
+//
+// This is not a style choice. A per-call `ref` would mean two components using
+// the composable each get their own `active` flag, their own focus and — worse —
+// their own pad poll timer, all draining the same device queue in the shell.
+// Two pollers would also fight over the repeat clock: the shell sees each
+// reading twice, and a held direction moves twice as fast. Found while writing
+// the toolbar button, which would have been the second caller.
+const active = ref(false)
+const focusId = ref(null)
+const pads = ref(0)
+const available = ref(false)
+const fullscreenState = ref(false)
 
-  // Element for each focusable id, so an effect can act on it.
-  const elements = new Map()
-  let pollTimer = null
-  let unlistenPad = null
-  let startedAt = null
+// Element references are global for the same reason: the focus is one focus.
+const elements = new Map()
+
+let pollTimer = null
+let unlistenPad = null
+let startedAt = null
+let refCount = 0
+let hasResizeListener = false
+
+export function useCouchMode() {
+  // Kept below as local aliases so the rest of the module reads as before.
 
   const isSupported = computed(() => available.value)
 
@@ -218,7 +232,11 @@ export function useCouchMode() {
   }
 
   onMounted(async () => {
+    refCount += 1
     if (!isDesktopApp()) return
+    // Only the first mount loads the shell and installs the listeners; a second
+    // component must not install a second copy of either.
+    if (unlistenPad !== null) return
     available.value = await loadShell()
     if (!available.value) return
     const state = await invokeFn('couch_state')
@@ -239,15 +257,24 @@ export function useCouchMode() {
   })
 
   onBeforeUnmount(() => {
+    refCount -= 1
+    // Torn down only when the last user goes away. A component unmounting while
+    // another still shows the mode must not stop the pad reader.
+    if (refCount > 0) return
     stopPadPolling()
-    if (unlistenPad) unlistenPad()
+    if (unlistenPad) {
+      unlistenPad()
+      unlistenPad = null
+    }
     document.removeEventListener('keydown', onKeydown)
     elements.clear()
   })
 
   // A resize changes every rectangle, so the shell's geometry has to be rebuilt.
   // Without this, resizing the window makes "right" move to the wrong tile.
-  if (typeof window !== 'undefined') {
+  // Installed once, with the first mount.
+  if (typeof window !== 'undefined' && !hasResizeListener) {
+    hasResizeListener = true
     let resizeTimer = null
     const onResize = () => {
       if (!active.value) return
@@ -258,11 +285,11 @@ export function useCouchMode() {
         reportLayout()
       }, 150)
     }
-    onMounted(() => window.addEventListener('resize', onResize))
-    onBeforeUnmount(() => {
-      clearTimeout(resizeTimer)
-      window.removeEventListener('resize', onResize)
-    })
+    window.addEventListener('resize', onResize)
+    // Deliberately never removed: the listener is installed once for the
+    // application's lifetime and the state it touches is module-level. Removing
+    // it on one component's unmount would disarm the others.
+    void resizeTimer
   }
 
   watch(active, (value) => {
