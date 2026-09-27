@@ -20,6 +20,7 @@
 //! [`input`], behind the `gamepad` feature because it needs `libudev`.
 
 pub mod capabilities;
+pub mod profile;
 pub mod protocol;
 
 /// Reading physical gamepads and translating them into the wire format.
