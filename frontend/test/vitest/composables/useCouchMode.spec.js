@@ -86,6 +86,7 @@ describe('useCouchMode', () => {
       if (command === 'set_couch_layout') return { focus: null, active: false, pads: 0 }
       if (command === 'set_couch_mode') return { focus: 'a', active: true, pads: 0 }
       if (command === 'couch_pad_input') return []
+      if (command === 'couch_set_fullscreen') return { kind: 'applied', fullscreen: true }
       return undefined
     })
   })
@@ -271,6 +272,51 @@ describe('useCouchMode', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }))
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(invoke).toHaveBeenCalledWith('set_couch_mode', { active: false })
+  })
+
+  it('asks the shell for the window to go fullscreen, not an element', async () => {
+    const { useCouchMode } = await freshModule()
+    const { api } = await mountComposable(useCouchMode)
+    await api.setActive(true)
+
+    // The WebView's own Fullscreen API would make an element fill the page; the
+    // couch interface needs the *window* to leave the desktop, which only the
+    // shell can ask the window manager for.
+    expect(invoke).toHaveBeenCalledWith('couch_set_fullscreen', { fullscreen: true })
+    expect(api.fullscreen.value).toBe(true)
+    await api.setActive(false)
+  })
+
+  it('gives the desktop back when couch mode is left', async () => {
+    const { useCouchMode } = await freshModule()
+    const { api } = await mountComposable(useCouchMode)
+    await api.setActive(true)
+    invoke.mockClear()
+    invoke.mockImplementation(async (command) => {
+      if (command === 'couch_set_fullscreen') return { kind: 'applied', fullscreen: false }
+      return undefined
+    })
+    await api.setActive(false)
+    expect(invoke).toHaveBeenCalledWith('couch_set_fullscreen', { fullscreen: false })
+    expect(api.fullscreen.value).toBe(false)
+  })
+
+  it('keeps working when the window manager refuses fullscreen', async () => {
+    const { useCouchMode } = await freshModule()
+    const { api } = await mountComposable(useCouchMode)
+    invoke.mockImplementation(async (command) => {
+      if (command === 'couch_set_fullscreen') {
+        return { kind: 'failed', reason: 'kein Fenstermanager' }
+      }
+      if (command === 'set_couch_mode') return { focus: null, active: true, pads: 0 }
+      return undefined
+    })
+    await api.setActive(true)
+    // The mode is still on and the pad poll still runs: a failed fullscreen
+    // request must not take the feature down with it.
+    expect(api.active.value).toBe(true)
+    expect(api.fullscreen.value).toBe(false)
+    await api.setActive(false)
   })
 
   it('sends a real time base with every pad poll', async () => {

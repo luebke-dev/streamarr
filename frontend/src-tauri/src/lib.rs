@@ -218,6 +218,7 @@ pub fn run() {
             commands::couch::couch_repeat_info,
             commands::couch::couch_pad_input,
             commands::couch::couch_pads,
+            commands::couch::couch_set_fullscreen,
         ])
         .run(tauri::generate_context!())
         .expect("error while running streamarr.media desktop app");

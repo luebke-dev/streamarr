@@ -257,6 +257,60 @@ pub fn couch_repeat_info() -> RepeatInfo {
     }
 }
 
+/// Why a fullscreen request could not be honoured.
+///
+/// Returned rather than silently ignored: a couch interface that does not go
+/// fullscreen is not "almost working", it is the wrong thing — the whole point is
+/// to be readable from a sofa, and a window with a title bar and a desktop behind
+/// it is not.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FullscreenOutcome {
+    /// The window is now in the requested state.
+    Applied { fullscreen: bool },
+    /// The request failed; `reason` is for a log, not for a dialog.
+    Failed { reason: String },
+}
+
+/// Puts the main window into or out of fullscreen.
+///
+/// In the shell rather than in the UI on purpose. The WebView's own Fullscreen
+/// API makes an *element* fullscreen inside the page; what couch mode needs is
+/// the **window** to leave the desktop, and only the shell can ask the window
+/// manager for that. The `main` capability deliberately grants the UI no window
+/// permissions, so this command is the entire surface — and it takes no window
+/// identifier, so the UI cannot address a different window with it.
+#[tauri::command]
+pub fn couch_set_fullscreen(
+    fullscreen: bool,
+    window: tauri::Window,
+    couch: State<'_, CouchMode>,
+) -> FullscreenOutcome {
+    // Refused when the caller is not the main window. A command that took a
+    // window name would let any granted window resize any other; taking the
+    // caller's own window and checking it cannot.
+    if window.label() != "main" {
+        return FullscreenOutcome::Failed {
+            reason: format!("Fenster {:?} darf kein Vollbild setzen", window.label()),
+        };
+    }
+    match window.set_fullscreen(fullscreen) {
+        Ok(()) => {
+            // Remembered so a later `couch_state` can report the truth rather
+            // than what the caller asked for. The window manager may refuse, and
+            // asking it back is the only way to know.
+            let actual = window.is_fullscreen().unwrap_or(fullscreen);
+            if let Ok(mut active) = couch.active.lock() {
+                *active = actual;
+            }
+            FullscreenOutcome::Applied { fullscreen: actual }
+        }
+        Err(error) => FullscreenOutcome::Failed {
+            reason: error.to_string(),
+        },
+    }
+}
+
 /// Reads the connected controllers and returns what couch mode should do.
 ///
 /// # This is the real path, not a placeholder

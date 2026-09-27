@@ -47,6 +47,7 @@ export function useCouchMode() {
   const focusId = ref(null)
   const pads = ref(0)
   const available = ref(false)
+  const fullscreenState = ref(false)
 
   // Element for each focusable id, so an effect can act on it.
   const elements = new Map()
@@ -119,6 +120,22 @@ export function useCouchMode() {
     applyEffect(await invokeFn('couch_intent', { intent: 'activate' }))
   }
 
+  // Fullscreen follows couch mode: entering it should fill the screen, leaving
+  // it should give the desktop back. Done through the shell because the WebView's
+  // own Fullscreen API makes an *element* fullscreen inside the page, not the
+  // window.
+  async function setFullscreen(fullscreen) {
+    if (!available.value) return null
+    const outcome = await invokeFn('couch_set_fullscreen', { fullscreen }).catch(() => null)
+    if (outcome?.kind === 'failed') {
+      // Not a dialog: the interface is still usable in a window, and a failed
+      // window-manager request is not something a user can act on.
+      return outcome
+    }
+    fullscreenState.value = outcome?.fullscreen ?? fullscreen
+    return outcome
+  }
+
   async function setActive(value) {
     if (!available.value) return
     const state = await invokeFn('set_couch_mode', { active: value })
@@ -128,9 +145,11 @@ export function useCouchMode() {
     focusId.value = state?.focus ?? focusId.value
     if (value) {
       await reportLayout()
+      await setFullscreen(true)
       startPadPolling()
     } else {
       stopPadPolling()
+      await setFullscreen(false)
     }
   }
 
@@ -254,7 +273,9 @@ export function useCouchMode() {
     active,
     focusId,
     pads,
+    fullscreen: fullscreenState,
     isSupported,
+    setFullscreen,
     registerElement,
     reportLayout,
     move,
