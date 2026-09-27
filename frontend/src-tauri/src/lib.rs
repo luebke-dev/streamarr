@@ -77,6 +77,18 @@ impl AppState {
         Ok(client)
     }
 
+    /// The active profile's server address, or the default when none is set.
+    ///
+    /// Used for diagnostics, which must work even before a profile exists.
+    pub fn device_server(&self) -> streamarr_desktop_player::profile::ServerAddress {
+        self.profiles
+            .lock()
+            .unwrap()
+            .active()
+            .map(|profile| profile.server.clone())
+            .unwrap_or_default()
+    }
+
     /// Drops the cached client so the next call uses the changed address.
     pub fn invalidate_api(&self) {
         *self.api.lock().unwrap() = None;
@@ -148,6 +160,7 @@ pub fn run() {
             commands::session::token_backend,
             commands::session::register_capabilities,
             commands::session::auth_status,
+            commands::session::diagnose_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running streamarr.media desktop app");

@@ -63,3 +63,6 @@ keyring = { version = "3", features = [
 # here as they land, mirroring desktop/player so a build without system
 # dependencies stays possible.
 default = []
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }

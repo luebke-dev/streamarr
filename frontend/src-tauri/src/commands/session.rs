@@ -87,7 +87,18 @@ pub async fn login(
     let response = client
         .login(&email, &password, &device)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            // A login failure that never reached the server is a connection problem, and
+            // the user needs the connection advice rather than "wrong password".
+            let (kind, detail) = e.failure();
+            match kind {
+                crate::api::FailureKind::Http(_) => e.to_string(),
+                _ => match crate::api::diagnose(&state.device_server(), kind, &detail).advice {
+                    Some(advice) => format!("{e} — {advice}"),
+                    None => e.to_string(),
+                },
+            }
+        })?;
 
     // Stored before anything else: if persisting fails, the caller must know, because
     // a session that only lives in memory disappears on restart and looks like the
@@ -238,6 +249,69 @@ pub async fn register_capabilities(
 pub async fn auth_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.api().map_err(|e| e.to_string())?;
     client.auth_status().await.map_err(|e| e.to_string())
+}
+
+/// What went wrong reaching the server, and what to do about it.
+///
+/// A separate command rather than an error string, because the UI needs to react
+/// differently depending on the cause: a timeout on an unpinned address means the IP
+/// field should be offered, a certificate problem means it should not. Both were
+/// measured live — the name resolves to an unreachable address, so the failure arrives
+/// as a **20-second timeout with no explanation at all**.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConnectionDiagnosis {
+    pub problem: String,
+    pub advice: Option<String>,
+    pub suggests_pin: bool,
+    /// The address that was tried, so the user can see which one is meant.
+    pub server_url: String,
+    pub resolve_override: Option<String>,
+}
+
+/// Checks reachability and explains a failure in concrete terms.
+#[tauri::command]
+pub async fn diagnose_connection(
+    state: State<'_, AppState>,
+) -> Result<ConnectionDiagnosis, String> {
+    let (server, profile_hint) = {
+        let profiles = state.profiles.lock().unwrap();
+        let profile = profiles.active().cloned();
+        match profile {
+            Some(profile) => (profile.server.clone(), None),
+            None => (
+                streamarr_desktop_player::profile::ServerAddress::default(),
+                Some("Es ist kein Profil eingerichtet.".to_string()),
+            ),
+        }
+    };
+
+    let client = crate::api::ApiClient::new(&server).map_err(|e| e.to_string())?;
+    match client.auth_status().await {
+        Ok(_) => Ok(ConnectionDiagnosis {
+            problem: "Der Server antwortet.".to_string(),
+            advice: None,
+            suggests_pin: false,
+            server_url: server.base_url(),
+            resolve_override: server.resolve_override.clone(),
+        }),
+        Err(err) => {
+            let (kind, detail) = err.failure();
+            let mut diagnosis = crate::api::diagnose(&server, kind, &detail);
+            if let Some(hint) = profile_hint {
+                diagnosis.advice = Some(match diagnosis.advice {
+                    Some(advice) => format!("{hint} {advice}"),
+                    None => hint,
+                });
+            }
+            Ok(ConnectionDiagnosis {
+                problem: diagnosis.problem,
+                advice: diagnosis.advice,
+                suggests_pin: diagnosis.suggests_pin,
+                server_url: server.base_url(),
+                resolve_override: server.resolve_override,
+            })
+        }
+    }
 }
 
 /// The size of the current display, as far as the shell can tell.
