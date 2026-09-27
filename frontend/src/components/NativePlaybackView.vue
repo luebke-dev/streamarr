@@ -40,6 +40,51 @@
           @click="$emit('restart')"
         />
       </div>
+
+      <!--
+        Audio and subtitle selection.
+
+        mpv decodes, so the language list comes from mpv's own tracks — not from
+        the file's `textTracks`, which the browser would describe for a stream the
+        player never received. Each dropdown is disabled when there is nothing to
+        choose, rather than hidden: a user looking for the control should find it
+        and see that there is only one option.
+      -->
+      <div v-if="tracks" class="native-playback__tracks" data-test="native-tracks">
+        <div class="native-playback__track">
+          <label for="native-audio-track">{{ $t('playPage.nativePlayback.audioTrack') }}</label>
+          <select
+            id="native-audio-track"
+            :value="tracks.selectedAudio ?? ''"
+            data-test="native-audio-select"
+            @change="$emit('select-audio', $event.target.value === '' ? null : Number($event.target.value))"
+          >
+            <option v-for="track in tracks.audio" :key="track.id" :value="track.id">
+              {{ track.label }}<template v-if="track.external"> · {{ $t('playPage.nativePlayback.external') }}</template>
+            </option>
+          </select>
+        </div>
+
+        <div class="native-playback__track">
+          <label for="native-subtitle-track">{{ $t('playPage.nativePlayback.subtitleTrack') }}</label>
+          <select
+            id="native-subtitle-track"
+            :value="tracks.selectedSubtitle ?? ''"
+            data-test="native-subtitle-select"
+            @change="$emit('select-subtitle', $event.target.value === '' ? null : Number($event.target.value))"
+          >
+            <!--
+              An explicit "off" entry. mpv spells it `no`, and passing `auto`
+              instead would let mpv re-select the subtitle the user just turned
+              off — the distinction the composable already makes.
+            -->
+            <option value="">{{ $t('playPage.nativePlayback.subtitlesOff') }}</option>
+            <option v-for="track in tracks.subtitles" :key="track.id" :value="track.id">
+              {{ track.label }}<template v-if="track.external"> · {{ $t('playPage.nativePlayback.external') }}</template>
+            </option>
+          </select>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -58,9 +103,17 @@ defineProps({
   title: { type: String, default: '' },
   notices: { type: Array, default: () => [] },
   isResuming: { type: Boolean, default: false },
+  /**
+   * The track list from mpv, or `null` before one has arrived.
+   *
+   * `null` rather than an empty list: "not read yet" and "this file has no
+   * subtitle tracks" are different, and the panel must not claim the second while
+   * the first is true.
+   */
+  tracks: { type: Object, default: null },
 })
 
-defineEmits(['close', 'restart'])
+defineEmits(['close', 'restart', 'select-audio', 'select-subtitle'])
 
 /** The interpolation values for one notice, formatted for the current locale. */
 function noticeParams(notice) {
@@ -81,6 +134,31 @@ function noticeParams(notice) {
 </script>
 
 <style scoped>
+.native-playback__tracks {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 1.25rem;
+}
+.native-playback__track {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 12rem;
+  text-align: left;
+}
+.native-playback__track label {
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+.native-playback__track select {
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+}
 .native-playback {
   display: flex;
   align-items: center;

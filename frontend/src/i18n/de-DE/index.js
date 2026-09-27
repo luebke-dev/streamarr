@@ -1568,6 +1568,10 @@ export default {
     nativePlayback: {
       hint: 'Die Wiedergabe läuft im eigenen Fenster (mpv). Mit F wird es vollbild, mit Leertaste pausiert.',
       restart: 'Von vorne beginnen',
+      audioTrack: 'Tonspur',
+      subtitleTrack: 'Untertitel',
+      subtitlesOff: 'Aus',
+      external: 'extern',
       notice: {
         resuming: 'Wiedergabe wird bei {position} fortgesetzt.',
         transcode: 'Der Server rechnet dieses Video um (Transcode) — das kostet Serverleistung.',

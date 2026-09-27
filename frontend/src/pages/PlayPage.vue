@@ -89,10 +89,13 @@
     <native-playback-view
       v-else-if="status === 'native-streaming'"
       :title="contentTitle"
+      :tracks="nativeTracks"
       :notices="nativePlayer.state.value.notices"
       :is-resuming="nativePlayer.state.value.isResuming"
       @close="goBack"
       @restart="restartNativePlayback"
+      @select-audio="onSelectAudioTrack"
+      @select-subtitle="onSelectSubtitleTrack"
     />
 
     <!-- Video Player with Custom Controls (when streamable) -->
@@ -696,6 +699,47 @@ const nativePlayer = useNativePlayback({
   },
 })
 const updateProgressRef = { current: null }
+
+/**
+ * mpv's track list, read when a native playback starts.
+ *
+ * Read *after* the player reported the file loaded, not before: mpv fills its
+ * track list while opening the file, and asking too early returns the previous
+ * file's tracks or none at all. That is why this is a `watch` on the loaded flag
+ * rather than a call in `startNativePlayback`.
+ */
+const nativeTracks = ref(null)
+
+watch(
+  () => nativePlayer.state.value.loaded,
+  async (loaded) => {
+    if (!loaded) {
+      nativeTracks.value = null
+      return
+    }
+    try {
+      nativeTracks.value = await nativePlayer.fetchTracks()
+    } catch (error) {
+      // Not fatal: playback continues, only the selection panel stays hidden.
+      logger.warn('Tonspuren konnten nicht gelesen werden:', error)
+      nativeTracks.value = null
+    }
+  },
+)
+
+/** Switches mpv's audio track. `null` restores mpv's own choice. */
+const onSelectAudioTrack = async (trackId) => {
+  await nativePlayer.selectAudioTrack(trackId)
+  // Re-read so the panel shows what mpv actually selected, not what was asked
+  // for — mpv may refuse, and showing the request would hide that.
+  nativeTracks.value = await nativePlayer.fetchTracks().catch(() => nativeTracks.value)
+}
+
+/** Switches mpv's subtitle track, or turns subtitles off with `null`. */
+const onSelectSubtitleTrack = async (trackId) => {
+  await nativePlayer.selectSubtitleTrack(trackId)
+  nativeTracks.value = await nativePlayer.fetchTracks().catch(() => nativeTracks.value)
+}
 
 const startPlayback = async () => {
   if (isStartingPlayback.value) return

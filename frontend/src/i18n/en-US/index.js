@@ -1951,6 +1951,10 @@ export default {
     nativePlayback: {
       hint: 'Playback runs in its own window (mpv). Press F for fullscreen and Space to pause.',
       restart: 'Start from the beginning',
+      audioTrack: 'Audio track',
+      subtitleTrack: 'Subtitles',
+      subtitlesOff: 'Off',
+      external: 'external',
       notice: {
         resuming: 'Resuming at {position}.',
         transcode: 'The server is transcoding this video, which costs server capacity.',
