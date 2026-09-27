@@ -172,6 +172,9 @@ jobs:
             librsvg2-dev \
             libssl-dev \
             libdbus-1-dev \
+            libudev-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
             pkg-config
       - uses: Swatinem/rust-cache@v2
         with:
@@ -196,6 +199,39 @@ jobs:
       - name: Test
         working-directory: frontend/src-tauri
         run: cargo test --locked
+      # The default build links **no** GStreamer, which is the constraint the
+      # feature arrangement exists to keep; the `gamestream` build adds the whole
+      # game pipeline. Both have to compile, and a change that only breaks one of
+      # them would leave the other green — so both are checked.
+      #
+      # GStreamer must be **1.22 or newer** (`gstreamer-webrtc`'s `v1_22` provides
+      # the *checked* data-channel send, without which a full send buffer drops an
+      # input message silently). The installed version is asserted so a future
+      # move to an older image gives a clear message instead of a wall of compiler
+      # errors. Measured: 24.04 ships 1.24.2.
+      - name: Game streaming must build too
+        working-directory: frontend/src-tauri
+        run: |
+          set -euo pipefail
+          version=$(pkg-config --modversion gstreamer-1.0)
+          echo "GStreamer $version"
+          required=1.22
+          if [ "$(printf '%s\n%s\n' "$required" "$version" | sort -V | head -1)" != "$required" ]; then
+            echo "::error::GStreamer $version ist aelter als $required"
+            exit 1
+          fi
+          cargo clippy --locked --features gamestream --all-targets -- -D warnings
+          cargo test --locked --features gamestream
+      - name: The bare shell must still build without GStreamer
+        working-directory: frontend/src-tauri
+        run: |
+          set -euo pipefail
+          # The reason the feature exists: a stray unconditional import of a
+          # `spike`-gated type broke exactly this once, and the compiler caught it
+          # only because this build was run. `cargo check` is enough — the question
+          # is whether it compiles, not what it links.
+          cargo check --locked
+          cargo clippy --locked --all-targets -- -D warnings
 
 
   # ── Installable bundles ──
@@ -261,6 +297,16 @@ jobs:
           RPM=$(ls frontend/src-tauri/target/release/bundle/rpm/*.rpm)
           desktop/scripts/check_bundle_deps.sh \
             frontend/src-tauri/target/release/Streamarr "$DEB" "$RPM"
+          # The shipped package must contain the game pipeline. `tauri build`
+          # uses the `build.features` from the configuration, and the default build
+          # does not have it — so this asserts the wiring actually reached the
+          # artefact. A package without it installs, starts, and cannot play games,
+          # which is the kind of defect that reaches a user.
+          if ! strings frontend/src-tauri/target/release/Streamarr | grep -q recvonly; then
+            echo "::error::Der Spielestream fehlt im Paket (build.features nicht wirksam?)"
+            exit 1
+          fi
+          echo "Spielestream im Binary vorhanden."
           # And the dependencies must not be duplicated. A duplicate is not fatal, but
           # it means the configuration and Tauri both added them, which is the sign of a
           # `depends` list that does not know what it is doing.
