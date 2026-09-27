@@ -289,6 +289,10 @@ services:
       - LIGHTRAYS_RECONNECT_GRACE_SECS=${LIGHTRAYS_RECONNECT_GRACE_SECS:-30}
       - LIGHTRAYS_WS_TICKET_TTL_SECS=${LIGHTRAYS_WS_TICKET_TTL_SECS:-120}
       - LIGHTRAYS_SESSION_TIMEOUT_SECS=${LIGHTRAYS_SESSION_TIMEOUT_SECS:-3600}
+      # Network session containers join. Unset = lightrays detects its own
+      # compose network; browser controllers need UDP to reach the game
+      # container (RetroArch remote gamepad), so both ends must share one.
+      - LIGHTRAYS_SESSION_NETWORK=${LIGHTRAYS_SESSION_NETWORK:-}
       - LIGHTRAYS_HOST_XDG_RUNTIME_DIR=${LIGHTRAYS_HOST_XDG_RUNTIME_DIR}
       - LIGHTRAYS_HOST_STATE_DIR=${LIGHTRAYS_HOST_STATE_DIR}
       - LIGHTRAYS_DOCKER_SOCKET=/var/run/docker.sock
