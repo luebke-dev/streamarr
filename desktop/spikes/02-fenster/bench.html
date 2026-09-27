@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>UI compositor benchmark</title>
+<style>
+  body { margin:0; font:13px system-ui; background:#111; color:#ddd; }
+  #list { position:absolute; inset:0 0 0 0; overflow-y:auto; }
+  .row { height:44px; display:flex; align-items:center; gap:12px;
+         padding:0 12px; border-bottom:1px solid #222; }
+  .thumb { width:64px; height:36px; border-radius:4px;
+           background:linear-gradient(135deg,#345,#678); }
+  .spin { width:18px; height:18px; border-radius:50%;
+          border:3px solid #456; border-top-color:#8bf; }
+</style></head>
+<body>
+<div id="list"></div>
+<script>
+// Models what the Streamarr UI actually does: a long scrollable list of media
+// cards, continuous CSS animation, and repeated re-layout while scrolling.
+// WebKitGTK's known weakness is exactly this compositor/scroll path.
+const N = 400;
+const list = document.getElementById('list');
+for (let i = 0; i < N; i++) {
+  const d = document.createElement('div');
+  d.className = 'row';
+  d.innerHTML = `<div class="thumb"></div><div>Library item ${i}</div>` +
+                `<div class="spin" style="margin-left:auto"></div>`;
+  list.appendChild(d);
+}
+// Animate every spinner so the compositor is always busy.
+const style = document.createElement('style');
+style.textContent = '@keyframes s{to{transform:rotate(360deg)}}' +
+  '.spin{animation:s .8s linear infinite}';
+document.head.appendChild(style);
+
+const frames = [];
+let last = performance.now();
+let seen = 0;
+const longTasks = [];
+
+function tick(now) {
+  const dt = now - last;
+  last = now;
+  seen++;
+  // Discard the first few frames as warm-up, using a counter rather than the
+  // array length (an earlier version tested frames.length, which stays 0 if
+  // nothing is ever pushed — and then nothing is ever recorded).
+  if (seen > 5) frames.push(dt);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+// Drive scripted scrolling — forces real rasterisation work.
+let dir = 1, y = 0, scrolls = 0;
+function scrollStep() {
+  y += dir * 60;
+  if (y > list.scrollHeight - list.clientHeight || y < 0) dir *= -1;
+  list.scrollTop = Math.abs(y);
+  scrolls++;
+  // A layout-thrashing read, as a real list would do for virtualisation.
+  void list.scrollHeight;
+  const st = performance.now();
+  // Measure main-thread block caused by this step.
+  const cost = performance.now() - st;
+  if (cost > 16) longTasks.push(cost);
+}
+const scrollTimer = setInterval(scrollStep, 16);
+
+setTimeout(() => {
+  clearInterval(scrollTimer);
+  cancelAnimationFrame(0);
+  const sorted = frames.slice().sort((a, b) => a - b);
+  const p = q => sorted[Math.min(sorted.length - 1,
+                                 Math.floor(sorted.length * q))] || 0;
+  const mean = frames.reduce((a, b) => a + b, 0) / Math.max(1, frames.length);
+  const result = {
+    engine: navigator.userAgent,
+    frames: frames.length,
+    meanMs: +mean.toFixed(2),
+    p50Ms: +p(0.50).toFixed(2),
+    p95Ms: +p(0.95).toFixed(2),
+    p99Ms: +p(0.99).toFixed(2),
+    worstMs: +Math.max(...sorted).toFixed(2),
+    fpsMean: +(1000 / mean).toFixed(1),
+    fpsP95: +(1000 / p(0.95)).toFixed(1),
+    droppedOver20ms: frames.filter(f => f > 20).length,
+    droppedOver50ms: frames.filter(f => f > 50).length,
+    longTasks: longTasks.length,
+    scrolls
+  };
+  // Report to the native side, which prints it (and exits).
+  window.__benchResult = result;
+  window.__benchDone = true;
+  console.log('BENCH_RESULT ' + JSON.stringify(result));
+  document.body.innerHTML = '<pre id="out">' + JSON.stringify(result, null, 2) + '</pre>';
+}, 12000);
+</script>
+</body></html>
