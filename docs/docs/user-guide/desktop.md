@@ -192,21 +192,36 @@ playback rather than after it.
 Games stream from the server over WebRTC, decoded by GStreamer into a native window, with
 keyboard, mouse and gamepad input forwarded to the game.
 
-!!! danger "Not wired into the app yet"
-    Be precise about what this means, because the difference matters:
-
-    The **client is built and proven** — a real GStreamer pipeline decodes a real
-    WebRTC stream over a real data channel, and input reaches the other side
+!!! warning "Not verified against a live session"
+    The client pipeline is proven — a real GStreamer pipeline decodes a real WebRTC
+    stream over a real data channel, and input reaches the other side
     (`DECODED=10 INPUT_SENT=6 INPUT_RECEIVED=6`, reproducible with
     `cargo run --features spike --bin game-pipeline-check` in `desktop/player`).
 
-    But the **app does not use it yet**. The shell enables only the `gamepad`
-    feature, so pressing play on a game in the desktop app does not start this
-    pipeline. Wiring it up is the remaining step.
+    That proof is **loopback to loopback**. It shows the client's own pipeline
+    works; it says nothing about interoperability with your server, because the
+    test server's database was down for the whole of this work. A game actually
+    appearing on screen has not been observed.
 
-    Two honest consequences: the shipped packages declare no GStreamer
-    dependency (they do not need one), and the sections below describe the
-    intended behaviour rather than something you can currently use.
+### GStreamer is needed for games, and is not bundled
+
+Games need GStreamer **1.22 or newer** with several plugins: `webrtcbin`,
+`rtpjitterbuffer`, the H.264 depayloader and parser, a hardware decoder for your GPU
+(`vah264dec` on AMD, `nvh264dec` on NVIDIA, `avdec_h264` as the software
+fallback) and a sink for your display server (`waylandsink` on Wayland,
+`d3d11videosink` on Windows).
+
+These are **not** bundled, for a reason worth knowing: which decoder is needed
+depends on the hardware, so a bundle would have to carry every variant. Install
+them from your distribution. On Fedora:
+
+```bash
+sudo dnf install gstreamer1-plugins-good gstreamer1-plugins-bad-free \
+    gstreamer1-plugins-libav gstreamer1-vaapi
+```
+
+If something is missing the app says which element it could not find, rather than
+showing a black rectangle.
 
 ### Gamepads
 
@@ -427,12 +442,13 @@ What has been **measured**, and what has not:
   `docs/plans/desktop-testserver-stand.md` (the server's database container was destroyed;
   a leftover Docker network endpoint holds the address the backend needs; the database
   files themselves are intact).
-- **Game streaming against the server.** Same reason, same page. The client side
-  *is* proven — a real GStreamer pipeline decodes a WebRTC stream over a real data
-  channel (`DECODED=10`, `INPUT_SENT=6 INPUT_RECEIVED=6` in
-  `desktop/player/src/bin/game-pipeline-check.rs`) — but that proof is
-  loopback-to-loopback. It shows the client's own pipeline works and says nothing
-  about interoperability with Lightrays.
+- **A game actually appearing on screen.** The client pipeline is proven
+  (`DECODED=10`, `INPUT_SENT=6 INPUT_RECEIVED=6` in
+  `desktop/player/src/bin/game-pipeline-check.rs`) and it is now **wired into the
+  app** — the shell builds it, renders through the platform sink and forwards
+  input. But that proof is loopback-to-loopback, and the test server's database is
+  down, so no game has ever been streamed to a window. Whether the app and
+  Lightrays interoperate is unverified.
 - **Couch mode with a physical controller.** The geometry, the repeat rule and the
   shell commands are covered by tests, and the keyboard path is tested end to end.
   No gamepad has ever been plugged into this machine, so the controller path has
