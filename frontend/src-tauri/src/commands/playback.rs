@@ -182,13 +182,7 @@ pub async fn play_media(
         env!("CARGO_PKG_VERSION"),
     );
 
-    let query: Vec<String> = capabilities
-        .play_query()
-        .into_iter()
-        .map(|(k, v)| format!("{k}={}", urlencode(&v)))
-        .collect();
-
-    let path = format!("/api/play/{}?{}", item_guid, query.join("&"));
+    let path = play_path(&item_guid, &capabilities);
     let mut headers = vec![("Accept".to_string(), "application/json".to_string())];
     if let Some(token) = stored_token(&state) {
         headers.push(("Authorization".to_string(), format!("Bearer {token}")));
@@ -620,6 +614,39 @@ pub struct StopReport {
     pub ended: bool,
 }
 
+/// The play endpoint's path for one item, with the capabilities as query parameters.
+///
+/// A query, not a JSON body: spike 0.3 found the endpoint **silently ignores** a body,
+/// so capabilities sent that way have no effect and the server falls back to
+/// conservative defaults — i.e. it transcodes a file the client could have played
+/// directly, with nothing in any log to say why.
+///
+/// Pulled out of the command so the shape is testable on its own. The two mistakes worth
+/// guarding against are a parameter name the server does not read and a value that is not
+/// encoded — a codec list contains commas, and an unencoded list would arrive as several
+/// parameters instead of one.
+pub fn play_path(
+    item_guid: &str,
+    capabilities: &streamarr_desktop_player::capabilities::Capabilities,
+) -> String {
+    let query: Vec<String> = capabilities
+        .play_query()
+        .into_iter()
+        .map(|(k, v)| format!("{k}={}", urlencode(&v)))
+        .collect();
+    format!("/api/play/{}?{}", item_guid, query.join("&"))
+}
+
+/// Whether a property name may be set from the webview.
+///
+/// An allow-list rather than a pass-through: the name reaches mpv's command interface,
+/// and the webview is not trusted far enough to set arbitrary properties —
+/// `options/...` would let a page change how mpv runs, and `input-...` could rebind keys.
+pub fn property_is_allowed(name: &str) -> bool {
+    const ALLOWED: [&str; 6] = ["aid", "sid", "volume", "mute", "speed", "sub-visibility"];
+    ALLOWED.contains(&name)
+}
+
 /// Percent-encodes a query value.
 ///
 /// Written out rather than pulled in: this is the only place the shell needs it, and a
@@ -682,6 +709,95 @@ mod tests {
     #[test]
     fn a_short_message_is_left_alone() {
         assert_eq!(shorten("kurz", 300), "kurz");
+    }
+
+    #[test]
+    fn the_play_path_carries_the_capabilities_as_query_parameters() {
+        use streamarr_desktop_player::capabilities::Capabilities;
+        let caps = Capabilities::detect(3840, false, false, true, "1.0");
+        let path = play_path("abc-123", &caps);
+
+        assert!(path.starts_with("/api/play/abc-123?"), "{path}");
+        // The names the server actually reads (`api/v1/playback_params.py`). A wrong
+        // name means the parameter is ignored and the server transcodes needlessly.
+        assert!(path.contains("supported_video_codecs="), "{path}");
+        assert!(path.contains("supported_audio_codecs="), "{path}");
+        assert!(path.contains("supported_containers="), "{path}");
+        // Note the name: play takes `client_max_resolution`, the device endpoint takes
+        // `max_resolution`. Using the wrong one here is silent — the server simply does
+        // not read it. Checked as a parameter *name*, because the correct name contains
+        // the wrong one as a substring and a naive `contains` would reject it.
+        assert!(path.contains("client_max_resolution="), "{path}");
+        let names: Vec<&str> = path
+            .split_once('?')
+            .map(|(_, query)| {
+                query
+                    .split('&')
+                    .filter_map(|pair| pair.split('=').next())
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(
+            !names.contains(&"max_resolution"),
+            "the device endpoint's name must not appear here: {path}"
+        );
+
+        // A comma-separated list must arrive as **one** parameter, so the separator has
+        // to be encoded. The query is split off the path first: the first parameter is
+        // preceded by the guid and the `?`, so splitting on `&` alone misses it.
+        let codec_part = path
+            .split_once('?')
+            .expect("a query string")
+            .1
+            .split('&')
+            .find(|p| p.starts_with("supported_video_codecs="))
+            .expect("the codec parameter");
+        assert!(
+            codec_part.contains("%2C"),
+            "the list must be encoded: {codec_part}"
+        );
+        assert!(
+            !codec_part.contains(','),
+            "an unencoded comma splits the list: {codec_part}"
+        );
+    }
+
+    #[test]
+    fn hdr_is_not_claimed() {
+        use streamarr_desktop_player::capabilities::Capabilities;
+        // The backend's transcode path is HDR-blind (plan §10.2) and this shell has no
+        // display probe yet, so claiming HDR would produce a washed-out picture rather
+        // than a better one.
+        let caps = Capabilities::detect(3840, false, false, true, "1.0");
+        let path = play_path("abc", &caps);
+        assert!(!caps.supports_hdr);
+        let _ = path;
+    }
+
+    #[test]
+    fn only_the_named_properties_may_be_set_from_the_page() {
+        for allowed in ["aid", "sid", "volume", "mute", "speed", "sub-visibility"] {
+            assert!(
+                property_is_allowed(allowed),
+                "`{allowed}` should be settable"
+            );
+        }
+        // Things that would change how mpv runs, or reach outside the player.
+        for forbidden in [
+            "options/vo",
+            "options/ao",
+            "input-conf",
+            "script",
+            "config-dir",
+            "screenshot-directory",
+            "",
+            "AID",
+        ] {
+            assert!(
+                !property_is_allowed(forbidden),
+                "`{forbidden}` must not be settable from the page"
+            );
+        }
     }
 
     #[test]
