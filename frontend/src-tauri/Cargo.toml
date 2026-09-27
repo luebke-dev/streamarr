@@ -16,12 +16,21 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+# Deep links (`streamarr://…`) are how an OIDC login returns from the system browser: the
+# provider redirects to a URL the operating system hands back to the app. That is the only
+# way a native app receives a login from an external browser, and it is why the scheme has
+# to be registered rather than the redirect being read inside the webview.
+tauri-plugin-deep-link = "2"
 # Window geometry is persisted per label by the plugin, which is why the player
 # window comes back where the user left it instead of centred every launch.
 tauri-plugin-window-state = "2"
 # A second launch focuses the existing window rather than starting a rival instance
 # that would double-register the device and fight over the token store.
-tauri-plugin-single-instance = "2"
+# The `deep-link` feature matters: on Linux and Windows the operating system carries a
+# `streamarr://` URL by starting a *new* process with the URL as an argument. Without this
+# feature the second process is simply stopped and the URL is dropped — which looks exactly
+# like "the browser login never comes back", with nothing in any log.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # Without a logging plugin, `log::info!` goes nowhere: the `log` facade does nothing
 # until a logger is installed, so diagnostics silently vanish. That is a trap worth
 # closing before there is anything to debug - it already hid two startup messages

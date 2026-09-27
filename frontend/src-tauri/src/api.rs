@@ -822,7 +822,7 @@ async fn read_json(response: reqwest::Response) -> Result<Value, ApiError> {
 }
 
 /// Parses a token pair out of a login or refresh response.
-fn parse_tokens(body: &Value) -> Result<TokenPair, LoginError> {
+pub fn parse_tokens(body: &Value) -> Result<TokenPair, LoginError> {
     let pair = TokenPair {
         access_token: body
             .get("access_token")

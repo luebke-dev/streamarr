@@ -21,6 +21,7 @@
 
 pub mod capabilities;
 pub mod couch;
+pub mod deeplink;
 pub mod mpv;
 pub mod pad;
 pub mod plan;

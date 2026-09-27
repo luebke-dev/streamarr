@@ -35,12 +35,19 @@ pub struct AppState {
     pub device: streamarr_desktop_player::session::DeviceIdentity,
     /// The one native playback this app runs at a time.
     playback: commands::playback::PlaybackService,
+    /// The one browser login this app is awaiting a reply for.
+    deeplinks: commands::deeplink::DeepLinkService,
 }
 
 impl AppState {
     /// The playback service, for the player commands.
     pub fn playback(&self) -> &commands::playback::PlaybackService {
         &self.playback
+    }
+
+    /// The deep-link service, for browser logins.
+    pub fn deeplinks(&self) -> &commands::deeplink::DeepLinkService {
+        &self.deeplinks
     }
 
     fn load(config_root: std::path::PathBuf) -> Result<Self, String> {
@@ -67,6 +74,7 @@ impl AppState {
             profiles: std::sync::Mutex::new(profiles),
             device,
             playback: commands::playback::PlaybackService::new(),
+            deeplinks: commands::deeplink::DeepLinkService::new(),
         })
     }
 
@@ -133,6 +141,9 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        // Deep links last before setup: the scheme must be registered before a link can
+        // arrive, and `setup` below reads the link that may have started this process.
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let config_root = app
@@ -141,6 +152,15 @@ pub fn run() {
                 .unwrap_or_else(|_| storage::default_config_root());
             let state = AppState::load(config_root)?;
             app.manage(state);
+
+            // Deep links: registers the `streamarr://` scheme with the desktop, and
+            // installs the listener. Both are needed, and forgetting to call this at all
+            // is exactly the kind of mistake that shows up only as "the browser login
+            // never comes back" — the function existed and compiled, but nothing invoked
+            // it, so the scheme was never registered.
+            if let Err(e) = commands::deeplink::install(app.handle()) {
+                log::warn!("Deep-Link-Einrichtung fehlgeschlagen: {e}");
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -180,6 +200,9 @@ pub fn run() {
             commands::playback::player_seek,
             commands::playback::player_set_property,
             commands::playback::player_stop,
+            commands::deeplink::begin_browser_login,
+            commands::deeplink::browser_login_pending,
+            commands::deeplink::cancel_browser_login,
         ])
         .run(tauri::generate_context!())
         .expect("error while running streamarr.media desktop app");

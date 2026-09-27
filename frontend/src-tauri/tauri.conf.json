@@ -53,5 +53,14 @@
       "../public/favicon.ico"
     ],
     "linux": {}
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "streamarr"
+        ]
+      }
+    }
   }
 }
