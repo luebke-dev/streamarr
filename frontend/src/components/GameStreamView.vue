@@ -85,6 +85,10 @@
         <div>Decode: {{ stats.decodeTime }}ms/frame</div>
         <div>Packets lost: {{ stats.packetsLost }}</div>
         <div>Frames decoded: {{ stats.frames }}</div>
+        <div>
+          Controller:
+          {{ controllerConnected ? controllerName || 'connected' : 'none' }}
+        </div>
       </div>
     </div>
 
@@ -122,7 +126,7 @@ const props = defineProps({
 const emit = defineEmits(['back', 'retry', 'disconnected'])
 
 const stream = useLightraysStreaming()
-const { status, statusText, streaming, stats } = stream
+const { status, statusText, streaming, stats, controllerConnected, controllerName } = stream
 
 const videoRef = ref(null)
 const streamContainerRef = ref(null)
