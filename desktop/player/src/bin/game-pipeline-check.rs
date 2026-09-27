@@ -44,13 +44,16 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     gst::init()?;
 
-    // The plan this module would use on a real machine — but headless, because the proof
-    // is about decoding, not about drawing (spike 0.2 covers the window).
+    // `--render` switches from `fakesink` to the real platform sink, so the
+    // decode path is proved *and* the picture is drawn into a real Wayland
+    // surface. Without the flag the run stays headless, which is what a CI
+    // machine without a display needs.
+    let render = std::env::args().any(|arg| arg == "--render");
     let platform = Platform::current();
     let display = DisplayServer::current();
-    let plan = DecodePlan::new(VideoCodec::H264, platform, display, true);
+    let plan = DecodePlan::new(VideoCodec::H264, platform, display, !render);
     println!("Pipeline-Plan: {}", plan.describe());
-    println!("Plattform: {platform:?}, Anzeige: {display:?}");
+    println!("Plattform: {platform:?}, Anzeige: {display:?}, Zeichnen: {render}");
     println!();
 
     // The decoder chain the plan selected has to be checked against what exists, so a
@@ -131,7 +134,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("unbekannter Codec: {encoding}");
             return;
         };
-        let plan = DecodePlan::new(codec, platform, display, true);
+        // `!render` as well: this plan is the one actually built, and hardcoding
+        // `true` here silently overrode `--render` — the run printed the real
+        // sink in its banner and then used `fakesink` anyway.
+        let plan = DecodePlan::new(codec, platform, display, !render);
 
         let Some(pipeline) = pipeline_weak.upgrade() else {
             return;
