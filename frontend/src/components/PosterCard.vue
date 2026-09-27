@@ -1,8 +1,11 @@
 <template>
   <q-card
-    :class="cardClass"
+    :class="[cardClass, { 'couch-focused': couchFocused }]"
     :role="clickable ? 'button' : undefined"
     :tabindex="clickable ? 0 : undefined"
+    :data-couch-item="couchId || undefined"
+    :data-couch-decorative="couchDecorative ? 'true' : undefined"
+    :aria-current="couchFocused ? 'true' : undefined"
     @click="handleClick"
     @keydown.enter="handleClick"
     @keydown.space.prevent="handleClick"
@@ -73,6 +76,26 @@ import { useI18n } from 'vue-i18n'
 export default {
   name: 'PosterCard',
   props: {
+    /**
+     * Identity for couch mode, so a controller can focus this card.
+     *
+     * Optional: a card without it is simply not reachable by controller, which
+     * is the right default for a decorative or non-navigable tile.
+     */
+    couchId: {
+      type: String,
+      default: null,
+    },
+    /** Occupies space but is not reachable — a header, a spacer. */
+    couchDecorative: {
+      type: Boolean,
+      default: false,
+    },
+    /** Whether couch mode currently has the focus on this card. */
+    couchFocused: {
+      type: Boolean,
+      default: false,
+    },
     // Required props
     title: {
       type: String,
@@ -251,6 +274,21 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+/*
+  The focus ring for couch mode.
+
+  Without it the mode would move an invisible cursor: `focusId` changed, the shell
+  moved its grid, and nothing on screen said where the focus was. A controller
+  user would be pressing buttons blind.
+
+  An outline rather than a colour change: it does not shift the layout, and it
+  works over artwork that may be any colour.
+*/
+.poster-card.couch-focused {
+  outline: 3px solid var(--q-primary, #1976d2);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
 .age-badge {
   top: 8px;
   right: 8px;

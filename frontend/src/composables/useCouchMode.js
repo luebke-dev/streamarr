@@ -71,23 +71,78 @@ export function useCouchMode() {
 
   const isSupported = computed(() => available.value)
 
+  /** The DOM element behind an id, whichever way it was registered. */
+  function elementFor(id) {
+    const entry = elements.get(id)
+    if (!entry) return null
+    return entry.__explicit ? entry.el : entry
+  }
+
   function registerElement(id, el) {
     if (!el) {
       elements.delete(id)
       return
     }
-    elements.set(id, el)
+    // Marked so `discover` leaves it alone: an explicit registration is not
+    // backed by an attribute, and pruning it would silently drop it.
+    elements.set(id, Object.assign(Object.create(null), { el, __explicit: true }))
+  }
+
+  /**
+   * Finds the focusable elements in the DOM and registers them.
+   *
+   * # Why a scan rather than explicit registration
+   *
+   * The first version exposed `registerElement` and expected every component to
+   * call it. Nothing ever did — so the layout reported to the shell was always
+   * **empty**, the focus grid had no items, `move_focus` returned `None`, and
+   * couch mode moved nothing. The mode looked implemented and did nothing, which
+   * is the worst state a feature can be in.
+   *
+   * A marker attribute is the fix: the UI says *what* is focusable
+   * (`data-couch-item="<id>"`), and this discovers it. Adding an attribute to a
+   * list item is a change nobody forgets, whereas a function call is a change
+   * nobody notices missing.
+   *
+   * `data-couch-decorative="true"` marks something that occupies space but is not
+   * reachable — a header or a spacer. It is reported so the shell keeps the
+   * geometry intact instead of letting the focus jump across the gap it leaves.
+   */
+  function discover() {
+    if (typeof document === 'undefined') return
+    const seen = new Set()
+    for (const el of document.querySelectorAll('[data-couch-item]')) {
+      const id = el.getAttribute('data-couch-item')
+      if (!id) continue
+      seen.add(id)
+      elements.set(id, el)
+    }
+    // Elements that vanished from the DOM must not stay in the layout, or the
+    // focus would move to something that is no longer on screen.
+    //
+    // Only *discovered* entries are pruned: an element registered explicitly
+    // through `registerElement` is the caller's to remove, and deleting it here
+    // would break the one path that does not go through an attribute.
+    for (const [id, entry] of [...elements.entries()]) {
+      if (entry?.__explicit) continue
+      if (!seen.has(id)) elements.delete(id)
+    }
   }
 
   // The rectangles the shell needs. Measured from the DOM because the UI alone
   // knows its layout, and rounded because `getBoundingClientRect` returns
   // sub-pixel values that must not decide which of two tiles is nearer.
   function measureLayout() {
+    // Discovered first: the caller cannot be relied upon to register, and an
+    // empty layout is indistinguishable from a broken one.
+    discover()
     const items = []
-    for (const [id, el] of elements) {
+    for (const [id, entry] of elements) {
+      // Two shapes: a discovered DOM element, or an explicitly registered one.
+      const el = entry?.__explicit ? entry.el : entry
       if (!el?.isConnected) continue
-      const rect = el.getBoundingClientRect()
-      if (rect.width <= 0 || rect.height <= 0) continue
+      const rect = el.getBoundingClientRect?.()
+      if (!rect || rect.width <= 0 || rect.height <= 0) continue
       items.push({
         id,
         x: rect.left,
@@ -96,7 +151,10 @@ export function useCouchMode() {
         height: rect.height,
         // A tile that is present but not navigable — a header, a spacer. It
         // occupies space so the focus does not jump across the gap it leaves.
-        decorative: el.dataset?.couchDecorative === 'true',
+        decorative:
+          entry?.__explicit === true
+            ? Boolean(el.dataset?.couchDecorative === 'true')
+            : el.getAttribute?.('data-couch-decorative') === 'true',
       })
     }
     return items
@@ -113,11 +171,11 @@ export function useCouchMode() {
     if (!effect || effect.kind === 'none') return
     if (effect.kind === 'focus') {
       focusId.value = effect.id
-      elements.get(effect.id)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+      elementFor(effect.id)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
       return
     }
     if (effect.kind === 'activate') {
-      elements.get(effect.id)?.click?.()
+      elementFor(effect.id)?.click?.()
     }
     // `back` and `menu` are left to the caller: the composable has no business
     // deciding what "back" means in a given view.
@@ -150,6 +208,31 @@ export function useCouchMode() {
     return outcome
   }
 
+  /**
+   * Whether a game stream owns the controllers right now.
+   *
+   * `gilrs` hands each event out exactly once, so the couch poll and the game's
+   * poll cannot both run: the first that drains the queue wins, and the other
+   * silently sees nothing. Whichever mode the user is in decides which one runs.
+   */
+  const suppressed = ref(false)
+
+  /**
+   * Stops or resumes the couch poll because a game took over the controllers.
+   *
+   * Called by the game stream when it starts and ends. Not a nicety: with both
+   * polling, a controller would move a menu highlight *and* the game's character
+   * from one button press, or — worse — do neither reliably.
+   */
+  function setSuppressed(value) {
+    suppressed.value = Boolean(value)
+    if (suppressed.value) {
+      stopPadPolling()
+    } else if (active.value) {
+      startPadPolling()
+    }
+  }
+
   async function setActive(value) {
     if (!available.value) return
     const state = await invokeFn('set_couch_mode', { active: value })
@@ -177,6 +260,8 @@ export function useCouchMode() {
   function startPadPolling() {
     stopPadPolling()
     if (!available.value) return
+    // A game has the controllers; draining the queue here would take them from it.
+    if (suppressed.value) return
     startedAt = performance.now()
     pollTimer = setInterval(async () => {
       if (!active.value) return
@@ -302,6 +387,8 @@ export function useCouchMode() {
     pads,
     fullscreen: fullscreenState,
     isSupported,
+    setSuppressed,
+    suppressed,
     setFullscreen,
     registerElement,
     reportLayout,

@@ -102,6 +102,9 @@ describe('useCouchMode', () => {
     // Unmount first, so the composable's own cleanup runs — that is what removes
     // the document listener.
     while (mounted.length > 0) mounted.pop().unmount()
+    // And clear the DOM: `discover()` reads it, so markup left by one test would
+    // otherwise appear in the next one's layout.
+    if (typeof document !== 'undefined') document.body.innerHTML = ''
     vi.useRealTimers()
   })
 
@@ -126,6 +129,52 @@ describe('useCouchMode', () => {
     // The shell's reader is the authority: a machine with no controller must be
     // able to say so rather than leaving the user pressing buttons.
     expect(api.pads.value).toBe(1)
+  })
+
+  it('discovers focusable elements from the DOM, so the layout is never empty', async () => {
+    // The defect this guards: the first version exposed `registerElement` and
+    // expected callers to use it. None did, so the layout reported to the shell
+    // was always empty, the shell's focus grid had no items, and couch mode moved
+    // nothing — a feature that looks implemented and does nothing.
+    document.body.innerHTML = `
+      <div data-couch-item="a"></div>
+      <div data-couch-item="b" data-couch-decorative="true"></div>
+      <div></div>
+    `
+    // Give them geometry, or they are skipped as invisible. `isConnected` is
+    // read-only on a real element and is already true for one in the document.
+    for (const el of document.querySelectorAll('[data-couch-item]')) {
+      el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 })
+    }
+
+    const { useCouchMode } = await freshModule()
+    const { api } = await mountComposable(useCouchMode)
+    await api.reportLayout()
+
+    const items = lastCall('set_couch_layout')[1].items
+    expect(items.length).toBe(2)
+    expect(items.map((i) => i.id).sort()).toEqual(['a', 'b'])
+    // The decorative marker travels, so the shell keeps the geometry but will not
+    // focus it.
+    expect(items.find((i) => i.id === 'b').decorative).toBe(true)
+    document.body.innerHTML = ''
+  })
+
+  it('forgets an element that left the DOM', async () => {
+    // Otherwise the focus moves to something no longer on screen.
+    document.body.innerHTML = '<div data-couch-item="x"></div>'
+    const el = document.querySelector('[data-couch-item]')
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 10, height: 10 })
+
+    const { useCouchMode } = await freshModule()
+    const { api } = await mountComposable(useCouchMode)
+    await api.reportLayout()
+    expect(lastCall('set_couch_layout')[1].items.length).toBe(1)
+
+    document.body.innerHTML = ''
+    await api.reportLayout()
+    expect(lastCall('set_couch_layout')[1].items.length).toBe(0)
+    document.body.innerHTML = ''
   })
 
   it('measures the layout from the DOM and sends rectangles, not indices', async () => {

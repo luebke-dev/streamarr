@@ -177,8 +177,15 @@ describe('the stream is started in the shell, not in the webview', () => {
     const result = await api.start('g')
     expect(result).toBeNull()
     expect(api.state.value.error).toContain('Desktop-App')
-    // Nothing was invoked: the web path is not this composable's business.
-    expect(invoke).not.toHaveBeenCalled()
+
+    // `game_start` was never called: the web path is not this composable's
+    // business. The assertion is on that command rather than on `invoke` as a
+    // whole, because the composable now *does* touch another one —
+    // `useCouchMode` is instantiated so the two can hand the controllers to each
+    // other, and `couch_state` is part of that. Asserting silence overall would
+    // be asserting an implementation detail rather than the behaviour.
+    expect(invoke.mock.calls.some(([c]) => c === 'game_start')).toBe(false)
+    expect(invoke.mock.calls.some(([c]) => c === 'game_pad_input')).toBe(false)
   })
 
   it('asks for an even size inside the protocol limits', async () => {
@@ -334,6 +341,77 @@ describe('the stream is started in the shell, not in the webview', () => {
     await api.launchGameStream(null)
     expect(status.value).toBe('error')
     expect(errorMessage.value).toContain('Kein Server')
+  })
+
+  it('forwards controller input to the game while it runs', async () => {
+    // The gap an independent review found: `game_input` existed and nothing ever
+    // called it, so a controller worked in the menus and did nothing in a game.
+    // The guide claimed otherwise, and no test asked who consumed the pad.
+    vi.useFakeTimers()
+    invoke.mockImplementation(async (command) => {
+      if (command === 'game_start') return { kind: 'started', sessionId: 's', width: 64, height: 64 }
+      if (command === 'game_state') return 'streaming'
+      if (command === 'game_pad_input') return 3
+      if (command === 'couch_pads') return []
+      if (command === 'couch_state') return { focus: null, active: false, pads: 0 }
+      return undefined
+    })
+    const { useNativeGameStream } = await freshModule()
+    const { defineComponent, h } = await import('vue')
+    const { mount } = await import('@vue/test-utils')
+    let api = null
+    mount(
+      defineComponent({
+        setup() {
+          api = useNativeGameStream()
+          return () => h('div')
+        },
+      }),
+    )
+    await api.start('g')
+    await vi.advanceTimersByTimeAsync(80)
+
+    // The shell's reader is asked for the devices, and the count comes back.
+    const polls = invoke.mock.calls.filter(([c]) => c === 'game_pad_input')
+    expect(polls.length).toBeGreaterThan(0)
+    expect(api.state.value.inputForwarded).toBe(3)
+    await api.stop()
+    vi.useRealTimers()
+  })
+
+  it('stops polling for input once the stream ends', async () => {
+    // A poll left running would keep draining the device queue, so a controller
+    // would stop working in the menus after one game.
+    vi.useFakeTimers()
+    invoke.mockImplementation(async (command) => {
+      if (command === 'game_start') return { kind: 'started', sessionId: 's', width: 64, height: 64 }
+      if (command === 'game_state') return 'streaming'
+      if (command === 'game_pad_input') return 0
+      if (command === 'couch_state') return { focus: null, active: false, pads: 0 }
+      if (command === 'couch_pads') return []
+      return undefined
+    })
+    const { useNativeGameStream } = await freshModule()
+    const { defineComponent, h } = await import('vue')
+    const { mount } = await import('@vue/test-utils')
+    let api = null
+    mount(
+      defineComponent({
+        setup() {
+          api = useNativeGameStream()
+          return () => h('div')
+        },
+      }),
+    )
+    await api.start('g')
+    await vi.advanceTimersByTimeAsync(60)
+    const before = invoke.mock.calls.filter(([c]) => c === 'game_pad_input').length
+
+    await api.stop()
+    await vi.advanceTimersByTimeAsync(200)
+    const after = invoke.mock.calls.filter(([c]) => c === 'game_pad_input').length
+    expect(after).toBe(before)
+    vi.useRealTimers()
   })
 
   it('stops by telling the shell, which releases the pipeline', async () => {

@@ -1113,7 +1113,48 @@ impl GameInput {
     }
 }
 
+/// Reads the controllers and forwards their input **to the running game**.
+///
+/// # Why this is separate from `couch_pad_input`
+///
+/// Both read the same devices through the same `PadSource`, and they must never
+/// both run: `gilrs` hands each event out exactly once, so two readers would
+/// split the stream rather than mirror it. Which one is active depends on what
+/// the user is doing — while a game streams, input belongs to the game; the UI
+/// stops the couch poll for exactly that reason
+/// (`useCouchMode.setSuppressed`).
+///
+/// The first version of this module had `game_input` as a command the UI *could*
+/// call and nothing ever did: the pad reader sent every event to couch intents,
+/// so a controller worked in the menus and did nothing in a game — while the
+/// guide claimed otherwise. An independent review found it, and it is the kind
+/// of gap a passing test suite cannot show, because no test asked who consumed
+/// the pad.
+///
+/// Returns how many messages were forwarded, so the UI can say "controller
+/// connected" only when that is true rather than assuming it.
+#[tauri::command]
+pub fn game_pad_input(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<u32, String> {
+    use tauri::Manager;
+
+    if !state.games().is_running() {
+        // Nothing to receive them; the caller polls the couch path instead.
+        return Ok(0);
+    }
+    let couch = app.state::<super::couch::CouchMode>();
+    let messages = super::couch::drain_pad_messages(&couch);
+    let mut sent = 0u32;
+    for message in messages {
+        state.games().send(GameCommand::Input(message))?;
+        sent += 1;
+    }
+    Ok(sent)
+}
+
 /// Sends one input message.
+///
+/// For keyboard and mouse, which the UI *can* deliver; gamepads go through
+/// [`game_pad_input`] because the shell owns the devices.
 #[tauri::command]
 pub fn game_input(state: State<'_, AppState>, message: GameInput) -> Result<(), String> {
     let message = message.into_message();

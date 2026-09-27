@@ -170,6 +170,8 @@
                 :type="mapItemType(item.item_type)"
                 :subtitle="getItemYear(item) ? String(getItemYear(item)) : ''"
                 :platforms="item.platforms"
+                :couch-id="couchIdFor(item)"
+                :couch-focused="couch.active.value && couch.focusId.value === couchIdFor(item)"
                 @click="navigateToItem(item)"
               />
               <div v-if="canRemoveItems" class="absolute-top-right q-ma-xs" style="z-index: 1">
@@ -365,6 +367,22 @@ import { logger } from 'src/utils/logger'
 import { getTmdbImageUrl } from 'src/composables/useMediaFormatters'
 import { overlayServeUrl } from 'src/utils/posters'
 import { useListTranslation } from 'src/composables/useListTranslation'
+import { useCouchMode } from 'src/composables/useCouchMode'
+
+// Couch mode: the cards become reachable by controller and the focused one is
+// outlined. Without this the mode moved an invisible cursor — the shell's grid
+// stayed empty because nothing told it what exists.
+const couch = useCouchMode()
+
+/**
+ * A stable id for a list item, for couch mode.
+ *
+ * The media guid when there is one, so the focus survives a re-sort; otherwise
+ * the item's identity from the list store, which is stable within a list.
+ */
+function couchIdFor(item) {
+  return mediaGuidFromSearchResult(item) || item.id || item.guid || item.item_id || null
+}
 
 const { t } = useI18n()
 const route = useRoute()

@@ -32,6 +32,24 @@
         {{ state.error }}
       </q-banner>
 
+      <div class="native-game__controls">
+        <!--
+          The web toolbar's five controls, for the one that makes sense without a
+          `<video>` element: pointer lock needs an element to lock onto, and the
+          pointer belongs to the shell's window here.
+        -->
+        <q-btn
+          v-if="state.running"
+          outline
+          color="primary"
+          icon="mdi-fullscreen"
+          :label="$t('playPage.gameFullscreen')"
+          no-caps
+          data-test="native-game-fullscreen"
+          @click="$emit('fullscreen')"
+        />
+      </div>
+
       <div class="native-game__actions">
         <!--
           Fullscreen, resolution-match, pointer-lock, stats and disconnect — the
@@ -69,9 +87,21 @@
         />
       </div>
 
+      <!--
+        The debug panel shows *measured* values. An earlier version printed a
+        hard-coded "controller connected" line, which is worse than an empty
+        panel: it asserted something nothing had checked.
+      -->
       <div v-if="showDebug" class="native-game__debug" data-test="native-game-debug-panel">
         <div>{{ $t('playPage.gameResolution') }}: {{ resolution }}</div>
-        <div>{{ $t('playPage.gameController') }}: {{ $t('playPage.gameControllerConnected') }}</div>
+        <div>{{ $t('playPage.gameFramesDecoded') }}: {{ state.stats?.frames ?? '—' }}</div>
+        <div>{{ $t('playPage.gameBitrate') }}: {{ bitrate }}</div>
+        <div>RTT: {{ state.stats?.rtt_ms != null ? `${Math.round(state.stats.rtt_ms)} ms` : '—' }}</div>
+        <div>{{ $t('playPage.gameJitter') }}: {{ state.stats?.jitter_ms != null ? `${Math.round(state.stats.jitter_ms)} ms` : '—' }}</div>
+        <div>
+          {{ $t('playPage.gameController') }}:
+          {{ state.inputForwarded > 0 ? $t('playPage.gameControllerConnected') : $t('playPage.gameControllerNone') }}
+        </div>
       </div>
 
       <p class="native-game__hint">{{ $t('playPage.nativeGame.hint') }}</p>
@@ -92,9 +122,22 @@ const props = defineProps({
   },
 })
 
-defineEmits(['close', 'disconnect', 'match-resolution'])
+defineEmits(['close', 'disconnect', 'match-resolution', 'fullscreen'])
 
 const showDebug = ref(false)
+
+/**
+ * The bitrate, or a dash.
+ *
+ * The shell's `LiveStats` only carries a bitrate once something measures bytes,
+ * and nothing does yet — so this is `—` rather than `0.0 Mbps`. A zero would be a
+ * claim about the link that no measurement supports, and a user reporting a
+ * stutter would read it as "the stream is dead".
+ */
+const bitrate = computed(() => {
+  const mbps = props.state?.stats?.mbps
+  return mbps ? `${mbps.toFixed(1)} Mbps` : '—'
+})
 
 const resolution = computed(() =>
   props.state?.width && props.state?.height
@@ -121,6 +164,13 @@ const resolution = computed(() =>
   justify-content: center;
   flex-wrap: wrap;
   margin-top: 1.5rem;
+}
+.native-game__controls {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 1rem;
 }
 .native-game__debug {
   margin-top: 1rem;

@@ -252,6 +252,7 @@ pub fn run() {
             commands::game::game_start,
             commands::game::game_state,
             commands::game::game_input,
+            commands::game::game_pad_input,
             commands::game::game_resize,
             commands::game::game_stop,
             commands::couch::set_couch_mode,

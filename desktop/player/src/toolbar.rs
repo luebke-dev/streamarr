@@ -17,6 +17,8 @@
 
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
 use crate::protocol::{clamp_resize, MIN_DIMENSION};
 
 /// Which surface the pointer lock applies to.
@@ -239,7 +241,12 @@ pub struct StatsSample {
 }
 
 /// What the stats overlay displays, in the units the web client uses.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+///
+/// `Serialize` and `Deserialize` because it crosses the IPC boundary: the shell
+/// reads it from the game thread and the UI renders it. The core crate stays free
+/// of Tauri — this is plain serde, which the crate already uses for the wire
+/// contract.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct LiveStats {
     pub mbps: f64,
     pub fps: f64,

@@ -30,6 +30,7 @@ import { ref, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { isDesktopApp } from 'src/utils/desktopPlatform'
 import { logger } from 'src/utils/logger'
+import { useCouchMode } from 'src/composables/useCouchMode'
 
 /**
  * Whether the desktop should use the native game path.
@@ -105,12 +106,24 @@ export function emptyGameState() {
     error: null,
     /// The HTTP status behind a refusal, when there was one.
     errorStatus: null,
+    /// How many controller messages have reached the game.
+    ///
+    /// Reported rather than assumed: the earlier version showed "controller
+    /// connected" as a hard-coded string while nothing was forwarded at all.
+    inputForwarded: 0,
+    /// The last reading from `game_stats`, or `null` before one arrived.
+    stats: null,
   }
 }
 
 export function useNativeGameStream({ onEnded } = {}) {
   const state = ref(emptyGameState())
+  // The controllers are a single resource: while a game runs it owns them, and
+  // the couch interface must stop polling or the two would split the event
+  // stream between them.
+  const couch = useCouchMode()
   let pollTimer = null
+  let inputPollTimer = null
   let inputCleanup = null
 
   /**
@@ -148,6 +161,9 @@ export function useNativeGameStream({ onEnded } = {}) {
       })
       state.value = reduceGameOutcome(state.value, outcome)
       if (state.value.running) {
+        // Order matters: the couch poll is stopped *before* this one starts, so
+        // no event is drained by the wrong reader in between.
+        couch.setSuppressed(true)
         startWatching()
         attachInput()
       }
@@ -174,6 +190,9 @@ export function useNativeGameStream({ onEnded } = {}) {
         // `null` means the shell has no stream any more: it ended on its own.
         if (phase === null || phase === 'ended' || phase === 'stopped' || phase === 'failed') {
           stopWatching()
+          detachInput()
+          // The controllers go back to the couch interface.
+          couch.setSuppressed(false)
           state.value = { ...state.value, running: false }
           onEnded?.(phase)
         }
@@ -191,23 +210,46 @@ export function useNativeGameStream({ onEnded } = {}) {
   }
 
   /**
-   * Sends keyboard and pointer input to the game.
+   * Starts forwarding controller input to the game.
    *
-   * The window of the running stream is the **shell's**, not the page's, so the
-   * keyboard focus is not here — and that is a real gap rather than an oversight:
-   * the shell's game window has to forward its own key events, which needs the
-   * GTK window's event handling and therefore belongs in the shell, not in this
-   * composable. What this does is stop the page from *pretending*: it does not
-   * install listeners that could never receive the events a game needs.
+   * # Why a poll and not an event listener
    *
-   * Gamepads are unaffected — the shell reads them directly through `gilrs`, which
-   * is why the couch and game paths share one reader.
+   * The devices are read by the **shell** (`gilrs`), and the shell hands each
+   * event out exactly once. The couch interface and the game therefore cannot
+   * both read them — one is the active reader. While a game runs this loop is
+   * that reader (`game_pad_input`), and the couch poll is stopped; when the
+   * stream ends the two swap back.
+   *
+   * A pull rather than a push because the page has no handle on the device: it
+   * can only ask the shell to drain its queue. 30 ms is under two frames at
+   * 60 Hz, which is below what a player can feel, and it costs one function call.
+   *
+   * Keyboard and mouse are *not* forwarded here, and that is a real limit rather
+   * than an oversight: the picture is in a window the shell created, key events
+   * go to whichever window holds the focus, and this page cannot send events it
+   * never receives. Forwarding them needs the shell's own window to handle its
+   * input.
    */
+  const PAD_POLL_MS = 30
+
   function attachInput() {
     detachInput()
-    // Nothing to attach on the page side; kept as a seam so a future shell that
-    // emits input events has one place to subscribe.
-    inputCleanup = null
+    inputPollTimer = setInterval(async () => {
+      try {
+        // Returns how many messages reached the game, so a caller could show
+        // "controller connected" only when that is true rather than assumed.
+        state.value = {
+          ...state.value,
+          inputForwarded: await invoke('game_pad_input'),
+        }
+      } catch (error) {
+        logger.debug('Gamepad-Eingabe nicht weitergeleitet:', error)
+      }
+    }, PAD_POLL_MS)
+    inputCleanup = () => {
+      clearInterval(inputPollTimer)
+      inputPollTimer = null
+    }
   }
 
   function detachInput() {
@@ -227,9 +269,29 @@ export function useNativeGameStream({ onEnded } = {}) {
     return applied
   }
 
+  /**
+   * Live statistics for the running stream.
+   *
+   * `game_stats` answers `null` when nothing runs, and the panel shows a dash
+   * rather than zeros — "not streaming" and "streaming at 0 fps" are different
+   * answers.
+   */
+  async function fetchStats() {
+    if (!usesNativeGameStream()) return null
+    try {
+      const stats = await invoke('game_stats')
+      state.value = { ...state.value, stats }
+      return stats
+    } catch (error) {
+      logger.debug('Statistik nicht abrufbar:', error)
+      return null
+    }
+  }
+
   async function stop() {
     stopWatching()
     detachInput()
+    couch.setSuppressed(false)
     if (!usesNativeGameStream()) return false
     try {
       const wasRunning = await invoke('game_stop')
@@ -246,5 +308,5 @@ export function useNativeGameStream({ onEnded } = {}) {
     detachInput()
   })
 
-  return { state, start, stop, matchResolution }
+  return { state, start, stop, matchResolution, fetchStats }
 }

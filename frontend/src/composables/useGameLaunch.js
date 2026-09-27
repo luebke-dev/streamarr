@@ -121,6 +121,11 @@ export function useGameLaunch({ uuid, status, loading, errorMessage, t }) {
     return native.stop()
   }
 
+  /** A live statistics reading for the debug panel. */
+  async function fetchGameStats() {
+    return native.fetchStats()
+  }
+
   return {
     gameSessionId,
     wsTicket,
@@ -135,5 +140,6 @@ export function useGameLaunch({ uuid, status, loading, errorMessage, t }) {
     nativeGame: native.state,
     matchResolution,
     stopNativeGameStream,
+    fetchGameStats,
   }
 }

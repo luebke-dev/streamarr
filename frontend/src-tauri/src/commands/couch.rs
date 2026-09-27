@@ -355,6 +355,68 @@ pub fn couch_pad_input(now_ms: u64, couch: State<'_, CouchMode>) -> Vec<CouchInt
     out
 }
 
+/// Drains the pad queue and returns the wire messages, without interpreting them.
+///
+/// The game path's half of the shared reader. It must not *also* produce couch
+/// intents: `gilrs` hands each event out once, so interpreting here and there
+/// would make a controller do two things at once — a D-pad press would both move
+/// the game's character and move a menu highlight.
+///
+/// `couch_pad_input` is the interpreting counterpart; the caller picks one.
+pub fn drain_pad_events(
+    app: &tauri::AppHandle,
+) -> Result<Vec<streamarr_desktop_player::protocol::InputMessage>, String> {
+    use tauri::Manager;
+    let couch = app.state::<CouchMode>();
+    let mut source = couch.pads.lock().map_err(|_| "Pad-Sperre vergiftet")?;
+    let Some(source) = source.as_mut() else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for event in source.poll() {
+        // Connect and disconnect are reported through `couch_state`; only
+        // translated input can be forwarded.
+        if let streamarr_desktop_player::input::PadEvent::Input { message, .. } = event {
+            out.push(message);
+        }
+    }
+    Ok(out)
+}
+
+/// Drains the pad queue and returns the wire messages, *without* interpreting.
+///
+/// The game path's half of the shared reader. It must not also produce couch
+/// intents: `gilrs` hands each event out exactly once, so interpreting in both
+/// places would make a controller do two things at once — a D-pad press would
+/// move the game's character *and* a menu highlight. The caller picks one of the
+/// two functions, never both.
+pub fn drain_pad_messages(
+    couch: &CouchMode,
+) -> Vec<streamarr_desktop_player::protocol::InputMessage> {
+    let Ok(mut guard) = couch.pads.lock() else {
+        return Vec::new();
+    };
+    let Some(source) = guard.as_mut() else {
+        return Vec::new();
+    };
+    source
+        .poll()
+        .into_iter()
+        .filter_map(|event| match event {
+            // Connect and disconnect are reported through `couch_state`; only
+            // translated input can be forwarded to a game.
+            streamarr_desktop_player::input::PadEvent::Input { message, .. } => Some(message),
+            streamarr_desktop_player::input::PadEvent::SyntheticRelease { message, .. } => {
+                // A release the client had to invent because the pad vanished.
+                // It *must* be forwarded: without it a button stays logically
+                // pressed in the game forever.
+                Some(message)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// Turns a wire-format input message back into a pad input.
 ///
 /// The round trip looks redundant and is not: `PadTranslator` already resolved
@@ -724,6 +786,20 @@ mod tests {
         // Slow enough not to be a blur, fast enough to be usable.
         assert!(info.initial_delay_ms >= 100, "zu schnell: {info:?}");
         assert!(info.interval_ms >= 50, "zu schnell: {info:?}");
+    }
+
+    #[test]
+    fn draining_yields_messages_without_interpreting_them() {
+        // The two paths must not both run: `gilrs` hands each event out once, so
+        // a controller would otherwise move the game's character and a menu
+        // highlight from one press. This pins the *shape* of the game path — it
+        // returns wire messages, not intents.
+        let couch = CouchMode::default();
+        let messages = drain_pad_messages(&couch);
+        // No pad on this machine, so the list is empty — and that is the
+        // assertion: it returns a list of messages and never panics, which is
+        // what the command needs when no controller exists.
+        assert!(messages.is_empty());
     }
 
     #[test]

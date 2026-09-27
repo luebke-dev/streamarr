@@ -63,6 +63,7 @@
       :phase="nativeGamePhase"
       :state="nativeGameState"
       @match-resolution="matchGameResolution"
+      @fullscreen="toggleGameFullscreen"
       @disconnect="disconnectNativeGame"
       @close="disconnectNativeGame"
     />
@@ -311,6 +312,7 @@ const {
   nativeGame,
   matchResolution,
   stopNativeGameStream,
+  fetchGameStats,
 } = useGameLaunch({
   uuid,
   status,
@@ -321,6 +323,23 @@ const {
 
 // The native game stream's state and phase, for `NativeGameView`.
 const nativeGameState = computed(() => nativeGame.value)
+/**
+ * A live reading for the stats panel, once a second.
+ *
+ * 1 Hz because the figures a user reads are averages: asking more often would
+ * spend calls on numbers nobody can see change, and asking less often would make
+ * a stutter invisible.
+ */
+let gameStatsTimer = null
+onMounted(() => {
+  gameStatsTimer = setInterval(() => {
+    if (nativeGame.value?.running) fetchGameStats()
+  }, 1000)
+})
+onUnmounted(() => {
+  if (gameStatsTimer) clearInterval(gameStatsTimer)
+})
+
 const nativeGamePhase = computed(() => {
   if (nativeGame.value?.error) return 'failed'
   return nativeGame.value?.phase || 'connecting'
@@ -335,6 +354,23 @@ const nativeGamePhase = computed(() => {
  */
 const matchGameResolution = async () => {
   await matchResolution()
+}
+
+/**
+ * Puts the main window into fullscreen for the game.
+ *
+ * Through the shell, like the couch mode's: the WebView's own API makes an
+ * *element* fill the page, and what a game needs is the window leaving the
+ * desktop. The stream's picture is in a window of its own, so this is about the
+ * control window rather than the picture — which is why it is a separate button
+ * from the stream itself.
+ */
+const toggleGameFullscreen = async () => {
+  if (!isDesktopApp()) return
+  const { invoke } = await import('@tauri-apps/api/core')
+  await invoke('couch_set_fullscreen', { fullscreen: !document.fullscreenElement }).catch(
+    () => {},
+  )
 }
 
 /**
