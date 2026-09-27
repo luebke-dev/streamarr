@@ -206,6 +206,48 @@ export function useNativePlayback({ onProgress } = {}) {
     await invoke('player_set_property', { name, value })
   }
 
+  /**
+   * The audio and subtitle tracks of the current file.
+   *
+   * Read from mpv, not from the browser's `TextTrack` API: a native client has no browser
+   * text tracks, and the browser's list would describe the stream the player was *given*
+   * rather than what mpv resolved after demuxing. For a container with several audio
+   * tracks those differ.
+   *
+   * Returns `null` when nothing is playing — the caller shows "no track selection" rather
+   * than an error, because "nothing is playing" is not a failure.
+   */
+  async function fetchTracks() {
+    try {
+      return await invoke('player_tracks')
+    } catch (error) {
+      // A missing track list must never stop playback; mpv's own choice is a fine
+      // fallback, and the user keeps watching.
+      logger.warn('Spuren konnten nicht gelesen werden:', error)
+      return null
+    }
+  }
+
+  /**
+   * Switches the audio track.
+   *
+   * Takes mpv's numeric track id, which is what `aid` expects. Accepts `null` to hand the
+   * choice back to mpv — the same thing as "Automatic" in the interface.
+   */
+  async function selectAudioTrack(trackId) {
+    await setTrackProperty('aid', trackId === null ? 'auto' : trackId)
+  }
+
+  /**
+   * Switches the subtitle track, or turns subtitles off.
+   *
+   * `null` means "off", which mpv spells `no`. Passing `auto` instead would let mpv pick
+   * a subtitle the user just turned off, so the two cases are deliberately distinct here.
+   */
+  async function selectSubtitleTrack(trackId) {
+    await setTrackProperty('sid', trackId === null ? 'no' : trackId)
+  }
+
   onUnmounted(() => {
     unsubscribe()
   })
@@ -220,5 +262,8 @@ export function useNativePlayback({ onProgress } = {}) {
     setPaused,
     seek,
     setTrackProperty,
+    fetchTracks,
+    selectAudioTrack,
+    selectSubtitleTrack,
   }
 }

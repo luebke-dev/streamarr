@@ -22,7 +22,9 @@
 pub mod capabilities;
 pub mod couch;
 pub mod deeplink;
+pub mod display_hdr;
 pub mod mpv;
+pub mod mpv_caps;
 pub mod pad;
 pub mod plan;
 pub mod playback;

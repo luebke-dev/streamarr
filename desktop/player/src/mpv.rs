@@ -113,6 +113,43 @@ impl HdrMode {
         }
     }
 
+    /// Chooses a mode from what the display and the renderer can do (plan task 2.9).
+    ///
+    /// The plan asks for "HDR10 passthrough **or** provable SDR mapping" — which means the
+    /// mode must be *chosen*, not left to mpv's default. `Auto` is a reasonable default in
+    /// general and was what the shell passed, but it makes the decision invisible: whether
+    /// an HDR film is passed through or tone-mapped would depend on mpv's build and
+    /// version rather than on a fact this app measured.
+    ///
+    /// The two inputs are exactly the two facts that can be measured:
+    ///
+    ///   * `display_supports_hdr10` — from the display's EDID
+    ///     ([`crate::display_hdr`]).
+    ///   * `renderer_supports_passthrough` — from the installed mpv
+    ///     ([`crate::mpv_caps`]).
+    ///
+    /// Four combinations, and each has a defensible answer:
+    ///
+    /// | Display | Renderer | Mode | Why |
+    /// |---|---|---|---|
+    /// | HDR | HDR | `Passthrough` | Both halves present; the panel tone-maps as designed. |
+    /// | HDR | no HDR | `ToneMapSdr` | A capable screen but a player that cannot pass it — mapping is the only correct option. |
+    /// | SDR | HDR | `ToneMapSdr` | The screen cannot show HDR; passing it through gives a washed-out picture. |
+    /// | SDR | no HDR | `ToneMapSdr` | Nothing can do HDR. |
+    ///
+    /// So the answer is `Passthrough` only when **both** halves are true, and `ToneMapSdr`
+    /// otherwise — never `Auto`. `ToneMapSdr` on an SDR source is harmless (the tone
+    /// mapping simply does not engage), whereas `Auto` on an HDR source is the case the
+    /// plan warns about: the backend's transcode path is HDR-blind (§10.2), so a wrong
+    /// guess there yields a washed-out picture rather than a fallback.
+    pub fn choose(display_supports_hdr10: bool, renderer_supports_passthrough: bool) -> Self {
+        if display_supports_hdr10 && renderer_supports_passthrough {
+            Self::Passthrough
+        } else {
+            Self::ToneMapSdr
+        }
+    }
+
     /// Whether this mode claims HDR output, i.e. whether reporting it as a client
     /// capability would be truthful.
     pub fn claims_hdr(self) -> bool {
@@ -1088,6 +1125,56 @@ mod tests {
     fn auto_hdr_forces_nothing() {
         assert!(HdrMode::Auto.to_args().is_empty());
         assert!(!HdrMode::Auto.claims_hdr());
+    }
+
+    #[test]
+    fn hdr_passthrough_needs_both_halves() {
+        // The one combination that passes HDR through. Everything else tone-maps, because
+        // claiming HDR with only one half present is the failure the plan names in §10.
+        assert_eq!(HdrMode::choose(true, true), HdrMode::Passthrough);
+        assert!(HdrMode::choose(true, true).claims_hdr());
+
+        assert_eq!(HdrMode::choose(true, false), HdrMode::ToneMapSdr);
+        assert_eq!(HdrMode::choose(false, true), HdrMode::ToneMapSdr);
+        assert_eq!(HdrMode::choose(false, false), HdrMode::ToneMapSdr);
+    }
+
+    #[test]
+    fn the_chosen_mode_is_never_auto() {
+        // `Auto` would hand the decision to mpv's build and version, making it invisible —
+        // the plan asks for a *provable* answer, which means one this app decided from
+        // measured facts.
+        for display in [true, false] {
+            for renderer in [true, false] {
+                let mode = HdrMode::choose(display, renderer);
+                assert_ne!(mode, HdrMode::Auto, "display={display} renderer={renderer}");
+                assert!(
+                    !mode.to_args().is_empty(),
+                    "ein gewählter Modus muss Argumente setzen: {mode:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_display_that_cannot_show_hdr_is_never_sent_hdr() {
+        // The visible failure this prevents: an HDR signal on an SDR panel looks grey and
+        // washed out, which is worse than a correctly mapped picture.
+        for renderer in [true, false] {
+            let mode = HdrMode::choose(false, renderer);
+            assert!(!mode.claims_hdr(), "renderer={renderer}");
+            assert_eq!(mode, HdrMode::ToneMapSdr);
+        }
+    }
+
+    #[test]
+    fn the_sdr_mapping_is_provable_from_its_arguments() {
+        // "Provable SDR mapping" from the plan means the mechanism is named, not implied:
+        // a specific tone-mapping curve and no colourspace hint.
+        let args = HdrMode::ToneMapSdr.to_args().join(" ");
+        assert!(args.contains("--tone-mapping=bt.2390"), "{args}");
+        assert!(args.contains("--target-colorspace-hint=no"), "{args}");
+        assert!(!HdrMode::ToneMapSdr.claims_hdr());
     }
 
     #[test]

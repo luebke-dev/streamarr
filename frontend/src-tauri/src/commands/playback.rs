@@ -28,7 +28,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use streamarr_desktop_player::mpv::{HdrMode, Mpv, PlayerOptions, PlayerState};
+use streamarr_desktop_player::mpv::{HdrMode, Mpv, PlayerOptions, PlayerState, TrackList};
 use streamarr_desktop_player::plan::{
     notices_for, plan_playback, position_to_store, PlaybackNotice, PlaybackPlan,
 };
@@ -48,6 +48,13 @@ pub enum PlayerCommand {
     SeekRelative(f64),
     /// Set a track property (`aid`, `sid`, `volume`).
     SetProperty(String, serde_json::Value),
+    /// Read the current track list (plan task 2.6).
+    ///
+    /// Answered over a oneshot channel rather than by a property on the shared state: the
+    /// track list lives in mpv and is only meaningful when read from the player thread,
+    /// which owns the IPC socket. A clone kept in the shared state would be one more thing
+    /// to keep in sync, and it would be wrong exactly when a track is added mid-playback.
+    TrackList(Sender<TrackList>),
     /// Stop and end the thread.
     Stop,
 }
@@ -69,6 +76,13 @@ pub struct PlaybackSummary {
     /// the user's language.
     pub notices: Vec<PlaybackNotice>,
 }
+
+/// The response side of a track-list request.
+///
+/// A pair rather than a single receiver so the command can be written as one expression
+/// without borrowing rules getting in the way; the sender half travels to the player
+/// thread inside [`PlayerCommand::TrackList`].
+pub struct TrackReply(Sender<TrackList>, Receiver<TrackList>);
 
 /// A running player, shared with the monitor thread.
 struct Running {
@@ -121,6 +135,17 @@ impl PlaybackService {
     }
 
     /// Stops the current playback, if any, and waits for its thread.
+    /// A fresh request/response pair for reading the track list.
+    ///
+    /// `None` when nothing is playing, so the caller does not block on a channel nobody
+    /// will answer.
+    pub fn track_list_channel(&self) -> Option<(Sender<PlayerCommand>, TrackReply)> {
+        let guard = self.current.lock().unwrap();
+        let running = guard.as_ref()?;
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        Some((running.commands.clone(), TrackReply(reply_tx, reply_rx)))
+    }
+
     pub fn stop(&self) -> Option<(PlaybackSummary, PlayerState)> {
         let mut guard = self.current.lock().unwrap();
         let mut running = guard.take()?;
@@ -242,7 +267,12 @@ pub async fn play_media(
         stored_position,
         stored_duration,
         already_played,
-        HdrMode::Auto,
+        // Chosen from measurements, not from mpv's default: the display's EDID answers the
+        // screen half and the installed mpv answers the renderer half. `Auto` would make
+        // this depend on mpv's build and version instead — and the plan asks for
+        // "HDR10 passthrough *or* provable SDR mapping", which requires a decision this
+        // app made (task 2.9).
+        chosen_hdr_mode(),
     )
     .map_err(|e| e.to_string())?;
 
@@ -435,6 +465,11 @@ fn monitor(
                     let _ =
                         mpv.send(&serde_json::json!({ "command": ["set_property", name, value] }));
                 }
+                PlayerCommand::TrackList(reply) => {
+                    // Read here, on the thread that owns the socket. A send failure means
+                    // the caller gave up waiting, which is not an error worth logging.
+                    let _ = reply.send(mpv.track_list());
+                }
             }
         }
 
@@ -557,6 +592,97 @@ pub fn player_status(state: State<'_, AppState>) -> Result<Option<PlaybackSummar
     Ok(state.playback().summary())
 }
 
+/// The audio and subtitle tracks of the current file (plan task 2.6).
+///
+/// A native client must read these from mpv rather than from the browser's `TextTrack`
+/// API, which does not exist here — and, more importantly, the browser's list would be of
+/// the *stream* mpv was given, not of what mpv actually resolved after demuxing. For a
+/// container with five audio tracks those are not the same thing.
+///
+/// Returns `None` when nothing is playing, which the interface shows as "no track
+/// selection available" rather than as an error.
+#[tauri::command]
+pub fn player_tracks(state: State<'_, AppState>) -> Result<Option<PlayerTracks>, String> {
+    let service = state.playback();
+    let Some((request, response)) = service.track_list_channel() else {
+        return Ok(None);
+    };
+
+    request
+        .send(PlayerCommand::TrackList(response.0))
+        .map_err(|_| "Der Wiedergabeprozess läuft nicht mehr.".to_string())?;
+
+    // A short deadline: the player thread answers within one event loop, so a wait longer
+    // than that means the thread is gone rather than busy.
+    let list = response
+        .1
+        .recv_timeout(std::time::Duration::from_secs(3))
+        .map_err(|_| "Der Wiedergabeprozess hat nicht geantwortet.".to_string())?;
+
+    Ok(Some(PlayerTracks::from(list)))
+}
+
+/// The track list as the interface needs it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerTracks {
+    /// Audio tracks, in mpv's order.
+    pub audio: Vec<TrackView>,
+    /// Subtitle tracks, in mpv's order.
+    pub subtitles: Vec<TrackView>,
+    /// The audio track currently selected, by mpv's id.
+    pub selected_audio: Option<i64>,
+    /// The subtitle track currently selected, by mpv's id. `None` means subtitles are off.
+    pub selected_subtitle: Option<i64>,
+}
+
+/// One selectable track.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackView {
+    /// mpv's track id, to be passed back to `player_set_property` as `aid`/`sid`.
+    pub id: i64,
+    /// The display label, built from the language and title mpv reported.
+    pub label: String,
+    /// The ISO language code, when mpv knows it.
+    pub language: Option<String>,
+    /// Whether this is the track mpv is currently using.
+    pub selected: bool,
+    /// Whether the track is external (a separate subtitle file next to the video).
+    ///
+    /// Worth surfacing: an external track can disappear when the file is re-encoded,
+    /// unlike one embedded in the container.
+    pub external: bool,
+    /// The codec, when mpv named one — useful to tell an AC3 track from a commentary.
+    pub codec: Option<String>,
+    /// `true` for mpv's synthetic "no subtitles" entry, which is a real choice in the list
+    /// rather than a missing track.
+    pub is_default: bool,
+}
+
+impl From<TrackList> for PlayerTracks {
+    fn from(list: TrackList) -> Self {
+        use streamarr_desktop_player::mpv::TrackKind;
+
+        let view = |track: &streamarr_desktop_player::mpv::Track| TrackView {
+            id: track.id,
+            label: track.label(),
+            language: track.language.clone(),
+            selected: track.selected,
+            external: track.external,
+            codec: track.codec.clone(),
+            is_default: track.is_default,
+        };
+
+        Self {
+            audio: list.audio().iter().map(|t| view(t)).collect(),
+            subtitles: list.subtitles().iter().map(|t| view(t)).collect(),
+            selected_audio: list.selected(TrackKind::Audio).map(|t| t.id),
+            selected_subtitle: list.selected(TrackKind::Subtitle).map(|t| t.id),
+        }
+    }
+}
+
 /// Pauses or resumes.
 #[tauri::command]
 pub fn player_set_paused(state: State<'_, AppState>, paused: bool) -> Result<(), String> {
@@ -576,6 +702,29 @@ pub fn player_seek(
         PlayerCommand::Seek(seconds)
     };
     state.playback().send(command)
+}
+
+/// The HDR mode this machine warrants.
+///
+/// Both halves are probed: the display's EDID says whether the panel can show HDR10, and
+/// the installed mpv says whether its renderer can pass HDR through. Measured on this
+/// machine both are true, so the answer here is `Passthrough`; on a machine with an SDR
+/// screen it is `ToneMapSdr`, which is the provable mapping the plan asks for.
+///
+/// Logged, because "why is the picture tone-mapped" is otherwise unanswerable from the
+/// outside.
+pub fn chosen_hdr_mode() -> HdrMode {
+    let display_supports_hdr10 =
+        streamarr_desktop_player::display_hdr::any_display_supports_hdr10();
+    let renderer_supports_passthrough = streamarr_desktop_player::mpv_caps::detect()
+        .map(|caps| caps.supports_hdr_passthrough())
+        .unwrap_or(false);
+
+    let mode = HdrMode::choose(display_supports_hdr10, renderer_supports_passthrough);
+    log::info!(
+        "HDR-Modus: {mode:?} (Display kann HDR10: {display_supports_hdr10},          Renderer kann Durchreichung: {renderer_supports_passthrough})"
+    );
+    mode
 }
 
 /// Sets a track or volume property (`aid`, `sid`, `volume`).
@@ -784,15 +933,32 @@ mod tests {
     }
 
     #[test]
-    fn hdr_is_not_claimed() {
+    fn the_hdr_mode_follows_the_probes() {
+        // Replaces a test that asserted "HDR is never claimed", with the comment "this
+        // shell has no display probe yet". That comment stopped being true: the probe now
+        // exists (the display's EDID and the installed mpv), so the old assertion would
+        // have locked in the *absence* of a feature that is now implemented — and passed,
+        // because it tested a hardcoded `false` rather than the code path.
+        let display = streamarr_desktop_player::display_hdr::any_display_supports_hdr10();
+        let renderer = streamarr_desktop_player::mpv_caps::detect()
+            .map(|c| c.supports_hdr_passthrough())
+            .unwrap_or(false);
+
+        let mode = chosen_hdr_mode();
+        assert_eq!(mode, HdrMode::choose(display, renderer));
+        // Whatever it is, it is a decision rather than a deferral.
+        assert_ne!(mode, HdrMode::Auto);
+    }
+
+    #[test]
+    fn the_play_path_still_carries_the_capabilities() {
         use streamarr_desktop_player::capabilities::Capabilities;
-        // The backend's transcode path is HDR-blind (plan §10.2) and this shell has no
-        // display probe yet, so claiming HDR would produce a washed-out picture rather
-        // than a better one.
-        let caps = Capabilities::detect(3840, false, false, true, "1.0");
+        // The capabilities that decide direct play must still reach the server; that part
+        // of the old test was right and is kept.
+        let caps = Capabilities::detect(3840, true, true, true, "1.0");
         let path = play_path("abc", &caps);
-        assert!(!caps.supports_hdr);
-        let _ = path;
+        assert!(path.contains("supported_video_codecs"));
+        assert!(path.contains("client_max_resolution"));
     }
 
     #[test]

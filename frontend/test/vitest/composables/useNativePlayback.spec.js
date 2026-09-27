@@ -15,10 +15,13 @@ vi.mock('src/utils/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
+import { effectScope } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import {
   initialPlayerState,
   reducePlayerEvent,
   usesNativePlayback,
+  useNativePlayback,
 } from 'src/composables/useNativePlayback'
 
 describe('usesNativePlayback', () => {
@@ -137,5 +140,93 @@ describe('reducePlayerEvent', () => {
     // parent holding a reference would see changes it never asked for.
     expect(() => reducePlayerEvent(frozen, 'player:state', { position: 5 })).not.toThrow()
     expect(before.position).toBe(0)
+  })
+})
+
+/**
+ * Track selection.
+ *
+ * The tracks come from mpv, not from the browser: a native client has no `TextTrack` API,
+ * and the browser's list would describe the stream the player was handed rather than what
+ * mpv resolved. That makes these calls the only route to audio and subtitle selection.
+ */
+describe('native track selection', () => {
+  /** Runs the composable inside a scope so its lifecycle hooks have an owner. */
+  function withPlayback() {
+    const scope = effectScope()
+    const playback = scope.run(() => useNativePlayback())
+    return { playback, scope }
+  }
+
+  it('reads the track list from the shell, not from a media element', async () => {
+    invoke.mockResolvedValueOnce({
+      audio: [{ id: 1, label: 'English', language: 'eng', selected: true }],
+      subtitles: [],
+      selectedAudio: 1,
+      selectedSubtitle: null,
+    })
+
+    const { playback, scope } = withPlayback()
+    const tracks = await playback.fetchTracks()
+
+    expect(invoke).toHaveBeenCalledWith('player_tracks')
+    expect(tracks.audio).toHaveLength(1)
+    expect(tracks.selectedAudio).toBe(1)
+    scope.stop()
+  })
+
+  it('returns null instead of throwing when nothing is playing', async () => {
+    // "Nothing is playing" is not a failure. Throwing here would surface an error dialog
+    // for a state the user caused by simply not having started anything.
+    invoke.mockRejectedValueOnce(new Error('Der Wiedergabeprozess läuft nicht mehr.'))
+
+    const { playback, scope } = withPlayback()
+    await expect(playback.fetchTracks()).resolves.toBeNull()
+    scope.stop()
+  })
+
+  it('switches the audio track by mpv id', async () => {
+    invoke.mockResolvedValue(undefined)
+
+    const { playback, scope } = withPlayback()
+    await playback.selectAudioTrack(2)
+
+    expect(invoke).toHaveBeenCalledWith('player_set_property', { name: 'aid', value: 2 })
+    scope.stop()
+  })
+
+  it('hands the audio choice back to mpv with "auto"', async () => {
+    // `null` is the interface's "Automatic". Passing the number 0 or an empty string
+    // would be a track id that does not exist, and mpv would keep the current track while
+    // the UI showed "Automatic" — a lie the user cannot see through.
+    invoke.mockResolvedValue(undefined)
+
+    const { playback, scope } = withPlayback()
+    await playback.selectAudioTrack(null)
+
+    expect(invoke).toHaveBeenCalledWith('player_set_property', { name: 'aid', value: 'auto' })
+    scope.stop()
+  })
+
+  it('turns subtitles off with "no", not with "auto"', async () => {
+    // The distinction matters: `auto` lets mpv pick a subtitle, so a user who just turned
+    // subtitles off would see them come back at the next scene.
+    invoke.mockResolvedValue(undefined)
+
+    const { playback, scope } = withPlayback()
+    await playback.selectSubtitleTrack(null)
+
+    expect(invoke).toHaveBeenCalledWith('player_set_property', { name: 'sid', value: 'no' })
+    scope.stop()
+  })
+
+  it('selects a subtitle track by mpv id', async () => {
+    invoke.mockResolvedValue(undefined)
+
+    const { playback, scope } = withPlayback()
+    await playback.selectSubtitleTrack(3)
+
+    expect(invoke).toHaveBeenCalledWith('player_set_property', { name: 'sid', value: 3 })
+    scope.stop()
   })
 })

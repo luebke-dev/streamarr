@@ -201,6 +201,7 @@ pub fn run() {
             commands::playback::player_seek,
             commands::playback::player_set_property,
             commands::playback::player_stop,
+            commands::playback::player_tracks,
             commands::deeplink::begin_browser_login,
             commands::deeplink::browser_login_pending,
             commands::deeplink::cancel_browser_login,

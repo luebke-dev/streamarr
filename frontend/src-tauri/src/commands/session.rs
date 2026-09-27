@@ -6,6 +6,8 @@
 
 use serde::Serialize;
 use streamarr_desktop_player::capabilities::Capabilities;
+use streamarr_desktop_player::display_hdr;
+use streamarr_desktop_player::mpv_caps;
 use streamarr_desktop_player::session::{TokenStore, CLIENT_PLATFORM_VALUE};
 use tauri::State;
 
@@ -157,6 +159,77 @@ pub async fn logout(state: State<'_, AppState>) -> Result<SessionState, String> 
     session_state(state)
 }
 
+/// What the machine can actually do, as measured — not as assumed.
+///
+/// Two facts were previously hardcoded and are now probed:
+///
+///   * `hardware_decode` was passed as `true` unconditionally. mpv does use the GPU
+///     decoders in practice, but "in practice" is not a measurement, and on a machine
+///     without them the claim costs a stream the client cannot decode.
+///   * HDR was passed as `false` with the comment "until a display probe exists". The
+///     probe now exists ([`streamarr_desktop_player::display_hdr`], reading the EDID) and
+///     the renderer side is answered by mpv itself
+///     ([`streamarr_desktop_player::mpv_caps`]).
+///
+/// Measured on this machine: mpv 0.41.0 with `gpu-next` and the colour-management options,
+/// and two connected panels advertising ST2084 with static metadata type 1 — so both
+/// halves come out true here. On a machine without them they come out false, which is the
+/// point.
+pub struct DetectedCapabilities {
+    pub capabilities: Capabilities,
+    /// The measured facts, for the log.
+    pub notes: Vec<String>,
+}
+
+/// Probes the display and the player and builds the capability claim.
+pub fn detect_capabilities(display_width: u32) -> DetectedCapabilities {
+    let hdr_displays = display_hdr::detect_displays();
+
+    // "Any connected display" rather than "the current one": a window can be moved to the
+    // HDR screen, and making the mode depend on window placement would be surprising.
+    let hdr_display = hdr_displays.iter().any(|d| d.can_show_hdr10());
+    let mpv = mpv_caps::detect();
+    let hdr_renderer = mpv
+        .as_ref()
+        .map(|caps| caps.supports_hdr_passthrough())
+        .unwrap_or(false);
+    let hardware_decode = mpv
+        .as_ref()
+        .map(|caps| caps.has_hardware_decode())
+        .unwrap_or(false);
+
+    let mut notes = Vec::new();
+    for display in &hdr_displays {
+        notes.push(display.describe());
+    }
+    if hdr_displays.is_empty() {
+        notes.push(
+            "Kein angeschlossenes Display mit lesbarem EDID gefunden — HDR wird nicht \
+             beansprucht."
+                .to_string(),
+        );
+    }
+    match &mpv {
+        Some(caps) => notes.push(caps.describe()),
+        None => notes.push(
+            "Kein brauchbares mpv gefunden — Hardware-Dekodierung und HDR werden nicht \
+             beansprucht."
+                .to_string(),
+        ),
+    }
+
+    DetectedCapabilities {
+        capabilities: Capabilities::detect(
+            display_width,
+            hdr_display,
+            hdr_renderer,
+            hardware_decode,
+            env!("CARGO_PKG_VERSION"),
+        ),
+        notes,
+    }
+}
+
 /// The client capabilities this installation reports.
 ///
 /// Detection uses the values the shell can observe. The display size comes from the
@@ -167,8 +240,16 @@ pub async fn logout(state: State<'_, AppState>) -> Result<SessionState, String> 
 #[tauri::command]
 pub fn capabilities(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let (width, height) = current_display_size(&app).unwrap_or((1920, 1080));
-    let caps = Capabilities::detect(width, false, false, true, env!("CARGO_PKG_VERSION"));
-    serde_json::to_value(CapabilitiesView::from(&caps, width, height)).map_err(|e| e.to_string())
+    let detected = detect_capabilities(width);
+    for note in &detected.notes {
+        log::info!("Fähigkeiten: {note}");
+    }
+    serde_json::to_value(CapabilitiesView::from(
+        &detected.capabilities,
+        width,
+        height,
+    ))
+    .map_err(|e| e.to_string())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -244,12 +325,14 @@ pub async fn register_capabilities(
     // transcode or downscale media the screen could show natively.
     let display_width = current_display_size(&app).map(|(w, _)| w).unwrap_or(1920);
 
-    // HDR is reported as unsupported because no display probe exists yet — claiming it
-    // would send an HDR stream to a panel that has to tone-map it, and the backend's
-    // transcode path is HDR-blind (plan §10.2). `hardware_decode` is likewise claimed
-    // optimistically: mpv does use the GPU decoders in practice, and understating it
-    // costs a transcode on every file.
-    let caps = Capabilities::detect(display_width, false, false, true, env!("CARGO_PKG_VERSION"));
+    // Measured, not assumed: the display's EDID answers the HDR half and the installed
+    // mpv answers the renderer half. Claiming either without a probe is a claim the server
+    // acts on — wrongly in both directions (plan §10).
+    let detected = detect_capabilities(display_width);
+    for note in &detected.notes {
+        log::info!("Fähigkeiten: {note}");
+    }
+    let caps = detected.capabilities;
     log::info!(
         "Melde Geräte-Capabilities: Auflösung {} bei Anzeigebreite {}",
         caps.max_resolution.as_str(),
@@ -486,6 +569,58 @@ mod tests {
     /// Guards the defect this fixed: `register_capabilities` passed a literal `1920`, so
     /// a 4K or ultrawide screen advertised 1080p and the server was free to transcode
     /// media the screen could have shown as it was.
+    /// The capabilities must follow measurements, not constants.
+    ///
+    /// Guards the state this replaced: `hardware_decode` was passed as a literal `true`
+    /// and HDR as a literal `false`, with a comment saying "until a display probe exists".
+    /// Both are now probed, so this test asserts the two halves agree with the probes
+    /// rather than with a hardcoded hope.
+    #[test]
+    fn detection_reports_what_the_display_and_the_player_say() {
+        let detected = detect_capabilities(1920);
+
+        let expected_hdr_display = streamarr_desktop_player::display_hdr::detect_displays()
+            .iter()
+            .any(|d| d.can_show_hdr10());
+        let mpv = streamarr_desktop_player::mpv_caps::detect();
+        let expected_hdr_renderer = mpv
+            .as_ref()
+            .map(|c| c.supports_hdr_passthrough())
+            .unwrap_or(false);
+        let expected_hw = mpv
+            .as_ref()
+            .map(|c| c.has_hardware_decode())
+            .unwrap_or(false);
+
+        assert_eq!(detected.capabilities.hardware_decode, expected_hw);
+        // HDR needs both halves; claiming it with one is the failure mode the plan warns
+        // about in §10 — the server would send an HDR stream that gets approximated.
+        assert_eq!(
+            detected.capabilities.supports_hdr,
+            expected_hdr_display && expected_hdr_renderer
+        );
+    }
+
+    #[test]
+    fn every_detection_produces_an_explanation_for_the_log() {
+        // So "why does it say HDR is unsupported" can be answered from a log rather than
+        // by re-running the probe by hand.
+        let detected = detect_capabilities(1920);
+        assert!(
+            !detected.notes.is_empty(),
+            "die Erkennung muss begründen, was sie gefunden hat"
+        );
+        for note in &detected.notes {
+            assert!(!note.trim().is_empty());
+        }
+        // In this container there is both a display and an mpv, so the notes name both.
+        let joined = detected.notes.join(" ");
+        assert!(
+            joined.contains("mpv") || joined.contains("Display"),
+            "die Notizen sollen Display oder Player benennen: {joined}"
+        );
+    }
+
     #[test]
     fn the_reported_resolution_follows_the_display_width() {
         // The labels the server parses are exactly `480p`, `720p`, `1080p`, `4k`
