@@ -4,7 +4,10 @@ streamarr.media includes a full games library with IGDB metadata — and you don
 
 ## The Games Library
 
-Open **Games** in the navigation. Like the home page, the games page is built from configurable sections — for example a hero carousel, **Trending Now**, genre rows with a **See All** option, favorites, and platform sections. Trending games come from IGDB and are refreshed automatically.
+Open **Games** in the navigation. Like the home page, the games page is built from configurable sections: for example **Latest Items**, platform tiles, favorites, and a dynamic search. Trending games come from IGDB and are refreshed automatically.
+
+!!! note "The games page needs its own layout"
+    Browse pages only use a layout whose **Library** field points at their library, and a fresh install only seeds the `home` layout. The `home` sections are built for video (a trending carousel, genre rows, trailers), so a games library that falls back to `home` shows nothing. Create a layout for the games library and bind it, or use the pencil button in the page toolbar to add sections in place. See [Page Layouts](../administration/page-layouts.md).
 
 Games also show up in the global [search](search.md) with their own results section, and can be added to [lists](lists.md) and marked as [favorites](favorites.md) just like movies and shows.
 
@@ -61,7 +64,7 @@ Changes apply to your next session.
 ## Availability & Limits
 
 !!! warning "Server-side feature"
-    Cloud gaming has to be set up by your administrator (it needs a GPU-equipped streaming service). Administrators can also limit how many game streams your account may run at once, or disable game streaming for an account entirely — and on servers with paid plans it may be part of a specific [membership](membership.md) tier. If **Play** fails with a permission error, contact your admin.
+    Cloud gaming has to be set up by your administrator (it needs a GPU-equipped streaming service). Administrators configure ROM folders, BIOS files, and emulator cores in [Retro Game Streaming](../administration/game-streaming.md). They can also limit how many game streams your account may run at once, or disable game streaming for an account entirely, and on servers with paid plans it may be part of a specific [membership](membership.md) tier. If **Play** fails with a permission error, contact your admin.
 
 ## Next Steps
 
