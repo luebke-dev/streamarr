@@ -192,9 +192,21 @@ playback rather than after it.
 Games stream from the server over WebRTC, decoded by GStreamer into a native window, with
 keyboard, mouse and gamepad input forwarded to the game.
 
-!!! warning "Not yet verified"
-    This path is implemented but has not been run against a live session, because the
-    test server's database was unavailable while it was written. Treat it as untested.
+!!! danger "Not wired into the app yet"
+    Be precise about what this means, because the difference matters:
+
+    The **client is built and proven** — a real GStreamer pipeline decodes a real
+    WebRTC stream over a real data channel, and input reaches the other side
+    (`DECODED=10 INPUT_SENT=6 INPUT_RECEIVED=6`, reproducible with
+    `cargo run --features spike --bin game-pipeline-check` in `desktop/player`).
+
+    But the **app does not use it yet**. The shell enables only the `gamepad`
+    feature, so pressing play on a game in the desktop app does not start this
+    pipeline. Wiring it up is the remaining step.
+
+    Two honest consequences: the shipped packages declare no GStreamer
+    dependency (they do not need one), and the sections below describe the
+    intended behaviour rather than something you can currently use.
 
 ### Gamepads
 
@@ -399,8 +411,12 @@ What has been **measured**, and what has not:
 - Media playback: direct play from the server's file endpoint, resume at a stored
   position, HDR mode selection, and the address pin reaching a player that has no
   equivalent of `curl --resolve`.
-- Bundles: `.deb` and AppImage contents inspected, with zero unresolved shared libraries;
-  the `.deb` extracted and started.
+- Bundles: `.deb` and `.rpm` built, their contents inspected, and every directly
+  linked library declared — checked mechanically by
+  `desktop/scripts/check_bundle_deps.sh`, which found eight undeclared
+  dependencies the first time it ran.
+- The extracted AppImage starts. `check_versions.sh` holds the three product
+  versions together.
 
 **Not verified**
 
@@ -411,14 +427,34 @@ What has been **measured**, and what has not:
   `docs/plans/desktop-testserver-stand.md` (the server's database container was destroyed;
   a leftover Docker network endpoint holds the address the backend needs; the database
   files themselves are intact).
-- **Game streaming.** Same reason, same page.
+- **Game streaming against the server.** Same reason, same page. The client side
+  *is* proven — a real GStreamer pipeline decodes a WebRTC stream over a real data
+  channel (`DECODED=10`, `INPUT_SENT=6 INPUT_RECEIVED=6` in
+  `desktop/player/src/bin/game-pipeline-check.rs`) — but that proof is
+  loopback-to-loopback. It shows the client's own pipeline works and says nothing
+  about interoperability with Lightrays.
+- **Couch mode with a physical controller.** The geometry, the repeat rule and the
+  shell commands are covered by tests, and the keyboard path is tested end to end.
+  No gamepad has ever been plugged into this machine, so the controller path has
+  never been driven by a person.
 - **The OIDC/browser login end to end.** The test server has `oidc_enabled: false`, so a
   real browser login cannot be exercised. The link's shape is checked against the server's
   own callback endpoint, read from its sources.
 - **Installing an update.** No release has been published, so no update has ever been
   downloaded and installed. The feed answers `HTTP 404` today, which the app treats as
   "no release yet" rather than as a failure.
-- **Windows.** No bundle has been built and no Windows host has run this code.
-- **AppImage execution.** The build container has no FUSE, so only the extracted contents
-  could be checked.
+- **A support report actually arriving.** `POST /api/client-logs` cannot be
+  reached while the test server's database is down, so no report has been
+  delivered or read back. The command's logic and the dialog are tested; the round
+  trip is not.
+- **Windows installation.** The NSIS and MSI installers are built by CI on
+  `windows-latest`, and the job asserts both artefacts exist — but **no person has
+  built or clicked through one**. That is a different kind of evidence from a build
+  someone ran, and this project has no Windows host to do it on.
+- **AppImage *mounting*.** FUSE does not work in the build container
+  (`fusermount` is absent), so the mounted image has never been started. The
+  **extracted** AppImage was: through `AppRun` it runs until its timeout is reached
+  and reports its configuration. Starting `usr/bin/Streamarr` directly fails with a
+  WebKit helper-process error, which is expected — `AppRun` is what sets the paths
+  WebKit looks in.
 - **macOS.** Out of scope for now.
