@@ -7,6 +7,7 @@
 
 import { api } from 'boot/axios'
 import { logger } from 'src/utils/logger'
+import { isDesktopApp } from 'src/utils/desktopPlatform'
 
 // Cache for detected codec capabilities
 let cachedCodecCapabilities = null
@@ -23,12 +24,56 @@ export async function detectCodecCapabilities() {
     return cachedCodecCapabilities
   }
 
+  // On the desktop the browser does not decode anything: mpv does, in its own process
+  // (ADR 001). Probing `navigator.mediaCapabilities` there answers a question about a
+  // decoder that is never used — and it answers it *wrong*: the webview's HDR answer
+  // reflects WebKitGTK's capabilities, not the machine's. So the shell is asked instead,
+  // and it reports what it measured (task 2.2/2.9). The browser path below stays for the
+  // web build, where it is the only decoder there is.
+  if (isDesktopApp()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const native = await invoke('capabilities')
+      const result = {
+        video_codecs: native.videoCodecs ?? [],
+        audio_codecs: native.audioCodecs ?? [],
+        containers: native.containers ?? [],
+        max_resolution: native.maxResolution ?? null,
+        hdr_supported: native.supportsHdr ?? false,
+        // Recorded so the interface can say *why* a value is what it is, and so a bug
+        // report distinguishes a measured value from a browser guess.
+        source: 'shell',
+      }
+      cachedCodecCapabilities = result
+      return result
+    } catch (error) {
+      // Falling through to the browser probe would produce a confidently wrong answer,
+      // which is worse than an empty one: the interface would claim HDR support on a
+      // machine whose own player said it has none. The empty set is honest and the
+      // dialog shows it as unknown.
+      logger.warn('Capabilities konnten nicht von der Shell gelesen werden:', error)
+      const empty = {
+        video_codecs: [],
+        audio_codecs: [],
+        containers: [],
+        max_resolution: null,
+        hdr_supported: false,
+        source: 'shell-unavailable',
+      }
+      cachedCodecCapabilities = empty
+      return empty
+    }
+  }
+
   const capabilities = {
     video_codecs: [],
     audio_codecs: [],
     containers: [],
     max_resolution: null,
     hdr_supported: false,
+    // Which decoder this answer is about. On the web build that is the browser; the
+    // desktop path above sets `shell` instead.
+    source: 'browser',
   }
 
   // Helper to check if MediaSource supports a type
