@@ -168,6 +168,95 @@ jobs:
         working-directory: frontend/src-tauri
         run: cargo test --locked
 
+
+  # ── Installable bundles ──
+  # Building the packages is the point: a bundling configuration that no one runs rots
+  # silently. The `.deb` gets built *and installed* into the runner, which is the closest
+  # thing to a real installation available without a VM.
+  bundles:
+    name: Bundles (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libdbus-1-dev \
+            pkg-config \
+            rpm
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: |
+          corepack enable
+          corepack yarn install --immutable || corepack yarn install
+      - name: Build bundles
+        working-directory: frontend
+        # AppImage is excluded on purpose: it needs FUSE to run, which the runner has,
+        # but building it downloads three helper binaries from GitHub and adds minutes
+        # to every run. `.deb` and `.rpm` cover the packaging configuration.
+        run: npx tauri build --bundles deb,rpm
+      - name: Inspect the .deb
+        run: |
+          set -euo pipefail
+          DEB=$(ls frontend/src-tauri/target/release/bundle/deb/*.deb)
+          echo "Paket: $DEB"
+          dpkg-deb -I "$DEB"
+          # The binary, the desktop entry and an icon must all be there.
+          dpkg-deb -c "$DEB" > /tmp/contents.txt
+          grep -q 'usr/bin/Streamarr' /tmp/contents.txt
+          grep -q 'usr/share/applications/Streamarr.desktop' /tmp/contents.txt
+          grep -q 'usr/share/icons' /tmp/contents.txt
+          # And the dependencies must not be duplicated. A duplicate is not fatal, but
+          # it means the configuration and Tauri both added them, which is the sign of a
+          # `depends` list that does not know what it is doing.
+          depends=$(dpkg-deb -f "$DEB" Depends)
+          echo "Depends: $depends"
+          count=$(echo "$depends" | tr ',' '\n' | sed 's/ //g' | sort | uniq -d | wc -l)
+          if [ "$count" -ne 0 ]; then
+            echo "::error::Doppelte Abhängigkeiten im Paket: $depends"
+            exit 1
+          fi
+      - name: Install the .deb and run it
+        run: |
+          set -euo pipefail
+          # `apt-get install -y ./file.deb` resolves the dependencies from the archive.
+          sudo apt-get install -y ./frontend/src-tauri/target/release/bundle/deb/*.deb
+          # The binary must be where the package says, and it must start. A missing mpv
+          # is expected on the runner and does not stop the app from reaching its window.
+          command -v Streamarr
+          # `xvfb-run` gives it a display; without one, GTK aborts before the app's own
+          # code runs and the test would prove nothing.
+          sudo apt-get install -y xvfb
+          set +e
+          timeout 25 xvfb-run -a Streamarr > /tmp/app.log 2>&1
+          status=$?
+          set -e
+          echo "--- Ausgabe ---"
+          cat /tmp/app.log
+          # 124 means the timeout killed it, i.e. it was still running - which is what a
+          # working app does. Anything else is a crash.
+          if [ "$status" -ne 124 ]; then
+            echo "::error::Die installierte App endete mit Status $status statt zu laufen."
+            exit 1
+          fi
+          # It must have got as far as reading its configuration.
+          grep -q 'Konfiguration:' /tmp/app.log
+
   # ── The web UI, held to its documented baseline ──
   frontend:
     name: Frontend
