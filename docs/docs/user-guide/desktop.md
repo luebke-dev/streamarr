@@ -189,8 +189,21 @@ playback rather than after it.
 
 ## Games
 
-Games stream from the server over WebRTC, decoded by GStreamer into a native window, with
-keyboard, mouse and gamepad input forwarded to the game.
+Games stream from the server over WebRTC, decoded by GStreamer into a native window
+of its own — on the desktop the picture is **never** drawn inside the app window,
+because the plan's architecture rule is that the webview is UI chrome and every
+video output is native.
+
+**Gamepads work; keyboard and mouse do not yet.** The distinction is real and
+worth stating plainly:
+
+* **Gamepads** are read by the app itself through `gilrs`, so they work — the
+  couch mode and the game use the same reader.
+* **Keyboard and mouse** would have to reach the game as well, and the picture is
+  in a window the *shell* created. Key events go to whichever window has the
+  focus, and a page cannot send events it never receives. Forwarding them needs
+  the shell's own window to handle its input, which is not built. The code says so
+  rather than installing listeners that could never fire.
 
 !!! warning "Not verified against a live session"
     The client pipeline is proven — a real GStreamer pipeline decodes a real WebRTC
