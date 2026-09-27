@@ -104,3 +104,96 @@ distrobox enter tauri44 -- bash -lc '
 - Latenzmessung (Glass-to-Glass) als Referenzwert für Phase 3.
 - Verhalten bei H.265 (der Server sendet heute immer H.264, siehe
   `lightrays/src/encoder.rs::select_encoder`).
+
+## Spike-Client: Ergebnis
+
+Der Client liegt als `desktop/player/src/bin/spike-webrtc.rs` hinter dem
+Feature `spike`. Er nutzt für jede Nachricht das echte
+`streamarr_desktop_player::protocol`-Modul, prüft also den committeten
+Wire-Vertrag gegen einen laufenden Server.
+
+### Was nachweislich funktioniert
+
+| Schritt | Status |
+|---|---|
+| WebSocket-Handshake mit Ticket | ✅ `HTTP 101 Switching Protocols` |
+| Offer des Servers empfangen | ✅ 1798 Bytes |
+| Answer erzeugt und gesendet | ✅ 1443 Bytes |
+| ICE-Kandidaten getauscht | ✅ `ICE connection state: Checking` |
+| Data Channel vom Server | ✅ `<- server opened data channel: input` |
+| Video-Pipeline | ⏳ blockiert (siehe unten) |
+
+### Fünf Fehler, die der Spike gefunden hat
+
+Jeder davon wäre später im Produktivcode deutlich teurer geworden:
+
+**1. Der Server ist immer der Offerer.** `lightrays/src/server.rs` verarbeitet
+vom Client nur `answer`, `ice`, `keyframe`, `resize` — es gibt keinen Handler
+für ein Client-Offer. Ein nativiver Client muss warten und antworten, genau wie
+`useLightraysStreaming.js`.
+
+**2. Der Server erstellt den Data Channel, nicht der Client.** Der Browser
+registriert nur `pc.ondatachannel`. Ein eigener `create-data-channel`-Aufruf
+führt zu zwei konkurrierenden Kanalbeschreibungen, die SDP-Verhandlung
+schlägt fehl und der Server bietet **endlos** neu an (im Test: >100
+Offer/Answer-Runden in 30 s). Der Client muss `on-data-channel` abwarten.
+
+**3. `create-data-channel` liefert vor PLAYING `NULL`.** Die Bindings melden
+das als Typfehler („Invalid return value"), nicht als `None`. Nachgewiesen mit
+`examples/gtype-probe.rs`. (Für den Client irrelevant, seit Punkt 2 gilt, aber
+dokumentiert für den Server-seitigen Vergleich.)
+
+**4. ALPN muss auf `http/1.1` festgenagelt werden.** nginx bietet `h2` an und
+bevorzugt es, wenn der Client beides anbietet — ein WebSocket-Upgrade über h2
+ist nicht möglich, und der Handshake **hängt**, statt zu scheitern. Nachweis:
+
+```
+$ openssl s_client -connect 10.10.60.30:443 -servername streamarr.luebke.internal \
+    -alpn "h2,http/1.1" | grep ALPN
+ALPN protocol: h2            # Upgrade unmöglich
+$ openssl s_client ... -alpn "http/1.1" | grep ALPN
+ALPN protocol: http/1.1      # Upgrade funktioniert
+```
+
+**5. Split-DNS liefert eine tote Tailscale-Adresse.** `getent hosts` nennt
+`10.10.60.30`, `getaddrinfo` (und damit jeder normale Client) liefert
+`100.64.0.2`, was in einen Timeout läuft. Der Spike hat dafür ein
+`SPIKE_RESOLVE=host:port:ip`-Flag, analog zu `curl --resolve`. **Das betrifft
+die App selbst**: sie braucht entweder eine konfigurierbare Server-Adresse
+(ohnehin geplant) oder einen dokumentierten Hinweis für Tailscale-Nutzer.
+
+### Umgebungsabhängigkeiten (für CI und Paketierung)
+
+Zusätzlich zu den RPM-Fusion-Paketen oben sind nötig:
+
+- `libnice-gstreamer1` — ohne das startet `webrtcbin` **gar nicht**
+  („libnice elements are not available", Pipeline geht nicht auf PAUSED)
+- `openssl-devel` — für `native-tls`
+- eine `tokio`-Runtime mit `sync`-Feature für die Signal-Kanäle
+
+`native-tls` (nicht rustls) ist bewusst gewählt: es nutzt den System-Truststore,
+in dem die interne CA liegt.
+
+## Offen: Blocker durch den Testserver
+
+Der Server ist **zu 100 % voll** (18 MB frei von 32 GB), daher schlägt Redis mit
+`MISCONF ... unable to persist to disk` fehl und der Launch-Endpunkt antwortet
+mit HTTP 500. Belegbarer Verursacher:
+
+```
+$ docker system df
+Images        30   12   11.29GB   6.192GB (54%)
+Build Cache   76    5    4.423GB   4.413GB
+$ docker ps -aq --filter status=exited | wc -l
+25          # verwaiste ffmpeg-Transcode-Container
+$ docker images -f dangling=true -q | wc -l
+4           # verwaiste Images, ~2 GB
+```
+
+Das ist **kein Code-Problem** und wird nicht ungefragt behoben: es ist der
+Produktions-Testserver des Nutzers. Nötig wäre ein `docker container prune`
+und/oder `docker image prune` (≈ 6 GB reclaimierbar), plus ein Blick auf die
+Build-Cache-Nutzung (4,4 GB).
+
+Bis dahin ist die Video-Dekodierung (der letzte offene Punkt des Spikes) nicht
+live nachweisbar. Die Pipeline selbst ist gebaut und im Client verdrahtet.

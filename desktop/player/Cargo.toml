@@ -1,0 +1,75 @@
+[package]
+name = "streamarr-desktop-player"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77.2"
+description = "Shell-independent media and game-streaming core for the Streamarr desktop app"
+license = "proprietary"
+
+# This crate is deliberately free of any GUI-shell dependency (Tauri, GTK,
+# Electron, ...). It owns the native playback paths: WebRTC game streaming
+# (GStreamer) and media playback (mpv). Shells call into it through
+# `streamarr_desktop_player::Player` — see docs/plans/adr-001-desktop-shell.md.
+#
+# The GStreamer/WebRTC stack lives behind the optional `spike` feature so the
+# wire-contract module and its golden tests stay buildable with no system
+# dependencies (see .github/workflows/rust.yml). The feature exists to carry
+# spike 0.1 while the WebRTC client is not yet part of the public API; it will
+# be folded into the main dependency set once the pipeline module lands.
+#
+# Building with `--features spike` requires the GStreamer development packages
+# plus a decoder — including the RPM Fusion "freeworld" packages on Fedora, or
+# the app gets no hardware decode (docs/plans/spike-01-gstreamer.md).
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+
+# ── Spike 0.1 only (feature "spike") ──
+# No version features are enabled, matching lightrays/Cargo.toml exactly.
+# Enabling them (e.g. v1_18) makes the generated wrapper types disagree with
+# what `webrtcbin` actually returns, and `emit_by_name` then fails its
+# return-value check with the confusing "expected GstWebRTCDataChannel, got
+# GstWebRTCDataChannel". The data channel is therefore handled as a plain
+# `glib::Object`, which is also how lightrays/src/webrtc.rs does it.
+gstreamer = { version = "0.23", optional = true }
+gstreamer-sdp = { version = "0.23", optional = true }
+gstreamer-webrtc = { version = "0.23", optional = true }
+glib = { version = "0.20", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"], optional = true }
+# `native-tls` (not `rustls`) is deliberate: it uses the system trust store,
+# which is where the internal `Luebke Internal CA` is installed. rustls would
+# need the CA bundled or loaded explicitly, and the WebSocket upgrade runs over
+# the same internal TLS endpoint as the REST API.
+#
+# The `default-features = false` + explicit `connect`/`handshake`/`native-tls`
+# combination mirrors what the client needs and nothing more.
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "handshake", "native-tls"], optional = true }
+futures-util = { version = "0.3", optional = true }
+# The `alpn` feature is required to pin ALPN to http/1.1; without it a
+# WebSocket upgrade against an h2-capable nginx hangs instead of failing.
+native-tls = { version = "0.2", features = ["alpn"], optional = true }
+# Needed to wrap the hand-dialled TcpStream from the tokio side.
+tokio-native-tls = { version = "0.3", optional = true }
+
+[features]
+spike = [
+    "dep:gstreamer",
+    "dep:gstreamer-sdp",
+    "dep:gstreamer-webrtc",
+    "dep:glib",
+    "dep:tokio",
+    "dep:tokio-tungstenite",
+    "dep:futures-util",
+    "dep:native-tls",
+    "dep:tokio-native-tls",
+]
+
+[[bin]]
+name = "spike-webrtc"
+path = "src/bin/spike-webrtc.rs"
+required-features = ["spike"]
+
+[dev-dependencies]
+serde_json = "1"
