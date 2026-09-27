@@ -630,6 +630,32 @@ async fn handle_launch(
             Ok(name) => {
                 timer.observe_duration();
                 metrics::CONTAINERS_STARTED_TOTAL.inc();
+
+                // Wire up browser-gamepad input, but only for a container
+                // that actually listens: the retro image starts RetroArch
+                // with the remote-gamepad port open, while every other image
+                // (GOW/Steam, Wine) has no such listener. RetroArch is
+                // identified by RETRO_ROM, which only the retro profile sets.
+                // Without this gate a Windows session would emit gamepad
+                // packets at a closed port for no benefit.
+                //
+                // The deadzone comes from the same RETRO_ANALOG_DEADZONE the
+                // backend already puts in the container env for RetroArch, so
+                // both ends agree on it.
+                if container_config
+                    .env
+                    .iter()
+                    .any(|e| e.starts_with("RETRO_ROM="))
+                {
+                    let deadzone = container_config
+                        .env
+                        .iter()
+                        .find_map(|e| e.strip_prefix("RETRO_ANALOG_DEADZONE="))
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .unwrap_or(crate::stream::DEFAULT_GAMEPAD_DEADZONE);
+                    stream.configure_gamepad(&name, deadzone);
+                }
+
                 container_name = Some(name);
             }
             Err(e) => {
@@ -1086,6 +1112,10 @@ async fn handle_websocket(socket: WebSocket, session_id: String, state: Arc<AppS
 
     metrics::WEBRTC_CONNECTIONS_ACTIVE.dec();
     log::info!("WebSocket closed for session {}", session_id);
+    // Release any held gamepad button/direction before the transport goes
+    // away, so a dropped connection cannot leave the game stuck running in
+    // one direction. Cheap (a few UDP packets) and safe without a gamepad.
+    session.stream.release_gamepad();
     // R-M5: teardown blocks (pipeline NULL + thread join, up to ~3 s), so
     // run it on a blocking worker instead of stalling a Tokio worker.
     {
@@ -1208,7 +1238,13 @@ fn handle_ws_message(text: &str, session: &Session, state: &Arc<AppState>) {
                 });
             }
         }
-        "key" | "mousemove" | "mouseabs" | "mousebutton" | "wheel" => {
+        // Gamepad messages share the input path with keyboard/mouse: they go
+        // through send_input's rate budget and idle tracking too, so a browser
+        // controller cannot be used to bypass either. send_input then routes
+        // them to RetroArch's remote-gamepad UDP port instead of the
+        // compositor (see stream.rs::send_input).
+        "key" | "mousemove" | "mouseabs" | "mousebutton" | "wheel" | "gamepadbutton"
+        | "gamepadaxis" => {
             session.stream.send_input(text);
         }
         _ => {
