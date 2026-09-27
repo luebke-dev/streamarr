@@ -101,6 +101,7 @@ nav:
     - Indexers: administration/indexers.md
     - Download Clients: administration/downloaders.md
     - Transcoding: administration/transcoding.md
+    - Retro Game Streaming: administration/game-streaming.md
     - Smart Collections & Overlays: administration/smart-collections.md
     - Page Layouts: administration/page-layouts.md
     - Banners: administration/banners.md

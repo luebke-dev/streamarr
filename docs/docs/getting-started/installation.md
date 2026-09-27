@@ -15,7 +15,7 @@ streamarr.media ships four supported deployment models. All of them run the same
 ## System requirements
 
 - **Host**: Linux with Docker Engine + Compose v2, Podman with quadlet support, or a Kubernetes cluster. The installer supports Debian 12+, Ubuntu 22.04+, Fedora 39+, and RHEL/CentOS/Rocky/Alma 9+.
-- **CPU**: 2+ cores; 4+ recommended for transcoding (or a VA-API/NVENC-capable GPU).
+- **CPU**: 2+ cores; 4+ recommended for transcoding (or an Intel QuickSync-capable GPU).
 - **RAM**: 8 GB recommended — PostgreSQL, Redis, and Elasticsearch run alongside the app.
 - **Storage**: as much as your media needs, plus space for the transcode cache.
 
