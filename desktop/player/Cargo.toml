@@ -60,6 +60,13 @@ native-tls = { version = "0.2", features = ["alpn"], optional = true }
 # Needed to wrap the hand-dialled TcpStream from the tokio side.
 tokio-native-tls = { version = "0.3", optional = true }
 
+# The local WebRTC proof uses the same GStreamer stack as the real client, so it
+# needs the `spike` feature like spike-webrtc does.
+[[bin]]
+name = "spike-local-webrtc"
+path = "src/bin/spike-local-webrtc.rs"
+required-features = ["spike"]
+
 # The gamepad spikes drive/read a real device and therefore need the `gamepad`
 # feature; declaring it here lets `--all-targets` skip them in a feature-free
 # build instead of failing on missing `gilrs`/`evdev`.

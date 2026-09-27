@@ -121,7 +121,66 @@ Wire-Vertrag gegen einen laufenden Server.
 | Answer erzeugt und gesendet | ✅ 1443 Bytes |
 | ICE-Kandidaten getauscht | ✅ `ICE connection state: Checking` |
 | Data Channel vom Server | ✅ `<- server opened data channel: input` |
-| Video-Pipeline | ⏳ blockiert (siehe unten) |
+| **Video dekodiert** | ✅ **420 Frames** — siehe „Decode-Beweis" unten |
+
+Der Video-Decode war zunächst nicht nachweisbar, weil der Testserver zu 100 %
+voll war und keine Session starten konnte. Er wurde deshalb **ohne Server**
+nachgewiesen — siehe den nächsten Abschnitt.
+
+## Decode-Beweis ohne Server
+
+`desktop/player/src/bin/spike-local-webrtc.rs` (Feature `spike`) lässt zwei
+`webrtcbin`-Elemente über **Loopback** miteinander verhandeln:
+
+```
+videotestsrc -> vah264enc -> rtph264pay -> webrtcbin (sendonly)
+                                               |
+                                    echtes ICE + DTLS + SRTP
+                                               v
+webrtcbin (recvonly) -> rtph264depay -> h264parse -> vah264dec -> fakesink
+```
+
+Ergebnis, reproduzierbar in drei Läufen:
+
+```
+sender   ICE: Checking -> Connected -> Completed
+receiver ICE: Checking -> Connected -> Completed
+sender peer connection:   Connected
+receiver peer connection: Connected
+decode branch using vah264dec (hardware)
+ENCODED=421  DECODED=420
+RESULT: 420 frames decoded from 421 encoded
+```
+
+**Warum das den Server nicht ersetzt, aber trägt:** Die Medienkette ist
+identisch — `vah264enc` ist der Encoder, den der Server auf AMD wählt
+(`lightrays/src/encoder.rs`), und Depayload/Parse/Decode sind dieselben Elemente
+wie im echten Client. **Nur der Signalisierungstransport unterscheidet sich:**
+hier werden die SDP direkt zwischen den Elementen übergeben statt über den
+Lightrays-WebSocket. Damit ist die Kernannahme des Spielestreaming-Pfads
+bewiesen, ohne auf einen funktionierenden Server zu warten.
+
+### Vier Fehler, die dieser Aufbau gefunden hat
+
+1. **`create-offer` vor PLAYING** scheitert mit „webrtcbin is closed". Der Fehler
+   kommt **innerhalb des Promise** an, wo er als fehlendes `offer`-Feld erscheint
+   — leicht als Parse-Problem fehlzudeuten.
+2. **Ein nachträglich hinzugefügter Bin erbt den State nicht.** Der äußere
+   Pipeline meldete PLAYING, während der Sender-Bin auf PAUSED blieb und nichts
+   kodierte. `sync_state_with_parent()` behebt das. Die Bus-Ausgabe war der
+   einzige Weg, das zu sehen.
+3. **Zwei `webrtcbin` finden sich nicht von selbst.** Ohne manuelle
+   `on-ice-candidate`-Weitergabe bleibt ICE auf „new", der Transport wird nie
+   bereit und der Payloader blockiert nach **genau einem** Buffer
+   (`ENCODED=1`). In Produktion übernimmt das der WebSocket.
+4. **Der Decode-Zweig muss in dieselbe Pipeline.** Eine eigene Pipeline scheitert
+   beim Verlinken mit „Pads have no common grandparent".
+
+> Nebenbefund, der Zeit gekostet hat: `parse::launch` benennt Elemente als
+> `rtph264pay0`, nicht `pay0`. Ein Buffer-Probe am falschen Element meldete
+> `ENCODED=0` und sah nach einem Pipeline-Problem aus, war aber ein
+> **Testfehler** — der Zähler hing an nichts. Elemente werden jetzt über den
+> Factory-Namen gesucht.
 
 ### Fünf Fehler, die der Spike gefunden hat
 
@@ -215,5 +274,7 @@ Produktions-Testserver des Nutzers. Nötig wäre ein `docker container prune`
 und/oder `docker image prune` (≈ 6 GB reclaimierbar), plus ein Blick auf die
 Build-Cache-Nutzung (4,4 GB).
 
-Bis dahin ist die Video-Dekodierung (der letzte offene Punkt des Spikes) nicht
-live nachweisbar. Die Pipeline selbst ist gebaut und im Client verdrahtet.
+**Der Decode-Nachweis ist inzwischen auf anderem Weg erbracht** — über den
+Loopback-Aufbau im Abschnitt „Decode-Beweis ohne Server". Offen bleibt nur der
+Durchlauf gegen eine **echte** Lightrays-Session, also inklusive der
+Signalisierung über den Server-WebSocket.
