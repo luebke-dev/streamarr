@@ -3666,4 +3666,21 @@ export default {
       enabled: 'Enabled',
     },
   },
+
+  // Couch / big-picture mode (desktop app)
+  couch: {
+    title: 'Couch Mode',
+    enter: 'Enter couch mode',
+    exit: 'Leave couch mode',
+    active: 'Couch mode is on',
+    // Screen-reader text: the mode is invisible to a sighted user, so it has to
+    // be announced rather than only shown.
+    status: 'Couch mode active. Use the arrow keys or a controller to navigate, Enter to open, Escape to leave.',
+    noController: 'No controller found — the arrow keys work as well.',
+    controller: 'Controller: {name}',
+    controllers: '{count} controllers connected',
+    // Shown when the shell cannot provide the feature at all (browser build).
+    unavailable: 'Couch mode is only available in the desktop app.',
+    loading: 'Measuring the layout…',
+  },
 }

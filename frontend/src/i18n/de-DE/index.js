@@ -3668,4 +3668,18 @@ export default {
       enabled: 'Aktiviert',
     },
   },
+
+  // Couch-/Big-Picture-Modus (Desktop-App)
+  couch: {
+    title: 'Couch-Modus',
+    enter: 'Couch-Modus starten',
+    exit: 'Couch-Modus verlassen',
+    active: 'Couch-Modus ist an',
+    status: 'Couch-Modus aktiv. Mit den Pfeiltasten oder einem Controller navigieren, Enter öffnet, Escape verlässt.',
+    noController: 'Kein Controller gefunden — die Pfeiltasten funktionieren ebenfalls.',
+    controller: 'Controller: {name}',
+    controllers: '{count} Controller verbunden',
+    unavailable: 'Der Couch-Modus ist nur in der Desktop-App verfügbar.',
+    loading: 'Layout wird vermessen…',
+  },
 }

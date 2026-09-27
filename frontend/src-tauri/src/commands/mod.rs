@@ -16,6 +16,7 @@
 //!   would defeat the point of the keyring.
 
 pub mod bridge;
+pub mod couch;
 pub mod deeplink;
 pub mod playback;
 pub mod profiles;

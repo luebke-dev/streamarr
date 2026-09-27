@@ -153,6 +153,10 @@ pub fn run() {
                 .unwrap_or_else(|_| storage::default_config_root());
             let state = AppState::load(config_root)?;
             app.manage(state);
+            // Couch mode's own state. Separate from `AppState` because it is
+            // per-window session state rather than configuration: it holds the
+            // focus and the repeat timers, both of which must start empty.
+            app.manage(commands::couch::CouchMode::default());
 
             // Deep links: registers the `streamarr://` scheme with the desktop, and
             // installs the listener. Both are needed, and forgetting to call this at all
@@ -206,6 +210,14 @@ pub fn run() {
             commands::deeplink::browser_login_pending,
             commands::deeplink::cancel_browser_login,
             commands::update::check_for_update,
+            commands::couch::set_couch_mode,
+            commands::couch::couch_state,
+            commands::couch::set_couch_layout,
+            commands::couch::couch_move,
+            commands::couch::couch_intent,
+            commands::couch::couch_repeat_info,
+            commands::couch::couch_pad_input,
+            commands::couch::couch_pads,
         ])
         .run(tauri::generate_context!())
         .expect("error while running streamarr.media desktop app");
