@@ -64,6 +64,20 @@
       @disconnected="goBack"
     />
 
+    <!--
+      Native playback: the video is in mpv's own window, so this is the status screen
+      rather than a player. Only on the desktop, and only when the shell started a
+      playback.
+    -->
+    <native-playback-view
+      v-else-if="status === 'native-streaming'"
+      :title="contentTitle"
+      :notice="nativePlayer.state.value.notice"
+      :is-resuming="nativePlayer.state.value.isResuming"
+      @close="goBack"
+      @restart="restartNativePlayback"
+    />
+
     <!-- Video Player with Custom Controls (when streamable) -->
     <div ref="playerWrapperRef" v-else-if="status === 'streamable'" class="player-wrapper">
       <video-player
@@ -147,6 +161,9 @@ import { logger } from 'src/utils/logger'
 import { getTmdbImageUrl } from 'src/composables/useMediaFormatters'
 import { useDownloadPolling } from 'src/composables/useDownloadPolling'
 import { useViewingProgress } from 'src/composables/useViewingProgress'
+import { useNativePlayback, usesNativePlayback } from 'src/composables/useNativePlayback'
+import { isDesktopApp } from 'src/utils/desktopPlatform'
+import NativePlaybackView from 'src/components/NativePlaybackView.vue'
 import { useStreamSwap } from 'src/composables/useStreamSwap'
 import { useVideoPlayerEvents } from 'src/composables/useVideoPlayerEvents'
 import { useBookPlayback } from 'src/composables/useBookPlayback'
@@ -582,6 +599,17 @@ const handleStartPlaybackError = (err) => {
 }
 
 // Start playback with smart defaults (Netflix-style: just play immediately)
+// The native player. `onProgress` is the existing reporter, so both playback paths
+// report progress through one implementation.
+const nativePlayer = useNativePlayback({
+  onProgress: (position, duration) => {
+    // `updateProgress` is created further down by `useViewingProgress`; the closure is
+    // only called during playback, long after both are set up.
+    updateProgressRef.current?.(position, duration)
+  },
+})
+const updateProgressRef = { current: null }
+
 const startPlayback = async () => {
   if (isStartingPlayback.value) return
   isStartingPlayback.value = true
@@ -621,9 +649,23 @@ const startPlayback = async () => {
       options.subtitle_stream_index = routeSubtitleStreamIndex
     }
 
+    // Native playback on the desktop: mpv decodes the video in its own process, never
+    // the webview (ADR 001). It is deliberately *after* the download check below, so an
+    // item that is still downloading keeps showing the download screen and reaches this
+    // point again through the polling callback once it is available.
+    const wantsNative = usesNativePlayback({
+      isDesktop: isDesktopApp(),
+      contentType: contentType.value,
+    })
+
     const offlineResponse = await tryOfflinePlayback()
     if (offlineResponse) {
       await setupStreamablePlayback(offlineResponse)
+      return
+    }
+
+    if (wantsNative) {
+      await startNativePlayback()
       return
     }
 
@@ -669,6 +711,41 @@ const startPlayback = async () => {
   }
 }
 
+/**
+ * Starts playback through the shell's own player.
+ *
+ * The shell asks the play endpoint, applies the profile's address pin and starts mpv, so
+ * the page does not build a stream URL at all. Progress reporting still goes through
+ * `useViewingProgress`, so both paths share one definition of "watched".
+ */
+const restartNativePlayback = async () => {
+  // The stored position is ignored on purpose: the user asked to start over, and
+  // passing `0` is how the shell is told so.
+  await nativePlayer.start(uuid.value, 0)
+}
+
+const startNativePlayback = async () => {
+  const override = numericRouteQuery('t')
+  try {
+    nativePlayer.state.value = { ...nativePlayer.state.value, error: null }
+    const result = await nativePlayer.start(uuid.value, override ?? null)
+    status.value = 'native-streaming'
+    loading.value = false
+    lastPosition.value = 0
+    // The same reporter the web path uses; only the position source differs.
+    startProgressUpdates()
+    return result
+  } catch (error) {
+    // No silent fallback to a `<video>` element: that would hide exactly the failures
+    // that matter (missing mpv, blocked address, refused stream) and would ship a
+    // playback path the plan excludes. The shell's message already says what to do.
+    status.value = 'error'
+    errorMessage.value = String(error?.message || error)
+    loading.value = false
+    return null
+  }
+}
+
 // Expose startPlayback as a store action so download-polling / bootstrap can
 // trigger it without threading a forward-reference closure through composables.
 videoPlayerStore.registerStartPlaybackHandler(startPlayback)
@@ -695,6 +772,9 @@ const { subscribe: subscribeRemoteControl, unsubscribe: unsubscribeRemoteControl
     playNextEpisode: playNextPlaybackItem,
     playPreviousEpisode: playPreviousPlaybackItem,
   })
+// The progress reporter is created before the player uses it; the native player only
+// calls it during playback, which is long after both exist.
+updateProgressRef.current = updateProgress
 
 const partySync = usePartySync({
   partyStore,
