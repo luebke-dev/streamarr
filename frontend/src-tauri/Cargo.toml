@@ -16,3 +16,50 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+# Window geometry is persisted per label by the plugin, which is why the player
+# window comes back where the user left it instead of centred every launch.
+tauri-plugin-window-state = "2"
+# A second launch focuses the existing window rather than starting a rival instance
+# that would double-register the device and fight over the token store.
+tauri-plugin-single-instance = "2"
+# Without a logging plugin, `log::info!` goes nowhere: the `log` facade does nothing
+# until a logger is installed, so diagnostics silently vanish. That is a trap worth
+# closing before there is anything to debug - it already hid two startup messages
+# during development of this shell. Writes to stderr and to a file in the config dir,
+# which is what a user can be asked to attach to a bug report.
+tauri-plugin-log = "2"
+
+# The shell-independent core: profiles, session state, capabilities, wire contract.
+# Everything decision-shaped lives there and is tested without a GUI; this crate
+# only supplies the transport and the window (ADR 001).
+streamarr-desktop-player = { path = "../../desktop/player" }
+
+# `native-tls` over rustls for the same reason spike 0.1 chose it: the internal
+# `Luebke Internal CA` lives in the system trust store, and rustls would need the
+# CA bundled or loaded by hand. `resolve` is required for the split-DNS pin.
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "native-tls",
+    "gzip",
+] }
+tokio = { version = "1", features = ["sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+thiserror = "2"
+# Credentials go to the OS store: Secret Service (gnome-keyring/KWallet) on Linux,
+# Credential Manager on Windows. `sync-secret-service` rather than the default
+# keyutils backend: keyutils is kernel keyrings, which do not survive a reboot -
+# useless for a seven-day refresh token. The `crypto-rust` variant avoids pulling in
+# a C crypto dependency, so a source build needs no extra system packages.
+keyring = { version = "3", features = [
+    "sync-secret-service",
+    "crypto-rust",
+    "vendored",
+] }
+
+[features]
+# Nothing yet. Native playback features (mpv, gstreamer, gamepad) will be surfaced
+# here as they land, mirroring desktop/player so a build without system
+# dependencies stays possible.
+default = []

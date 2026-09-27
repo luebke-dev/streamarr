@@ -121,8 +121,20 @@ impl TokenPair {
     }
 
     /// When the access token stops being valid, given it was received now.
+    ///
+    /// Saturates instead of panicking. `SystemTime + Duration` panics on overflow, and
+    /// `expires_in` comes straight from the server: a malformed or hostile response —
+    /// `u64::MAX`, which is what a missing field parsed as a huge number can produce —
+    /// would otherwise abort the process. The clamp is far beyond any real token (a
+    /// century), so it cannot mask a genuine expiry.
     pub fn access_expires_at(&self) -> SystemTime {
-        SystemTime::now() + Duration::from_secs(self.expires_in)
+        const MAX_LIFETIME: Duration = Duration::from_secs(100 * 365 * 24 * 3600);
+        let lifetime = Duration::from_secs(self.expires_in).min(MAX_LIFETIME);
+        match SystemTime::now().checked_add(lifetime) {
+            // `checked_add` can still fail if the clock itself is absurd.
+            Some(deadline) => deadline,
+            None => SystemTime::now(),
+        }
     }
 }
 
@@ -204,7 +216,7 @@ impl fmt::Display for LoginError {
                 ),
                 None => write!(f, "Zu viele Anmeldeversuche. Bitte kurz warten"),
             },
-            Self::Transport(detail) => write!(f, "Server nicht erreichbar: {detail}"),
+            Self::Transport(detail) => write!(f, "Server-Fehler: {detail}"),
         }
     }
 }
@@ -471,7 +483,15 @@ pub fn classify_login_status(status: u16, detail: Option<&str>) -> LoginError {
                 .unwrap_or("Die Anmeldedaten wurden abgelehnt")
                 .to_string(),
         ),
-        _ => LoginError::Transport(format!("HTTP {status}")),
+        // The server's own explanation is carried through instead of being replaced
+        // by a bare status code. Learned live: while the test server's disk was full,
+        // login answered 503 "Rate limiter unavailable" — the rate limiter is
+        // Redis-backed, and Redis was refusing writes. "HTTP 503" alone would have
+        // sent the reader hunting for a network fault rather than an exhausted disk.
+        _ => match detail.map(str::trim).filter(|d| !d.is_empty()) {
+            Some(detail) => LoginError::Transport(format!("HTTP {status}: {detail}")),
+            None => LoginError::Transport(format!("HTTP {status}")),
+        },
     }
 }
 
@@ -587,6 +607,23 @@ mod tests {
     #[test]
     fn a_zero_lifetime_always_refreshes() {
         assert!(session_with(0).needs_refresh());
+    }
+
+    /// `expires_in` comes from the server, and `SystemTime + Duration` panics on
+    /// overflow — so a malformed or hostile `expires_in` would abort the process.
+    /// Found by the shell's own test for the same case.
+    #[test]
+    fn an_absurd_lifetime_does_not_panic() {
+        let pair = tokens("a", "r", u64::MAX);
+        // Must not panic, and must not report a token that never expires.
+        let deadline = pair.access_expires_at();
+        assert!(deadline > SystemTime::now());
+        assert!(!Session::new(
+            Profile::new("p", "P", ServerAddress::default()),
+            DeviceIdentity::new("d", "1", "linux", "n"),
+            pair,
+        )
+        .needs_refresh());
     }
 
     const REFERENCE_MARGIN_SECS: u64 = 30;
@@ -787,6 +824,36 @@ mod tests {
                 LoginError::Transport(_)
             ));
         }
+    }
+
+    /// Live finding from the test server: with its disk full, login answered
+    /// `503 {"detail":"Rate limiter unavailable"}` — the rate limiter is
+    /// Redis-backed and Redis was refusing writes. The server's explanation must
+    /// reach the user, because "HTTP 503" alone reads as a network fault.
+    #[test]
+    fn the_server_explanation_is_carried_through() {
+        let err = classify_login_status(503, Some("Rate limiter unavailable"));
+        let message = err.to_string();
+        assert!(message.contains("Rate limiter unavailable"), "{message}");
+        assert!(message.contains("503"), "{message}");
+    }
+
+    #[test]
+    fn a_missing_explanation_still_yields_the_status() {
+        let message = classify_login_status(503, None).to_string();
+        assert!(message.contains("503"), "{message}");
+        // A blank detail must not leave a dangling separator behind the status.
+        // (Checked on the raw variant, not `to_string()`: the Display form has its
+        // own "Server-Fehler: " prefix, so asserting on a colon there would fail for
+        // the wrong reason — which is exactly how this test first failed.)
+        assert_eq!(
+            classify_login_status(503, Some("   ")),
+            LoginError::Transport("HTTP 503".to_string())
+        );
+        assert_eq!(
+            classify_login_status(503, None),
+            LoginError::Transport("HTTP 503".to_string())
+        );
     }
 
     /// 401 on refresh is final, 503 is not. This distinction is the reason the enum
