@@ -134,9 +134,29 @@ für ein Client-Offer. Ein nativiver Client muss warten und antworten, genau wie
 
 **2. Der Server erstellt den Data Channel, nicht der Client.** Der Browser
 registriert nur `pc.ondatachannel`. Ein eigener `create-data-channel`-Aufruf
-führt zu zwei konkurrierenden Kanalbeschreibungen, die SDP-Verhandlung
-schlägt fehl und der Server bietet **endlos** neu an (im Test: >100
-Offer/Answer-Runden in 30 s). Der Client muss `on-data-channel` abwarten.
+führt zu zwei konkurrierenden Kanalbeschreibungen und die SDP-Verhandlung
+schlägt fehl. Der Client muss `on-data-channel` abwarten.
+
+> **Nachtrag (Präzisierung, nachdem die Serverlogs vorlagen).** Im Test wurden
+> >100 Offer/Answer-Runden in 30 s beobachtet und zunächst dem Client
+> zugeschrieben. Die Serverlogs zeigen bei demselben Lauf:
+>
+> ```
+> 13:16:15  App 'Zelda…' launched → session 7b65ef0182904fdd
+> 13:16:15  Compositor pipeline stopped      ← eine Sekunde später
+> 13:16:16  Container stopped / Session stopped
+> ```
+>
+> Die Session **starb sofort**. Der Server erzeugt bei *jedem*
+> `on-negotiation-needed` ein neues Offer (`lightrays/src/webrtc.rs`); eine
+> sterbende Session kann daher von sich aus neu verhandeln. Die Schleife ist
+> damit **nicht eindeutig** als Client-Fehler belegt.
+>
+> Unabhängig davon bleibt die Korrektur richtig: Ein eigener Data Channel
+> widerspricht dem Browserverhalten und dem Servercode, der den Kanal selbst
+> anlegt (`lightrays/src/stream.rs::setup_data_channel`). Aber die Zahl
+> „>100 Runden" ist **kein Beweis** für die Fehlerursache, und der
+> Wiederholungstest gegen eine gesunde Session steht aus.
 
 **3. `create-data-channel` liefert vor PLAYING `NULL`.** Die Bindings melden
 das als Typfehler („Invalid return value"), nicht als `None`. Nachgewiesen mit
