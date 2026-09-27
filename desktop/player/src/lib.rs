@@ -20,6 +20,7 @@
 //! [`input`], behind the `gamepad` feature because it needs `libudev`.
 
 pub mod capabilities;
+pub mod mpv;
 pub mod profile;
 pub mod protocol;
 pub mod session;

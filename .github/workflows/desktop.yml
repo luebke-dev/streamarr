@@ -85,6 +85,36 @@ jobs:
       - name: Golden tests reached the server sources
         working-directory: desktop/player
         run: cargo test --locked --test wire_contract -- --nocapture
+      # The mpv and WebRTC layer can only be verified against real programs. Both
+      # silently *skip* when their prerequisites are missing, so installing them
+      # here is what stops this job from passing while proving nothing. mpv is in
+      # the standard Ubuntu archives and xvfb gives it a display; the tests use
+      # --vo=null so no real GPU is needed.
+      - name: Install mpv and a display for the integration tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mpv ffmpeg xvfb
+      - name: Generate the test media
+        run: ./desktop/scripts/make_test_media.sh
+      - name: mpv integration tests against a real mpv
+        working-directory: desktop/player
+        run: |
+          set -o pipefail
+          # `--test-threads=1` is not needed (each player gets its own socket), but
+          # the output is easier to read and a failure is easier to attribute.
+          xvfb-run -a cargo test --locked --test mpv_integration -- --nocapture 2>&1 | tee /tmp/mpv-it.log
+          # Guard against a silent skip: the file has 12 tests, and a run that
+          # executes fewer means a prerequisite was missing.
+          executed=$(grep -cE "^test .+ \.\.\. (ok|FAILED)" /tmp/mpv-it.log)
+          echo "Ausgeführte mpv-Integrationstests: $executed"
+          if [ "$executed" -lt 12 ]; then
+            echo "::error::$executed statt 12 mpv-Tests liefen — die übrigen wurden stillschweigend übersprungen"
+            exit 1
+          fi
+          if grep -q "übersprungen" /tmp/mpv-it.log; then
+            echo "::error::ein mpv-Test hat sich wegen fehlender Voraussetzungen übersprungen"
+            exit 1
+          fi
       - name: Test (gamepad feature)
         working-directory: desktop/player
         run: |
@@ -162,7 +192,7 @@ jobs:
       # The 24 known failures are pre-existing and unrelated to the desktop work.
       # Asserting the count keeps them visible: a new failure raises the number and
       # fails here, while the known ones do not block every future change.
-      - name: Test (baseline: 24 known failures in 9 files)
+      - name: Test against the documented baseline
         working-directory: frontend
         run: |
           set +e
