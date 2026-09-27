@@ -707,3 +707,114 @@ fn the_transcode_playlist_route_is_unchanged() {
         "die HLS-Route hat sich geändert — die Transcode-URL des Clients wäre falsch"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Key codes
+// ---------------------------------------------------------------------------
+
+/// Extract `"<browser code>" => Some(<evdev>)` pairs from the server's
+/// `js_code_to_linux`.
+///
+/// A parser rather than a copy of the table: a copied table can only ever agree
+/// with itself. This one reads what the server actually does.
+fn server_key_table(source: &str) -> Vec<(u32, String)> {
+    let start = source
+        .find("pub fn js_code_to_linux")
+        .expect("js_code_to_linux fehlt — der Server hat die Tastenzuordnung verschoben");
+    let body = &source[start..];
+    let end = body.find("\n}").expect("unterminated js_code_to_linux");
+    let body = &body[..end];
+
+    let mut table = Vec::new();
+    for line in body.lines() {
+        let line = line.trim();
+        // `"KeyA" => Some(30),`
+        let Some(rest) = line.strip_prefix('"') else {
+            continue;
+        };
+        let Some((code, rest)) = rest.split_once('"') else {
+            continue;
+        };
+        let Some(value) = rest
+            .trim()
+            .strip_prefix("=>")
+            .and_then(|r| r.trim().strip_prefix("Some("))
+            .and_then(|r| r.strip_suffix("),"))
+        else {
+            continue;
+        };
+        let Ok(evdev) = value.trim().parse::<u32>() else {
+            continue;
+        };
+        table.push((evdev, code.to_string()));
+    }
+    table.sort();
+    table
+}
+
+/// The client's key table must be the *exact inverse* of the server's.
+///
+/// This is the one that matters. A native client sees evdev codes and must send
+/// browser codes; the server converts back. If the two tables disagree for a
+/// single key, that key is dead in play — and silently so, because
+/// `js_code_to_linux` returns `None` and the event is dropped without a message.
+#[test]
+fn the_key_table_is_the_inverse_of_the_servers() {
+    let Some(source) = read("lightrays/src/input.rs") else {
+        return;
+    };
+    let server = server_key_table(&source);
+    assert!(
+        server.len() > 90,
+        "die Server-Tabelle hat nur {} Einträge — der Parser oder der Server hat sich geändert",
+        server.len()
+    );
+
+    let client: Vec<(u32, String)> = streamarr_desktop_player::keymap::EVDEV_TO_BROWSER_CODE
+        .iter()
+        .map(|(code, name)| (*code, (*name).to_string()))
+        .collect();
+
+    // Compare as sets first, so the failure names the differing key instead of
+    // printing two long vectors.
+    let server_only: Vec<_> = server
+        .iter()
+        .filter(|entry| !client.contains(entry))
+        .cloned()
+        .collect();
+    let client_only: Vec<_> = client
+        .iter()
+        .filter(|entry| !server.contains(entry))
+        .cloned()
+        .collect();
+    assert!(
+        server_only.is_empty(),
+        "der Server kennt Tasten, die der Client nicht senden kann: {server_only:?}"
+    );
+    assert!(
+        client_only.is_empty(),
+        "der Client würde Tasten senden, die der Server nicht kennt: {client_only:?}"
+    );
+    assert_eq!(client.len(), server.len());
+}
+
+/// Every key the client can send must be one the server genuinely converts.
+///
+/// Complementary to the test above, and it catches the case where the parser
+/// silently returned an empty table: an inverse of an empty table is empty too,
+/// and the comparison would pass.
+#[test]
+fn every_client_key_resolves_on_the_server() {
+    let Some(source) = read("lightrays/src/input.rs") else {
+        return;
+    };
+    let server = server_key_table(&source);
+    let server_codes: Vec<&str> = server.iter().map(|(_, name)| name.as_str()).collect();
+
+    for (evdev, name) in streamarr_desktop_player::keymap::EVDEV_TO_BROWSER_CODE {
+        assert!(
+            server_codes.contains(name),
+            "der Client bildet evdev {evdev} auf {name:?} ab, der Server kennt diesen Code nicht"
+        );
+    }
+}

@@ -32,6 +32,8 @@ pub mod profile;
 pub mod protocol;
 pub mod resolve_tunnel;
 pub mod session;
+pub mod signaling;
+pub mod toolbar;
 pub mod updater;
 
 /// Game-session lifecycle: launch, negotiation, teardown.
@@ -41,6 +43,7 @@ pub mod updater;
 /// contract.
 pub mod game_pipeline;
 pub mod game_session;
+pub mod keymap;
 
 /// Reading physical gamepads and translating them into the wire format.
 ///
