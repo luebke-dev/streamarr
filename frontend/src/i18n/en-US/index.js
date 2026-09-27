@@ -2002,6 +2002,21 @@ export default {
     gameMatchResolution: 'Match resolution',
     gameDisconnect: 'Disconnect',
     gameStreaming: 'Game is streaming',
+    // Native game stream (desktop app): the picture is drawn by the shell.
+    nativeGame: {
+      phase: {
+        launching: 'Starting the game…',
+        connecting: 'Connecting to the stream…',
+        negotiating: 'Negotiating the connection…',
+        streaming: 'The game is running in its own window ({resolution}).',
+        resizing: 'Rebuilding the stream at the new size…',
+        ended: 'The game has ended.',
+        stopped: 'The stream was stopped.',
+        failed: 'The stream failed.',
+      },
+      hint:
+        'The game is drawn in its own window, not here. Controllers work directly; keyboard and mouse belong to that window while it has the focus.',
+    },
   },
 
   // Player Controls

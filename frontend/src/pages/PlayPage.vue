@@ -51,7 +51,23 @@
       </div>
     </div>
 
-    <!-- Game Streaming via Lightrays -->
+    <!--
+      The desktop's native game stream. The picture is drawn by GStreamer in the
+      shell's own window; this page is the control panel. `GameStreamView` below
+      is the web path and is never reached on the desktop — see
+      `useNativeGameStream`, which is what decides.
+    -->
+    <NativeGameView
+      v-else-if="status === 'native-game-streaming'"
+      :title="contentTitle"
+      :phase="nativeGamePhase"
+      :state="nativeGameState"
+      @match-resolution="matchGameResolution"
+      @disconnect="disconnectNativeGame"
+      @close="disconnectNativeGame"
+    />
+
+    <!-- Game Streaming via Lightrays (web path) -->
     <GameStreamView
       v-else-if="status === 'game-streaming'"
       :session-id="gameSessionId"
@@ -189,6 +205,7 @@ const VideoPlayer = defineAsyncComponent(() =>
 const CustomPlayerControls = defineAsyncComponent(() => import('components/CustomPlayerControls.vue'))
 const SkipOverlay = defineAsyncComponent(() => import('components/SkipOverlay.vue'))
 const GameStreamView = defineAsyncComponent(() => import('components/GameStreamView.vue'))
+const NativeGameView = defineAsyncComponent(() => import('components/NativeGameView.vue'))
 const BookReader = defineAsyncComponent(() => import('components/BookReader.vue'))
 const PlayStatusScreen = defineAsyncComponent(() => import('components/PlayStatusScreen.vue'))
 const ReportProblemDialog = defineAsyncComponent(() => import('components/ReportProblemDialog.vue'))
@@ -291,6 +308,9 @@ const {
   selectedPlatform,
   launchGameStream,
   fetchGamePlatforms,
+  nativeGame,
+  matchResolution,
+  stopNativeGameStream,
 } = useGameLaunch({
   uuid,
   status,
@@ -298,6 +318,37 @@ const {
   errorMessage,
   t,
 })
+
+// The native game stream's state and phase, for `NativeGameView`.
+const nativeGameState = computed(() => nativeGame.value)
+const nativeGamePhase = computed(() => {
+  if (nativeGame.value?.error) return 'failed'
+  return nativeGame.value?.phase || 'connecting'
+})
+
+/**
+ * Asks the server to rebuild its pipeline at the current window size.
+ *
+ * Deliberately user-initiated, like the web toolbar's button: a server-side
+ * resize tears down the whole WebRTC pipeline and blanks the picture for a few
+ * seconds, so it must not happen on every window drag.
+ */
+const matchGameResolution = async () => {
+  await matchResolution()
+}
+
+/**
+ * Ends the native stream and returns to the previous screen.
+ *
+ * The shell's `game_stop` joins the game thread, so the socket and the pipeline
+ * are released before this returns — which is what makes "start again" work
+ * afterwards.
+ */
+const disconnectNativeGame = async () => {
+  await stopNativeGameStream()
+  status.value = 'idle'
+  goBack()
+}
 
 const { bookFileUrl, bookFormat, bookFileName, openBookFile } = useBookPlayback({
   status,

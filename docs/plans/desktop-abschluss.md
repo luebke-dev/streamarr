@@ -28,13 +28,13 @@ Medienwiedergabe und Spiel-Streaming gegen den echten Server.**
 |---|---|---|
 | 1 | Medien über den nativen mpv-Kern | **gebaut**, live offen |
 | 2 | HDR10 durchgereicht oder nachweisbar gemappt | **gemessen** |
-| 3 | Spiele über GStreamer/WebRTC nativ | **gebaut und verdrahtet**, live offen |
+| 3 | Spiele über GStreamer/WebRTC nativ | **gebaut und in der UI verdrahtet**, live offen |
 | 4 | Couch-/Big-Picture-Modus in der UI | **gebaut**, ohne Controller |
 | 5 | Alle Rust-Crates grün | **gemessen** |
 | 6 | Frontend ohne neue Fehler | **gemessen** |
 | 7 | Golden-Tests des Wire-Vertrags | **gemessen** |
 | 8 | Installierbare Pakete, Linux und Windows | **Linux gemessen**, Windows in CI |
-| 9 | Doku und CI | **gemessen** |
+| 9 | Doku und CI | Doku **gemessen**; CI **nie gelaufen** |
 | 10 | Server-Zwischenstand festgehalten | **gemessen** |
 
 ## Was gemessen ist
@@ -68,18 +68,46 @@ echten WebRTC-Datenkanal, reproduzierbar. Die `mouseabs`-Zeile zeigt die
 Letterbox-Korrektur in Aktion: aus einem Punkt in der Flächenmitte wird
 `x=640, y=360` — die Mitte des *Bildes*.
 
+## Kriterium 9: der CI-Workflow ist geschrieben, aber nie gelaufen
+
+Ehrlich benannt, weil es ein Erfolgskriterium ist und in der ersten Fassung
+dieser Seite fehlte: **`.github/workflows/desktop.yml` hat nie ausgeführt.**
+
+Der Branch wurde nie gepusht — das war ausdrücklich so vereinbart — und ohne Push
+läuft kein GitHub-Actions-Job. Was geprüft ist, ist die *Substanz* des Workflows:
+
+* alle 30 `run:`-Skripte bestehen `bash -n`,
+* die Schritte decken ab, was sie sollen (Baseline-Gate `>24`, Bundle-Job,
+  `recvonly`-Prüfung im Paket, Windows-Job mit Artefakt-Zählung,
+  GStreamer-Versionsschranke, `gamestream`-Variante),
+* und jeder Schritt wurde inhaltlich lokal nachgestellt.
+
+Das ist **nicht** dasselbe wie ein grüner Lauf. Ein grüner Lauf braucht einen
+Push, und der ist nicht freigegeben.
+
 ## Was offen ist, und warum
 
 **Drei Live-Nachweise** (Login, Medien, Spiele gegen den Server): die Datenbank
 fehlt, siehe oben. Die Kette ist jeweils gegen einen Ersatzserver mit echten
 Medien, echtem Profil und echtem Tunnel belegt — das ist **nicht** dasselbe.
 
-**Ein Spiel auf dem Bildschirm.** Die Client-Pipeline ist bewiesen und in die App
-verdrahtet, aber der Beweis ist Schleife-zu-Schleife. Ob App und Lightrays
-miteinander können, ist ungemessen.
+**Ein Spiel auf dem Bildschirm.** Die Client-Pipeline ist bewiesen, die
+Shell-Seite steht, und die **UI nimmt den nativen Weg** (`useGameLaunch` verzweigt
+über `usesNativeGameStream`, `PlayPage` rendert `NativeGameView` statt
+`GameStreamView`, und die Verdrahtung liegt im ausgelieferten Bundle — geprüft am
+Asset-Namen im Paket-Binary). Ungemessen bleibt zweierlei: der Pipeline-Beweis ist
+Schleife-zu-Schleife und sagt nichts über die Interoperabilität mit Lightrays, und
+**kein Spiel ist je in einem Fenster erschienen**.
 
 **Ein Support-Bericht, der ankommt.** `POST /api/client-logs` ist ohne Datenbank
 nicht erreichbar. Die Logik und der Dialog sind getestet, der Rundlauf nicht.
+
+**Tastatur und Maus im Spiel.** Gamepads gehen direkt (die Shell liest sie über
+`gilrs`, deshalb teilen sich Couch- und Spielweg einen Leser). Für Tastatur und
+Maus müsste das **Spiel-Fenster** der Shell seine eigenen Tastenereignisse
+weiterleiten — die Seite hat den Fokus nicht, und Ereignisse, die sie nie
+empfängt, kann sie nicht senden. Das ist offen und im Code als solches benannt,
+statt Listener zu installieren, die nichts tun könnten.
 
 **Couch-Modus mit einem echten Controller.** Auf dieser Maschine gibt es kein
 Gamepad. Die Geometrie, die Wiederholregel und die Shell-Befehle sind getestet,

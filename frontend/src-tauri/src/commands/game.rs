@@ -910,9 +910,17 @@ pub enum GameStartOutcome {
         height: u32,
     },
     /// It could not start, with the server's or the transport's reason.
+    ///
+    /// `status` is the HTTP status when there was one. It is carried because the
+    /// UI has to distinguish **409** (the ROM is not downloaded yet, and the
+    /// server has started fetching it) from every other refusal: that case is not
+    /// an error to show, it is a wait — exactly as the web client treats it. A
+    /// message string would have to be parsed to tell them apart, and parsing a
+    /// message is how a UI breaks when its wording changes.
     Refused {
         problem: String,
         advice: Option<String>,
+        status: Option<u16>,
     },
     /// This build has no game streaming compiled in.
     ///
@@ -960,6 +968,7 @@ async fn start_stream(
         return Ok(GameStartOutcome::Refused {
             problem: "Es läuft bereits ein Spielestream.".to_string(),
             advice: None,
+            status: None,
         });
     }
 
@@ -976,6 +985,7 @@ async fn start_stream(
             return Ok(GameStartOutcome::Refused {
                 problem: diagnosis.problem,
                 advice: diagnosis.advice,
+                status: None,
             });
         }
     };
@@ -1008,6 +1018,9 @@ async fn start_stream(
                 response.status
             ),
             advice: Some(text.chars().take(300).collect()),
+            // The *code*, not only the sentence: 409 means "the ROM is being
+            // fetched, wait", which is a different screen rather than an error.
+            status: Some(response.status),
         });
     }
 

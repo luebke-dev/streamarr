@@ -1622,6 +1622,21 @@ export default {
     gameMatchResolution: 'Auflösung anpassen',
     gameDisconnect: 'Trennen',
     gameStreaming: 'Spiel wird gestreamt',
+    // Nativer Spielestream (Desktop-App): das Bild zeichnet die Shell.
+    nativeGame: {
+      phase: {
+        launching: 'Spiel wird gestartet…',
+        connecting: 'Verbindung zum Stream…',
+        negotiating: 'Verbindung wird ausgehandelt…',
+        streaming: 'Das Spiel läuft in einem eigenen Fenster ({resolution}).',
+        resizing: 'Stream wird auf die neue Größe umgebaut…',
+        ended: 'Das Spiel ist beendet.',
+        stopped: 'Der Stream wurde beendet.',
+        failed: 'Der Stream ist fehlgeschlagen.',
+      },
+      hint:
+        'Das Spiel wird in einem eigenen Fenster gezeichnet, nicht hier. Controller funktionieren direkt; Tastatur und Maus gehören zu diesem Fenster, solange es den Fokus hat.',
+    },
   },
 
   // Player Controls

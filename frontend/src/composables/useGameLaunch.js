@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { launchGameSession, getGamePlatforms } from 'src/services/lightraysService'
 import { logger } from 'src/utils/logger'
+import { useNativeGameStream, usesNativeGameStream } from 'src/composables/useNativeGameStream'
 
 export function useGameLaunch({ uuid, status, loading, errorMessage, t }) {
   const gameSessionId = ref('')
@@ -10,6 +11,21 @@ export function useGameLaunch({ uuid, status, loading, errorMessage, t }) {
   // Platforms the game can be played on (N64, PC, …) for the version picker.
   const gamePlatforms = ref([])
   const selectedPlatform = ref(null)
+
+  // The desktop plays games through the shell, not through a `<video>` element:
+  // the plan's architecture rule is that every video output is native, and the
+  // webview is UI chrome (ADR 001). The two paths share the platform picker and
+  // the status handling; only the player differs.
+  const native = useNativeGameStream({
+    onEnded: (phase) => {
+      // The shell's session ended, so this is not an error. `goBack` is the
+      // caller's, through the same `disconnected` route the web path uses.
+      status.value = phase === 'failed' ? 'error' : 'idle'
+      if (phase === 'failed') {
+        errorMessage.value = t('playPage.failedToStartGame')
+      }
+    },
+  })
 
   async function fetchGamePlatforms() {
     try {
@@ -22,8 +38,11 @@ export function useGameLaunch({ uuid, status, loading, errorMessage, t }) {
   }
 
   async function launchGameStream(platform = null) {
+    selectedPlatform.value = platform
+    if (usesNativeGameStream()) {
+      return launchNativeGameStream(platform)
+    }
     try {
-      selectedPlatform.value = platform
       loading.value = true
       const dpr = window.devicePixelRatio || 1
       const header = document.querySelector('.q-header')
@@ -61,6 +80,47 @@ export function useGameLaunch({ uuid, status, loading, errorMessage, t }) {
     }
   }
 
+  /**
+   * Starts the game stream in the shell.
+   *
+   * Returns the same way the web path does — a session object, or `null` after
+   * setting `status`/`errorMessage` — so the caller needs no branch. The
+   * difference is where the picture comes from, and that is the whole point.
+   */
+  async function launchNativeGameStream(platform) {
+    loading.value = true
+    const result = await native.start(uuid.value, platform)
+    loading.value = false
+    if (result?.running) {
+      status.value = 'native-game-streaming'
+      return result
+    }
+
+    // 409 is not a failure: the server has started fetching the ROM and the
+    // caller's download polling relaunches the game when it lands. The shell
+    // carries the *status code* for exactly this reason — matching on the
+    // message text would break the moment the wording changed.
+    const outcomeStatus = result?.errorStatus
+    if (outcomeStatus === 409) {
+      status.value = 'downloading'
+      errorMessage.value = ''
+      return null
+    }
+    status.value = 'error'
+    errorMessage.value = result?.error || t('playPage.failedToStartGame')
+    return null
+  }
+
+  /** Asks the server to rebuild its pipeline at the current window size. */
+  async function matchResolution() {
+    return native.matchResolution()
+  }
+
+  /** Ends the native stream and tells the server. */
+  async function stopNativeGameStream() {
+    return native.stop()
+  }
+
   return {
     gameSessionId,
     wsTicket,
@@ -70,5 +130,10 @@ export function useGameLaunch({ uuid, status, loading, errorMessage, t }) {
     selectedPlatform,
     fetchGamePlatforms,
     launchGameStream,
+    // The native path's state and controls, so the view can render the same
+    // toolbar whether the picture comes from a `<video>` or from the shell.
+    nativeGame: native.state,
+    matchResolution,
+    stopNativeGameStream,
   }
 }
