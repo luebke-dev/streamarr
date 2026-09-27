@@ -14,6 +14,9 @@
 use std::path::{Path, PathBuf};
 
 use streamarr_desktop_player::protocol::{ClientMessage, InputMessage, KeyCode, ServerMessage};
+use streamarr_desktop_player::session::{
+    APP_NAME, CLIENT_PLATFORM_HEADER, CLIENT_PLATFORM_VALUE, REFRESH_MARGIN,
+};
 
 fn repo_root() -> Option<PathBuf> {
     // CARGO_MANIFEST_DIR is <repo>/desktop/player.
@@ -315,4 +318,247 @@ fn codec_names_are_known_to_the_server() {
     assert!(caps.video_codecs.contains(&VideoCodec::H264));
     assert!(caps.video_codecs.contains(&VideoCodec::H265));
     assert!(caps.audio_codecs.contains(&AudioCodec::Ac3));
+}
+
+// ── Session and auth contract (plan tasks 1.4/1.5) ──
+
+/// The platform header is what makes the server hand a native client the refresh
+/// token in the body instead of an httpOnly cookie. `auth/cookies.py` decides this
+/// by comparing the header to the literal `web`, so both the header name and the
+/// fact that our value is not `web` have to hold against the server source.
+#[test]
+fn the_platform_header_matches_the_server() {
+    let Some(source) = read("backend/src/streamarr/auth/cookies.py") else {
+        return;
+    };
+    assert!(
+        source.contains("x-client-platform"),
+        "der Server liest den Header nicht mehr als `x-client-platform`"
+    );
+    assert!(
+        source.contains(r#".strip().lower() == "web""#),
+        "die Serverlogik für Cookie- vs. Body-Token hat sich geändert — \
+         die Annahme `nur web bekommt ein Cookie` muss neu geprüft werden"
+    );
+    assert_ne!(
+        CLIENT_PLATFORM_VALUE, "web",
+        "mit dem Wert `web` bekäme die App kein Refresh-Token im Body"
+    );
+    assert_eq!(CLIENT_PLATFORM_HEADER.to_lowercase(), "x-client-platform");
+}
+
+/// The login request must carry the device fields under the names the schema uses,
+/// otherwise the device record is created without an identity.
+#[test]
+fn the_login_body_matches_the_server_schema() {
+    let Some(source) = read("backend/src/streamarr/schemas/user.py") else {
+        return;
+    };
+    for field in ["email", "password", "device_id", "device_info"] {
+        assert!(
+            source.contains(&format!("{field}:")),
+            "LocalLoginRequest kennt das Feld {field:?} nicht mehr"
+        );
+    }
+}
+
+/// `TokenResponse.refresh_token` is optional precisely because web clients get a
+/// cookie instead. The client treats its absence as a configuration error, so the
+/// field name has to keep matching.
+#[test]
+fn the_token_response_fields_match_the_server() {
+    let Some(source) = read("backend/src/streamarr/schemas/auth.py") else {
+        return;
+    };
+    for field in ["access_token", "refresh_token", "token_type", "expires_in"] {
+        assert!(
+            source.contains(&format!("{field}:")),
+            "TokenResponse kennt das Feld {field:?} nicht mehr"
+        );
+    }
+    assert!(
+        source.contains("refresh_token: str | None"),
+        "das Refresh-Token ist nicht mehr optional — die Native-Client-Annahme \
+         (`None` bedeutet: Header fehlt) muss neu bewertet werden"
+    );
+}
+
+/// Device capabilities are stored under `device_info["capabilities"]`, and the
+/// update schema must keep accepting our payload's field names.
+#[test]
+fn device_capabilities_are_stored_where_expected() {
+    let Some(source) = read("backend/src/streamarr/api/v1/devices.py") else {
+        return;
+    };
+    assert!(
+        source.contains(r#"device_info["capabilities"]"#),
+        "die Capabilities werden nicht mehr unter device_info[\"capabilities\"] abgelegt"
+    );
+    assert!(
+        source.contains("capabilities.model_dump()"),
+        "der Server speichert die Capabilities nicht mehr als Modell-Dump — \
+         die Feldnamen des Payloads müssen neu geprüft werden"
+    );
+}
+
+/// The refresh endpoint rotates the token on every call. If that ever stopped being
+/// true, the client's single-use assumption would be needlessly strict; if a second
+/// call were still accepted after rotation, it would be the opposite. Either way it
+/// is worth knowing, so the behaviour is pinned.
+#[test]
+fn refresh_rotates_the_token_on_the_server() {
+    let Some(source) = read("backend/src/streamarr/api/v1/auth.py") else {
+        return;
+    };
+    assert!(
+        source.contains("mark_refresh_rotated"),
+        "der Refresh-Endpunkt rotiert das Token nicht mehr — die Einmal-Annahme \
+         des Clients ist dann unnötig streng"
+    );
+    assert!(
+        source.contains("new_refresh_token"),
+        "es wird kein neues Refresh-Token mehr ausgegeben; der Client würde sein \
+         gespeichertes Token weiterverwenden und beim nächsten Mal 401 bekommen"
+    );
+}
+
+/// The 503 branch is the reason the client distinguishes "dead token" from "could
+/// not check". If the server ever failed open instead, keeping the session would be
+/// wrong.
+#[test]
+fn a_missing_revocation_store_still_fails_closed() {
+    let Some(source) = read("backend/src/streamarr/auth/token_revocation.py") else {
+        return;
+    };
+    assert!(
+        source.contains("HTTP_503_SERVICE_UNAVAILABLE"),
+        "der Revocation-Store antwortet nicht mehr mit 503 — die Unterscheidung \
+         zwischen endgültigem und vorübergehendem Fehler muss neu geprüft werden"
+    );
+    assert!(
+        source.to_lowercase().contains("fail-closed"),
+        "die Fail-Closed-Eigenschaft ist nicht mehr dokumentiert"
+    );
+}
+
+/// Access and refresh lifetimes drive `needs_refresh`. A refresh margin larger than
+/// the access-token lifetime would mean refreshing on every single call.
+#[test]
+fn token_lifetimes_leave_room_for_the_refresh_margin() {
+    let Some(source) = read("backend/src/streamarr/config.py") else {
+        return;
+    };
+    let line = source
+        .lines()
+        .find(|l| l.contains("jwt_access_token_expire_minutes"))
+        .expect("die Access-Token-Lebensdauer ist konfigurierbar");
+    let minutes: u64 = line
+        .rsplit(':')
+        .next()
+        .and_then(|tail| tail.split_whitespace().next())
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(30);
+    let lifetime = std::time::Duration::from_secs(minutes * 60);
+    assert!(
+        lifetime > REFRESH_MARGIN * 4,
+        "die Access-Token-Lebensdauer ({minutes} min) ist zu kurz für eine \
+         Refresh-Marge von {:?}",
+        REFRESH_MARGIN
+    );
+}
+
+/// The app name is what the server shows in the device list (plan task 1.5), and
+/// the field has to fit the schema's length limit.
+#[test]
+fn the_device_app_name_fits_the_schema() {
+    let Some(source) = read("backend/src/streamarr/schemas/device.py") else {
+        return;
+    };
+    assert!(
+        source.contains("app_name: str | None"),
+        "die Device-Schemata kennen `app_name` nicht mehr"
+    );
+    // The limit is declared as `max_length=100`; assert the plan's name fits.
+    if let Some(index) = source.find("app_name: str | None") {
+        let tail = &source[index..];
+        if let Some(limit_start) = tail.find("max_length=") {
+            let digits: String = tail[limit_start + "max_length=".len()..]
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if let Ok(limit) = digits.parse::<usize>() {
+                assert!(
+                    APP_NAME.len() <= limit,
+                    "der App-Name ist länger als die erlaubten {limit} Zeichen"
+                );
+            }
+        }
+    }
+}
+
+/// Guards against the whole suite silently skipping.
+///
+/// Every test here is written to *skip* when the server sources are absent, so the
+/// crate stays buildable from a packaged source tree. The risk of that design is
+/// obvious once stated: a typo in a path turns a suite of golden tests into a suite
+/// of no-ops that report success. This test fails loudly in the repository instead,
+/// while still skipping in a packaged tree.
+#[test]
+fn the_server_sources_are_readable_in_this_repository() {
+    if repo_root().is_none() {
+        // Packaged tree: nothing to check, and the other tests skip too.
+        return;
+    }
+    let required = [
+        "lightrays/src/input.rs",
+        "lightrays/src/stream.rs",
+        "lightrays/src/webrtc.rs",
+        "lightrays/src/encoder.rs",
+        "lightrays/src/gamepad.rs",
+        "backend/src/streamarr/auth/cookies.py",
+        "backend/src/streamarr/auth/token_revocation.py",
+        "backend/src/streamarr/api/v1/auth.py",
+        "backend/src/streamarr/api/v1/devices.py",
+        "backend/src/streamarr/schemas/auth.py",
+        "backend/src/streamarr/schemas/user.py",
+        "backend/src/streamarr/schemas/device.py",
+        "backend/src/streamarr/config.py",
+        "backend/src/streamarr/libraries/base.py",
+    ];
+    let mut missing = Vec::new();
+    for path in required {
+        match read(path) {
+            Some(content) if !content.is_empty() => {}
+            _ => missing.push(path),
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "Diese Serverquellen sind nicht lesbar: {missing:?}. Damit würden die \
+         Golden-Tests still überspringen und Erfolg melden, ohne etwas zu prüfen."
+    );
+}
+
+/// The app name is what the server lists in its device view (plan task 1.5); a
+/// change here should be a conscious one, not a silent rename.
+#[test]
+fn the_app_name_is_what_the_plan_specifies() {
+    assert_eq!(APP_NAME, "Streamarr Desktop");
+}
+
+/// The refresh margin must stay well below the access-token lifetime, otherwise
+/// every call would trigger a refresh — and every refresh rotates the token, so the
+/// client would burn through its session for nothing.
+#[test]
+fn the_refresh_margin_is_far_below_a_typical_token_lifetime() {
+    use std::time::Duration;
+    assert!(
+        REFRESH_MARGIN < Duration::from_secs(5 * 60),
+        "die Refresh-Marge ({REFRESH_MARGIN:?}) ist zu großzügig"
+    );
+    assert!(
+        REFRESH_MARGIN >= Duration::from_secs(5),
+        "die Refresh-Marge ({REFRESH_MARGIN:?}) ist zu klein, um einen Ablauf \
+         mitten im Request zu verhindern"
+    );
 }

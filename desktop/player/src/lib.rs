@@ -22,6 +22,7 @@
 pub mod capabilities;
 pub mod profile;
 pub mod protocol;
+pub mod session;
 
 /// Reading physical gamepads and translating them into the wire format.
 ///
