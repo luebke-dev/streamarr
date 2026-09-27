@@ -36,6 +36,9 @@ After creation, each library appears in the admin sidebar under **Libraries** (M
 | **Allowed Languages** | Only releases in these languages are scored positively; empty = all languages | Movies, Shows |
 | **Allowed Platforms** | Only show games available on these platforms; empty = all | Games |
 
+!!! tip "Games libraries and retro ROMs"
+    A games library can hold both PC titles and console ROMs. Console ROMs are laid out one directory per system, and some systems additionally need a BIOS image. See [Retro Game Streaming](game-streaming.md) for the expected folder structure, the supported platforms, and the required BIOS files.
+
 ### Naming Conventions
 
 Templates control how downloaded files and folders are named. The available template fields depend on the library type; click the help icon on any template field to open the **Available Variables** dialog with descriptions and examples (title, year, TMDB/TVDB/IMDb IDs, season/episode numbers, resolution, codecs, HDR format, source, release group, …).
