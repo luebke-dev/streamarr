@@ -12,7 +12,7 @@ use bollard::container::{
     StatsOptions, StopContainerOptions,
 };
 use bollard::image::CreateImageOptions;
-use bollard::models::{DeviceMapping, HostConfig};
+use bollard::models::{DeviceMapping, EndpointSettings, HostConfig};
 use bollard::Docker;
 use futures::StreamExt;
 use std::collections::{HashMap, HashSet};
@@ -63,6 +63,78 @@ pub struct ContainerSession {
     pub wayland_display: Option<String>,
     pub xdg_runtime_dir: String,
     pub audio_sink: Option<String>,
+}
+
+/// Docker network a session container should join, or `None` for Docker's
+/// default (`bridge`).
+///
+/// Remote-gamepad input (see [`crate::gamepad`]) is UDP from Lightrays to the
+/// game container, so the two have to share a network. Lightrays cannot reach
+/// a container on the plain `bridge` network from the compose network, so
+/// sessions are attached to Lightrays' own network instead.
+///
+/// Resolution order:
+/// 1. `LIGHTRAYS_SESSION_NETWORK`, an explicit override.
+/// 2. Auto-detection: inspect our own container (the hostname is the short
+///    container id under Docker) and reuse its network. This makes the
+///    default compose deployment work with no extra configuration.
+/// 3. `None`, meaning no network is pinned and Docker uses `bridge`.
+///
+/// Detection failure is not fatal: input simply will not arrive, which is the
+/// status quo for any deployment that does not use the remote gamepad.
+async fn session_network(docker: &Docker) -> Option<String> {
+    if let Ok(name) = std::env::var("LIGHTRAYS_SESSION_NETWORK") {
+        let name = name.trim().to_string();
+        if !name.is_empty() {
+            return Some(name);
+        }
+    }
+
+    let hostname = std::env::var("HOSTNAME").ok().filter(|h| !h.is_empty())?;
+    match docker.inspect_container(&hostname, None).await {
+        Ok(info) => {
+            let networks = info.network_settings.and_then(|ns| ns.networks);
+            let network = pick_session_network(networks.as_ref());
+            match network {
+                Some(ref n) => log::info!("Sessions will join Docker network '{n}'"),
+                None => log::warn!(
+                    "Could not determine a session network from container '{hostname}'; \
+                     remote gamepad input will not reach the game container. \
+                     Set LIGHTRAYS_SESSION_NETWORK to override."
+                ),
+            }
+            network
+        }
+        Err(e) => {
+            log::warn!(
+                "Could not inspect own container '{hostname}' to detect the session \
+                 network ({e}); remote gamepad input may not arrive. \
+                 Set LIGHTRAYS_SESSION_NETWORK to override."
+            );
+            None
+        }
+    }
+}
+
+/// Choose which of the container's networks a session should join.
+///
+/// `host` and `none` are Docker's special modes and are not joinable from
+/// another container, so they are skipped. When several real networks exist
+/// the alphabetically first is used: the choice only has to be stable, and
+/// sorting keeps it deterministic across restarts instead of depending on
+/// HashMap iteration order.
+///
+/// Returns `None` when there is nothing usable, which leaves Docker's own
+/// default in place.
+fn pick_session_network(
+    networks: Option<&std::collections::HashMap<String, bollard::models::EndpointSettings>>,
+) -> Option<String> {
+    let mut names: Vec<&String> = networks?
+        .keys()
+        .filter(|n| n.as_str() != "host" && n.as_str() != "none")
+        .collect();
+    names.sort();
+    names.first().map(|n| (*n).clone())
 }
 
 impl DockerRunner {
@@ -189,8 +261,19 @@ impl DockerRunner {
         // leaves the field at Docker's default (unlimited).
         let (memory, nano_cpus, pids_limit) = resource_limits();
 
+        // Attach the session container to the same Docker network Lightrays
+        // itself runs on, so the remote-gamepad UDP packets (see gamepad.rs)
+        // can reach RetroArch. The default `bridge` network is isolated from
+        // the compose network, so without this the game receives no input and
+        // every session looks frozen.
+        //
+        // Explicit override wins; otherwise detect our own network so a
+        // standard compose deployment needs no extra configuration.
+        let network_name = session_network(&self.docker).await;
+
         // Create and start
         let host_config = HostConfig {
+            network_mode: network_name.clone(),
             binds: Some(binds),
             devices: if devices.is_empty() {
                 None
@@ -899,5 +982,55 @@ mod tests {
     #[test]
     fn sanitize_title_keeps_safe_chars() {
         assert_eq!(sanitize_title("User-1_Game.2"), "User-1_Game_2");
+    }
+
+    fn networks(names: &[&str]) -> std::collections::HashMap<String, EndpointSettings> {
+        names
+            .iter()
+            .map(|n| {
+                (
+                    (*n).to_string(),
+                    EndpointSettings {
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn picks_the_joinable_network() {
+        let nets = networks(&["app_default"]);
+        assert_eq!(pick_session_network(Some(&nets)).as_deref(), Some("app_default"));
+    }
+
+    #[test]
+    fn skips_host_and_none_networks() {
+        // `host` and `none` cannot be joined by another container, so a
+        // session must never be pointed at them.
+        let nets = networks(&["host", "none"]);
+        assert_eq!(pick_session_network(Some(&nets)), None);
+    }
+
+    #[test]
+    fn prefers_a_real_network_over_host_and_none() {
+        let nets = networks(&["host", "app_default", "none"]);
+        assert_eq!(pick_session_network(Some(&nets)).as_deref(), Some("app_default"));
+    }
+
+    #[test]
+    fn multiple_networks_pick_deterministically() {
+        // Deterministic so a restart cannot silently move sessions to a
+        // different network.
+        let a = networks(&["zeta", "alpha", "mid"]);
+        let b = networks(&["mid", "zeta", "alpha"]);
+        assert_eq!(pick_session_network(Some(&a)).as_deref(), Some("alpha"));
+        assert_eq!(pick_session_network(Some(&b)).as_deref(), Some("alpha"));
+    }
+
+    #[test]
+    fn no_networks_yields_none() {
+        assert_eq!(pick_session_network(Some(&networks(&[]))), None);
+        assert_eq!(pick_session_network(None), None);
     }
 }

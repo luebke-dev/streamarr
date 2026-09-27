@@ -1,5 +1,7 @@
 //! Browser keycode → Linux scancode mapping and GStreamer input dispatch.
 
+use crate::gamepad::{self, GamepadEvent, RetroPadButton};
+
 use gstreamer as gst;
 use gstreamer::prelude::*;
 
@@ -128,6 +130,178 @@ pub fn browser_button_to_linux(button: u32) -> u32 {
         _ => 0x110,
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Browser Gamepad API → RetroPad
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Map a browser `Gamepad.buttons` index to a RetroPad button.
+///
+/// Uses the W3C "standard gamepad" layout, which every modern browser
+/// reports for a recognised pad (Xbox, DualShock/DualSense, 8BitDo, …):
+///
+/// | index | standard gamepad | RetroPad |
+/// |-------|------------------|----------|
+/// | 0     | bottom (A/✕)     | A        |
+/// | 1     | right (B/○)      | B        |
+/// | 2     | left (X/□)       | X        |
+/// | 3     | top (Y/△)        | Y        |
+/// | 4,5   | LB / RB          | L / R    |
+/// | 6,7   | LT / RT          | L2 / R2  |
+/// | 8     | Back/Select      | Select   |
+/// | 9     | Start            | Start    |
+/// | 10,11 | L3 / R3 (click)  | L3 / R3  |
+/// | 12-15 | D-pad up/down/left/right | Up/Down/Left/Right |
+/// | 16    | Guide/Home       | (ignored)|
+///
+/// Note the deliberate A/B and X/Y swap: a browser pads "A" is the *bottom*
+/// face button, while RetroPad's B sits at bit 0 and A at bit 8. Nintendo
+/// layouts label these the other way round, so a physical position maps to
+/// the button a RetroPad game expects in that position.
+pub fn browser_gamepad_button(index: u32) -> Option<RetroPadButton> {
+    Some(match index {
+        0 => RetroPadButton::A,
+        1 => RetroPadButton::B,
+        2 => RetroPadButton::X,
+        3 => RetroPadButton::Y,
+        4 => RetroPadButton::L,
+        5 => RetroPadButton::R,
+        6 => RetroPadButton::L2,
+        7 => RetroPadButton::R2,
+        8 => RetroPadButton::Select,
+        9 => RetroPadButton::Start,
+        10 => RetroPadButton::L3,
+        11 => RetroPadButton::R3,
+        12 => RetroPadButton::Up,
+        13 => RetroPadButton::Down,
+        14 => RetroPadButton::Left,
+        15 => RetroPadButton::Right,
+        // 16 = Guide/Home has no RetroPad equivalent; a few pads expose
+        // extra paddles beyond this. Ignore rather than guess.
+        _ => return None,
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gamepad event parsing
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Parse a gamepad message from the browser into a [`GamepadEvent`].
+///
+/// Two message shapes are accepted, mirroring the granular style of the
+/// keyboard/mouse events so the browser can send only what changed:
+///
+/// ```json
+/// {"type": "gamepadbutton", "index": 0, "pressed": true}
+/// {"type": "gamepadaxis", "stick": 0, "axis": 1, "value": -0.75}
+/// ```
+///
+/// `deadzone` is the user's analog-deadzone preference, applied to axes here
+/// so the value that goes on the wire is already corrected. Returns `None`
+/// for anything that is not a well-formed gamepad message.
+pub fn parse_gamepad_event(data: &serde_json::Value, deadzone: f64) -> Option<GamepadEvent> {
+    match data.get("type").and_then(|v| v.as_str())? {
+        "gamepadbutton" => {
+            let index = data.get("index").and_then(|v| v.as_u64())? as u32;
+            let pressed = data.get("pressed").and_then(|v| v.as_bool())?;
+            let button = browser_gamepad_button(index)?;
+            Some(GamepadEvent::Button { button, pressed })
+        }
+        "gamepadaxis" => {
+            let stick = data.get("stick").and_then(|v| v.as_i64())? as i32;
+            let axis = data.get("axis").and_then(|v| v.as_i64())? as i32;
+            let value = data.get("value").and_then(|v| v.as_f64())?;
+            Some(GamepadEvent::Axis {
+                stick: stick.clamp(0, 1),
+                axis: axis.clamp(0, 1),
+                value: gamepad::axis_to_i16(value, deadzone),
+            })
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod gamepad_tests {
+    use super::*;
+
+    #[test]
+    fn maps_standard_gamepad_layout_to_retropad() {
+        assert_eq!(browser_gamepad_button(0), Some(RetroPadButton::A));
+        assert_eq!(browser_gamepad_button(1), Some(RetroPadButton::B));
+        assert_eq!(browser_gamepad_button(2), Some(RetroPadButton::X));
+        assert_eq!(browser_gamepad_button(3), Some(RetroPadButton::Y));
+        assert_eq!(browser_gamepad_button(4), Some(RetroPadButton::L));
+        assert_eq!(browser_gamepad_button(5), Some(RetroPadButton::R));
+        assert_eq!(browser_gamepad_button(8), Some(RetroPadButton::Select));
+        assert_eq!(browser_gamepad_button(9), Some(RetroPadButton::Start));
+        assert_eq!(browser_gamepad_button(12), Some(RetroPadButton::Up));
+        assert_eq!(browser_gamepad_button(15), Some(RetroPadButton::Right));
+    }
+
+    #[test]
+    fn guide_button_and_unknown_indices_are_ignored() {
+        assert_eq!(browser_gamepad_button(16), None);
+        assert_eq!(browser_gamepad_button(99), None);
+    }
+
+    #[test]
+    fn parses_button_press() {
+        let v = serde_json::json!({"type":"gamepadbutton","index":9,"pressed":true});
+        assert_eq!(
+            parse_gamepad_event(&v, 0.0),
+            Some(GamepadEvent::Button {
+                button: RetroPadButton::Start,
+                pressed: true,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_axis_with_deadzone_applied() {
+        let v = serde_json::json!({"type":"gamepadaxis","stick":0,"axis":1,"value":-1.0});
+        match parse_gamepad_event(&v, 0.15) {
+            Some(GamepadEvent::Axis { stick, axis, value }) => {
+                assert_eq!((stick, axis), (0, 1));
+                assert_eq!(value, -i16::MAX);
+            }
+            other => panic!("expected axis event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn malformed_gamepad_messages_are_rejected() {
+        assert_eq!(parse_gamepad_event(&serde_json::json!({}), 0.0), None);
+        assert_eq!(
+            parse_gamepad_event(&serde_json::json!({"type":"gamepadbutton"}), 0.0),
+            None
+        );
+        assert_eq!(
+            parse_gamepad_event(
+                &serde_json::json!({"type":"gamepadbutton","index":99,"pressed":true}),
+                0.0
+            ),
+            None
+        );
+        // A keyboard message must not be mistaken for a gamepad one.
+        assert_eq!(
+            parse_gamepad_event(&serde_json::json!({"type":"key","code":"KeyA"}), 0.0),
+            None
+        );
+    }
+
+    #[test]
+    fn out_of_range_stick_and_axis_are_clamped() {
+        let v = serde_json::json!({"type":"gamepadaxis","stick":7,"axis":-3,"value":0.5});
+        match parse_gamepad_event(&v, 0.0) {
+            Some(GamepadEvent::Axis { stick, axis, .. }) => {
+                assert_eq!((stick, axis), (1, 0));
+            }
+            other => panic!("expected axis event, got {other:?}"),
+        }
+    }
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GStreamer input dispatch

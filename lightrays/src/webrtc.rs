@@ -6,7 +6,6 @@
 //! callbacks fire on GStreamer's internal threads, so they take the lock
 //! briefly and never block on async work.
 
-use crate::input;
 use crate::stream::{SessionInner, SignalingMessage};
 
 use glib::prelude::*;
@@ -274,29 +273,10 @@ pub fn setup_data_channel(webrtcbin: &gst::Element, inner_arc: &Arc<Mutex<Sessio
             let inner_clone = Arc::clone(inner_arc);
             channel.connect("on-message-string", false, move |values| {
                 if let Ok(message) = values[1].get::<String>() {
-                    // Input maps to the *compositor* coordinate space —
-                    // that's where the game's surface lives. The stream
-                    // resolution (inner.width/height) is decoupled and
-                    // only affects encoder output, not input geometry.
-                    //
-                    // note_and_allow_input records activity (R-H1) and
-                    // enforces the per-session input rate budget (S-M5)
-                    // under the same lock.
-                    let (allowed, el_opt, w, h) = {
-                        let mut inner = inner_clone.lock();
-                        let allowed = inner.note_and_allow_input();
-                        (
-                            allowed,
-                            inner.compositor.as_ref().and_then(|c| c.element.clone()),
-                            inner.compositor_width,
-                            inner.compositor_height,
-                        )
-                    };
-                    if allowed {
-                        if let Some(el) = el_opt {
-                            input::handle_input_json(&el, &message, w, h);
-                        }
-                    }
+                    // Shared with the WebSocket fallback so both transports
+                    // accept the same message types; rate limiting and idle
+                    // tracking live inside handle_input_message.
+                    crate::stream::handle_input_message(&inner_clone, &message);
                 }
                 None
             });
