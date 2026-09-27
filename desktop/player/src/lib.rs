@@ -30,6 +30,7 @@ pub mod profile;
 pub mod protocol;
 pub mod resolve_tunnel;
 pub mod session;
+pub mod updater;
 
 /// Reading physical gamepads and translating them into the wire format.
 ///

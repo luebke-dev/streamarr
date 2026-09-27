@@ -144,6 +144,7 @@ pub fn run() {
         // Deep links last before setup: the scheme must be registered before a link can
         // arrive, and `setup` below reads the link that may have started this process.
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let config_root = app
@@ -203,6 +204,7 @@ pub fn run() {
             commands::deeplink::begin_browser_login,
             commands::deeplink::browser_login_pending,
             commands::deeplink::cancel_browser_login,
+            commands::update::check_for_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running streamarr.media desktop app");

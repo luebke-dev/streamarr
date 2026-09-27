@@ -20,3 +20,4 @@ pub mod deeplink;
 pub mod playback;
 pub mod profiles;
 pub mod session;
+pub mod update;

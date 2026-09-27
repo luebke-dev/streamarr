@@ -21,6 +21,10 @@ tauri-plugin-opener = "2"
 # way a native app receives a login from an external browser, and it is why the scheme has
 # to be registered rather than the redirect being read inside the webview.
 tauri-plugin-deep-link = "2"
+# 2.12.0, not the newest: 2.13.0 requires rustc 1.90 while this crate declares
+# `rust-version = "1.77.2"`. The check command in src/commands/update.rs is deliberately
+# separate, so an unconfigured build still builds.
+tauri-plugin-updater = "2.12.0"
 # Window geometry is persisted per label by the plugin, which is why the player
 # window comes back where the user left it instead of centred every launch.
 tauri-plugin-window-state = "2"

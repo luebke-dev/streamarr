@@ -245,6 +245,49 @@ The app reports `Token-Ablage:` on startup. If the keyring is unavailable — a 
 session or a container without a Secret Service — the app falls back to a file with
 restricted permissions and says so, rather than refusing to run.
 
+## Updates
+
+Streamarr Desktop updates itself from the project's release feed — **not** from your
+server. That is deliberate, and the reason is worth knowing if you self-host.
+
+The app is a client: your profiles say where *media and games* come from, and there can be
+several. The update feed is a fixed address compiled into the bundle. If it pointed at your
+instance, then whoever runs whatever server you typed in would decide which code your
+computer runs — and with two profiles there would be no way to say which one should. Every
+deployment would also have to carry and maintain desktop bundles. Measured: the server does
+not check the client's version at all, so app and server versions are genuinely independent
+— they happen to read the same number today, but nothing couples them.
+
+The app follows one of two channels:
+
+| Channel | Receives |
+|---|---|
+| `stable` | Released versions only. The default. |
+| `beta` | Pre-releases as well. |
+
+A build whose version carries a pre-release suffix (`2026.3.0-beta.1`) follows `beta`
+automatically; everything else follows `stable`. A stable build is **never** offered a
+pre-release, even when the pre-release carries the higher number — a channel is a promise,
+and the check happens before the version comparison for exactly that reason. A beta build
+receives both channels, so it is not stranded when it wants to come back to stable.
+
+An update that is offered is verified against a public key compiled into the bundle; an
+unsigned or wrongly signed update is refused. There is no setting to skip that check.
+
+### "It says it is up to date"
+
+The app writes the reason to its log for every check, so the answer does not have to be
+guessed. The three possible answers are different and are not conflated:
+
+- **An update is available.** The only case the app shows you anything.
+- **There is none.** The log names both versions.
+- **This build cannot check** — it was built without an update endpoint or without a
+  signing key. That is a build problem, not a network problem, and retrying will not help.
+
+Being offline is not treated as an error. An app that complains about a failed update check
+on every start is an app whose messages people learn to ignore — and then a real one gets
+ignored too.
+
 ## Limits
 
 What has been **measured**, and what has not:
@@ -253,6 +296,13 @@ What has been **measured**, and what has not:
 
 - The app starts on Wayland, creates its configuration, and stores credentials in the OS
   keyring.
+- **Deep links.** `streamarr://` is registered with the desktop
+  (`xdg-mime query default x-scheme-handler/streamarr` answers `streamarr-handler.desktop`),
+  and a URL handed to a running app is received — verified with two processes, where the
+  second exits and the first logs the link. A login link naming a foreign `server` is
+  refused, with the reason in the log.
+- **Update checks reach the release feed without any server.** The feed was fetched from a
+  machine with no Streamarr instance, no profile and no token.
 - Media playback: direct play from the server's file endpoint, resume at a stored
   position, HDR mode selection, and the address pin reaching a player that has no
   equivalent of `curl --resolve`.
@@ -265,6 +315,12 @@ What has been **measured**, and what has not:
   the whole of this work. The chain was verified against a stand-in server using the real
   media, profile, tunnel and player.
 - **Game streaming.** Same reason.
+- **The OIDC/browser login end to end.** The test server has `oidc_enabled: false`, so a
+  real browser login cannot be exercised. The link's shape is checked against the server's
+  own callback endpoint, read from its sources.
+- **Installing an update.** No release has been published, so no update has ever been
+  downloaded and installed. The feed answers `HTTP 404` today, which the app treats as
+  "no release yet" rather than as a failure.
 - **Windows.** No bundle has been built and no Windows host has run this code.
 - **AppImage execution.** The build container has no FUSE, so only the extracted contents
   could be checked.

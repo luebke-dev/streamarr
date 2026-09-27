@@ -42,7 +42,7 @@
       "msi"
     ],
     "category": "Video",
-    "publisher": "Sebastian Lübke",
+    "publisher": "Sebastian L\u00fcbke",
     "homepage": "https://streamarr.media",
     "shortDescription": "A streaming media center.",
     "longDescription": "A streaming media center.",
@@ -60,6 +60,15 @@
         "schemes": [
           "streamarr"
         ]
+      }
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/luebke-dev/streamarr/releases/latest/download/latest.json"
+      ],
+      "pubkey": "PLACEHOLDER_REPLACE_WITH_THE_TAURI_UPDATER_PUBLIC_KEY",
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

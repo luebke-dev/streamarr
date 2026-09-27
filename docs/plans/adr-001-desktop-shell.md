@@ -122,3 +122,42 @@ als Risiko benennt, existiert dort nicht. Siehe
 - Plan §4.2: Weg B (`--wid`-Reparenting) ist für **Wayland nicht verfügbar**.
   Weg A (Overlay-Toplevel) ist nicht nur „Empfehlung für v1", sondern die
   einzige plattformübergreifend tragbare Variante.
+
+## Update-Endpunkt: nicht an der Instanz
+
+**Entscheidung:** Der Update-Feed ist ein statischer Wert im Bundle
+(GitHub-Releases des Projekts), **nicht** eine Route des Streamarr-Servers,
+gegen den die App gerade verbunden ist.
+
+Die naheliegende Annahme ist die umgekehrte — „self-hosted, also liefert der
+Server auch die App aus". Sie trägt nicht:
+
+- **Die App ist ein Client, kein Bestandteil einer Instanz.** `ProfileStore`
+  hält eine *Liste* von Servern (`desktop/player/src/profile.rs`); keiner davon
+  ist der „Hauptserver". Welcher sollte den Update-Feed bestimmen?
+- **Es wäre eine Codeverteilung durch Dritte.** Wer die Adresse eintippt, deren
+  Feed die App folgt, könnte beliebigen Code auf das Gerät schieben. Das ist
+  keine Funktion, die man baut.
+- **Jede Instanz müsste Bundles mitpflegen.** Für ein selbstgehostetes Projekt
+  wäre das eine dauerhafte Last ohne Gegenwert.
+- **Es gibt nicht einmal eine Versionskopplung.** Gemessen: der Server prüft die
+  Client-Version nicht (kein `X-Client-Version` in `backend/src/streamarr`).
+  App- und Serverversion sind unabhängig; beide lesen heute zufällig
+  `2026.2.1`, aber nichts verbindet sie. Ein instanzgebundener Feed würde eine
+  Abhängigkeit erfinden, die es nicht gibt.
+
+**Was die Instanz weiterhin bestimmt:** alles, wofür sie zuständig ist — Medien,
+Spiele, Anmeldung, Profile. Nur eben nicht die Software, die auf dem Gerät läuft.
+
+**Live geprüft:** Der Feed war von einem Rechner **ohne** Streamarr-Instanz,
+ohne Profil und ohne Token abrufbar (`examples/update_probe.rs`). Er antwortet
+heute `HTTP 404` (noch kein Release) — was die App als „noch keine Version"
+liest, nicht als Fehler.
+
+**Offen:** Der Signierschlüssel. Ohne ihn baut die App, aber sie aktualisiert
+sich nicht; `createUpdaterArtifacts` wurde deshalb wieder aus
+`tauri.conf.json` entfernt — mit gesetztem Schlüssel bricht `tauri build` sonst
+mit „A public key has been found, but no private key" ab, und das hätte den
+Bundle-Bau (Erfolgskriterium 8) zerlegt. Die Artefakte werden im Release-Lauf
+über einen Config-Override eingeschaltet, wenn `TAURI_SIGNING_PRIVATE_KEY`
+gesetzt ist.
