@@ -13,6 +13,13 @@ export function useLightraysStreaming() {
   const status = ref('idle') // idle | pending | connected | streaming | error
   const statusText = ref('')
   const streaming = ref(false)
+  // Controller status, surfaced so the UI can show whether a pad is active.
+  // "standard" is the browser's W3C mapping flag: when it is false the pad
+  // reports a Nintendo-style layout, so A/B and X/Y are swapped to keep the
+  // physical button positions right.
+  const controllerConnected = ref(false)
+  const controllerName = ref('')
+  const standardMapping = ref(true)
   const stats = ref({
     mbps: '0.0',
     fps: 0,
@@ -261,6 +268,127 @@ export function useLightraysStreaming() {
     sendInput({ type: 'key', code: e.code, pressed: false })
   }
 
+  // ── Gamepad ──
+  // The container has no /dev/input and cannot create virtual devices under a
+  // nesting container runtime, so a connected controller is read here with the
+  // Gamepad API and forwarded as gamepad messages. lightrays turns those into
+  // RetroArch remote-gamepad UDP packets (see lightrays/src/gamepad.rs).
+  //
+  // Messages carry the raw *browser* button/axis indices from the W3C
+  // "standard gamepad" layout. Translating those to RetroPad ids is
+  // lightrays' job (input.rs::browser_gamepad_button), so there is exactly
+  // one place that knows the platform mapping and it can be unit-tested in
+  // Rust. The only adjustment made here is for pads that do NOT report the
+  // standard mapping: their A/B and X/Y sit in swapped corners, so the indices
+  // are swapped to preserve physical button positions.
+  const GAMEPAD_AXIS_EPSILON = 0.01
+  let gamepadRafId = null
+  let gamepadPrevButtons = []
+  let gamepadPrevAxes = []
+  let gamepadIndex = null
+
+  function gamepadButtonIndices() {
+    // Identity for standard-mapping pads. For a non-standard pad the browser
+    // reports the physical layout directly, where indices 0/1 and 2/3 are
+    // crosswise to the standard A/B and X/Y, so swapping them keeps the
+    // physical button in the position the game expects.
+    return standardMapping.value
+      ? null
+      : [1, 0, 3, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+  }
+
+  function pollGamepad() {
+    gamepadRafId = null
+    // Keep the loop alive even when the stream is not up yet: a pad connected
+    // before playback would otherwise kill polling permanently, because the
+    // early return below never re-schedules. sendInput is a no-op until a
+    // transport is open, so polling early is harmless.
+    const pads = navigator.getGamepads?.() || []
+    let pad = null
+    if (gamepadIndex !== null && pads[gamepadIndex]) {
+      pad = pads[gamepadIndex]
+    } else {
+      for (const p of pads) {
+        if (p?.connected) {
+          pad = p
+          break
+        }
+      }
+    }
+    if (pad) {
+      if (gamepadIndex !== pad.index) {
+        gamepadIndex = pad.index
+        gamepadPrevButtons = []
+        gamepadPrevAxes = []
+        controllerConnected.value = true
+        controllerName.value = pad.id || ''
+      }
+      standardMapping.value = pad.mapping === 'standard'
+      const swap = gamepadButtonIndices()
+      for (let i = 0; i < pad.buttons.length && i < 17; i++) {
+        const pressed = pad.buttons[i]?.pressed || pad.buttons[i]?.value > 0.5
+        if (gamepadPrevButtons[i] !== pressed) {
+          gamepadPrevButtons[i] = pressed
+          sendInput({
+            type: 'gamepadbutton',
+            index: swap ? swap[i] : i,
+            pressed,
+          })
+        }
+      }
+      // Sticks: axes 0/1 = left stick, 2/3 = right stick. Axes 4/5 (triggers
+      // on some pads) are folded into L2/R2 as digital buttons by browsers
+      // exposing the standard mapping, so they need no separate handling.
+      for (let a = 0; a < pad.axes.length && a < 4; a++) {
+        const value = pad.axes[a]
+        const prev = gamepadPrevAxes[a]
+        if (prev === undefined || Math.abs(value - prev) >= GAMEPAD_AXIS_EPSILON) {
+          gamepadPrevAxes[a] = value
+          sendInput({
+            type: 'gamepadaxis',
+            stick: a < 2 ? 0 : 1,
+            axis: a % 2,
+            value,
+          })
+        }
+      }
+    } else if (controllerConnected.value) {
+      controllerConnected.value = false
+      gamepadIndex = null
+    }
+    gamepadRafId = requestAnimationFrame(pollGamepad)
+  }
+
+  function startGamepadPolling() {
+    if (gamepadRafId === null && typeof requestAnimationFrame === 'function') {
+      gamepadRafId = requestAnimationFrame(pollGamepad)
+    }
+  }
+
+  function stopGamepadPolling() {
+    if (gamepadRafId !== null) {
+      cancelAnimationFrame(gamepadRafId)
+      gamepadRafId = null
+    }
+    gamepadPrevButtons = []
+    gamepadPrevAxes = []
+    gamepadIndex = null
+    controllerConnected.value = false
+  }
+
+  function onGamepadConnected(e) {
+    controllerConnected.value = true
+    controllerName.value = e.gamepad?.id || ''
+    gamepadIndex = e.gamepad?.index ?? null
+    startGamepadPolling()
+  }
+
+  function onGamepadDisconnected() {
+    controllerConnected.value = false
+    controllerName.value = ''
+    gamepadIndex = null
+  }
+
   function onMousemove(e) {
     if (!videoEl) return
     if (pointerLocked) {
@@ -362,6 +490,11 @@ export function useLightraysStreaming() {
     videoEl?.addEventListener('mouseup', onMouseup)
     videoEl?.addEventListener('contextmenu', onContextmenu)
     videoEl?.addEventListener('wheel', onWheel, { passive: false })
+    window.addEventListener('gamepadconnected', onGamepadConnected)
+    window.addEventListener('gamepaddisconnected', onGamepadDisconnected)
+    // A pad connected before the stream started fires no event, so pick it
+    // up on the next frame.
+    startGamepadPolling()
 
     // We deliberately do NOT auto-send a resize on every window / fullscreen
     // change: each server-side resize rebuilds the whole WebRTC pipeline
@@ -381,6 +514,9 @@ export function useLightraysStreaming() {
     videoEl?.removeEventListener('mouseup', onMouseup)
     videoEl?.removeEventListener('contextmenu', onContextmenu)
     videoEl?.removeEventListener('wheel', onWheel)
+    window.removeEventListener('gamepadconnected', onGamepadConnected)
+    window.removeEventListener('gamepaddisconnected', onGamepadDisconnected)
+    stopGamepadPolling()
     lastSentResize = { w: 0, h: 0 }
   }
 
@@ -490,6 +626,8 @@ export function useLightraysStreaming() {
     status,
     statusText,
     streaming,
+    controllerConnected,
+    controllerName,
     stats,
     launchApp,
     connectWebSocket,
