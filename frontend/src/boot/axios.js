@@ -2,7 +2,48 @@ import { defineBoot } from '#q-app/wrappers'
 import axios from 'axios'
 import { useAuthStore } from 'src/stores/auth'
 import { getAccessToken, getServerUrl, isNativePlatform } from 'src/utils/authStorage'
+import { isDesktopApp } from 'src/utils/desktopPlatform'
+import { installShellTransport } from 'src/utils/shellTransport'
+import { invoke } from '@tauri-apps/api/core'
 import { logger } from 'src/utils/logger'
+
+// On the desktop the shell performs the requests. Two reasons, both measured: the
+// webview cannot reach the server at all (the name resolves to an address that does not
+// answer, and the IP pin that fixes it belongs to the shell), and credentials should not
+// exist in two places. Outside the desktop app this is a no-op, so the browser build is
+// unchanged.
+installShellTransport()
+
+/** Whether the shell is holding this session's credentials. */
+const usesShellTokens = isDesktopApp()
+
+/**
+ * Hands tokens to the shell so they are stored in the OS keyring rather than here.
+ *
+ * The page receives them as part of a login or refresh response — it has to, since it
+ * performs those calls — but persisting them in `localStorage` is what the shell's
+ * keyring work exists to avoid. After this call the page keeps nothing durable, and a
+ * restart restores the session from the keyring.
+ */
+async function handTokensToShell(data) {
+  if (!usesShellTokens || !data || typeof data !== 'object') return
+  if (!data.access_token && !data.refresh_token) return
+  try {
+    await invoke('store_tokens', {
+      tokens: {
+        access_token: data.access_token,
+        refresh_token: data.refresh_token,
+        token_type: data.token_type,
+        expires_in: data.expires_in,
+      },
+    })
+  } catch (error) {
+    // Not fatal to the request that produced the tokens, but it must not be silent: a
+    // session that is not stored is one that vanishes on restart, which is the exact
+    // bug this whole path exists to prevent.
+    logger.error('Token konnten nicht im Schlüsselbund gespeichert werden:', error)
+  }
+}
 
 // Always read the server URL from localStorage (set by the user on the login page).
 // Falls back to relative path ('') so dev proxy / same-origin deployments still work.
@@ -27,6 +68,21 @@ const api = axios.create({
   },
   ...(isNative ? { adapter: 'fetch' } : {}),
 })
+
+/**
+ * Clears the shell's stored tokens.
+ *
+ * Called by the auth store on sign-out. Without it the next start would restore the
+ * session the user just ended, because the keyring copy would still be there.
+ */
+export async function forgetShellTokens() {
+  if (!usesShellTokens) return
+  try {
+    await invoke('forget_tokens')
+  } catch (error) {
+    logger.error('Token konnten nicht entfernt werden:', error)
+  }
+}
 
 export default defineBoot(({ app, router }) => {
   const authStore = useAuthStore()
@@ -53,6 +109,8 @@ export default defineBoot(({ app, router }) => {
   // Response interceptor with improved error handling
   api.interceptors.response.use(
     (response) => {
+      // A login or refresh response carries fresh tokens; the shell stores them.
+      handTokensToShell(response?.data)
       return response
     },
     async (error) => {

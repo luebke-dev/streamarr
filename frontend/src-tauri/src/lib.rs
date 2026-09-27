@@ -161,6 +161,10 @@ pub fn run() {
             commands::session::register_capabilities,
             commands::session::auth_status,
             commands::session::diagnose_connection,
+            commands::bridge::api_request,
+            commands::bridge::store_tokens,
+            commands::bridge::stored_access_token,
+            commands::bridge::forget_tokens,
         ])
         .run(tauri::generate_context!())
         .expect("error while running streamarr.media desktop app");

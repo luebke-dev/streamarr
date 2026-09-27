@@ -604,6 +604,205 @@ fn extract_detail(body: &Value) -> Option<String> {
     }
 }
 
+/// A response as the transport layer sees it, *without* turning a non-success status
+/// into an error.
+///
+/// This exists for the WebView proxy. The browser's own HTTP layer hands a 401 or a 500
+/// to the page as a normal response and lets the application decide — and the page's
+/// existing interceptors rely on that, including the retry-after-refresh path. Raising
+/// an error here would bypass all of it.
+#[derive(Debug, Clone)]
+pub struct RawResponse {
+    pub status: u16,
+    pub status_text: String,
+    pub headers: Vec<(String, String)>,
+    /// The body. `Text` for anything textual (JSON included), `Base64` for binary such
+    /// as artwork, so the WebView can rebuild a blob.
+    pub body: RawBody,
+}
+
+#[derive(Debug, Clone)]
+pub enum RawBody {
+    Text(String),
+    Base64(String),
+    Empty,
+}
+
+/// What a proxied request needs.
+#[derive(Debug, Clone)]
+pub struct RawRequest {
+    pub method: String,
+    /// Path, e.g. `/api/auth/status`.
+    pub path: String,
+    /// Absolute base URL the page asked for. `None` uses the active profile's server —
+    /// which is the point of the proxy: the page no longer has to know the address, and
+    /// the pin is applied here.
+    pub base_url: Option<String>,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<String>,
+    /// Per-request timeout in milliseconds, mirroring axios's `timeout`.
+    pub timeout_ms: Option<u64>,
+}
+
+impl ApiClient {
+    /// Performs a request and returns the response as it came, errors and all.
+    ///
+    /// Used by the WebView proxy. The address and the resolve pin come from the client,
+    /// never from the page — so a page cannot be tricked into talking to another host,
+    /// and the pin works for the embedded UI exactly as it does for the app.
+    pub async fn raw_request(&self, request: &RawRequest) -> Result<RawResponse, ApiError> {
+        let method = reqwest::Method::from_bytes(request.method.to_ascii_uppercase().as_bytes())
+            .map_err(|_| ApiError::Unexpected(format!("unbekannte Methode {}", request.method)))?;
+
+        // A per-request base URL is honoured only if it matches the configured server.
+        // Otherwise a page could redirect the app's credentials elsewhere.
+        let client = match &request.base_url {
+            Some(base) => {
+                if !self.accepts_base_url(base) {
+                    return Err(ApiError::Unexpected(format!(
+                        "Die Adresse `{base}` gehört nicht zum aktiven Profil."
+                    )));
+                }
+                self.clone()
+            }
+            None => self.clone(),
+        };
+
+        let mut builder = client
+            .http
+            .request(method, client.url(&request.path))
+            .timeout(std::time::Duration::from_millis(
+                request
+                    .timeout_ms
+                    .unwrap_or(REQUEST_TIMEOUT.as_millis() as u64),
+            ));
+
+        // The platform header is applied here as well, so a page cannot omit it. It is
+        // what makes the server hand out a refresh token in the body; without it the
+        // session dies on restart.
+        for (name, value) in native_headers() {
+            builder = builder.header(name, value);
+        }
+        // Page headers are applied afterwards, so a page may override `Accept` but not
+        // add a second platform header.
+        for (name, value) in &request.headers {
+            let lowered = name.to_ascii_lowercase();
+            if lowered == "host" || lowered == "content-length" || lowered == "connection" {
+                continue;
+            }
+            builder = builder.header(name, value);
+        }
+        if let Some(body) = &request.body {
+            builder = builder.body(body.clone());
+        }
+
+        let response = builder.send().await.map_err(|e| {
+            tracing_chain(&e);
+            ApiError::Unexpected(error_detail(&e))
+        })?;
+
+        let status = response.status();
+        let headers: Vec<(String, String)> = response
+            .headers()
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.as_str().to_string(),
+                    value.to_str().unwrap_or_default().to_string(),
+                )
+            })
+            .collect();
+
+        // Binary is base64-encoded so the page can rebuild a blob; text is passed
+        // through. Decided by content type, and bounded so a large download cannot be
+        // pulled into memory through this path — playback never goes through here.
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let is_textual = content_type.starts_with("text/")
+            || content_type.contains("json")
+            || content_type.contains("xml")
+            || content_type.contains("javascript")
+            || content_type.is_empty();
+
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| ApiError::Unexpected(e.to_string()))?;
+        let body = if bytes.is_empty() {
+            RawBody::Empty
+        } else if is_textual {
+            RawBody::Text(String::from_utf8_lossy(&bytes).to_string())
+        } else {
+            RawBody::Base64(base64_encode(&bytes))
+        };
+
+        Ok(RawResponse {
+            status: status.as_u16(),
+            status_text: status.canonical_reason().unwrap_or("").to_string(),
+            headers,
+            body,
+        })
+    }
+
+    /// Whether an absolute base URL refers to this client's own server.
+    ///
+    /// Compared by host and explicit port, ignoring the scheme, because the page may
+    /// hold `http://` while the profile uses `https://` — and a mismatch there is a
+    /// configuration accident, not an attack. A *different host*, however, is refused.
+    fn accepts_base_url(&self, base: &str) -> bool {
+        let host_of = |url: &str| -> Option<(String, Option<String>)> {
+            let rest = url.split("://").nth(1).unwrap_or(url);
+            let authority = rest.split('/').next()?;
+            match authority.rsplit_once(':') {
+                Some((host, port)) => Some((host.to_ascii_lowercase(), Some(port.to_string()))),
+                None => Some((authority.to_ascii_lowercase(), None)),
+            }
+        };
+        let (self_host, _) = match host_of(&self.base_url) {
+            Some(parts) => parts,
+            None => return false,
+        };
+        match host_of(base) {
+            Some((host, _)) => host == self_host,
+            None => false,
+        }
+    }
+}
+
+/// Standard base64, for the binary path of the WebView proxy.
+///
+/// Hand-written for the same reason the URL parsing is: a dependency for thirty lines
+/// would be out of proportion in this crate, and the alphabet is fixed.
+fn base64_encode(input: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let triple = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | (b[2] as u32);
+        out.push(ALPHABET[(triple >> 18) as usize & 0x3f] as char);
+        out.push(ALPHABET[(triple >> 12) as usize & 0x3f] as char);
+        out.push(if chunk.len() > 1 {
+            ALPHABET[(triple >> 6) as usize & 0x3f] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ALPHABET[triple as usize & 0x3f] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 /// Reads a JSON body, turning a non-success status into an error that keeps the
 /// server's explanation.
 async fn read_json(response: reqwest::Response) -> Result<Value, ApiError> {

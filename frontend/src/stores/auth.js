@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { api } from 'src/boot/axios'
+import { api, forgetShellTokens } from 'src/boot/axios'
 import {
   buildServerUrl,
   clearAuthTokens,
@@ -240,6 +240,13 @@ export const useAuthStore = defineStore('auth', () => {
 
   function clearAuthState() {
     clearTokensFromStorage()
+    // The shell keeps its own copy of the credentials in the OS keyring, so clearing
+    // only the browser storage would leave the session restorable on the next start —
+    // the user would appear logged out and then be logged back in.
+    // Fire-and-forget: a sign-out must complete even if the keyring is unavailable.
+    forgetShellTokens().catch((error) => {
+      logger.warn('Shell-Token konnten nicht entfernt werden:', error)
+    })
     user.value = null
     isAuthenticated.value = false
     // Purge cached personal API responses (watch history, library listings,

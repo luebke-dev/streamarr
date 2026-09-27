@@ -15,5 +15,6 @@
 //!   ever learns *whether* a session exists. Sending a refresh token into the WebView
 //!   would defeat the point of the keyring.
 
+pub mod bridge;
 pub mod profiles;
 pub mod session;
