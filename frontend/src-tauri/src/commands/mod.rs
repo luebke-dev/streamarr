@@ -18,6 +18,7 @@
 pub mod bridge;
 pub mod couch;
 pub mod deeplink;
+pub mod game;
 pub mod playback;
 pub mod profiles;
 pub mod report;

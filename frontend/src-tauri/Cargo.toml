@@ -50,6 +50,11 @@ tauri-plugin-log = "2"
 # the shell has to know when a pad vanishes. The feature pulls in `gilrs`, which
 # needs `libudev` on Linux; that is the cost, and it is the reason the core crate
 # keeps the feature optional for everything that does not need it.
+# The core crate. `gamepad` is a *default* feature of the shell because the couch
+# interface is always available and a build without it could only pretend; `spike`
+# (GStreamer) is behind a shell feature of its own, so the shell still builds with
+# no GStreamer at all — the constraint that the core crate stays buildable without
+# system dependencies applies to the shell too.
 streamarr-desktop-player = { path = "../../desktop/player", features = ["gamepad"] }
 
 # `native-tls` over rustls for the same reason spike 0.1 chose it: the internal
@@ -61,6 +66,24 @@ reqwest = { version = "0.12", default-features = false, features = [
     "gzip",
 ] }
 tokio = { version = "1", features = ["sync"] }
+# Only for the game stream: its websocket, its message pump, and the TLS stack
+# that keeps the server's certificate checking. Versions and the ALPN choice match
+# the core crate's, which the spike proved against the real server.
+tokio-stream = { version = "0.1", optional = true }
+futures-util = { version = "0.3", optional = true }
+tokio-tungstenite = { version = "0.24", default-features = false, features = [
+    "connect",
+    "handshake",
+    "native-tls",
+], optional = true }
+native-tls = { version = "0.2", features = ["alpn"], optional = true }
+tokio-native-tls = { version = "0.3", optional = true }
+# The GStreamer crates, for the same reason and with the same version features as
+# the core crate: `v1_22` provides the *checked* data-channel send. Version-gated
+# so a build without `gamestream` links no GStreamer at all.
+gstreamer = { version = "0.23", optional = true }
+gstreamer-webrtc = { version = "0.23", optional = true, features = ["v1_18", "v1_22"] }
+glib = { version = "0.20", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
@@ -77,10 +100,25 @@ keyring = { version = "3", features = [
 ] }
 
 [features]
-# Nothing yet. Native playback features (mpv, gstreamer, gamepad) will be surfaced
-# here as they land, mirroring desktop/player so a build without system
-# dependencies stays possible.
 default = []
+# Game streaming: the GStreamer/WebRTC receiver.
+#
+# Off by default and separate on purpose. It is the one feature that pulls a large
+# native dependency with a version floor (GStreamer **1.22**, see
+# `desktop/player/Cargo.toml`), so a build without it needs no GStreamer headers
+# and the package dependencies stay honest — `check_bundle_deps.sh` reads the
+# binary, not the intent.
+gamestream = [
+    "streamarr-desktop-player/spike",
+    "dep:tokio-stream",
+    "dep:futures-util",
+    "dep:tokio-tungstenite",
+    "dep:native-tls",
+    "dep:tokio-native-tls",
+    "dep:gstreamer",
+    "dep:gstreamer-webrtc",
+    "dep:glib",
+]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread"] }

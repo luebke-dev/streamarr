@@ -37,12 +37,29 @@ pub struct AppState {
     playback: commands::playback::PlaybackService,
     /// The one browser login this app is awaiting a reply for.
     deeplinks: commands::deeplink::DeepLinkService,
+    /// The one game stream this app runs at a time.
+    games: commands::game::GameService,
 }
 
 impl AppState {
     /// The playback service, for the player commands.
     pub fn playback(&self) -> &commands::playback::PlaybackService {
         &self.playback
+    }
+
+    /// The game service, for the game commands.
+    pub fn games(&self) -> &commands::game::GameService {
+        &self.games
+    }
+
+    /// The configured address pin for the active profile, if any.
+    ///
+    /// Read here so the game thread gets it without touching the profile store
+    /// from another thread — the store is behind a mutex the UI also uses.
+    pub fn resolve_pin(&self) -> Option<String> {
+        let profiles = self.profiles.lock().ok()?;
+        let active = profiles.active()?;
+        active.server.resolve_override.clone()
     }
 
     /// The deep-link service, for browser logins.
@@ -75,6 +92,7 @@ impl AppState {
             device,
             playback: commands::playback::PlaybackService::new(),
             deeplinks: commands::deeplink::DeepLinkService::new(),
+            games: commands::game::GameService::new(),
         })
     }
 
@@ -231,6 +249,11 @@ pub fn run() {
             commands::update::check_for_update,
             commands::report::report_problem,
             commands::report::report_preview,
+            commands::game::game_start,
+            commands::game::game_state,
+            commands::game::game_input,
+            commands::game::game_resize,
+            commands::game::game_stop,
             commands::couch::set_couch_mode,
             commands::couch::couch_state,
             commands::couch::set_couch_layout,
