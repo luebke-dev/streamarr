@@ -221,6 +221,13 @@ jobs:
           grep -q 'usr/bin/Streamarr' /tmp/contents.txt
           grep -q 'usr/share/applications/Streamarr.desktop' /tmp/contents.txt
           grep -q 'usr/share/icons' /tmp/contents.txt
+          # Every directly linked library must be declared. This is the check that
+          # catches the failure mode with the worst timing: an undeclared library
+          # installs cleanly and crashes on start on a machine that is not this one.
+          # `libudev` arrived with the `gamepad` feature and was missing exactly so.
+          RPM=$(ls frontend/src-tauri/target/release/bundle/rpm/*.rpm)
+          desktop/scripts/check_bundle_deps.sh \
+            frontend/src-tauri/target/release/Streamarr "$DEB" "$RPM"
           # And the dependencies must not be duplicated. A duplicate is not fatal, but
           # it means the configuration and Tauri both added them, which is the sign of a
           # `depends` list that does not know what it is doing.
@@ -256,6 +263,58 @@ jobs:
           fi
           # It must have got as far as reading its configuration.
           grep -q 'Konfiguration:' /tmp/app.log
+
+  # ── Windows bundles ──
+  #
+  # There is no Windows host in this project, so this job is the *only* place the
+  # NSIS and MSI targets are ever exercised. That is the honest limit: the
+  # configuration is checked here, but a build that only ever runs in CI has not
+  # been run by a person.
+  #
+  # A note on what this cannot prove: Windows has no equivalent of `ldd` in the
+  # Linux sense, so the missing-dependency class of failure that
+  # `check_bundle_deps.sh` catches on Linux is caught here by *building* the
+  # installers, which fails if the linker cannot resolve a symbol.
+  bundles-windows:
+    name: Bundles (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frontend dependencies
+        working-directory: frontend
+        shell: bash
+        run: |
+          corepack enable
+          corepack yarn install --immutable || corepack yarn install
+      - name: Build the NSIS and MSI installers
+        working-directory: frontend
+        shell: bash
+        # Both targets, so a configuration that only works for one is visible. The
+        # step fails if either bundler cannot run.
+        run: npx tauri build --bundles nsis,msi
+      - name: Assert both installers exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la frontend/src-tauri/target/release/bundle/nsis/
+          ls -la frontend/src-tauri/target/release/bundle/msi/
+          # A bundler that "succeeds" without writing a file would make the step above
+          # meaningless, so the artefacts are counted rather than assumed.
+          nsis=$(ls frontend/src-tauri/target/release/bundle/nsis/*.exe 2>/dev/null | wc -l)
+          msi=$(ls frontend/src-tauri/target/release/bundle/msi/*.msi 2>/dev/null | wc -l)
+          echo "NSIS: $nsis, MSI: $msi"
+          if [ "$nsis" -lt 1 ] || [ "$msi" -lt 1 ]; then
+            echo "::error::Es fehlt ein Installer (NSIS: $nsis, MSI: $msi)."
+            exit 1
+          fi
 
   # ── The web UI, held to its documented baseline ──
   frontend:

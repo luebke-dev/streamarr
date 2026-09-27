@@ -31,13 +31,29 @@ software.
 | `.rpm` | Fedora, RHEL, openSUSE | `sudo dnf install ./Streamarr-<version>-1.x86_64.rpm` |
 | AppImage | Any distribution, no install | `chmod +x Streamarr_<version>_amd64.AppImage && ./Streamarr_<version>_amd64.AppImage` |
 
-The AppImage bundles its own libraries (about 113 MB) and needs FUSE. On a system
-without FUSE, run it with `--appimage-extract-and-run`.
+The AppImage bundles its own libraries (measured: 118 MB) and needs FUSE. Without
+FUSE, run it with `--appimage-extract-and-run`, or extract it and start `AppRun`
+inside the extracted directory — that is the real entry point, and starting
+`usr/bin/Streamarr` directly fails with a WebKit helper-process error because
+`AppRun` is what sets the paths WebKit looks in.
+
+The `.deb` and `.rpm` declare the libraries the app links directly, including
+`libudev1` and `libgudev-1.0-0` for controller support. A build that forgets one
+installs cleanly and crashes on start — which is why
+`desktop/scripts/check_bundle_deps.sh` compares the package's declarations against
+the binary's `DT_NEEDED` entries and fails if anything is missing.
 
 ### Windows
 
-NSIS and MSI installers are planned but **not yet built**; the build requires a Windows
-host and none has run this code. There is no download link to give yet.
+NSIS and MSI installers are configured (`bundle.targets`) and built in CI on
+`windows-latest`; the MSI's upgrade code is pinned explicitly, because Tauri
+otherwise derives it from the product name and a rename would leave users with two
+copies of the app installed.
+
+**They have never been built by a person.** There is no Windows host in this
+project, so the only evidence that the targets work is the CI job — which is a
+different kind of evidence from a build someone ran and clicked through. Treat the
+Windows installers as unverified until someone runs one on Windows.
 
 ### mpv is required, and not bundled
 

@@ -52,7 +52,39 @@
       "../public/icons/favicon-96x96.png",
       "../public/favicon.ico"
     ],
-    "linux": {}
+    "windows": {
+      "wix": {
+        "upgradeCode": "7818935a-be79-58de-92f1-d3a642e253fc"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libcairo2",
+          "libgdk-pixbuf-2.0-0",
+          "libglib2.0-0",
+          "libsoup-3.0-0",
+          "libjavascriptcoregtk-4.1-0",
+          "libudev1",
+          "libgudev-1.0-0",
+          "libssl3"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3",
+          "cairo",
+          "gdk-pixbuf2",
+          "glib2",
+          "libsoup3",
+          "javascriptcoregtk4.1",
+          "systemd-libs",
+          "libgudev",
+          "openssl-libs"
+        ]
+      }
+    }
   },
   "plugins": {
     "deep-link": {
