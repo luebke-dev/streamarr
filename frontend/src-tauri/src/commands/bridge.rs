@@ -93,6 +93,13 @@ pub async fn api_request(
             let server = state.device_server();
             let (kind, detail) = err.failure();
             let diagnosis = crate::api::diagnose(&server, kind, &detail);
+            // Logged, not just returned. This module had **no logging at all**, and
+            // that is why a failure in the running app was undiagnosable: the page
+            // showed a message, the shell's own log was silent, and there was no
+            // way to tell a missing profile from an unreachable server. The method
+            // and path are included because "which request failed" is the first
+            // question, and the token is not — it never appears in a log line.
+            log::warn!("API nicht erreichbar für {method} {path}: {kind:?}");
             return Ok(BridgeResponse::unreachable(
                 &diagnosis.problem,
                 diagnosis.advice.as_deref(),
@@ -137,6 +144,14 @@ pub async fn api_request(
             let server = state.device_server();
             let (kind, detail) = err.failure();
             let diagnosis = crate::api::diagnose(&server, kind, &detail);
+            // The detail, not just the kind: the whole point of classifying the
+            // error is that the *specific* reason reaches someone who can act on
+            // it, and the page's message is written for a user, not a maintainer.
+            log::warn!(
+                "Transportfehler bei {} {}: {kind:?} — {detail}",
+                request.method,
+                request.path
+            );
             Ok(BridgeResponse::unreachable(
                 &diagnosis.problem,
                 diagnosis.advice.as_deref(),

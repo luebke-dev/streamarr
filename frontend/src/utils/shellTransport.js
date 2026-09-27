@@ -141,9 +141,7 @@ async function shellFetch(input, init = {}) {
     logger.error('Shell-Transport fehlgeschlagen:', error)
     return new Response(
       JSON.stringify({
-        detail:
-          'Die Desktop-App konnte die Anfrage nicht ausführen. ' +
-          String(error),
+        detail: 'Die Desktop-App konnte die Anfrage nicht ausführen. ' + describeError(error),
       }),
       {
         status: 503,
@@ -152,6 +150,54 @@ async function shellFetch(input, init = {}) {
       },
     )
   }
+}
+
+/**
+ * A readable description of a thrown value.
+ *
+ * `String(error)` is not good enough here and the failure was visible in the running
+ * app: a Tauri `invoke` rejection is an **object**, so `String(error)` produced the
+ * literal text `[object Object]`. The user saw
+ * "Die Desktop-App konnte die Anfrage nicht ausführen. [object Object]" — a message
+ * with no information in it, which is worse than no message, because it looks like a
+ * handled error.
+ *
+ * The order matters. Tauri rejects with a string for a command that returned `Err`, and
+ * with an object carrying `message`/`error` for a serialisation or permission failure.
+ * A JSON dump is the last resort: it always says *something*, even for a shape nobody
+ * anticipated.
+ */
+export function describeError(error) {
+  if (error === null || error === undefined) return 'Unbekannter Fehler'
+  if (typeof error === 'string') return error
+  if (typeof error === 'number' || typeof error === 'boolean') return String(error)
+  if (error instanceof Error) {
+    // `name` first: "TypeError: x is not a function" is more useful than the message
+    // alone, and the stack's first line already carries it.
+    return error.message ? `${error.name}: ${error.message}` : error.name
+  }
+  if (typeof error === 'object') {
+    for (const key of ['message', 'error', 'detail', 'reason']) {
+      const value = error[key]
+      if (typeof value === 'string' && value) return value
+    }
+    try {
+      const text = JSON.stringify(error)
+      // `JSON.stringify` returns `undefined` for a function, and `"{}"` for an object
+      // with no enumerable properties; both are unhelpful, so they fall through.
+      if (text && text !== '{}') return text
+    } catch {
+      // A circular structure is not worth failing over.
+    }
+  }
+  // The last resort, and it must not be `Object.prototype.toString`: for a plain
+  // object that returns `"[object Object]"`, which is the exact text this function
+  // exists to eliminate. My own test caught the fallback doing it anyway — for an
+  // empty object and an empty array, both of which stringify to `"{}"`/`"[]"` and
+  // were therefore skipped above.
+  const entries = Object.keys(error)
+  if (entries.length > 0) return `Fehler mit Feldern: ${entries.join(', ')}`
+  return Array.isArray(error) ? 'Leerer Fehler (Liste)' : 'Leerer Fehler (Objekt)'
 }
 
 /** Installs the adapter, or does nothing outside the desktop app. */

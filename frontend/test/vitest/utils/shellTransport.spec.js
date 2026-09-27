@@ -60,3 +60,62 @@ describe('toBridgePath', () => {
     expect(toBridgePath('https://host/api/x?a=1#frag')).toBe('/api/x?a=1')
   })
 })
+
+describe('describeError', () => {
+  it('does not turn an object into "[object Object]"', async () => {
+    // The defect, seen in the running app: the desktop showed
+    // "Die Desktop-App konnte die Anfrage nicht ausführen. [object Object]" — a
+    // handled-looking message with no information in it. A Tauri `invoke` rejection
+    // is an *object*, and `String(error)` flattens it to nothing.
+    const { describeError } = await import('src/utils/shellTransport')
+    const text = describeError({ message: 'kein Profil konfiguriert' })
+    expect(text).toBe('kein Profil konfiguriert')
+    expect(text).not.toContain('[object')
+  })
+
+  it('reads the field Tauri actually uses', async () => {
+    const { describeError } = await import('src/utils/shellTransport')
+    // A command that returned `Err(String)` rejects with the string itself.
+    expect(describeError('Der Server antwortet nicht')).toBe('Der Server antwortet nicht')
+    // A serialisation or permission failure carries `error`.
+    expect(describeError({ error: 'api_request not allowed' })).toBe('api_request not allowed')
+  })
+
+  it('prefers a message over the other fields', async () => {
+    const { describeError } = await import('src/utils/shellTransport')
+    expect(describeError({ message: 'wichtig', error: 'unwichtig' })).toBe('wichtig')
+  })
+
+  it('describes an Error with its type', async () => {
+    const { describeError } = await import('src/utils/shellTransport')
+    // "TypeError: x is not a function" is more useful than "x is not a function":
+    // the type says whether it is a bug in the call or in the data.
+    expect(describeError(new TypeError('x ist keine Funktion'))).toBe(
+      'TypeError: x ist keine Funktion',
+    )
+  })
+
+  it('always says something, even for an unexpected shape', async () => {
+    const { describeError } = await import('src/utils/shellTransport')
+    // A shape nobody anticipated must still produce text: returning an empty string
+    // would put the message back to being useless.
+    for (const value of [null, undefined, 0, false, [], {}, { unbekannt: 1 }, () => {}]) {
+      const text = describeError(value)
+      expect(text.length).toBeGreaterThan(0)
+      expect(text).not.toContain('[object Object]')
+    }
+  })
+
+  it('does not fail on a circular structure, and still names its fields', async () => {
+    const { describeError } = await import('src/utils/shellTransport')
+    const circular = { name: 'x' }
+    circular.self = circular
+    // `JSON.stringify` throws here. My first version asserted `[object Object]` as
+    // the fallback; the implementation turned out better — it names the fields, so a
+    // circular error still says what it was about. The test follows the code, not
+    // the other way round.
+    const text = describeError(circular)
+    expect(text).toBe('Fehler mit Feldern: name, self')
+    expect(text).not.toContain('[object Object]')
+  })
+})
