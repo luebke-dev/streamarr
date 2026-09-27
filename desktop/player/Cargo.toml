@@ -42,7 +42,19 @@ evdev = { version = "0.13", optional = true }
 # `glib::Object`, which is also how lightrays/src/webrtc.rs does it.
 gstreamer = { version = "0.23", optional = true }
 gstreamer-sdp = { version = "0.23", optional = true }
-gstreamer-webrtc = { version = "0.23", optional = true }
+# Two version features are needed, and neither is cosmetic:
+#
+# * `v1_18` — `WebRTCDataChannel`, the type of the server-created input channel.
+#   Without it the type does not exist at all, so the client could receive video
+#   and never send a single key.
+# * `v1_22` — `send_string_full`, the *checked* send. The unchecked
+#   `send_string` drops a message without a word when the send buffer is full,
+#   and a dropped key release is a button stuck down forever.
+#
+# The cost is a real one and is stated plainly: building with the `spike`
+# feature now needs GStreamer **1.22 or newer**. That is the version the checked
+# send was added in. This machine runs 1.28.7.
+gstreamer-webrtc = { version = "0.23", optional = true, features = ["v1_18", "v1_22"] }
 glib = { version = "0.20", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"], optional = true }
 # `native-tls` (not `rustls`) is deliberate: it uses the system trust store,

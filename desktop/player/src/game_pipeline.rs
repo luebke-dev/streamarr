@@ -377,6 +377,9 @@ mod gst_impl {
     use super::*;
     use gstreamer as gst;
     use gstreamer::prelude::*;
+    // The crate is `gstreamer-webrtc`; the alias matches what the spike uses, so
+    // the two files read the same way.
+    use gstreamer_webrtc as gst_webrtc;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 
@@ -503,6 +506,215 @@ mod gst_impl {
             .into_iter()
             .next()
             .ok_or_else(|| BranchError::Link("die Pipeline ist leer".to_string()))
+    }
+
+    /// Holds the server's input data channel, and sends input over it.
+    ///
+    /// # The client never creates this channel
+    ///
+    /// The **server** creates it (`lightrays/src/stream.rs::setup_data_channel`),
+    /// exactly as the browser client expects: `useLightraysStreaming.js` only
+    /// listens on `pc.ondatachannel` and never calls `createDataChannel`.
+    /// Creating one here too produced a second, conflicting channel description:
+    /// the two sides never agreed on the SDP, the server re-offered continuously
+    /// and the session was an endless offer/answer loop. (Found in spike 0.1 and
+    /// re-confirmed in `spike-webrtc.rs`.)
+    ///
+    /// # Why the messages are queued rather than dropped
+    ///
+    /// The channel only exists once the server has opened it, which is *after*
+    /// the offer is answered and ICE completes. Input produced before then — a
+    /// gamepad button held down while the picture is still connecting — must not
+    /// disappear, or the button stays logically pressed forever. Anything sent
+    /// while the channel is absent is buffered and flushed on open.
+    ///
+    /// The queue is bounded, and drops the *oldest* entries: at 60 Hz a stick
+    /// produces hundreds of samples per second, and an unbounded queue would
+    /// delay the newest — the only one that describes where the stick is now.
+    pub struct InputChannel {
+        channel: Option<glib::Object>,
+        /// Messages produced before the channel opened.
+        pending: std::collections::VecDeque<String>,
+        sent: u64,
+        dropped: u64,
+        /// Messages refused because the channel was absent, mis-typed or not open.
+        refused: u64,
+    }
+
+    /// How many messages to hold before the channel opens.
+    ///
+    /// Roughly a second of gamepad polling. More would mean flushing a stale
+    /// backlog the moment the picture appears; less would lose a deliberate
+    /// input during a slow connection.
+    pub const INPUT_QUEUE_LIMIT: usize = 256;
+
+    impl InputChannel {
+        pub fn new() -> Self {
+            Self {
+                channel: None,
+                pending: std::collections::VecDeque::new(),
+                sent: 0,
+                dropped: 0,
+                refused: 0,
+            }
+        }
+
+        /// Attaches the server's channel. Buffered input is flushed immediately.
+        ///
+        /// Returns the number of messages flushed, so a caller can log that input
+        /// was held back — a visible number beats a silent delay.
+        pub fn attach(&mut self, channel: glib::Object) -> usize {
+            self.channel = Some(channel);
+            let flushed = self.pending.len();
+            // `VecDeque::pop_front` keeps the order; a `Vec` drained by index
+            // would need to be reversed, and getting that wrong sends the whole
+            // backlog in reverse.
+            while let Some(message) = self.pending.pop_front() {
+                self.write(&message);
+            }
+            flushed
+        }
+
+        /// Whether input can be delivered right now.
+        pub fn is_ready(&self) -> bool {
+            self.channel.is_some()
+        }
+
+        pub fn sent(&self) -> u64 {
+            self.sent
+        }
+
+        /// Messages dropped because the queue was full.
+        pub fn dropped(&self) -> u64 {
+            self.dropped
+        }
+
+        /// Messages that could not be sent at all.
+        pub fn refused(&self) -> u64 {
+            self.refused
+        }
+
+        /// The channel's state, when one is attached.
+        ///
+        /// Reported rather than inferred: "the message did not arrive" and "the
+        /// channel was never open" look identical from the send count alone.
+        pub fn channel_state(&self) -> Option<gst_webrtc::WebRTCDataChannelState> {
+            self.channel
+                .as_ref()?
+                .downcast_ref::<gst_webrtc::WebRTCDataChannel>()
+                .map(|channel| channel.property("ready-state"))
+        }
+
+        /// Serialises input for the owning thread.
+        ///
+        /// This is what a caller on another thread uses: the message is turned
+        /// into its wire form here, and the send itself happens where the channel
+        /// lives — on the thread that received it.
+        ///
+        /// # Why not `MainContext::invoke`
+        ///
+        /// The obvious way to cross a thread boundary in GLib is
+        /// `MainContext::invoke`, and it does not work here. `glib::Object` is
+        /// thread-affine and not `Send`, so it cannot be captured by an
+        /// `invoke` closure at all — the compiler refuses, and forcing it through
+        /// panics inside GLib with "SendWeakRef dereferenced on a different
+        /// thread". Measured in the loopback proof: the data channel arrives on
+        /// the GLib streaming thread (ThreadId(3)) while the caller runs on the
+        /// main thread (ThreadId(1)).
+        ///
+        /// The channel is therefore bound to one thread, and a caller elsewhere
+        /// hands it work rather than reaching across. [`Self::send`] on the owning
+        /// thread is what actually transmits.
+        pub fn encode(message: &crate::protocol::InputMessage) -> Option<String> {
+            // Refused rather than sanitised: a caller that produced a NaN has a
+            // bug, and replacing it with 0 would hide it while still moving the
+            // pointer somewhere wrong.
+            if !message.is_finite() {
+                log::warn!("Eingabe mit nicht-endlichem Wert verworfen");
+                return None;
+            }
+            Some(message.to_json())
+        }
+
+        /// Sends one already-serialised input message.
+        ///
+        /// Must be called from the thread that owns the channel — the GLib main
+        /// thread. Use [`Self::send_threadsafe`] from anywhere else.
+        ///
+        /// Non-finite values are refused before they reach the socket: a NaN in
+        /// a pointer coordinate poisons the server's pointer state, and the
+        /// server's own defence is a last resort rather than the first.
+        pub fn send_json(&mut self, message: &str) {
+            if message.is_empty() {
+                return;
+            }
+            if self.channel.is_some() {
+                self.write(message);
+            } else {
+                if self.pending.len() >= INPUT_QUEUE_LIMIT {
+                    // Drop the oldest: the newest describes where the stick is
+                    // *now*, and a game reacts to that.
+                    self.pending.pop_front();
+                    self.dropped += 1;
+                }
+                self.pending.push_back(message.to_string());
+            }
+        }
+
+        /// Sends an input message.
+        pub fn send(&mut self, message: &crate::protocol::InputMessage) {
+            // Refused rather than sanitised: a caller that produced a NaN has a
+            // bug, and replacing it with 0 would hide it while still moving the
+            // pointer somewhere wrong.
+            if !message.is_finite() {
+                log::warn!("Eingabe mit nicht-endlichem Wert verworfen");
+                return;
+            }
+            self.send_json(&message.to_json());
+        }
+
+        /// Drops everything buffered — used when the stream ends, so a later
+        /// session does not start by replaying the previous one's input.
+        pub fn clear(&mut self) {
+            self.pending.clear();
+            self.channel = None;
+        }
+
+        fn write(&mut self, message: &str) {
+            let Some(channel) = self.channel.as_ref() else {
+                return;
+            };
+            let Some(sink) = channel.downcast_ref::<gst_webrtc::WebRTCDataChannel>() else {
+                log::warn!("Datenkanal hat den falschen Typ — Eingabe kann nicht gesendet werden");
+                self.refused += 1;
+                return;
+            };
+            // A channel that is not `Open` yet cannot carry data; `send_string_full`
+            // would fail, and the reason is worth knowing.
+            let state: gst_webrtc::WebRTCDataChannelState = sink.property("ready-state");
+            if state != gst_webrtc::WebRTCDataChannelState::Open {
+                log::warn!("Datenkanal ist nicht offen: {state:?}");
+                self.refused += 1;
+                return;
+            }
+            // `send_string_full` rather than `send_string`: the checked variant
+            // reports a full send buffer instead of dropping the message
+            // silently. A dropped key release is a button stuck down forever,
+            // which is worse than a dropped movement sample.
+            match sink.send_string_full(Some(message)) {
+                Ok(()) => self.sent += 1,
+                // A full buffer is not an error worth spamming the log about at
+                // 60 Hz; it means the connection is congested. `buffered_amount`
+                // is what the caller would watch to back off.
+                Err(err) => log::debug!("Eingabe zurückgestellt (Puffer voll): {err}"),
+            }
+        }
+    }
+
+    impl Default for InputChannel {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     /// Creates a `webrtcbin` configured the way Lightrays expects.

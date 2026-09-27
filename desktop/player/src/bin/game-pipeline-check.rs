@@ -27,8 +27,10 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_webrtc as gst_webrtc;
 use streamarr_desktop_player::game_pipeline::{
-    attach_decode_branch, make_webrtcbin, DecodePlan, DisplayServer, Platform, VideoCodec,
+    attach_decode_branch, make_webrtcbin, DecodePlan, DisplayServer, InputChannel, Platform,
+    VideoCodec,
 };
+use streamarr_desktop_player::protocol::{mouse_abs, InputMessage, KeyCode, INPUT_CHANNEL_LABEL};
 
 type Counter = Arc<AtomicU64>;
 
@@ -228,6 +230,97 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!("Sender-Bin hat kein pay0 — der Bin-Name stimmt nicht");
     }
 
+    // ── Count input on the receiving side ──
+    //
+    // The mirror of the server's own `setup_data_channel`: this is what proves
+    // the input path, rather than trusting that a send returned `Ok`.
+    let receive_counter: Counter = Arc::new(AtomicU64::new(0));
+    // The client's input channel, as it arrives from the other side. This is the
+    // real shape: the *server* creates the channel and the client only receives
+    // it, exactly as the browser client does. Attaching to a locally created
+    // channel instead gives a channel that never leaves `Closed` — which is what
+    // the first version of this test did, and it sent nothing.
+    //
+    // `SendWeakRef` rather than an `Arc<Mutex<…>>`: a `glib::Object` is
+    // thread-affine and therefore not `Send`, so an `Arc` cannot hold it at all.
+    // `SendWeakRef` may be *carried* between threads; it may only be upgraded on
+    // the thread that created it.
+    //
+    // The distinction matters here and was measured, not assumed: the data
+    // channel arrives on the GLib streaming thread (ThreadId(3) in this run)
+    // while the main flow runs on ThreadId(1). A `thread_local` in the handler is
+    // therefore invisible to the sender, which is why the first version of this
+    // test reported `KANAL=None` and sent nothing.
+    // Written on the channel's thread, read from the main thread.
+    static SENT_TOTAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    {
+        // The outer handler is an `Fn`, so it is called many times and must not
+        // move `counter` out; each inner handler gets its own clone.
+        let counter = receive_counter.clone();
+        recv.connect("on-data-channel", false, move |values| {
+            let channel = values[1].get::<glib::Object>().ok()?;
+            let label: String = channel.property("label");
+            println!(
+                "  Datenkanal angekommen: {label} auf Thread {:?}",
+                std::thread::current().id()
+            );
+            if label == INPUT_CHANNEL_LABEL {
+                // Everything that touches the channel happens here, on the thread
+                // that owns it. That is the constraint, not a convenience: a
+                // `glib::Object` cannot be used from another thread at all, and
+                // forcing it aborts inside GLib.
+                let mut input = InputChannel::new();
+                // Buffered before attaching, so the flush path is exercised:
+                // input produced while the stream is still connecting must not
+                // vanish, or a held button stays logically pressed forever.
+                for pressed in [true, false, true] {
+                    input.send(&InputMessage::key(KeyCode::new("KeyA"), pressed));
+                }
+                println!("Vor dem Anhängen gepuffert: 3");
+                println!(
+                    "Beim Anhängen nachgesendet: {}",
+                    input.attach(channel.clone())
+                );
+                // Live messages afterwards, including the two that carry geometry.
+                input.send(&InputMessage::gamepad_axis(0, 0, 0.5));
+                if let Some(message) = mouse_abs(640.0, 480.0, 1280.0, 720.0, 320.0, 240.0) {
+                    input.send(&message);
+                }
+                input.send(&InputMessage::Wheel {
+                    dx: 0.0,
+                    dy: -120.0,
+                });
+                println!(
+                    "  Kanalzustand beim Senden: {:?}, gesendet: {}",
+                    input.channel_state(),
+                    input.sent()
+                );
+                SENT_TOTAL.fetch_add(input.sent(), Ordering::Relaxed);
+            }
+            // One clone per closure: an `Arc` is not `Copy`, and the two
+            // handlers genuinely both need it.
+            let _ = &counter;
+            let for_bytes = counter.clone();
+            channel.connect("on-message-data", false, move |values| {
+                if let Ok(bytes) = values[1].get::<glib::Bytes>() {
+                    let text = String::from_utf8_lossy(&bytes);
+                    println!("    Eingabe empfangen: {text}");
+                    for_bytes.fetch_add(1, Ordering::Relaxed);
+                }
+                None
+            });
+            let for_string = counter.clone();
+            channel.connect("on-message-string", false, move |values| {
+                if let Ok(text) = values[1].get::<String>() {
+                    println!("    Eingabe empfangen: {text}");
+                    for_string.fetch_add(1, Ordering::Relaxed);
+                }
+                None
+            });
+            None
+        });
+    }
+
     // ── State logging: the evidence that ICE and DTLS really completed ──
     // Without this a zero decode count cannot be distinguished from "ICE never finished",
     // and the two have nothing in common.
@@ -241,6 +334,40 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         element.connect_notify(Some("connection-state"), move |el, _| {
             let state: gst_webrtc::WebRTCPeerConnectionState = el.property("connection-state");
             println!("{label} Peer-Verbindung: {state:?}");
+        });
+    }
+
+    // ── The input data channel, created by the *sender* ──
+    //
+    // The server creates this channel; the client only listens. Modelling that
+    // here is the point: a client that created its own produced two conflicting
+    // channel descriptions and an endless offer/answer loop (spike 0.1).
+    // The sender's own channel. `on-data-channel` does **not** fire for a channel
+    // the element created itself — that signal reports *incoming* channels — so
+    // listening there received nothing while six messages were demonstrably sent
+    // (`INPUT_SENT=6 INPUT_RECEIVED=0`). The handler goes on the returned channel.
+    let server_channel = send_webrtc.emit_by_name::<Option<gst_webrtc::WebRTCDataChannel>>(
+        "create-data-channel",
+        &[&INPUT_CHANNEL_LABEL, &None::<gst::Structure>],
+    );
+    let server_received: Counter = Arc::new(AtomicU64::new(0));
+    if let Some(channel) = server_channel {
+        let channel: glib::Object = channel.upcast();
+        let for_data = server_received.clone();
+        channel.connect("on-message-data", false, move |values| {
+            if let Ok(bytes) = values[1].get::<glib::Bytes>() {
+                println!("    <- Eingabe: {}", String::from_utf8_lossy(&bytes));
+                for_data.fetch_add(1, Ordering::Relaxed);
+            }
+            None
+        });
+        let for_string = server_received.clone();
+        channel.connect("on-message-string", false, move |values| {
+            if let Ok(text) = values[1].get::<String>() {
+                println!("    <- Eingabe: {text}");
+                for_string.fetch_add(1, Ordering::Relaxed);
+            }
+            None
         });
     }
 
@@ -280,10 +407,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _ = pipeline.set_state(gst::State::Null);
     let _ = ready_rx.recv_timeout(std::time::Duration::from_millis(50));
 
+    // ── Input: send real messages over the real data channel ──
+    //
+    // Counted on the receiving side, so this proves the channel carries input and
+    // not merely that a send call returned `Ok`.
+    let received = server_received.clone();
+    // Give the channel callback time to fire and send.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
     let count = decoded.load(Ordering::Relaxed);
     let encoded_count = encoded.load(Ordering::Relaxed);
+    let input_count = received.load(Ordering::Relaxed);
+    let sent_total = SENT_TOTAL.load(Ordering::Relaxed);
     println!();
     println!("ENCODED={encoded_count} DECODED={count}");
+    println!("INPUT_SENT={sent_total} INPUT_RECEIVED={input_count}");
     if count > 0 {
         println!("RESULT: {count} Bilder dekodiert — die Pipeline aus game_pipeline trägt.");
         Ok(())
