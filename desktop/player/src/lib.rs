@@ -25,6 +25,7 @@ pub mod plan;
 pub mod playback;
 pub mod profile;
 pub mod protocol;
+pub mod resolve_tunnel;
 pub mod session;
 
 /// Reading physical gamepads and translating them into the wire format.
