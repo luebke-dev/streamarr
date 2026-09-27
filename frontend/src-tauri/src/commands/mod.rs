@@ -20,5 +20,6 @@ pub mod couch;
 pub mod deeplink;
 pub mod playback;
 pub mod profiles;
+pub mod report;
 pub mod session;
 pub mod update;

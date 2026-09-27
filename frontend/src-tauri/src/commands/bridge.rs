@@ -146,6 +146,12 @@ pub async fn api_request(
 }
 
 /// The stored access token, if there is one.
+pub(crate) fn current_access_token_for_report(state: &AppState) -> Result<Option<String>, String> {
+    // Same rule as every other command: the token is read here and never handed
+    // to the page.
+    current_access_token(state)
+}
+
 fn current_access_token(state: &AppState) -> Result<Option<String>, String> {
     let tokens = state.tokens.lock().unwrap();
     Ok(tokens.load().map(|pair| pair.access_token))

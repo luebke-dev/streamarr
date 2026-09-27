@@ -204,6 +204,10 @@ jobs:
         run: |
           corepack enable
           corepack yarn install --immutable || corepack yarn install
+      - name: Versions must agree across the three files
+        # Before anything is built: a mismatch here means the update checker
+        # offers an update that is already installed, or none when one exists.
+        run: desktop/scripts/check_versions.sh
       - name: Build bundles
         working-directory: frontend
         # AppImage is excluded on purpose: it needs FUSE to run, which the runner has,

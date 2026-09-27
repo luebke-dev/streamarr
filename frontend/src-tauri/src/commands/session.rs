@@ -416,7 +416,7 @@ pub async fn diagnose_connection(
 }
 
 /// The size of the current display, as far as the shell can tell.
-fn current_display_size(app: &tauri::AppHandle) -> Option<(u32, u32)> {
+pub(crate) fn current_display_size(app: &tauri::AppHandle) -> Option<(u32, u32)> {
     use tauri::Manager;
     let window = app.get_webview_window("main")?;
     let monitor = window.current_monitor().ok().flatten()?;

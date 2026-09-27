@@ -106,6 +106,25 @@ impl AppState {
     }
 
     /// Drops the cached client so the next call uses the changed address.
+    /// The app's own version, as the bundle carries it.
+    ///
+    /// Read from Tauri rather than from a constant, so a support report cannot
+    /// claim a version the build does not have.
+    pub fn app_version(&self) -> String {
+        // `env!("CARGO_PKG_VERSION")` is the shell crate's version, which is kept
+        // in step with the product version by `desktop/scripts/check_versions.sh`.
+        env!("CARGO_PKG_VERSION").to_string()
+    }
+
+    /// Where the player writes its logs, when the session has such a place.
+    ///
+    /// `XDG_RUNTIME_DIR` is where mpv's log files go; without it there is no
+    /// directory to read, which is reported rather than invented.
+    pub fn player_log_dir(&self) -> Option<std::path::PathBuf> {
+        let runtime = std::env::var_os("XDG_RUNTIME_DIR")?;
+        Some(std::path::PathBuf::from(runtime))
+    }
+
     pub fn invalidate_api(&self) {
         *self.api.lock().unwrap() = None;
     }
@@ -210,6 +229,8 @@ pub fn run() {
             commands::deeplink::browser_login_pending,
             commands::deeplink::cancel_browser_login,
             commands::update::check_for_update,
+            commands::report::report_problem,
+            commands::report::report_preview,
             commands::couch::set_couch_mode,
             commands::couch::couch_state,
             commands::couch::set_couch_layout,

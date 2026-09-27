@@ -203,6 +203,83 @@ are recognised by name. Anything else is treated as **non-standard layout**, whi
 the first four buttons. If your pad's A/B and X/Y are swapped, that is why — use the
 manual override in the settings.
 
+## Couch mode (desktop only)
+
+The sofa icon in the toolbar switches the interface into a mode driven by a
+controller or the arrow keys. It is **desktop only** — in a browser the button is
+not shown at all, because there is no controller and no window to fill.
+
+Entering it goes fullscreen; leaving it gives the desktop back.
+
+| Input | Effect |
+|---|---|
+| D-pad / left stick / arrow keys | Move the highlight |
+| `A` / Enter | Open what is highlighted |
+| `B` / Escape | Leave couch mode |
+
+Holding a direction repeats after a short delay (400 ms, then every 120 ms). The
+delay exists so an ordinary press moves once: without it a single press would
+scroll several tiles and land somewhere the user did not aim at.
+
+!!! note "The highlight is geometric, not positional"
+    "Right" means *the nearest item to the right*, not "the next item". On a wall
+    of posters with rows of different lengths those differ, and pressing right
+    would skip a tile.
+
+**If the button is missing**, the app could not reach its own shell — that is a
+bug worth reporting, not a setting.
+
+**If a controller does nothing**, check whether one was found: with none
+connected the app announces "no controller found" and the arrow keys still work.
+A pad whose A/B and X/Y are swapped is using a non-standard layout — see
+[Gamepads](#gamepads) above.
+
+## Something is wrong
+
+### Reporting a problem
+
+**Settings → Report a problem** collects what a diagnosis needs and offers to send
+it to your server's log. Before sending, it shows what would be sent: the app
+version, the platform, mpv's version and video outputs, whether this build has
+GStreamer, the capability claims the app made to the server, and the tail of the
+player logs.
+
+What it does **not** include, and cannot be made to include: your tokens, your
+server address, your file paths or your machine's identifiers. The report is built
+from fixed fields, and the only files it reads are the player's own log files.
+
+If sending fails, the collected text is still on screen so you can copy it into a
+message. A report is never sent silently.
+
+### Where the logs are
+
+| What | Where |
+|---|---|
+| App startup, profiles, tokens | the terminal, if you started it from one |
+| mpv | `$XDG_RUNTIME_DIR/streamarr-mpv-<pid>-<n>.log` |
+| Your configuration | `~/.config/media.streamarr.desktop/` |
+
+`mpv` writes its own log file rather than being captured through its output
+stream. Redirecting its output produced **0-byte files that looked like working
+diagnostics** — mpv's `--no-terminal` suppresses exactly the messages worth
+keeping — so the log file is the only trustworthy source.
+
+### Common cases
+
+**"mpv is not installed"** — the app starts but cannot play anything. Install mpv;
+it is deliberately not a hard package dependency, because distributions expect to
+provide their own and the app is usable without it for browsing.
+
+**A game shows a black picture** — a decoder or sink element is missing. The app
+names the missing element and a package to install, for example
+`vaapidecodebin` or `vah264dec`. The set differs by hardware: AMD needs
+`gstreamer1-vaapi`, NVIDIA a different plugin, and `wayland` needs
+`gstreamer1-plugins-bad-free` for `waylandsink`.
+
+**The window is black but the audio plays** — the video sink was selected for the
+wrong display server. On Wayland the app uses `waylandsink`; `glimagesink`, which
+the plan originally named, aborts the process when it is handed a Wayland surface.
+
 ## Server address and the IP pin
 
 If your server's hostname does not resolve to the address that actually answers — common
