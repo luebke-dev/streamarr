@@ -313,8 +313,12 @@ What has been **measured**, and what has not:
 
 - **Playback against a live Streamarr server.** The test server's database was down for
   the whole of this work. The chain was verified against a stand-in server using the real
-  media, profile, tunnel and player.
-- **Game streaming.** Same reason.
+  media, profile, tunnel and player. **What exactly is missing, and how to restore it, is
+  written down** — see the repository's
+  `docs/plans/desktop-testserver-stand.md` (the server's database container was destroyed;
+  a leftover Docker network endpoint holds the address the backend needs; the database
+  files themselves are intact).
+- **Game streaming.** Same reason, same page.
 - **The OIDC/browser login end to end.** The test server has `oidc_enabled: false`, so a
   real browser login cannot be exercised. The link's shape is checked against the server's
   own callback endpoint, read from its sources.
