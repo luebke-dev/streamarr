@@ -142,6 +142,15 @@ pub struct PlayerOptions {
     /// Video output driver. `gpu-next` is the libplacebo path and the only one that
     /// does HDR properly.
     pub vo: String,
+    /// Audio output driver.
+    ///
+    /// Defaults to `auto`, i.e. the user's real sound device, which is what a media
+    /// player should do. It is a field rather than a constant because **automated
+    /// tests must silence it**: the test media carries real audio tracks, and the
+    /// first version of the integration tests played 440 Hz and 880 Hz test tones
+    /// through the developer's speakers during every run. `--vo=null` silences the
+    /// picture and nothing else, which is the trap.
+    pub ao: String,
     /// Extra user arguments, appended last so they win.
     pub extra_args: Vec<String>,
 }
@@ -154,6 +163,7 @@ impl Default for PlayerOptions {
             hdr: HdrMode::Auto,
             hwdec: "auto-safe".to_string(),
             vo: "gpu-next".to_string(),
+            ao: "auto".to_string(),
             extra_args: Vec::new(),
         }
     }
@@ -173,6 +183,7 @@ impl PlayerOptions {
             "--no-terminal".to_string(),
             format!("--vo={}", self.vo),
             format!("--hwdec={}", self.hwdec),
+            format!("--ao={}", self.ao),
         ];
 
         if !self.config_dir.as_os_str().is_empty() {
@@ -704,17 +715,28 @@ impl Mpv {
             let _ = std::fs::remove_file(&endpoint);
         }
 
+        let log_path = log_file_path(&endpoint);
+
         let mut command = Command::new("mpv");
         command.arg(format!("--input-ipc-server={endpoint}"));
+        // mpv's own log file, which is the *supported* way to keep its diagnostics.
+        // Redirecting stderr was not enough and the mistake was silent: `--no-terminal`
+        // suppresses exactly the messages one wants to keep, so the redirect produced
+        // 0-byte files that looked like working diagnostics. Verified by reading the
+        // log back — and it is what finally made the audio device mpv chose visible.
+        command.arg(format!("--log-file={}", log_path.display()));
+        command.arg("--msg-level=all=info");
         for arg in options.to_args() {
             command.arg(arg);
         }
         command
             .stdout(Stdio::null())
             // NOT `piped`: unread diagnostics fill the pipe and mpv blocks before it
-            // emits any event (defect 2). A file keeps them for debugging without that
-            // failure mode.
-            .stderr(Stdio::from(stderr_file(&endpoint)?));
+            // emits any event (defect 2). With `--log-file` in place this stream only
+            // needs somewhere harmless to go.
+            .stderr(Stdio::from(std::fs::File::create(&log_path).map_err(
+                |e| MpvError::Start(format!("mpv-Protokoll {}: {e}", log_path.display())),
+            )?));
 
         let child = command.spawn().map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => MpvError::NotInstalled,
@@ -918,17 +940,13 @@ impl Drop for Mpv {
     }
 }
 
-/// Opens the diagnostics file next to the socket.
-fn stderr_file(endpoint: &str) -> Result<std::fs::File, MpvError> {
-    let path = if cfg!(windows) {
+/// Path of the diagnostics file, next to the socket.
+pub fn log_file_path(endpoint: &str) -> PathBuf {
+    if cfg!(windows) {
         std::env::temp_dir().join("streamarr-mpv.log")
     } else {
         Path::new(endpoint).with_extension("log")
-    };
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
     }
-    std::fs::File::create(&path).map_err(|e| MpvError::Start(format!("mpv-Protokoll: {e}")))
 }
 
 /// Connects to the IPC endpoint, waiting for mpv to create it.
@@ -991,6 +1009,49 @@ mod tests {
         let args = PlayerOptions::default().to_args();
         assert!(args.contains(&"--vo=gpu-next".to_string()), "{args:?}");
         assert!(args.contains(&"--hwdec=auto-safe".to_string()), "{args:?}");
+    }
+
+    /// Audio output must default to the real device: this is a media player, and
+    /// silently muting the user would be a far worse bug than a noisy test.
+    #[test]
+    fn audio_output_defaults_to_the_real_device() {
+        assert_eq!(PlayerOptions::default().ao, "auto");
+        assert!(PlayerOptions::default()
+            .to_args()
+            .contains(&"--ao=auto".to_string()));
+    }
+
+    /// The other half of the same rule: tests must be able to silence playback, and
+    /// video alone does not do it. The first version of the integration tests used
+    /// `--vo=null` and played test tones through the developer's speakers.
+    /// mpv's own log file is the *supported* way to keep its diagnostics.
+    /// Redirecting stderr was not enough and the failure was silent: `--no-terminal`
+    /// suppresses precisely the messages one wants to keep, so the redirect produced
+    /// 0-byte files that looked like working diagnostics. Reading them back is what
+    /// made the audio device mpv chose visible at all.
+    #[test]
+    fn diagnostics_are_written_to_mpvs_own_log_file() {
+        let endpoint = ipc_endpoint("diagnostics-check");
+        let log = log_file_path(&endpoint);
+        assert_eq!(
+            log.extension().and_then(|e| e.to_str()),
+            Some("log"),
+            "{log:?}"
+        );
+        // Next to the socket, so both live in the per-user runtime directory.
+        assert_eq!(log.parent(), Path::new(&endpoint).parent());
+    }
+
+    #[test]
+    fn audio_output_can_be_silenced_for_tests() {
+        let options = PlayerOptions {
+            ao: "null".to_string(),
+            ..Default::default()
+        };
+        let args = options.to_args();
+        assert!(args.contains(&"--ao=null".to_string()), "{args:?}");
+        // The picture is silenced separately; neither implies the other.
+        assert!(args.contains(&"--vo=gpu-next".to_string()));
     }
 
     #[test]

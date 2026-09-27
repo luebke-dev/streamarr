@@ -53,6 +53,11 @@ fn options() -> PlayerOptions {
         // No window: these tests must run without a display server. `--vo=null`
         // decodes and discards, which is exactly what is being verified.
         vo: "null".to_string(),
+        // And no sound. `--vo=null` silences the *picture* only — the test media
+        // carries real AC3 tracks, and the first version of this file played 440 Hz
+        // and 880 Hz test tones through the developer's speakers on every run. Video
+        // and audio have to be silenced independently.
+        ao: "null".to_string(),
         fullscreen: false,
         ..Default::default()
     }
@@ -373,9 +378,7 @@ fn the_hdr_arguments_are_accepted_by_mpv() {
     for mode in [HdrMode::Auto, HdrMode::Passthrough, HdrMode::ToneMapSdr] {
         let options = PlayerOptions {
             hdr: mode,
-            vo: "null".to_string(),
-            fullscreen: false,
-            ..Default::default()
+            ..options()
         };
         let mut mpv =
             Mpv::start(&media, &options).unwrap_or_else(|e| panic!("mpv lehnte {mode:?} ab: {e}"));
@@ -408,9 +411,7 @@ fn a_profile_config_file_is_honoured() {
 
     let options = PlayerOptions {
         config_dir: dir.clone(),
-        vo: "null".to_string(),
-        fullscreen: false,
-        ..Default::default()
+        ..options()
     };
     let mut mpv = Mpv::start(&media, &options).expect("mpv sollte starten");
     std::thread::sleep(Duration::from_secs(2));
