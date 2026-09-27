@@ -75,7 +75,7 @@ graph TB
 | **Backend** | Python 3.13, FastAPI, SQLModel/SQLAlchemy async, TaskIQ, Alembic |
 | **Frontend** | Vue 3, Quasar 2, Pinia, Video.js, epub.js |
 | **Data** | PostgreSQL, Redis, Elasticsearch |
-| **Transcoding** | jellyfin-ffmpeg in per-task containers (VA-API/Vulkan/OpenCL) |
+| **Transcoding** | jellyfin-ffmpeg in per-task containers (Intel QSV) |
 | **Game streaming** | Lightrays — Rust, GStreamer, WebRTC |
 | **Downloaders** | Rust — axum, librqbit, librespot, native NNTP |
 | **Deployment** | Docker Compose, Helm/Kubernetes, Podman quadlets |
