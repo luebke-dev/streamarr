@@ -31,7 +31,7 @@ software.
 | `.rpm` | Fedora, RHEL, openSUSE | `sudo dnf install ./Streamarr-<version>-1.x86_64.rpm` |
 | AppImage | Any distribution, no install | `chmod +x Streamarr_<version>_amd64.AppImage && ./Streamarr_<version>_amd64.AppImage` |
 
-The AppImage bundles its own libraries (measured: 118 MB) and needs FUSE. Without
+The AppImage bundles its own libraries (measured: 120 MB) and needs FUSE. Without
 FUSE, run it with `--appimage-extract-and-run`, or extract it and start `AppRun`
 inside the extracted directory — that is the real entry point, and starting
 `usr/bin/Streamarr` directly fails with a WebKit helper-process error because
