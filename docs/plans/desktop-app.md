@@ -265,7 +265,7 @@ siehe Phase 2.4).
 | 1.2 | Capabilities pro Fenster | `main` (UI) und `player` (nativ) getrennt; UI bekommt **keine** direkten Player-/Dateisystem-Rechte, nur `invoke`-Commands |
 | 1.3 | Profilverwaltung | Profile = Server-URL + User + lokale Einstellungen; `mpv.conf` im Profilordner editierbar; Pfade plattformkonform |
 | 1.4 | Login-Flow native | Server-URL-Eingabe (statt Origin), OIDC/Browser-Redirect zurück per Deep-Link, Token im Keyring, `X-Client-Platform`-Header korrekt setzen |
-| 1.5 | Device-Registrierung | Desktop meldet `app_name = "Streamarr Desktop"`, `app_version`, Plattform; Capabilities über `PUT /api/v1/devices/me/{guid}/capabilities` (u. a. `supported_video_codecs`, `max_resolution`) |
+| 1.5 | Device-Registrierung | Desktop meldet `app_name = "Streamarr Desktop"`, `app_version`, Plattform; Capabilities über `PUT /api/devices/me/{guid}/capabilities` (u. a. `supported_video_codecs`, `max_resolution`) |
 | 1.6 | Autoupdate + Single-Instance | Signierte Bundles, Kanal (stable/beta) |
 | 1.7 | CI | Neuer Workflow `desktop.yml`: `cargo test` (Gate), `cargo clippy`/`fmt` (reporting, wie in `rust.yml` etabliert), Bundle-Build, Upload als Artefakt |
 

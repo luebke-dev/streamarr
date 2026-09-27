@@ -152,6 +152,15 @@ impl MaxResolution {
     /// Anything at or above 4K is reported as 4K at most: the server's own
     /// encoder caps H.264 at 4096 wide (`lightrays/src/encoder.rs`), and 8K
     /// sources are vanishingly rare, so claiming 8K buys nothing but risk.
+    ///
+    /// The width alone decides, deliberately. An ultrawide panel (measured here:
+    /// 3840×1080) therefore claims `4k`, although it is only 1080 lines tall. That
+    /// is the useful answer rather than an oversight: the claim caps the *stream*
+    /// resolution, and mpv scales to the window regardless, so claiming `1080p`
+    /// would force a transcode of 4K sources this screen can still show — just
+    /// letterboxed or cropped. The server's own tiers have no ultrawide entry
+    /// (`RESOLUTION_ORDER`: 480p/720p/1080p/4k), so there is no honest third
+    /// option to report instead.
     pub fn for_display_width(width: u32) -> Self {
         match width {
             w if w >= 3840 => Self::Uhd4k,

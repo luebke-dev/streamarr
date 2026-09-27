@@ -224,6 +224,7 @@ impl CapabilitiesView {
 /// Reports the capabilities to the server for this device (plan task 1.5).
 #[tauri::command]
 pub async fn register_capabilities(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let device_guid = state
@@ -236,7 +237,24 @@ pub async fn register_capabilities(
         tokens.load().ok_or("Nicht angemeldet")?.access_token
     };
     let client = state.api().map_err(|e| e.to_string())?;
-    let caps = Capabilities::detect(1920, false, false, true, env!("CARGO_PKG_VERSION"));
+
+    // The display's real width, not a hardcoded 1920. `current_display_size` existed but
+    // was never called, so every installation reported 1080p regardless of its screen —
+    // on a 5120-wide monitor that understates the capability and invites the server to
+    // transcode or downscale media the screen could show natively.
+    let display_width = current_display_size(&app).map(|(w, _)| w).unwrap_or(1920);
+
+    // HDR is reported as unsupported because no display probe exists yet — claiming it
+    // would send an HDR stream to a panel that has to tone-map it, and the backend's
+    // transcode path is HDR-blind (plan §10.2). `hardware_decode` is likewise claimed
+    // optimistically: mpv does use the GPU decoders in practice, and understating it
+    // costs a transcode on every file.
+    let caps = Capabilities::detect(display_width, false, false, true, env!("CARGO_PKG_VERSION"));
+    log::info!(
+        "Melde Geräte-Capabilities: Auflösung {} bei Anzeigebreite {}",
+        caps.max_resolution.as_str(),
+        display_width
+    );
     client
         .put_capabilities(&access, &device_guid, &caps)
         .await
@@ -461,6 +479,35 @@ mod tests {
     #[test]
     fn an_absurd_lifetime_does_not_panic() {
         assert!(!stored_needs_refresh(&pair(u64::MAX), SystemTime::now()));
+    }
+
+    /// The reported resolution must follow the display, not a constant.
+    ///
+    /// Guards the defect this fixed: `register_capabilities` passed a literal `1920`, so
+    /// a 4K or ultrawide screen advertised 1080p and the server was free to transcode
+    /// media the screen could have shown as it was.
+    #[test]
+    fn the_reported_resolution_follows_the_display_width() {
+        // The labels the server parses are exactly `480p`, `720p`, `1080p`, `4k`
+        // (RESOLUTION_ORDER in playback_decision.py). `1440p` is not among them, so a QHD
+        // display claims `1080p` — the honest label, and deliberately *not* the next tier
+        // up: claiming 4k for a 2560-wide panel would invite the server to send media the
+        // screen cannot resolve. A 5K ultrawide does reach `4k`.
+        let cases = [
+            (5120u32, "4k"),
+            (3840, "4k"),
+            (2560, "1080p"),
+            (1920, "1080p"),
+            (1280, "720p"),
+        ];
+        for (width, expected) in cases {
+            let caps = Capabilities::detect(width, false, false, true, "1");
+            assert_eq!(
+                caps.max_resolution.as_str(),
+                expected,
+                "Anzeigebreite {width} muss als {expected} gemeldet werden"
+            );
+        }
     }
 
     #[test]
