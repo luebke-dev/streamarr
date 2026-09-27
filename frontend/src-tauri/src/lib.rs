@@ -33,9 +33,16 @@ pub struct AppState {
     pub profiles: std::sync::Mutex<streamarr_desktop_player::profile::ProfileStore>,
     /// The device identity for this installation.
     pub device: streamarr_desktop_player::session::DeviceIdentity,
+    /// The one native playback this app runs at a time.
+    playback: commands::playback::PlaybackService,
 }
 
 impl AppState {
+    /// The playback service, for the player commands.
+    pub fn playback(&self) -> &commands::playback::PlaybackService {
+        &self.playback
+    }
+
     fn load(config_root: std::path::PathBuf) -> Result<Self, String> {
         // A fresh installation gets one profile, written to disk immediately, so the
         // login screen has a server to talk to and the user can see and edit the
@@ -59,6 +66,7 @@ impl AppState {
             tokens: std::sync::Mutex::new(tokens),
             profiles: std::sync::Mutex::new(profiles),
             device,
+            playback: commands::playback::PlaybackService::new(),
         })
     }
 
@@ -165,6 +173,13 @@ pub fn run() {
             commands::bridge::store_tokens,
             commands::bridge::stored_access_token,
             commands::bridge::forget_tokens,
+            commands::playback::play_media,
+            commands::playback::player_state,
+            commands::playback::player_status,
+            commands::playback::player_set_paused,
+            commands::playback::player_seek,
+            commands::playback::player_set_property,
+            commands::playback::player_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running streamarr.media desktop app");
