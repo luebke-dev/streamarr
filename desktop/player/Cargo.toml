@@ -26,6 +26,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
 
+# ── Gamepad (feature "gamepad") ──
+# `gilrs` rather than raw evdev: it handles hot-plug, the device database and
+# cross-platform backends, which matters because Windows is a target from the
+# start. Raw evdev would have to be rewritten per platform.
+gilrs = { version = "0.11", optional = true }
+evdev = { version = "0.13", optional = true }
+
 # ── Spike 0.1 only (feature "spike") ──
 # No version features are enabled, matching lightrays/Cargo.toml exactly.
 # Enabling them (e.g. v1_18) makes the generated wrapper types disagree with
@@ -53,7 +60,30 @@ native-tls = { version = "0.2", features = ["alpn"], optional = true }
 # Needed to wrap the hand-dialled TcpStream from the tokio side.
 tokio-native-tls = { version = "0.3", optional = true }
 
+# The gamepad spikes drive/read a real device and therefore need the `gamepad`
+# feature; declaring it here lets `--all-targets` skip them in a feature-free
+# build instead of failing on missing `gilrs`/`evdev`.
+[[bin]]
+name = "spike-gamepad"
+path = "src/bin/spike-gamepad.rs"
+required-features = ["gamepad"]
+
+[[bin]]
+name = "virtual-pad"
+path = "src/bin/virtual-pad.rs"
+required-features = ["gamepad"]
+
+# The mpv spike needs no feature to build (it only uses serde_json), but it is a
+# measurement tool rather than part of the library surface.
+
 [features]
+# Reading physical gamepads (spike 0.4). `gilrs` needs libudev on Linux, so it
+# stays behind a feature like the other native subsystems — the wire-contract
+# module and its golden tests must remain buildable with no system dependencies.
+# `evdev` is only for the virtual-pad test tool: there is no physical pad in
+# this environment, so the reader is verified against a real uinput device
+# instead of being left untested.
+gamepad = ["dep:gilrs", "dep:evdev"]
 # Spike 0.3: media playback via a separate mpv process over its JSON IPC.
 # Deliberately dependency-free beyond serde_json — it drives `mpv` as a child
 # process rather than linking libmpv, which is the very choice being validated.

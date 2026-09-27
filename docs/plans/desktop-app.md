@@ -11,7 +11,7 @@ Zielplattformen: Linux (primär), Windows, macOS
 | 0.1 GStreamer-Spike | offen | Crate-Gerüst steht (`desktop/player`) |
 | 0.2 Fenster-Spike | **erledigt** (Linux) | [spike-02-fenster.md](spike-02-fenster.md); Gate bestanden (58–60 fps @4K), Windows-Messung offen |
 | 0.3 libmpv-Spike | **erledigt** | [spike-03-mpv.md](spike-03-mpv.md); Prozess-Weg bestätigt, `--wid` entfällt |
-| 0.4 Gamepad-Spike | offen | |
+| 0.4 Gamepad-Spike | **erledigt** | [spike-04-gamepad.md](spike-04-gamepad.md); hängende Tasten gefunden und behoben |
 | 0.5 Native-Audit | **erledigt** | `isNativePlatform()` kannte nur Capacitor; Tauri-Desktop lief als „web" und persistierte keine Tokens. Behoben + 10 Tests |
 | Shell-Entscheidung | **erledigt** | [ADR 001](adr-001-desktop-shell.md): Tauri bleibt, mit harter Trennung von UI und nativem Player |
 
