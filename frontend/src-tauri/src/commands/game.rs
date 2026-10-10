@@ -602,12 +602,27 @@ mod live {
             });
         }
 
+        // ── The counters the stats command reads ──
+        //
+        // Created *here*, outside the pad callback, and shared with it: the
+        // core's `attach_decode_branch` counts decoded frames at the sink, and a
+        // counter created inside the callback would be dropped immediately — a
+        // stats panel that can only ever show zeros.
+        let frames = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        // The stream's size, from the negotiated caps rather than assumed. `None`
+        // until the first frame: a guessed size would claim a resolution the
+        // server never agreed to.
+        let negotiated_size: Arc<Mutex<Option<(u32, u32)>>> = Arc::new(Mutex::new(None));
+        let started = std::time::Instant::now();
+
         // ── The decode branch, built by the core ──
         {
             let pipeline_weak = pipeline.downgrade();
             let plan_platform = Platform::current();
             let plan_display = DisplayServer::current();
             let outbound = outbound_tx.clone();
+            let frames_for_pad = frames.clone();
+            let size_for_pad = negotiated_size.clone();
             webrtc.connect_pad_added(move |_webrtc, pad| {
                 let Some(caps) = pad.current_caps() else {
                     return;
@@ -623,6 +638,15 @@ mod live {
                 let Some(encoding) = structure.get::<String>("encoding-name").ok() else {
                     return;
                 };
+                // Record what the server actually sends, for the stats panel.
+                if let (Ok(w), Ok(h)) = (
+                    structure.get::<i32>("width"),
+                    structure.get::<i32>("height"),
+                ) {
+                    if let Ok(mut slot) = size_for_pad.lock() {
+                        *slot = Some((w as u32, h as u32));
+                    }
+                }
                 let Some(codec) = VideoCodec::from_encoding_name(&encoding) else {
                     let _ = outbound.send(
                         ClientMessage::Answer {
@@ -637,7 +661,7 @@ mod live {
                 };
                 // Not headless: this is the app, and the picture has to appear.
                 let plan = DecodePlan::new(codec, plan_platform, plan_display, false);
-                let counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+                let counter = frames_for_pad.clone();
                 if attach_decode_branch(&pipeline, &plan, counter).is_err() {
                     log::error!("Der Empfangszweig konnte nicht gebaut werden");
                 }
@@ -739,7 +763,18 @@ mod live {
                         let _ = outbound_tx.send(ClientMessage::Resize { width, height }.to_json());
                     }
                     GameCommand::Stats(reply) => {
-                        let _ = reply.send(LiveStats::default());
+                        // Real numbers from the pipeline. Bitrate, RTT and jitter
+                        // stay `None` because nothing measures them yet, and a `0`
+                        // would be a claim the measurement does not support — the
+                        // panel prints a dash for those.
+                        let decoded = frames.load(std::sync::atomic::Ordering::Relaxed);
+                        let resolution = negotiated_size.lock().ok().and_then(|s| *s);
+                        let _ = reply.send(LiveStats {
+                            frames: decoded,
+                            resolution,
+                            elapsed: started.elapsed(),
+                            ..LiveStats::default()
+                        });
                     }
                     GameCommand::Stop => {
                         let mut guard = state.lock().unwrap();
@@ -1232,6 +1267,25 @@ impl GameInput {
             }
         }
     }
+}
+
+/// Live statistics for the running stream.
+///
+/// The counterpart the stats panel needs. The first version had a `Stats` command
+/// variant with **no producer anywhere**, so the debug panel printed a hard-coded
+/// "controller connected" line and nothing real.
+///
+/// Returns `None` when no stream runs, rather than zeroes: "not streaming" and
+/// "streaming at 0 fps" are different answers and must not look alike.
+#[tauri::command]
+pub fn game_stats(state: State<'_, AppState>) -> Option<LiveStats> {
+    let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+    state.games().send(GameCommand::Stats(reply_tx)).ok()?;
+    // Bounded: the game thread answers within one loop iteration (8 ms). An
+    // unbounded wait would block the UI on a stream that just died.
+    reply_rx
+        .recv_timeout(std::time::Duration::from_millis(500))
+        .ok()
 }
 
 /// Reads the controllers and forwards their input **to the running game**.
