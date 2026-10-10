@@ -82,6 +82,29 @@ because whether to bundle it or use the system's is still an open decision (plan
 If `mpv` is missing, playback fails with a message saying so rather than playing
 silently into nothing.
 
+## Building from source
+
+From `frontend/`, `tauri build` does everything: it builds the interface, embeds it
+into the binary and writes the packages. That is the path the releases are made with.
+
+If you build the Rust part yourself, **enable the `custom-protocol` feature**:
+
+```bash
+cd frontend/src-tauri
+cargo build --release --features custom-protocol
+```
+
+Without it you get a **development binary**, even with `--release`. Tauri decides at
+compile time whether the interface comes from the built files or from a dev server,
+and it decides that from this feature, not from the build profile. A development
+binary loads `http://localhost:9000` and needs `tauri dev` running beside it; started
+on its own it shows a browser error page instead of the app, which reads like a
+network problem and is not one.
+
+This is worth the paragraph because it is invisible in the source: `dist/spa` is
+complete and the build succeeds either way. The tell is the binary — a development
+build contains the string `localhost:9000`, a real one does not.
+
 ## First start
 
 1. **Start the app.** A configuration directory is created:
@@ -323,6 +346,21 @@ stream. Redirecting its output produced **0-byte files that looked like working
 diagnostics** — mpv's `--no-terminal` suppresses exactly the messages worth
 keeping — so the log file is the only trustworthy source.
 
+
+### The window shows a connection error instead of the app
+
+If you built the binary yourself, see
+[Building from source](#building-from-source) — this is the `custom-protocol` feature
+missing, and it looks like a network fault while the server is fine. A hint that
+settles it: a development binary contains the string `localhost:9000`.
+
+```bash
+strings /path/to/Streamarr | grep localhost:9000
+```
+
+If the app was **installed from a package**, this is not the cause: those are built
+with `tauri build` and carry the interface inside them. Check the server address and
+the IP pin instead.
 
 ### "Playback failed" with no further detail
 

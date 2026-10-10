@@ -101,6 +101,21 @@ keyring = { version = "3", features = [
 
 [features]
 default = []
+# Production assets, and the reason a plain `cargo build` is not a usable app.
+#
+# Tauri decides where the frontend comes from at **compile time**, and it does so
+# from this feature, not from the build profile: `tauri::is_dev()` is
+# `!cfg!(feature = "custom-protocol")`. Without it the binary keeps loading
+# `build.devUrl` — `http://localhost:9000` — no matter whether it was built with
+# `--release`, and an app started outside `tauri dev` shows an error page instead
+# of the interface. Measured, not read: the debug binary contained the string
+# `localhost:9000` while `dist/spa` was already built and complete.
+#
+# `tauri build` adds this feature itself, which is why the packaged bundles always
+# worked and why the defect stayed invisible until someone ran the binary directly.
+# Declaring it is what the Tauri template requires ("DO NOT REMOVE") and what makes
+# `cargo build --features custom-protocol` a standalone app that needs no dev server.
+custom-protocol = ["tauri/custom-protocol"]
 # Game streaming: the GStreamer/WebRTC receiver.
 #
 # Off by default and separate on purpose. It is the one feature that pulls a large
