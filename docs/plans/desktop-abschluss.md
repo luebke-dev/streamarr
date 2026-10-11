@@ -1,27 +1,32 @@
 # Abschluss der Desktop-App (Phasen 2–5)
 
-**Stand:** alle sieben Arbeitspakete abgeschlossen · 59 Commits auf `feat/desktop-app`
+**Stand:** alle sieben Arbeitspakete abgeschlossen · 63 Commits auf `feat/desktop-app`
 **Nicht gepusht, nicht ausgeliefert, kein Servereingriff.**
 
 Diese Seite liest die zehn Erfolgskriterien Punkt für Punkt gegen und trennt
-scharf zwischen *gemessen* und *offen*. Sie ist die ehrliche Gegenseite zu
-„alles grün": die Testzahlen sind belegt, die Live-Nachweise fehlen an drei
-Stellen, und das hat einen einzigen Grund.
+scharf zwischen *gemessen* und *offen*.
 
-## Der eine Grund für alle Lücken
+## Der Grund, der keiner mehr ist
 
-Der Testserver dieser Installation hat **keine Datenbank** mehr. Der Container
-`app-db-1` wurde zerstört, und ein verwaister Docker-Netzwerk-Endpunkt hält die
-Adresse, die das Backend braucht. Die Daten selbst sind intakt (1,6 GB), die
-Reparatur ist zwei Befehle lang — und sie erfordert einen **Docker-Daemon-
-Neustart**, den der Auftraggeber ausdrücklich abgelehnt hat.
+Diese Seite hat alle offenen Punkte mit **einer** Ursache erklärt: der Testserver
+habe keine Datenbank mehr. `app-db-1` sei zerstört, ein verwaister
+Docker-Netzwerk-Endpunkt halte die Adresse, und die Reparatur brauche einen
+Docker-Daemon-Neustart, den der Auftraggeber abgelehnt habe.
 
-Vollständig dokumentiert in [`desktop-testserver-stand.md`](desktop-testserver-stand.md),
-inklusive Durchstichprüfung für danach.
+**Das ist überholt, und zwar messbar überholt.** Am 11.10. gemessen:
 
-**Nachtrag, am 11.10. gemessen.** Die öffentlichen Endpunkte antworten wieder:
-`/api/auth/status` → 200 mit `local_auth_enabled: true`, `/api/branding/configuration`
-→ 200 und ein echter Servername statt eines Fehlers. Der Ausfall, der diese Seite
+* `app-db-1` läuft seit **13 Tagen** und meldet `healthy`;
+* `/api/auth/status` → 200 mit `local_auth_enabled: true`;
+* `/api/auth/me` → 200 mit einem echten Benutzer, und dieser Aufruf **braucht die
+  Datenbank** — er sucht den API-Schlüssel nach.
+
+Es gab also keinen Grund, die Live-Nachweise zu unterlassen, und sie sind jetzt
+gemacht worden (siehe unten). `desktop-testserver-stand.md` bleibt als Protokoll
+stehen; die Reparaturanleitung darin ist gegenstandslos geworden.
+
+Was von den damaligen Befunden bleibt: der verwaiste Endpunkt und der volle
+Host-Datenträger waren echte Beobachtungen — nur war die Schlussfolgerung daraus
+zu weitgehend.
 begründet, ist damit **jedenfalls teilweise vorbei**. Ob die Datenbank zurück ist,
 ist damit nicht belegt (beide Endpunkte können ohne sie antworten), und die drei
 Live-Nachweise sind weiterhin **nicht versucht** — es bleibt bei offen.
@@ -33,9 +38,9 @@ Medienwiedergabe und Spiel-Streaming gegen den echten Server.**
 
 | # | Kriterium | Stand |
 |---|---|---|
-| 1 | Medien über den nativen mpv-Kern | **gebaut**, live offen |
+| 1 | Medien über den nativen mpv-Kern | **live nachgewiesen** (Transcode-Pfad) |
 | 2 | HDR10 durchgereicht oder nachweisbar gemappt | **gemessen** |
-| 3 | Spiele über GStreamer/WebRTC nativ | **gebaut und in der UI verdrahtet**, live offen |
+| 3 | Spiele über GStreamer/WebRTC nativ | **live nachgewiesen bis zur Aushandlung**; Medienpfad serverseitig blockiert |
 | 4 | Couch-/Big-Picture-Modus in der UI | **gebaut**, ohne Controller |
 | 5 | Alle Rust-Crates grün | **gemessen** |
 | 6 | Frontend ohne neue Fehler | **gemessen** |
@@ -43,6 +48,68 @@ Medienwiedergabe und Spiel-Streaming gegen den echten Server.**
 | 8 | Installierbare Pakete, Linux und Windows | **Linux gemessen**, Windows in CI |
 | 9 | Doku und CI | Doku **gemessen**; CI **nie gelaufen** |
 | 10 | Server-Zwischenstand festgehalten | **gemessen** |
+
+## Die drei Live-Nachweise, am 11.10. gemacht
+
+### Medien: läuft — und lief vorher überhaupt nicht
+
+Ein echtes Medium über den echten Server: Position 0,00 s → 2,00 s,
+`ERGEBNIS: Wiedergabe über den nativen mpv-Kern, Position läuft`. Dabei wurden
+mpvs **eigene** Spuren live gelesen (`#1 Video h264`, `#1 Audio ger aac`) — das ist
+die Liste, die die Oberfläche jetzt als Auswahl anbietet.
+
+Es war kein Nachweis, der nur gefehlt hätte: **vorher spielte kein einziger Frame.**
+Die Ursache stand im mpv-Protokoll nach **124 abgewiesenen Segmentversuchen** — die
+HLS-Playlist trägt das Token für sich selbst, die Segment-URLs darin nicht, und ein
+relativer Verweis gegen eine Basis mit Query verliert die Query. Behoben, indem das
+Play-Token als `Authorization`-Header mitgeht. Details im Commit `f45a584`.
+
+**Direct Play bleibt auf dieser Instanz unerreichbar**, und zwar nicht wegen des
+Clients: alle vorhandenen Filme haben ac3- oder dts-Ton, und der Server bildet beide
+**unbedingt** auf aac ab — auch wenn der Client ac3 als unterstützt meldet und der
+Server diese Meldung zurückspiegelt. Der Nachweis ist also der **Transcode-Pfad**.
+Nebenbei gemessen: die Bibliothek hat genau **einen** abspielbaren Film, die anderen
+19 antworten `status: searching`.
+
+### Spiele: der Client war nie ein WebRTC-Peer
+
+Der Live-Lauf gegen echten Lightrays: `HTTP 101 Switching Protocols`, dann für immer
+`Negotiating`. `create-answer`, `set-remote-description` und `set-local-description`
+kamen in Shell und Kern **null** mal vor. `ClientMessage::Answer` existierte die ganze
+Zeit und war als „SDP answer to the server's offer" dokumentiert — nur gebaut und
+gesendet hat es nie jemand. Keine Remote-Description, also kein ICE, kein Kandidat,
+kein DTLS, kein Bild.
+
+Warum keine Prüfung das sehen konnte: in `game-pipeline-check` verhandeln zwei
+`webrtcbin`-Elemente im **selben Prozess**, und das **Testbinary** erledigt
+`create-offer`/`create-answer` selbst. Beide Peers sind dort echt — die Shell war
+nie einer von ihnen. Genau die Grenze, die diese Seite benannt hatte.
+
+Nach dem Fix (`a601b47`): `Angebot gesetzt`, `Antwort gesendet (true)`, ICE startet.
+
+**Was bleibt, ist serverseitig.** Die Diagnose ist eindeutig:
+
+* das Angebot des Servers kommt mit **0 Kandidaten im SDP** und tröpfelt sie danach —
+alle auf `172.21.0.3`, der **Docker-internen Adresse des Spielcontainers**;
+* die Kandidaten des Clients sind korrekt, inklusive `10.10.20.161`, seiner echten
+VLAN-20-Adresse;
+* als ICE-Server wird nur ein öffentliches STUN angeboten, das einem Peer ohne
+routbare Adresse nicht helfen kann.
+
+Der Client verhandelt also richtig, und der Medienpfad scheitert daran, dass der
+Server eine Adresse anbietet, die außerhalb seines Docker-Netzes niemand erreicht.
+Das ist eine Ausrollfrage (externe Adresse, Portweiterleitung oder TURN), kein
+Client-Fehler — und es steht zum ersten Mal als **gemessene** Tatsache da statt als
+Vermutung. Behoben wurde es nicht; dafür braucht es eine Serveränderung.
+
+### Login: noch nicht
+
+Der Anmeldeweg der App (Token → Schlüsselbund → Sitzung übersteht Neustart) ist
+**nicht** nachgewiesen. Der Testbenutzer hat hinterlegt nur einen API-Schlüssel,
+kein Passwort, und im Schlüsselbund liegt kein `media.streamarr.desktop`-Eintrag —
+es hat also noch nie ein Login abgeschlossen. Belegt ist die **Serverseite**: der
+API-Schlüssel wird als Bearer akzeptiert, `/api/auth/me` → 200. Der Auftraggeber hat
+entschieden, sich selbst in der App anzumelden; das steht noch aus.
 
 ## Was gemessen ist
 
@@ -119,23 +186,23 @@ Push, und der ist nicht freigegeben.
 
 ## Was offen ist, und warum
 
-**Drei Live-Nachweise** (Login, Medien, Spiele gegen den Server): nicht versucht.
-Der ursprüngliche Grund (fehlende Datenbank) ist am 11.10. gemessen
-**teilweise weggefallen** — die öffentlichen Endpunkte antworten wieder, siehe
-oben. Der Nachweis selbst fehlt weiterhin. Die Kette ist jeweils gegen einen
-Ersatzserver mit echten Medien, echtem Profil und echtem Tunnel belegt — das ist
-**nicht** dasselbe.
+**Login.** Siehe oben: der Anmeldeweg der App ist nicht nachgewiesen, weil kein
+Passwort hinterlegt ist und der Auftraggeber sich selbst anmelden wollte. Das ist
+der einzige der drei Live-Nachweise, der noch aussteht — und er hängt an einer
+Anmeldung, nicht an einem Serverproblem.
 
-**Ein Spiel auf dem Bildschirm.** Die Client-Pipeline ist bewiesen, die
-Shell-Seite steht, und die **UI nimmt den nativen Weg** (`useGameLaunch` verzweigt
-über `usesNativeGameStream`, `PlayPage` rendert `NativeGameView` statt
-`GameStreamView`, und die Verdrahtung liegt im ausgelieferten Bundle — geprüft am
-Asset-Namen im Paket-Binary). Ungemessen bleibt zweierlei: der Pipeline-Beweis ist
-Schleife-zu-Schleife und sagt nichts über die Interoperabilität mit Lightrays, und
-**kein Spiel ist je in einem Fenster erschienen**.
+**Ein Spiel auf dem Bildschirm.** Der Pipeline-Beweis ist Schleife-zu-Schleife und
+sagt nichts über die Interoperabilität mit Lightrays — das ist jetzt geschlossen:
+der Client verbindet sich (`HTTP 101`), setzt die Remote-Description, erzeugt die
+Antwort, **sendet sie** und startet ICE. Was fehlt, ist das Bild, und der Grund ist
+gemessen und serverseitig: das Angebot nennt nur `172.21.0.3`, die Docker-interne
+Adresse des Spielcontainers. Kein Kandidat außerhalb dieses Netzes, kein TURN — also
+kein Medienpfad. Der Client ist damit nachweislich richtig und das Ausrollen nicht.
 
-**Ein Support-Bericht, der ankommt.** `POST /api/client-logs` ist ohne Datenbank
-nicht erreichbar. Die Logik und der Dialog sind getestet, der Rundlauf nicht.
+**Ein Support-Bericht, der ankommt.** Die Logik und der Dialog sind getestet, der
+Rundlauf ist es nicht. Am 11.10. war `POST /api/client-logs` erreichbar — der
+Rundlauf ist trotzdem nicht ausgeführt worden, und ein Bericht lädt Log-Auszüge
+hoch, was vorher ein Leck war (siehe `752cb43`).
 
 **Tastatur und Maus im Spiel.** Gamepads gehen direkt (die Shell liest sie über
 `gilrs`, deshalb teilen sich Couch- und Spielweg einen Leser). Für Tastatur und
