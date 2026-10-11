@@ -38,7 +38,7 @@ Medienwiedergabe und Spiel-Streaming gegen den echten Server.**
 
 | # | Kriterium | Stand |
 |---|---|---|
-| 1 | Medien über den nativen mpv-Kern | **live nachgewiesen** (Transcode-Pfad) |
+| 1 | Medien über den nativen mpv-Kern | **live nachgewiesen**, samt Login und Sitzung über einen Neustart |
 | 2 | HDR10 durchgereicht oder nachweisbar gemappt | **gemessen** |
 | 3 | Spiele über GStreamer/WebRTC nativ | **live nachgewiesen bis zur Aushandlung**; Medienpfad serverseitig blockiert |
 | 4 | Couch-/Big-Picture-Modus in der UI | **gebaut**, ohne Controller |
@@ -102,14 +102,39 @@ Das ist eine Ausrollfrage (externe Adresse, Portweiterleitung oder TURN), kein
 Client-Fehler — und es steht zum ersten Mal als **gemessene** Tatsache da statt als
 Vermutung. Behoben wurde es nicht; dafür braucht es eine Serveränderung.
 
-### Login: noch nicht
+### Login: läuft, samt Sitzung über einen Neustart
 
-Der Anmeldeweg der App (Token → Schlüsselbund → Sitzung übersteht Neustart) ist
-**nicht** nachgewiesen. Der Testbenutzer hat hinterlegt nur einen API-Schlüssel,
-kein Passwort, und im Schlüsselbund liegt kein `media.streamarr.desktop`-Eintrag —
-es hat also noch nie ein Login abgeschlossen. Belegt ist die **Serverseite**: der
-API-Schlüssel wird als Bearer akzeptiert, `/api/auth/me` → 200. Der Auftraggeber hat
-entschieden, sich selbst in der App anzumelden; das steht noch aus.
+Der Anmeldeweg ist nachgewiesen: echte Anmeldung in der App → Token im
+Schlüsselbund (`media.streamarr.desktop` / `session`, 694 Zeichen mit
+`access_token`, `refresh_token`, `token_type`, `expires_in`) → **Neustart der App →
+kein neuer Login** und die vollständige authentifizierte Startseite
+(`/api/libraries`, `/api/viewing-history/continue-watching`,
+`/api/media/shows/*/resume`, `favorites`, `lists`, `settings/*`).
+
+Auch hier war es kein fehlender Nachweis, sondern **die App war unbenutzbar**, und
+zwar aus drei unabhängigen Gründen (Commit `30fe3a0`):
+
+* **Der Transport-Adaper schluckte Tauris eigenen Befehlskanal.** Tauri schickt
+  jeden Befehl als `fetch('http://ipc.localhost/<befehl>')`, und der Adapter
+  ersetzte `globalThis.fetch`: `invoke` rief den Adapter, der Adapter rief
+  `invoke`, und die Fehlermeldung **verdoppelte** sich pro Runde bis
+  `RangeError: Out of memory`. Am Shell-Log gemessen: **kein einziger**
+  Tauri-Befehl erreichte Rust, obwohl die Seite einwandfrei aussah.
+* **Kein POST trug einen Body.** `body=0` beim Login, Antwort des Servers
+  `422 {"loc":["body"],"msg":"Field required"}` — liest sich wie ein
+  Berechtigungsproblem und ist ein fehlender Body, weil axios dem Adapter ein
+  fertiges `Request` übergibt und nur `init.body` gelesen wurde.
+* **Der Refresh-Token wurde nie geschickt.** `stores/auth.js` setzt den
+  Authorization-Header nur bei `isNativePlatform()` — Capacitor, in Tauri `false`,
+  dieselbe Verwechslung wie in Aufgabe 0.5. Also `400` beim Refresh und ein
+  Login-Formular, während ein gültiger Refresh-Token im Schlüsselbund lag. Der
+  Token selbst funktionierte nachweislich: als er mitgeschickt wurde, antwortete
+  `/api/auth/refresh` mit **200**.
+
+Zur Korrektur der früheren Fassung: dort stand, der Testbenutzer habe kein
+Passwort und es habe „noch nie ein Login abgeschlossen". Beides war eine
+Fehlinterpretation der Messung — der fehlende Schlüsselbund-Eintrag war das
+Ergebnis der drei Fehler oben, nicht der Grund.
 
 ## Was gemessen ist
 
