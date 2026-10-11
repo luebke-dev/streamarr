@@ -306,7 +306,7 @@ pub fn collect(
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "log".to_string()),
-            tail,
+            tail: redact_secrets(&tail),
             truncated,
         });
     }
@@ -322,6 +322,100 @@ pub fn collect(
     };
     report.fit_to_server_limit();
     report
+}
+
+/// Headers and query keys whose value is a credential.
+///
+/// Lower-case, and the `=` is part of the key: `token=` cannot match the word
+/// "tokenization", which is the kind of false positive that would make the redaction
+/// look broken and get removed.
+const SECRET_KEYS: [&str; 6] = [
+    "token=",
+    "password=",
+    "passwd=",
+    "api_key=",
+    "apikey=",
+    "secret=",
+];
+
+/// Whether a character can be part of a credential value.
+///
+/// Deliberately narrow. A value ends at whitespace, at `&`, at a quote and at anything
+/// else — over-redacting a log line costs a little diagnosis, under-redacting costs a
+/// credential.
+fn is_credential_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~' | '+' | '/')
+}
+
+/// Replaces credential values with `<redacted>`, keeping everything around them.
+///
+/// # Why this is not optional
+///
+/// mpv logs the URLs it opens and the options it is given, and both carry the **play
+/// token**: the HLS manifest arrives as `playlist.m3u8?token=…` and the token is also
+/// handed over as an `Authorization: Bearer` header. Measured in a real log file: four
+/// occurrences of the token from a single playback.
+///
+/// The tail of these logs is what a support report uploads, so without this the app
+/// would send the user's play tokens to the server as part of a bug report. The token is
+/// short-lived and session-scoped, which makes it a small leak and not a harmless one —
+/// it is valid for the duration of a stream, and the report is sent precisely when
+/// something has gone wrong and the user least wants a second problem.
+///
+/// Redacting here rather than preventing the log line is the right layer: mpv will log
+/// the manifest URL in any case, and a filter on the way out covers every source of a
+/// credential in a log instead of the one that was noticed today.
+pub fn redact_secrets(text: &str) -> String {
+    let mut out = text.to_string();
+    for key in SECRET_KEYS {
+        out = redact_after(&out, key);
+    }
+    redact_after(&out, "Bearer ")
+}
+
+/// Redacts the value that follows every occurrence of `needle`.
+///
+/// ASCII-only case folding on purpose: `to_lowercase` can change a string's byte length
+/// ("İ" becomes two bytes), which would make the offsets found in the folded copy point
+/// into the wrong place of the original. `to_ascii_lowercase` cannot.
+fn redact_after(text: &str, needle: &str) -> String {
+    let lowered = text.to_ascii_lowercase();
+    let needle_lower = needle.to_ascii_lowercase();
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+
+    while let Some(offset) = lowered[cursor..].find(&needle_lower) {
+        let after_key = cursor + offset + needle.len();
+        out.push_str(&text[cursor..after_key]);
+
+        // A quoted value is common in config-file syntax (`token="…"`), and stopping at
+        // the quote would leave the credential in place while looking redacted.
+        let rest = &text[after_key..];
+        let quote_len = rest
+            .chars()
+            .next()
+            .filter(|c| *c == '"' || *c == '\'')
+            .map(char::len_utf8)
+            .unwrap_or(0);
+        if quote_len > 0 {
+            out.push_str(&text[after_key..after_key + quote_len]);
+        }
+
+        let value_start = after_key + quote_len;
+        let value_end = text[value_start..]
+            .char_indices()
+            .find(|(_, c)| !is_credential_char(*c))
+            .map(|(index, _)| value_start + index)
+            .unwrap_or(text.len());
+
+        if value_end > value_start {
+            out.push_str("<redacted>");
+        }
+        cursor = value_end;
+    }
+
+    out.push_str(&text[cursor..]);
+    out
 }
 
 #[cfg(test)]
@@ -345,6 +439,96 @@ mod tests {
             capabilities: Some("hardware_decode=true".to_string()),
             log_excerpts: logs,
         }
+    }
+
+    /// The leak this filter exists for, written from a real log line.
+    #[test]
+    fn a_play_token_in_a_manifest_url_is_redacted() {
+        // Verbatim shape, measured in an mpv log: mpv logs every URL it opens, and the
+        // manifest URL carries the play token.
+        let line = "[   0.037][v][stream_callback] Opening https://streamarr.example/api/stream/s1/playlist.m3u8?token=mxsHi5KvsIVXiQyYHZPbo61pMDVQ_tZUN7kOfwOp0aI";
+        let out = redact_secrets(line);
+        assert!(
+            !out.contains("mxsHi5KvsIVXiQyYHZPbo61pMDVQ"),
+            "das Token steht noch drin"
+        );
+        assert!(out.contains("token=<redacted>"));
+        // The rest of the line has to survive: a report that lost the URL would be
+        // useless for exactly the failure it documents.
+        assert!(out.contains("playlist.m3u8?"));
+        assert!(out.contains("Opening"));
+    }
+
+    #[test]
+    fn an_authorization_header_is_redacted() {
+        let line = "[   0.002][v][cplayer] Setting option 'http-header-fields' = 'Authorization: Bearer mxsHi5KvsIVXiQyYHZPbo61pMDVQ_tZUN7kOfwOp0aI' (flags = 4)";
+        let out = redact_secrets(line);
+        assert!(!out.contains("mxsHi5KvsIVXiQyYHZPbo61pMDVQ"));
+        assert!(out.contains("Authorization: Bearer <redacted>"));
+        assert!(out.contains("Setting option"));
+    }
+
+    #[test]
+    fn a_quoted_value_is_redacted_and_the_quotes_stay() {
+        // Stopping at the quote would leave the credential in place while looking
+        // redacted, which is worse than not filtering: it reads as verified.
+        let out = redact_secrets("token=\"abc123\"");
+        assert!(!out.contains("abc123"));
+        assert_eq!(out, "token=\"<redacted>\"");
+    }
+
+    #[test]
+    fn every_occurrence_is_redacted_not_just_the_first() {
+        // A real log had four.
+        let out = redact_secrets("token=aaa token=bbb&api_key=ccc");
+        assert!(!out.contains("aaa") && !out.contains("bbb") && !out.contains("ccc"));
+        assert_eq!(out, "token=<redacted> token=<redacted>&api_key=<redacted>");
+    }
+
+    #[test]
+    fn an_empty_value_is_left_alone() {
+        // `token=` with nothing after it must not become `token=<redacted>`, which would
+        // claim a credential was removed where there never was one.
+        assert_eq!(redact_secrets("token= end"), "token= end");
+    }
+
+    #[test]
+    fn ordinary_words_are_not_mangled() {
+        // `token=` needs the `=`, and this is why it is part of the key rather than a
+        // separate check: a filter that redacts the word "token" would damage the
+        // diagnostics it is supposed to preserve.
+        let line = "tokenization failed, the token count is 4, tokens: 12";
+        assert_eq!(redact_secrets(line), line);
+    }
+
+    #[test]
+    fn the_report_redacts_the_tails_it_collects() {
+        // The unit above could pass while `collect` forgot to call it, which is the whole
+        // reason this test exists: the filter has to sit on the path to the upload.
+        let dir = std::env::temp_dir().join("streamarr-report-redact");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("streamarr-mpv-1.log"),
+            "Opening https://s/api/stream/x/playlist.m3u8?token=SUPERSECRETVALUE\n",
+        )
+        .unwrap();
+
+        let report = collect("2026.2.1", "linux-wayland", None, None, None, &dir);
+        let text = serde_json::to_string(&report).unwrap();
+        assert!(
+            !text.contains("SUPERSECRETVALUE"),
+            "das Token steht im Bericht: {text}"
+        );
+        assert!(text.contains("<redacted>"));
+    }
+
+    #[test]
+    fn a_password_and_a_secret_key_are_redacted_too() {
+        // Not because this app logs them today, but because the filter is on the way out
+        // and the cost of covering them is one array entry.
+        let out = redact_secrets("password=hunter2 secret=s3cr3t");
+        assert!(!out.contains("hunter2") && !out.contains("s3cr3t"));
     }
 
     #[test]
