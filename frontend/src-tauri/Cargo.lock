@@ -4307,6 +4307,7 @@ dependencies = [
  "futures-util",
  "glib 0.20.12",
  "gstreamer",
+ "gstreamer-sdp",
  "gstreamer-webrtc",
  "keyring",
  "log",

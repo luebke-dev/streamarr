@@ -493,8 +493,15 @@ mod tests {
 // The live thread
 // ---------------------------------------------------------------------------
 
+/// The stream's own thread, made reachable so a diagnostic can drive **this** code
+/// rather than a copy of it.
+///
+/// `src/bin/game-live-check.rs` starts a real session against a real Lightrays and
+/// reports the state transitions and the decoded-frame count. A second implementation
+/// would prove itself and nothing about the app, which is the mistake the loopback
+/// pipeline proof already cannot avoid.
 #[cfg(feature = "gamestream")]
-mod live {
+pub mod live {
     use super::*;
 
     use gstreamer as gst;
@@ -590,6 +597,10 @@ mod live {
                 let mline_index: u32 = values[1].get().unwrap_or(0);
                 let candidate: String = values[2].get().unwrap_or_default();
                 if !candidate.is_empty() {
+                    // Logged because a one-sided trickle looks exactly like a firewall
+                    // from the outside: ICE fails either way, and only the candidate
+                    // lists say which side stayed silent.
+                    log::info!("Spielstream: eigener Kandidat -> {candidate}");
                     let _ = outbound.send(
                         ClientMessage::Ice {
                             candidate,
@@ -598,6 +609,31 @@ mod live {
                         .to_json(),
                     );
                 }
+                None
+            });
+        }
+
+        // ── ICE and DTLS state ──
+        //
+        // Nothing observed this before, and the cost was diagnosability: with no
+        // frames arriving, the client could say only "negotiating", which does not
+        // distinguish "the answer was accepted" from "ICE never found a path" from
+        // "the media arrived but nothing decoded". Those need different fixes — a
+        // firewall, a candidate, a decoder — so the states are logged as they change.
+        for (signal, label) in [
+            ("notify::ice-connection-state", "ICE"),
+            ("notify::connection-state", "Verbindung"),
+        ] {
+            // The element is captured rather than read out of the signal's arguments:
+            // the values arrive as `glib::Value`, and downcasting them here was a dance
+            // with two different error types for no gain.
+            let observed = webrtc.clone();
+            webrtc.connect(signal, false, move |_values| {
+                let ice: gst_webrtc::WebRTCICEConnectionState =
+                    observed.property("ice-connection-state");
+                let connection: gst_webrtc::WebRTCPeerConnectionState =
+                    observed.property("connection-state");
+                log::info!("Spielstream: {label} geändert — ICE {ice:?}, Peer {connection:?}");
                 None
             });
         }
@@ -728,6 +764,14 @@ mod live {
             // Inbound frames first, so a state change is applied before input is
             // sent.
             while let Ok(message) = inbound_rx.try_recv() {
+                // Answered first, while the socket is in reach: `webrtcbin` makes the
+                // answer, and something has to carry it back.
+                if let ServerMessage::Offer { sdp } = &message {
+                    answer_offer(&webrtc, sdp, &outbound_tx);
+                }
+                if let ServerMessage::Ice { candidate, .. } = &message {
+                    log::info!("Spielstream: Kandidat vom Server -> {candidate}");
+                }
                 let session_state = state.clone();
                 let mut guard = session_state.lock().unwrap();
                 // The session lives in `run_inner`'s caller scope; here the state
@@ -795,6 +839,21 @@ mod live {
                 let _ = context.iteration(false);
             }
 
+            // ── The picture is what makes it a stream ──
+            //
+            // `Streaming` used to be set nowhere outside tests, so the interface showed
+            // "negotiating" for the whole of a working session. An answered offer means
+            // negotiation and nothing more; the first decoded frame is the first honest
+            // signal that media is flowing, and it is already counted here.
+            let decoded = frames.load(std::sync::atomic::Ordering::Relaxed);
+            if decoded > 0 {
+                let mut guard = state.lock().unwrap();
+                if matches!(*guard, SessionState::Connecting | SessionState::Negotiating) {
+                    log::info!("Spielstream läuft: erstes Bild dekodiert");
+                    *guard = SessionState::Streaming;
+                }
+            }
+
             // A terminal state ends the loop; the caller reports it.
             if state.lock().unwrap().is_terminal() {
                 pipeline.set_state(gst::State::Null).ok();
@@ -805,12 +864,109 @@ mod live {
         }
     }
 
+    /// Answers the server's offer, which the client previously never did.
+    ///
+    /// `ClientMessage::Answer` existed the whole time and was even documented as "SDP
+    /// answer to the server's offer". Nothing constructed or sent one. Measured against
+    /// the real deployment: the websocket opened (`HTTP 101 Switching Protocols`), the
+    /// offer arrived, the state moved to `Negotiating` — and then nothing, because the
+    /// remote description was never set. No ICE, no candidate, no DTLS, no frame.
+    ///
+    /// Every loopback proof passed anyway, and that is the lesson worth keeping: in
+    /// `game-pipeline-check` both peers are `webrtcbin` elements in one process and the
+    /// *test binary* did the negotiation. The shell was never a WebRTC peer at all, and
+    /// nothing in that proof could notice.
+    ///
+    /// The sequence is the one the spike proved: remote description, then `create-answer`,
+    /// then local description, then the answer as text over the signalling socket. The
+    /// promises for the descriptions are interrupted because their results are not needed;
+    /// the one for the answer is not, because it carries the SDP.
+    fn answer_offer(
+        webrtc: &gst::Element,
+        sdp: &str,
+        outbound: &tokio::sync::mpsc::UnboundedSender<String>,
+    ) {
+        let parsed = match gstreamer_sdp::SDPMessage::parse_buffer(sdp.as_bytes()) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                // Reported rather than ignored: an unparsable offer and a missing answer
+                // look identical from the outside — a black window and no error.
+                log::error!("Das Angebot des Servers ist kein lesbares SDP: {error}");
+                return;
+            }
+        };
+        let offer =
+            gst_webrtc::WebRTCSessionDescription::new(gst_webrtc::WebRTCSDPType::Offer, parsed);
+
+        let remote = gst::Promise::new();
+        webrtc.emit_by_name::<()>("set-remote-description", &[&offer, &remote]);
+        remote.interrupt();
+        log::info!("Spielstream: Angebot gesetzt, Antwort wird erzeugt");
+
+        // The candidates the server proposes, logged before anything is sent. When ICE
+        // fails this is the only thing that says *why*: an unreachable address and a
+        // blocked port look identical from here otherwise, and they need different
+        // answers — a firewall rule versus a misconfigured candidate.
+        let candidates = offer_candidates(sdp);
+        log::info!("Spielstream: {} Kandidaten im Angebot", candidates.len());
+        for candidate in &candidates {
+            log::info!("  {candidate}");
+        }
+
+        let element = webrtc.clone();
+        let outbound = outbound.clone();
+        let promise = gst::Promise::with_change_func(move |reply| {
+            let Ok(Some(reply)) = reply else {
+                log::error!("create-answer lieferte kein Ergebnis");
+                return;
+            };
+            let Ok(answer) = reply.get::<gst_webrtc::WebRTCSessionDescription>("answer") else {
+                log::error!("keine Antwort im Ergebnis von create-answer");
+                return;
+            };
+            let local = gst::Promise::new();
+            element.emit_by_name::<()>("set-local-description", &[&answer, &local]);
+            local.interrupt();
+
+            match answer.sdp().as_text() {
+                Ok(text) => {
+                    let sent = outbound
+                        .send(ClientMessage::Answer { sdp: text }.to_json())
+                        .is_ok();
+                    log::info!("Spielstream: Antwort gesendet ({sent})");
+                }
+                Err(error) => log::error!("Die Antwort ließ sich nicht als SDP schreiben: {error}"),
+            }
+        });
+        // Two arguments: the signal is `create-answer(options, promise)`. One argument
+        // aborts inside GLib rather than returning an error.
+        webrtc.emit_by_name::<()>("create-answer", &[&None::<gst::Structure>, &promise]);
+    }
+
+    /// The ICE candidates inside an SDP, one line each.
+    ///
+    /// Extracted rather than inlined because this is what produced the finding that
+    /// mattered: the deployment's offer arrives with **no** candidates in the SDP and
+    /// trickles them afterwards, all of them on `172.21.0.3` — the game container's
+    /// Docker-internal address, which nothing outside that Docker network can reach. The
+    /// client's own candidates (`10.10.20.161`) are correct, so the failure is on the
+    /// server's side of the network and not in the negotiation.
+    pub(crate) fn offer_candidates(sdp: &str) -> Vec<String> {
+        sdp.lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("a=candidate:"))
+            .map(str::to_string)
+            .collect()
+    }
+
     /// Applies one server message to the pipeline and the session state.
     fn apply_message(state: &mut SessionState, message: &ServerMessage, webrtc: &gst::Element) {
         match message {
             ServerMessage::Offer { sdp } => {
-                // The answer is produced by `webrtcbin` and sent by the caller
-                // through the reaction; here only the state moves.
+                // Only the state moves here. The answer is produced by `webrtcbin` and
+                // sent by the caller, which is where the signalling socket is in reach —
+                // see `answer_offer`. This used to be the *whole* handling of an offer,
+                // which is why nothing ever streamed.
                 *state = SessionState::Negotiating;
                 let _ = sdp;
                 let _ = webrtc;
@@ -1367,6 +1523,48 @@ pub fn game_resize(
 #[tauri::command]
 pub fn game_stop(state: State<'_, AppState>) -> bool {
     state.games().stop()
+}
+
+#[cfg(all(test, feature = "gamestream"))]
+mod offer_tests {
+    //! The candidate list of an offer, from a real capture.
+
+    use super::live::offer_candidates;
+
+    #[test]
+    fn the_candidates_of_an_offer_are_read_out() {
+        // Trimmed from the deployment's own offer: `a=candidate:` lines, and nothing else.
+        let sdp = "v=0\r\no=- 1 1 IN IP4 0.0.0.0\r\na=ice-ufrag:x\r\n\
+                   a=candidate:1 1 UDP 2015363327 172.21.0.3 40733 typ host\r\n\
+                   a=candidate:2 1 TCP 1015021823 172.21.0.3 9 typ host tcptype active\r\n\
+                   m=video 9 UDP/TLS/RTP/SAVPF 96\r\n";
+        let candidates = offer_candidates(sdp);
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates[0].ends_with("172.21.0.3 40733 typ host"));
+        // The transport has to survive: a TCP candidate is the fallback when UDP is
+        // blocked, and dropping it would remove an option the server offered.
+        assert!(candidates[1].contains("tcptype active"));
+    }
+
+    #[test]
+    fn an_offer_without_candidates_reports_none() {
+        // This is the shape the deployment actually sends: the media lines are there and
+        // the candidates are not, because they are trickled over the signalling socket.
+        // Treating that as an error would be wrong — and reading it as "connected" would
+        // be worse.
+        let sdp = "v=0\r\no=- 1 1 IN IP4 0.0.0.0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n";
+        assert!(offer_candidates(sdp).is_empty());
+    }
+
+    #[test]
+    fn candidate_lines_are_recognised_with_leading_whitespace() {
+        // Session descriptions are not consistently formatted, and a missed candidate
+        // here shows up as an unexplained ICE failure much later.
+        assert_eq!(
+            offer_candidates("  a=candidate:1 1 UDP 1 10.0.0.1 1 typ host").len(),
+            1
+        );
+    }
 }
 
 #[cfg(all(test, feature = "gamestream"))]

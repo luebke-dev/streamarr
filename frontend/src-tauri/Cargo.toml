@@ -82,6 +82,10 @@ tokio-native-tls = { version = "0.3", optional = true }
 # the core crate: `v1_22` provides the *checked* data-channel send. Version-gated
 # so a build without `gamestream` links no GStreamer at all.
 gstreamer = { version = "0.23", optional = true }
+# Parsing the server's SDP and rendering our own: `webrtcbin` takes descriptions as
+# objects, and the signalling socket carries text. Already in the tree through
+# `gstreamer-webrtc`, so this declares a dependency rather than adding one.
+gstreamer-sdp = { version = "0.23", optional = true }
 gstreamer-webrtc = { version = "0.23", optional = true, features = ["v1_18", "v1_22"] }
 glib = { version = "0.20", optional = true }
 serde = { version = "1", features = ["derive"] }
@@ -131,9 +135,18 @@ gamestream = [
     "dep:native-tls",
     "dep:tokio-native-tls",
     "dep:gstreamer",
+    "dep:gstreamer-sdp",
     "dep:gstreamer-webrtc",
     "dep:glib",
 ]
+
+# The live game-stream diagnostic. It drives the shell's own `live::run` against a
+# session that already exists, which is why it needs the GStreamer feature and is not
+# built without it.
+[[bin]]
+name = "game-live-check"
+path = "src/bin/game-live-check.rs"
+required-features = ["gamestream"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread"] }
