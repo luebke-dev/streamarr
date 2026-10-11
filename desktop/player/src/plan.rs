@@ -155,12 +155,15 @@ pub fn plan_playback(
         subtitle_language: preferences.subtitle_language.clone(),
     };
 
-    let options = PlayerOptions {
+    let mut options = PlayerOptions {
         config_dir: config_dir.to_path_buf(),
         fullscreen: preferences.fullscreen_on_play,
         hdr,
         ..Default::default()
     };
+    if let Some(argument) = hls_auth_argument(response) {
+        options.extra_args.push(argument);
+    }
 
     Ok(PlaybackPlan {
         url,
@@ -182,6 +185,42 @@ pub fn resolve_target_for(server: &ServerAddress) -> Option<String> {
     server
         .resolve_pair()
         .and_then(|pair| pair.rsplit_once(':').map(|(_, ip)| ip.to_string()))
+}
+
+/// The mpv argument that carries the play token to *every* request of a transcoded
+/// stream, when one is needed.
+///
+/// `None` for direct play, where the URL's own `?token=` is enough.
+///
+/// # Why a header, and why this is not optional
+///
+/// Transcoding produces an HLS manifest, and the server serves it **byte for byte as
+/// ffmpeg wrote it** — it does not rewrite anything. The segment URIs inside are plain
+/// relative names (`<session>_000.ts`). A relative reference resolved against a base
+/// that has a query string **drops the query** (RFC 3986, §5.3), so every segment
+/// request arrives without a token and is answered with `401 No play token provided`.
+///
+/// Measured rather than deduced: with the manifest loaded, all 124 segment attempts of
+/// one playback were refused, and mpv's log ends with `avformat_open_input() failed`
+/// while the position never left 0. The manifest itself has `?token=` and loads fine,
+/// which is what makes this so easy to miss — the picture is simply black and nothing
+/// says why.
+///
+/// The server's `_verify_play_token` accepts the token from an `Authorization: Bearer`
+/// header as well as from the query, and ffmpeg applies the headers given here to every
+/// request in the HLS chain rather than to the manifest alone. So one argument closes the
+/// gap without touching the server.
+///
+/// The token is the **play** token, not the account token: it is scoped to this session
+/// and expires, which is why handing it to mpv is not the same as handing over a session.
+pub fn hls_auth_argument(response: &PlayResponse) -> Option<String> {
+    if response.is_direct_play() {
+        return None;
+    }
+    Some(format!(
+        "--http-header-fields=Authorization: Bearer {}",
+        response.token
+    ))
 }
 
 /// The mpv arguments for a plan, ready to spawn.
@@ -337,6 +376,69 @@ mod tests {
             height: Some(1080),
             reasons: Default::default(),
         }
+    }
+
+    /// The defect this argument exists for, at unit level.
+    ///
+    /// The live run found it: the HLS manifest loaded and every segment was answered
+    /// with `401 No play token provided`, because the manifest's relative segment URIs
+    /// drop the `?token=` of the manifest URL. Nothing about the response says so.
+    #[test]
+    fn a_transcoded_plan_carries_the_play_token_as_a_header() {
+        let response = response(PlaybackMethod::Transcode);
+        let plan = plan_playback(
+            &response,
+            &server(),
+            &profile(),
+            std::path::Path::new("/tmp/conf"),
+            0.0,
+            None,
+            false,
+            HdrMode::Auto,
+        )
+        .expect("Plan");
+
+        assert!(plan.is_transcode);
+        assert_eq!(
+            hls_auth_argument(&response),
+            Some("--http-header-fields=Authorization: Bearer t0ken".to_string())
+        );
+        // The argument must actually reach mpv, not merely exist as a helper: a plan
+        // that computed it and dropped it would leave the same black picture.
+        assert!(
+            plan.options
+                .extra_args
+                .iter()
+                .any(|a| a == "--http-header-fields=Authorization: Bearer t0ken"),
+            "der Header fehlt in den mpv-Argumenten: {:?}",
+            plan.options.extra_args
+        );
+    }
+
+    #[test]
+    fn a_direct_play_is_not_given_a_header_it_does_not_need() {
+        // Direct play's URL carries `?token=` itself, and the file endpoint reads it from
+        // there. Sending a header anyway would also work, which is exactly why the
+        // distinction has to be asserted: without this test the `None` branch could be
+        // deleted and nothing would fail.
+        let response = response(PlaybackMethod::DirectPlay);
+        assert_eq!(hls_auth_argument(&response), None);
+    }
+
+    #[test]
+    fn the_header_argument_has_the_shape_mpv_expects() {
+        // `--http-header-fields` takes a comma-separated list, so a malformed value here
+        // is not rejected by mpv — it is silently ignored, and the stream fails with the
+        // same 401 as if the argument were absent.
+        let argument = hls_auth_argument(&response(PlaybackMethod::Transcode)).expect("Argument");
+        let value = argument
+            .strip_prefix("--http-header-fields=")
+            .expect("das Argument muss die Option selbst tragen");
+        let (name, token) = value
+            .split_once(": ")
+            .expect("Header im Format `Name: Wert`");
+        assert_eq!(name, "Authorization");
+        assert_eq!(token, "Bearer t0ken");
     }
 
     #[test]
