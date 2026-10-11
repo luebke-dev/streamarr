@@ -119,3 +119,58 @@ describe('describeError', () => {
     expect(text).not.toContain('[object Object]')
   })
 })
+
+describe('Tauris eigener IPC-Kanal', () => {
+  // The defect this exists for, at unit level: the adapter replaced `globalThis.fetch`,
+  // which is also how Tauri sends every command. `invoke` called the adapter, the adapter
+  // called `invoke`, and the failure text doubled until the engine threw
+  // `RangeError: Out of memory`. At the shell, not one command arrived.
+  it('erkennt den IPC-Kanal von Tauri', async () => {
+    const { isTauriIpc } = await import('src/utils/shellTransport')
+    expect(isTauriIpc('http://ipc.localhost/api_request')).toBe(true)
+    expect(isTauriIpc('http://ipc.localhost')).toBe(true)
+    expect(isTauriIpc('ipc://localhost/api_request')).toBe(true)
+  })
+
+  it('haelt echte Anfragen fuer keine IPC', async () => {
+    const { isTauriIpc } = await import('src/utils/shellTransport')
+    expect(isTauriIpc('https://streamarr.luebke.internal/api/auth/status')).toBe(false)
+    expect(isTauriIpc('/api/auth/status')).toBe(false)
+    // A host that merely contains the string must not be caught by the rule.
+    expect(isTauriIpc('https://ipc.localhost.example.com/x')).toBe(false)
+    expect(isTauriIpc(undefined)).toBe(false)
+  })
+
+  it('schluckt den IPC-Aufruf nicht in eine 503-Antwort', async () => {
+    // The property that matters. The adapter's whole job is to turn a failure into a
+    // 503 response with a `detail`; for its own command channel that is exactly the
+    // recursion, so the call has to go past it. Asserted by behaviour rather than by a
+    // mock: `shellFetch` captured the real `fetch` when the module loaded, so a spy
+    // installed afterwards would prove nothing about which one it calls.
+    const { shellFetch } = await import('src/utils/shellTransport')
+    const outcome = await shellFetch('http://ipc.localhost/api_request', {
+      method: 'POST',
+    }).then(
+      (response) => ({ swallowed: true, response }),
+      (error) => ({ swallowed: false, error }),
+    )
+    expect(outcome.swallowed).toBe(false)
+  })
+})
+
+describe('describeError hat eine Obergrenze', () => {
+  // A guard against a runaway: an error built from an earlier error's text grows until
+  // the engine refuses it. This is what that refusal looked like from the outside.
+  it('kuerzt eine ueberlange Beschreibung', async () => {
+    const { describeError } = await import('src/utils/shellTransport')
+    const out = describeError('x'.repeat(5000))
+    expect(out.length).toBeLessThan(700)
+    expect(out).toContain('Zeichen')
+  })
+
+  it('laesst kurze Beschreibungen unveraendert', async () => {
+    const { describeError } = await import('src/utils/shellTransport')
+    expect(describeError('kaputt')).toBe('kaputt')
+  })
+})
+

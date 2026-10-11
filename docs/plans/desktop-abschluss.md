@@ -141,9 +141,17 @@ geöffnet), 60 Threads, darunter `gilrs` (der Controller-Leser) und `VBlankMonit
 (echtes Rendering, kein Null-Backend).
 
 **Sie läuft als eigenständiges Programm.** Acht Stunden am Stück, dann über das
-Hauptfenster geschlossen, Exit 0 — kein Absturz. Und sie lädt dabei **ihr eigenes
-UI**: 0 Verbindungen auf Port 9000, 2 zum Server auf 443. Genau dieser Unterschied
-ist der Befund unten.
+Hauptfenster geschlossen, Exit 0 — kein Absturz. Und sie lädt **ihr eigenes UI**:
+0 Verbindungen auf Port 9000 statt eines Dev-Servers.
+
+**Korrektur zu einer früheren Fassung dieser Seite.** Hier stand, die App habe
+„2 Verbindungen zum Server auf 443" gehabt, und das sei der Beleg, dass die
+Oberfläche lädt und mit der API spricht. Der zweite Teil ist **falsch**, und der
+Fehler ist lehrreich: dieselbe Messung zeigte später, dass **kein einziger**
+Tauri-Befehl die Shell erreichte — der IPC-Kanal war tot (siehe „Der Client war
+kein WebRTC-Peer", Abschnitt zur Aushandlung). Die zwei Verbindungen waren
+vermutlich Reste im `TIME_WAIT` und sind **kein** Beleg für irgendetwas. Wer eine
+Prozessliste liest, muss den Zustand der Sockets prüfen und nicht ihre Zahl.
 
 **Ein echter Fehler, gefunden durchs Starten.** Ein direkt gebautes Binary zeigte
 statt der Oberfläche eine Browser-Fehlerseite. Ursache: `frontend/src-tauri`
@@ -228,6 +236,17 @@ Installer ausgeführt. Es gibt in diesem Projekt keinen Windows-Host.
 setzt.
 
 **Ein Update, das installiert wurde.** Es gibt kein Release.
+
+**Der Rechner dieser Tests ist am Speicherlimit.** WebKit meldet beim Start
+zweimal `Unable to shrink memory footprint of process (16654 MB) below the kill
+threshold (16384 MB). Killed`. Gemessen ist das **nicht** der Speicher der App:
+die lag bei 59–145 MB. Die Cgroup der Sitzung steht bei 35 GB und der Swap ist
+vollständig belegt (8 von 8 GiB), und WebKit liest unter Distrobox einen größeren
+Bereich als den eigenen Prozess. Die App hat es beide Male überlebt und sauber
+beendet. Es bleibt ein Umgebungsvorbehalt: wer auf einer Maschine mit freiem
+Speicher testet, sieht die Meldung vermutlich nicht — und ob ein gekillter
+WebKit-Teilprozess einmal die Oberfläche leert, ist damit **nicht** ausgeschlossen,
+sondern nur nicht aufgetreten.
 
 **macOS.** Außerhalb des Umfangs.
 

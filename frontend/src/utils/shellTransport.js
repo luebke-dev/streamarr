@@ -28,6 +28,45 @@ import { invoke } from '@tauri-apps/api/core'
 import { logger } from 'src/utils/logger'
 
 /**
+ * The `fetch` that was there before this module replaced it.
+ *
+ * Kept because the shell's **own** command channel is also `fetch`, and routing that
+ * through the adapter is fatal — see `isTauriIpc`.
+ */
+const nativeFetch = globalThis.fetch.bind(globalThis)
+
+/**
+ * Whether a URL is Tauri's own IPC transport rather than an application request.
+ *
+ * # Why this exists, and what its absence cost
+ *
+ * Tauri v2 sends every command as a request to `http://ipc.localhost/<command>`. This
+ * module replaces `globalThis.fetch`, so it intercepted the shell's own command channel:
+ * `invoke` called the adapter, the adapter called `invoke`, and each round wrapped the
+ * previous failure text again with the same prefix.
+ *
+ * The symptom was a login page that never worked and a wall of identical
+ * "Die Desktop-App konnte die Anfrage nicht ausführen." messages. The text **doubled**
+ * per round until the engine refused the string with `RangeError: Out of memory` — which
+ * was then wrapped too, so it grew further. What it looked like was a network or a
+ * memory problem; what it was, is this function missing. Confirmed at the shell: with
+ * the recursion in place, **not a single Tauri command reached Rust**, even though the
+ * page rendered and the adapter's error handler ran.
+ *
+ * Exported so the rule can be tested without a WebView.
+ */
+export function isTauriIpc(url) {
+  if (typeof url !== 'string') return false
+  // `http://ipc.localhost/<command>` is what this build emits (measured in the binary);
+  // the `ipc:` scheme is the same transport in other configurations.
+  //
+  // The slash inside the group has to be escaped: bare, it ends the regular expression
+  // literal and the whole module fails to parse — which is how this was found, by the
+  // tests refusing to load the file.
+  return /^https?:\/\/ipc\.localhost(?:\/|$)/i.test(url) || /^ipc:\/\//i.test(url)
+}
+
+/**
  * Turns a request URL into a path for the shell.
  *
  * The origin is dropped on purpose: the shell decides which host to talk to, using the
@@ -69,6 +108,14 @@ function base64ToBytes(base64) {
  */
 async function shellFetch(input, init = {}) {
   const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+
+  // The shell's own command channel goes straight out, untouched. Without this the
+  // adapter swallows `invoke` itself and recurses until the engine runs out of memory;
+  // see `isTauriIpc`.
+  if (isTauriIpc(rawUrl)) {
+    return nativeFetch(input, init)
+  }
+
   const method = (init.method || (input instanceof Request ? input.method : 'GET')).toUpperCase()
 
   // Headers, from both the Request and the init, since either may carry them.
@@ -88,11 +135,17 @@ async function shellFetch(input, init = {}) {
 
   // A body may arrive as a string, a URLSearchParams or something else; the shell takes
   // text, so it is normalised here rather than in Rust.
+  //
+  // It may also arrive **inside the `Request`** rather than in `init`, and that was the
+  // defect: axios hands the adapter a whole `Request`, so `init.body` was `undefined`
+  // and every POST went out empty. The server answered `422 [{"loc": ["body"], "msg":
+  // "Field required", "input": null}]` — for the login, which reads like a credential
+  // problem and is a missing body.
   let body
-  if (typeof init.body === 'string') {
-    body = init.body
-  } else if (init.body instanceof URLSearchParams) {
-    body = init.body.toString()
+  if (init.body !== undefined && init.body !== null) {
+    body = await bodyAsText(init.body)
+  } else if (input instanceof Request) {
+    body = await requestBodyAsText(input)
   }
 
   try {
@@ -153,6 +206,44 @@ async function shellFetch(input, init = {}) {
 }
 
 /**
+ * A normalised body, or `undefined` when there is none.
+ *
+ * `undefined` and an empty string are different: the shell passes `None` on to the HTTP
+ * layer, which sends no body at all, while `""` sends a zero-length one.
+ */
+async function bodyAsText(body) {
+  if (typeof body === 'string') return body
+  if (body instanceof URLSearchParams) return body.toString()
+  if (body instanceof FormData) {
+    // Left to the platform: the multipart encoding needs the same boundary in the header.
+    return undefined
+  }
+  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return undefined
+  if (typeof body === 'object') {
+    // A plain object should have been serialised by the caller, but sending nothing is
+    // worse than sending JSON, and the login is exactly the request that suffers.
+    try {
+      return JSON.stringify(body)
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
+}
+
+/** The body of a `Request`, read as text when it has one. */
+async function requestBodyAsText(input) {
+  if (!input.body) return undefined
+  try {
+    // Cloned because reading a `Request`'s body consumes it, and the caller may still
+    // be holding the original.
+    return await input.clone().text()
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * A readable description of a thrown value.
  *
  * `String(error)` is not good enough here and the failure was visible in the running
@@ -168,6 +259,22 @@ async function shellFetch(input, init = {}) {
  * anticipated.
  */
 export function describeError(error) {
+  return truncate(describeErrorFully(error))
+}
+
+/// The longest description handed on.
+///
+/// A guard, not a formatting choice. An error whose text is itself built from an earlier
+/// error's text grows on every pass, and one such loop already produced
+/// `RangeError: Out of memory` in a WebView. A cap turns a runaway into a long message.
+const MAX_DESCRIPTION = 600
+
+function truncate(text) {
+  if (typeof text !== 'string' || text.length <= MAX_DESCRIPTION) return text
+  return `${text.slice(0, MAX_DESCRIPTION)}… (${text.length} Zeichen)`
+}
+
+function describeErrorFully(error) {
   if (error === null || error === undefined) return 'Unbekannter Fehler'
   if (typeof error === 'string') return error
   if (typeof error === 'number' || typeof error === 'boolean') return String(error)

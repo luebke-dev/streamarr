@@ -109,8 +109,33 @@ pub async fn api_request(
 
     // Credentials are attached here and never handed to the page.
     let mut headers = headers.unwrap_or_default();
-    if let Some(token) = current_access_token(&state)? {
-        headers.push(("Authorization".to_string(), format!("Bearer {token}")));
+
+    // The refresh endpoint authenticates with the **refresh** token, not the access
+    // token. The server's `verify_refresh_token` reads the httpOnly cookie or the
+    // `Authorization` header, and a desktop client has no cookie — so the header is the
+    // only way. Attaching the access token, which the generic branch below does, is why a
+    // restart could not restore a session: the server answered `400`, the page reported
+    // "Token refresh failed", and the user was back at the login form with a perfectly
+    // good refresh token in the keyring.
+    //
+    // Matched on the path rather than on the method, because the shell is the only place
+    // that knows which credential belongs to which endpoint — and it owns both.
+    let refresh_path = is_refresh_path(&path);
+    if refresh_path {
+        if let Some(refresh) = current_refresh_token(&state)? {
+            headers.push(("Authorization".to_string(), format!("Bearer {refresh}")));
+        }
+        // No refresh token: the branch below runs instead, so the server's own answer
+        // (rather than a local guess) is what the page reports.
+    }
+
+    let already_authorised = headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("authorization"));
+    if !already_authorised {
+        if let Some(token) = current_access_token(&state)? {
+            headers.push(("Authorization".to_string(), format!("Bearer {token}")));
+        }
     }
 
     let request = crate::api::RawRequest {
@@ -170,6 +195,30 @@ pub(crate) fn current_access_token_for_report(state: &AppState) -> Result<Option
 fn current_access_token(state: &AppState) -> Result<Option<String>, String> {
     let tokens = state.tokens.lock().unwrap();
     Ok(tokens.load().map(|pair| pair.access_token))
+}
+
+/// The long-lived token, which only the refresh endpoint may be given.
+///
+/// Kept apart from [`current_access_token`] deliberately: sending the refresh token to
+/// every endpoint would hand a seven-day credential to requests that need a fifteen-minute
+/// one, which is the same mistake as storing it in the page.
+fn current_refresh_token(state: &AppState) -> Result<Option<String>, String> {
+    let tokens = state.tokens.lock().unwrap();
+    Ok(tokens.load().and_then(|pair| pair.refresh_token))
+}
+
+/// Whether a path authenticates with the refresh token rather than the access token.
+///
+/// The shell owns both credentials, so it is the only layer that can make this decision —
+/// and getting it wrong is invisible from the page: a `400` from the refresh endpoint
+/// looks like an expired session, and the user is shown the login form while holding a
+/// perfectly good refresh token.
+fn is_refresh_path(path: &str) -> bool {
+    // The query and the fragment are stripped first: matching on a bare prefix would also
+    // catch `/api/auth/refreshless` and hand *that* the seven-day token. My own test
+    // found this — the assertion for `refreshless` failed on the first version.
+    let without_query = path.split(['?', '#']).next().unwrap_or("");
+    without_query.trim_end_matches('/') == "/api/auth/refresh"
 }
 
 /// Stores the token pair the page obtained by logging in.
@@ -304,5 +353,37 @@ mod tests {
             body_base64: None,
         };
         assert_eq!(response.headers.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod bridge_tests {
+    //! Which credential belongs to which endpoint.
+    //!
+    //! The shell owns both tokens, so this decision can only be made here — and getting it
+    //! wrong is invisible from the page. A `400` from the refresh endpoint looks like an
+    //! expired session, so the user is shown the login form while a perfectly good
+    //! refresh token sits in the keyring. Measured: that is exactly what happened, and
+    //! the stored token worked against the server as soon as it was sent
+    //! (`POST /api/auth/refresh` → 200).
+
+    use super::is_refresh_path;
+
+    #[test]
+    fn the_refresh_endpoint_is_recognised() {
+        assert!(is_refresh_path("/api/auth/refresh"));
+        assert!(is_refresh_path("/api/auth/refresh/"));
+        assert!(is_refresh_path("/api/auth/refresh?x=1"));
+    }
+
+    #[test]
+    fn every_other_path_is_not_the_refresh_endpoint() {
+        // `starts_with` on the bare prefix would also catch these, and the first one
+        // would then be sent the long-lived token instead of the short-lived one.
+        assert!(!is_refresh_path("/api/auth/refreshless"));
+        assert!(!is_refresh_path("/api/auth/me"));
+        assert!(!is_refresh_path("/api/auth/local/login"));
+        assert!(!is_refresh_path("/api/auth/status"));
+        assert!(!is_refresh_path(""));
     }
 }
