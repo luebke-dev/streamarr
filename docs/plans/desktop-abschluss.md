@@ -1,6 +1,6 @@
 # Abschluss der Desktop-App (Phasen 2–5)
 
-**Stand:** alle sieben Arbeitspakete abgeschlossen · 51 Commits auf `feat/desktop-app`
+**Stand:** alle sieben Arbeitspakete abgeschlossen · 59 Commits auf `feat/desktop-app`
 **Nicht gepusht, nicht ausgeliefert, kein Servereingriff.**
 
 Diese Seite liest die zehn Erfolgskriterien Punkt für Punkt gegen und trennt
@@ -18,6 +18,13 @@ Neustart**, den der Auftraggeber ausdrücklich abgelehnt hat.
 
 Vollständig dokumentiert in [`desktop-testserver-stand.md`](desktop-testserver-stand.md),
 inklusive Durchstichprüfung für danach.
+
+**Nachtrag, am 11.10. gemessen.** Die öffentlichen Endpunkte antworten wieder:
+`/api/auth/status` → 200 mit `local_auth_enabled: true`, `/api/branding/configuration`
+→ 200 und ein echter Servername statt eines Fehlers. Der Ausfall, der diese Seite
+begründet, ist damit **jedenfalls teilweise vorbei**. Ob die Datenbank zurück ist,
+ist damit nicht belegt (beide Endpunkte können ohne sie antworten), und die drei
+Live-Nachweise sind weiterhin **nicht versucht** — es bleibt bei offen.
 
 Deshalb sind genau drei Dinge offen, die eine Live-Verbindung brauchen: **Login,
 Medienwiedergabe und Spiel-Streaming gegen den echten Server.**
@@ -40,13 +47,15 @@ Medienwiedergabe und Spiel-Streaming gegen den echten Server.**
 ## Was gemessen ist
 
 **Rust.** `desktop/player` 514 Tests feature-frei und mit `mpv`/`spike`, 537 mit
-`gamepad`. `frontend/src-tauri` 143 Tests ohne und 145 mit `gamestream`.
-`cargo fmt --all --check` und `clippy --locked --all-targets -- -D warnings`
-sauber in **allen sechs** Konfigurationen.
+`gamepad`. `frontend/src-tauri` 144 Tests ohne Zutaten und mit `custom-protocol`,
+152 mit `gamestream` — in beiden Kombinationen mit `custom-protocol`. `cargo fmt
+--all --check` und `clippy --all-targets -- -D warnings` sauber in **allen acht**
+Konfigurationen (vier je Crate).
 
-**Frontend.** 405 Tests grün, 24 Fehler in 9 Dateien — genau die dokumentierte
+**Frontend.** 430 Tests grün, 24 Fehler in 9 Dateien — genau die dokumentierte
 Baseline, unverändert über die gesamte Arbeit. ESLint sauber, `npx quasar build`
-erfolgreich.
+erfolgreich. `mkdocs build --strict` exit 0, 0 Warnungen; zusätzlich sind alle
+internen Anker aufgelöst worden, weil `--strict` sie **nicht** prüft.
 
 **Pakete.** `.deb` (10,8 MB), `.rpm` (10,8 MB) und AppImage (120 MB) gebaut und
 geöffnet. Jede direkt gelinkte Bibliothek ist deklariert, geprüft von
@@ -54,10 +63,33 @@ geöffnet. Jede direkt gelinkte Bibliothek ist deklariert, geprüft von
 Abhängigkeiten gefunden, darunter `libudev1` (durch die eigene
 Controller-Unterstützung) und drei GStreamer-Pakete (durch die Spiel-Verdrahtung).
 
+Die Artefakte liegen **nicht mehr auf der Platte**: sie fielen dem Aufräumen nach
+dem vollen Host-Datenträger zum Opfer. Die Zahlen oben stammen aus dem damaligen
+Lauf und sind heute nicht mehr nachprüfbar — ein Paket neu zu bauen ist der
+Durchstich dafür.
+
 **Die App läuft.** Live gestartet und am Prozess belegt: ein Wayland-Fenster
 (`wayland-cursor`-Deskriptor), GPU-Zugriff (`/dev/dri/renderD128`, dreifach
-geöffnet), 60 Threads, 177 MB, darunter `gilrs` (der Controller-Leser) und
-`VBlankMonitor` (echtes Rendering, kein Null-Backend).
+geöffnet), 60 Threads, darunter `gilrs` (der Controller-Leser) und `VBlankMonitor`
+(echtes Rendering, kein Null-Backend).
+
+**Sie läuft als eigenständiges Programm.** Acht Stunden am Stück, dann über das
+Hauptfenster geschlossen, Exit 0 — kein Absturz. Und sie lädt dabei **ihr eigenes
+UI**: 0 Verbindungen auf Port 9000, 2 zum Server auf 443. Genau dieser Unterschied
+ist der Befund unten.
+
+**Ein echter Fehler, gefunden durchs Starten.** Ein direkt gebautes Binary zeigte
+statt der Oberfläche eine Browser-Fehlerseite. Ursache: `frontend/src-tauri`
+deklarierte das Feature `custom-protocol` **nie**, und Tauri wählt zwischen
+Dev-Server und eingebetteten Dateien nach diesem Feature, **nicht** nach dem
+Build-Profil (`is_dev()` ist `!cfg!(feature = "custom-protocol")`). Jedes direkte
+`cargo build`, auch `--release`, lud damit `http://localhost:9000`. Gemessen: das
+Debug-Binary enthielt die Zeichenkette `localhost:9000`, obwohl `dist/spa` fertig
+gebaut war. `tauri build` setzt das Feature selbst — deshalb waren die Pakete
+immer in Ordnung und der Fehler blieb unsichtbar, bis jemand ein Binary allein
+startete. Erschwerend: auf 9000 lauschte der Dev-Server eines **fremden Projekts**,
+der die Verbindung annahm und sofort abbrach — das sah nach Netzproblem aus,
+während der Server `/api/auth/status` mit 200 beantwortete.
 
 **HDR.** Der EDID/CTA-861-Parser liest den echten Monitor und erkennt ihn als
 HDR10-fähig, deckungsgleich mit `edid-decode`. Der Live-Test fand dabei einen
@@ -87,9 +119,12 @@ Push, und der ist nicht freigegeben.
 
 ## Was offen ist, und warum
 
-**Drei Live-Nachweise** (Login, Medien, Spiele gegen den Server): die Datenbank
-fehlt, siehe oben. Die Kette ist jeweils gegen einen Ersatzserver mit echten
-Medien, echtem Profil und echtem Tunnel belegt — das ist **nicht** dasselbe.
+**Drei Live-Nachweise** (Login, Medien, Spiele gegen den Server): nicht versucht.
+Der ursprüngliche Grund (fehlende Datenbank) ist am 11.10. gemessen
+**teilweise weggefallen** — die öffentlichen Endpunkte antworten wieder, siehe
+oben. Der Nachweis selbst fehlt weiterhin. Die Kette ist jeweils gegen einen
+Ersatzserver mit echten Medien, echtem Profil und echtem Tunnel belegt — das ist
+**nicht** dasselbe.
 
 **Ein Spiel auf dem Bildschirm.** Die Client-Pipeline ist bewiesen, die
 Shell-Seite steht, und die **UI nimmt den nativen Weg** (`useGameLaunch` verzweigt
