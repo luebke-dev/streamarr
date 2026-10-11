@@ -256,16 +256,39 @@ pub fn store_tokens(state: State<'_, AppState>, tokens: serde_json::Value) -> Re
             .and_then(|v| v.as_u64())
             .unwrap_or(0),
     };
+    // Logged, and without a single value from the pair. This path had **no** logging, and
+    // that cost an afternoon: the keyring stayed empty, the app worked for one session and
+    // forgot it on the next start, and nothing anywhere said why. Which of the three
+    // fields was missing is the whole diagnosis, and it is not secret.
+    log::info!(
+        "Anmeldung erhalten: access={} refresh={} type={} expires={}",
+        !pair.access_token.trim().is_empty(),
+        pair.refresh_token
+            .as_deref()
+            .is_some_and(|t| !t.trim().is_empty()),
+        pair.token_type,
+        pair.expires_in
+    );
+
     // The core crate owns the rule for what a usable pair is; a login that arrived
     // without a refresh token means the platform header did not reach the server, and
     // that is a bug worth surfacing rather than storing a session that dies on restart.
-    pair.validate().map_err(|e| e.to_string())?;
-    state
-        .tokens
-        .lock()
-        .unwrap()
-        .save(&pair)
-        .map_err(|e| format!("Token konnten nicht gespeichert werden: {e}"))
+    if let Err(error) = pair.validate() {
+        log::warn!("Anmeldung abgelehnt, nichts gespeichert: {error}");
+        return Err(error.to_string());
+    }
+
+    let backend = state.tokens.lock().unwrap().backend();
+    match state.tokens.lock().unwrap().save(&pair) {
+        Ok(()) => {
+            log::info!("Sitzung gespeichert ({})", backend.describe());
+            Ok(())
+        }
+        Err(error) => {
+            log::warn!("Sitzung konnte nicht gespeichert werden: {error}");
+            Err(format!("Token konnten nicht gespeichert werden: {error}"))
+        }
+    }
 }
 
 /// Handing the access token back to the page, for its own header building.
