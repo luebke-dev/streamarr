@@ -179,3 +179,35 @@ gebaut.
   `100.64.0.2`** — eine tote Tailscale-Adresse. Ohne IP-Pin läuft jede Anfrage
   in einen Timeout (20 s). Deshalb hält die Shell den Pin; siehe
   [ADR 001](adr-001-desktop-shell.md).
+
+## Nachtrag 11.10.: das Enum `mediatype` ist unvollstaendig
+
+Gemessen, nicht vermutet: `/api/trailers`, `/api/filters` und
+`/api/suggestions/autocomplete/typed` antworten mit **HTTP 500**, und zwar auch
+ohne Desktop-App, direkt per `curl` mit dem API-Schluessel. Der Grund steht im
+Backend-Log:
+
+```
+asyncpg.exceptions.InvalidTextRepresentationError:
+invalid input value for enum mediatype: "AUTHORS"
+```
+
+Gegen die Datenbank geprueft (`pg_enum` in der Datenbank `pyrate`):
+
+```
+MOVIES SHOWS GAMES MUSIC BOOKS AUDIOBOOKS SEASONS EPISODES ARTISTS ALBUMS
+SONGS AUDIOBOOK_CHAPTERS PHOTOS HOME_VIDEOS
+```
+
+`AUTHORS` **fehlt**, waehrend die API `AUTHORS` als gueltigen Wert akzeptiert und
+das Backend ihn abfragt. Das ist ein **Schema-/Code-Versatz** — eine Migration,
+die auf dieser Instanz nicht gelaufen ist.
+
+Was das fuer die Desktop-Arbeit bedeutet: diese drei Endpunkte fallen aus, weil
+**der Server** ausfaellt, nicht der Client. Dieselben Endpunkte ruft die Weboberflaeche
+auf, also trifft es sie genauso. Die betroffenen Abschnitte der Startseite bleiben
+leer.
+
+Nicht behoben: eine Migration auf dem Server ist ein Eingriff und war nicht
+beauftragt.
+
