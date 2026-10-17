@@ -32,7 +32,7 @@ from streamarr.api.dependencies import (
     UserPermissionsDep,
 )
 from streamarr.api.v1.media_filters import MediaListQuery, media_type_for_library
-from streamarr.auth.dependencies import get_current_superuser
+from streamarr.auth.dependencies import _real_client_ip, get_current_superuser
 from streamarr.libraries import get_library_type_for_media_item_type
 from streamarr.models.media import (
     AvailabilityStatus,
@@ -107,6 +107,7 @@ from streamarr.services.rate_limiter import check_and_record
 from streamarr.services.recommendation import RecommendationService
 from streamarr.services.show_resume import ShowResumeError, ShowResumeService
 from streamarr.services.translation import TranslationService
+from streamarr.utils.http import get_pinned_async_client
 from streamarr.utils.net import UnsafeUrlError, safe_get
 
 # Pure remote-image / trailer normalizers extracted from this router (kept as a
@@ -335,7 +336,7 @@ _MAX_REMOTE_IMAGE_BYTES = 15 * 1024 * 1024
 # cannot send the bearer token. Guard it instead with a per-client request rate
 # limit and an output-resolution cap so anonymous callers cannot use it for
 # CPU/bandwidth amplification.
-_ARTWORK_PROXY_RATE_LIMIT = 240  # requests per minute per client
+_ARTWORK_PROXY_RATE_LIMIT = 600  # upstream fetches per minute per client
 _ARTWORK_PROXY_RATE_PERIOD_MINUTES = 1
 _MAX_PROXY_OUTPUT_PIXELS = 4096 * 4096
 def _decode_image_upload(payload: MediaImageUpload) -> tuple[bytes, str, str]:
@@ -381,8 +382,14 @@ def _stored_image_media_type(storage_path: Path) -> str:
 
 
 async def _fetch_remote_image(source_url: str) -> tuple[bytes, str]:
+    # One pooled client per remote host: a page of 60 posters otherwise pays a
+    # fresh TCP+TLS handshake for every single image.
+    host = urlsplit(source_url).hostname
+    client = await get_pinned_async_client(host) if host else None
     try:
-        response = await safe_get(source_url, timeout=10.0, block_private=True)
+        response = await safe_get(
+            source_url, client=client, timeout=10.0, block_private=True
+        )
     except UnsafeUrlError:
         raise HTTPException(status_code=422, detail="Only HTTP(S) images can be proxied")
     if response.status_code >= 400:
@@ -517,8 +524,10 @@ async def proxy_artwork_image(
 ):
     """Proxy and optionally cache remote artwork from known metadata providers.
 
-    Public by necessity (served into ``<img>`` tags), so it is guarded by a
-    per-client rate limit and an output-resolution cap rather than auth.
+    Public by necessity (served into ``<img>`` tags), so it is guarded by an
+    output-resolution cap plus a rate limit that only covers the *upstream*
+    fetch path: a library page legitimately pulls hundreds of posters, and
+    throttling those would just break images that are already on disk.
     """
     _validate_artwork_proxy_url(url)
     _enforce_proxy_output_limit(
@@ -529,24 +538,6 @@ async def proxy_artwork_image(
         fill_width=fill_width,
         fill_height=fill_height,
     )
-
-    client_host = request.client.host if request.client else "anonymous"
-    rate_key = uuid.uuid5(uuid.NAMESPACE_URL, f"artwork-proxy:{client_host}")
-    try:
-        within_limit = await check_and_record(
-            rate_key,
-            "artwork_proxy",
-            _ARTWORK_PROXY_RATE_LIMIT,
-            _ARTWORK_PROXY_RATE_PERIOD_MINUTES,
-        )
-    except Exception as exc:  # best-effort: never break <img> rendering on Redis hiccups
-        logger.debug("Artwork proxy rate-limit check failed open: %s", exc)
-        within_limit = True
-    if not within_limit:
-        raise HTTPException(
-            status_code=429,
-            detail="Artwork proxy rate limit reached. Please wait.",
-        )
 
     artwork_host = urlsplit(url).hostname or "unknown"
 
@@ -577,6 +568,28 @@ async def proxy_artwork_image(
                 record_artwork_cache_event("not_modified", artwork_host)
                 return Response(status_code=304, headers=headers)
             return FileResponse(cached_path, media_type=media_type, headers=headers)
+
+    # Cache miss: this request is about to hit the upstream CDN, so it is the
+    # one worth budgeting. ``_real_client_ip`` walks the trusted-proxy chain —
+    # using ``request.client.host`` here made every user share the *nginx*
+    # container's single bucket.
+    client_host = _real_client_ip(request) or "anonymous"
+    rate_key = uuid.uuid5(uuid.NAMESPACE_URL, f"artwork-proxy:{client_host}")
+    try:
+        within_limit = await check_and_record(
+            rate_key,
+            "artwork_proxy",
+            _ARTWORK_PROXY_RATE_LIMIT,
+            _ARTWORK_PROXY_RATE_PERIOD_MINUTES,
+        )
+    except Exception as exc:  # best-effort: never break <img> rendering on Redis hiccups
+        logger.debug("Artwork proxy rate-limit check failed open: %s", exc)
+        within_limit = True
+    if not within_limit:
+        raise HTTPException(
+            status_code=429,
+            detail="Artwork proxy rate limit reached. Please wait.",
+        )
 
     content, media_type = await _fetch_remote_image(url)
     if transform_params:

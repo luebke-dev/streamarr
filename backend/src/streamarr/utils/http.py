@@ -50,6 +50,72 @@ def make_async_client(
     return httpx.AsyncClient(timeout=effective_timeout, **kwargs)
 
 
+# ── Shared per-host clients for SSRF-pinned fetches ─────────────────────────
+#
+# ``safe_get`` rewrites the URL host to the validated IP, so httpx keys its
+# connection pool on that *IP*. One shared client for every host would
+# therefore let a connection authenticated for host A (TLS SNI/certificate)
+# be reused for host B whenever both resolve to the same address. Keying the
+# client cache by hostname keeps keep-alive pooling *within* a host (a page of
+# 60 posters saves 60 TLS handshakes) without weakening that guarantee.
+
+_pinned_clients: dict[str, httpx.AsyncClient] = {}
+_pinned_clients_loop: asyncio.AbstractEventLoop | None = None
+_PINNED_CLIENT_LIMIT = 8
+_PINNED_CLIENT_LIMITS = httpx.Limits(
+    max_connections=24,
+    max_keepalive_connections=12,
+    keepalive_expiry=30.0,
+)
+
+
+async def close_pinned_async_clients() -> None:
+    """Close every cached pinned client (app shutdown / event-loop change)."""
+    global _pinned_clients_loop
+    clients = list(_pinned_clients.values())
+    _pinned_clients.clear()
+    _pinned_clients_loop = None
+    for client in clients:
+        try:
+            await client.aclose()
+        except Exception as exc:  # pragma: no cover - close during teardown
+            logger.debug("pinned client close failed: %s", exc)
+
+
+async def get_pinned_async_client(host: str) -> httpx.AsyncClient:
+    """Return a long-lived client dedicated to ``host``.
+
+    Reusing one client per host is what turns a cold page of artwork from N
+    TCP+TLS handshakes into N keep-alive requests. The cache is loop-aware
+    (like the Redis singletons) because a client bound to a closed event loop
+    cannot be reused after a reload.
+    """
+    global _pinned_clients_loop
+    loop = asyncio.get_running_loop()
+    if _pinned_clients_loop is not loop:
+        await close_pinned_async_clients()
+        _pinned_clients_loop = loop
+
+    key = host.lower()
+    client = _pinned_clients.get(key)
+    if client is not None and not client.is_closed:
+        # Re-insert so dict order tracks recency (simple LRU eviction).
+        _pinned_clients[key] = _pinned_clients.pop(key)
+        return client
+
+    if len(_pinned_clients) >= _PINNED_CLIENT_LIMIT:
+        _oldest_key, oldest = next(iter(_pinned_clients.items()))
+        del _pinned_clients[_oldest_key]
+        try:
+            await oldest.aclose()
+        except Exception as exc:  # pragma: no cover - eviction is best-effort
+            logger.debug("pinned client eviction close failed: %s", exc)
+
+    client = make_async_client(limits=_PINNED_CLIENT_LIMITS)
+    _pinned_clients[key] = client
+    return client
+
+
 # ── Resilience: retry + backoff + per-host circuit breaker ─────────────────
 
 

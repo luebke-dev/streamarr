@@ -18,6 +18,7 @@ where a low-TTL host returns a public IP to the validation lookup and a
 private/loopback IP to httpx's independent connection lookup.
 """
 
+import asyncio
 import ipaddress
 import socket
 
@@ -181,8 +182,14 @@ async def safe_get(
     try:
         current = url
         for _ in range(max_redirects + 1):
-            parts, pinned_ip = _validate_and_resolve(
-                current, allowed_schemes=allowed_schemes, block_private=block_private
+            # Resolution runs in a worker thread: ``socket.getaddrinfo`` is
+            # blocking, and a cold lookup for the image CDN used to stall the
+            # whole event loop (and with it every other in-flight request).
+            parts, pinned_ip = await asyncio.to_thread(
+                _validate_and_resolve,
+                current,
+                allowed_schemes=allowed_schemes,
+                block_private=block_private,
             )
             response = await _pinned_get(http, parts, pinned_ip, **kwargs)
             if response.is_redirect and response.has_redirect_location:

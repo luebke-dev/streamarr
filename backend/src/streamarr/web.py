@@ -110,6 +110,15 @@ async def lifespan(_app: FastAPI):
         # Shutdown: Close Elasticsearch connection
         await elasticsearch_service.close()
 
+        # Shutdown: close the pooled per-host artwork/outbound HTTP clients so
+        # keep-alive sockets don't outlive the app during a reload.
+        try:
+            from streamarr.utils.http import close_pinned_async_clients
+
+            await close_pinned_async_clients()
+        except Exception:
+            logger.warning("Failed to close pinned HTTP clients", exc_info=True)
+
 
 app = FastAPI(
     title="Streamarr",

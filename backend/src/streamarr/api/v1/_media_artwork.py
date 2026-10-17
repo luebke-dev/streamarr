@@ -8,7 +8,7 @@ large ``api/v1/media.py`` so that module carries endpoints, not cache plumbing.
 import hashlib
 import json
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from fastapi import HTTPException
 
@@ -60,6 +60,23 @@ def _validate_artwork_proxy_url(source_url: str) -> None:
         raise HTTPException(status_code=422, detail="Only HTTP(S) artwork can be proxied")
     if parts.hostname is None or parts.hostname.lower() not in _ARTWORK_PROXY_HOSTS:
         raise HTTPException(status_code=422, detail="Artwork host is not allowed")
+
+
+def artwork_cache_url(source_url: str) -> str:
+    """Return the local cache-proxy URL for ``source_url``, else it unchanged.
+
+    Used as the redirect target when a pre-rendered overlay is not available
+    yet: pointing the browser at the provider CDN directly would bypass the
+    on-disk cache entirely and re-download the image over the internet on
+    every page view. The URL is intentionally relative so it stays on
+    whatever origin the request arrived on.
+    """
+    parts = urlsplit(source_url)
+    if parts.scheme not in {"http", "https"} or parts.hostname is None:
+        return source_url
+    if parts.hostname.lower() not in _ARTWORK_PROXY_HOSTS:
+        return source_url
+    return f"/api/media/images/proxy?url={quote(source_url, safe='')}"
 
 
 def _artwork_cache_key(source_url: str, transform_params: dict[str, object]) -> str:
