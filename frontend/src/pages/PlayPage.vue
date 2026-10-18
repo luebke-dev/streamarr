@@ -373,7 +373,12 @@ const contentTitle = computed(() => {
     const showTitle = contentInfo.value.show_title || ''
     const s = contentInfo.value.season_number
     const e = contentInfo.value.episode_number
-    return `${showTitle} · S${s}E${e}`
+    // The hierarchy fields stay empty when the item has no resolvable show
+    // (orphaned episode, still-scanning library). Join the parts that exist
+    // instead of rendering "undefined · SnullEnull".
+    const code =
+      s != null && e != null ? `S${String(s).padStart(2, '0')}E${String(e).padStart(2, '0')}` : ''
+    return [showTitle, code].filter(Boolean).join(' · ')
   }
   return contentInfo.value.title || contentInfo.value.name || ''
 })

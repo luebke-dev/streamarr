@@ -713,6 +713,138 @@ class TestGetMediaItem:
         assert resp.status_code == 404
 
 
+class TestGetMediaItemEpisodeHierarchy:
+    """Episode rows must carry the show/season labels the player header shows.
+
+    The show plugin types the three levels SHOWS -> SEASONS -> EPISODES, so a
+    check for ``media_type == SHOWS`` never matches an episode and the payload
+    came back with show_title/season_number/episode_number all null (the player
+    then rendered "/api/media" headers empty and a "Snull Enull" title).
+    Rows written by older importers are typed SHOWS all the way down, so both
+    shapes have to resolve.
+    """
+
+    async def _show_tree(self, db, *, typed_levels: bool = True):
+        lib = await _create_library(
+            db,
+            name="Test Shows",
+            type="SHOWS",
+            plugin_id="shows",
+            path="/data/library/shows",
+        )
+        season_type = MediaType.SEASONS if typed_levels else MediaType.SHOWS
+        episode_type = MediaType.EPISODES if typed_levels else MediaType.SHOWS
+        show = await _create_media_item(
+            db, title="Boardwalk Empire", media_type=MediaType.SHOWS, library_guid=lib.guid
+        )
+        season = await _create_media_item(
+            db,
+            title=f"Season {3}",
+            media_type=season_type,
+            parent_guid=show.guid,
+            sequence_number=3,
+            library_guid=lib.guid,
+        )
+        episode = await _create_media_item(
+            db,
+            title="Das Pony",
+            media_type=episode_type,
+            parent_guid=season.guid,
+            sequence_number=8,
+            library_guid=lib.guid,
+        )
+        return show, season, episode
+
+    async def test_episode_resolves_show_and_numbers(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        user_headers,
+    ):
+        show, _, episode = await self._show_tree(db_session)
+
+        resp = await client.get(f"/api/media/{episode.guid}", headers=user_headers)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["show_title"] == show.title
+        assert data["season_number"] == 3
+        assert data["episode_number"] == 8
+
+    async def test_legacy_shows_typed_episode_still_resolves(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        user_headers,
+    ):
+        show, _, episode = await self._show_tree(db_session, typed_levels=False)
+
+        resp = await client.get(f"/api/media/{episode.guid}", headers=user_headers)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["show_title"] == show.title
+        assert data["season_number"] == 3
+        assert data["episode_number"] == 8
+
+    async def test_season_has_number_but_no_episode(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        user_headers,
+    ):
+        show, season, _ = await self._show_tree(db_session)
+
+        resp = await client.get(f"/api/media/{season.guid}", headers=user_headers)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["show_title"] == show.title
+        assert data["season_number"] == 3
+        assert data["episode_number"] is None
+
+    async def test_movie_has_no_hierarchy(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        user_headers,
+    ):
+        item = await _create_media_item(db_session, title="The Matrix")
+
+        resp = await client.get(f"/api/media/{item.guid}", headers=user_headers)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["show_title"] is None
+        assert data["season_number"] is None
+        assert data["episode_number"] is None
+
+    async def test_episode_serves_the_show_cast(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        user_headers,
+    ):
+        show, _, episode = await self._show_tree(db_session)
+        person = Person(name="Steve Buscemi")
+        db_session.add(person)
+        await db_session.commit()
+        await db_session.refresh(person)
+        db_session.add(MediaCast(media_item_guid=show.guid, person_guid=person.guid))
+        await db_session.commit()
+
+        resp = await client.get(f"/api/media/{episode.guid}", headers=user_headers)
+
+        assert resp.status_code == 200
+        cast = resp.json()["cast"]
+        assert [entry["person"]["name"] for entry in cast] == ["Steve Buscemi"]
+
+
 class TestUpdateMediaItem:
     async def test_unauthenticated(self, client: AsyncClient):
         resp = await client.patch(f"/api/media/{uuid.uuid4()}", json={"title": "x"})
