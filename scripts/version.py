@@ -45,7 +45,7 @@ TOML_TARGETS = [
 # Crates and services that are internal: they are not shipped to anyone, so they
 # carry their own version and are deliberately not touched here.
 INTERNAL = [
-    ROOT / "desktop" / "player" / "Cargo.toml",
+    ROOT / "frontend" / "src-tauri" / "player" / "Cargo.toml",
     ROOT / "lightrays" / "Cargo.toml",
     ROOT / "downloaders" / "torrent" / "Cargo.toml",
     ROOT / "downloaders" / "usenet" / "Cargo.toml",

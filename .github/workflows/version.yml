@@ -44,7 +44,7 @@ jobs:
         run: python3 scripts/version.py check
 
       - name: The desktop script agrees with them
-        run: bash desktop/scripts/check_versions.sh
+        run: bash frontend/src-tauri/scripts/check_versions.sh
 
       - name: A release tag matches the product version
         if: startsWith(github.ref, 'refs/tags/v')

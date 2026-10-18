@@ -30,7 +30,7 @@ Deliberately **not** part of the scheme:
 - No separate versions per component for shipped pieces. Backend, web UI, desktop
   shell and images always share the product version — that is what makes "2026.3.0"
   a meaningful answer to "what is broken".
-- Internal, non-shipped crates keep their own `0.1.0`: `desktop/player`, and the
+- Internal, non-shipped crates keep their own `0.1.0`: `frontend/src-tauri/player`, and the
   `lightrays` and downloader services. Nothing consumes their version numbers.
 
 ## One source of truth
@@ -61,7 +61,7 @@ scripts/version.py check         # fail if any of them disagrees
 reformatting of every inline array in `tauri.conf.json`.
 
 CI (`version` workflow) runs `check` on every pull request and push, plus
-`desktop/scripts/check_versions.sh`, and on a `v*` tag it additionally asserts
+`frontend/src-tauri/scripts/check_versions.sh`, and on a `v*` tag it additionally asserts
 that the tag and the `CHANGELOG.md` section match `VERSION`.
 
 ## Tags
@@ -110,7 +110,7 @@ repository says where the code lives; the image name says what is published.
    and leave a fresh empty `## [Unreleased]` on top. Fill in **Upgrade notes** if
    the release adds a migration or changes a default.
 5. Verify locally: `python3 scripts/version.py check`,
-   `bash desktop/scripts/check_versions.sh`.
+   `bash frontend/src-tauri/scripts/check_versions.sh`.
 6. Merge the version commit to `main` and let CI finish on that exact commit.
 7. `git tag -a v<version> -m "Streamarr <version>"` and push the tag.
 8. Watch the workflows the tag starts: `images` (seven images), `version`
