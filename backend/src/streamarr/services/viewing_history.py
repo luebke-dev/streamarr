@@ -17,6 +17,12 @@ from streamarr.models.device import Device
 from streamarr.models.friendship import Friendship, FriendshipStatus
 from streamarr.models.media import MediaItem, MediaType
 from streamarr.models.viewing_history import ViewingHistory
+from streamarr.services.media_hierarchy import (
+    SHOW,
+    hierarchy_labels,
+    is_show_tree,
+    show_level,
+)
 
 
 async def _enqueue_rec_rebuilds_for_watcher_and_friends(
@@ -90,20 +96,24 @@ def _extract_episode_hierarchy(media_item: MediaItem | None) -> dict:
     if media_item.media_type == MediaType.MOVIES:
         result["content_type"] = "movie"
         result["movie_guid"] = media_item.guid
-    elif media_item.parent_guid:
-        result["content_type"] = "episode"
-        result["episode_guid"] = media_item.guid
-        result["episode_number"] = media_item.sequence_number
-        season = media_item.parent
-        if season:
-            result["season_number"] = season.sequence_number
-            show = season.parent
-            if show:
-                result["show_title"] = show.title
-    else:
+        return result
+
+    if not is_show_tree(media_item.media_type):
         result["content_type"] = media_item.media_type.value.lower()
         result["movie_guid"] = media_item.guid
+        return result
 
+    parent = media_item.parent
+    if show_level(media_item, parent) == SHOW:
+        result["content_type"] = media_item.media_type.value.lower()
+        result["movie_guid"] = media_item.guid
+        return result
+
+    result["content_type"] = "episode"
+    result["episode_guid"] = media_item.guid
+    result.update(
+        hierarchy_labels(media_item, parent, getattr(parent, "parent", None))
+    )
     return result
 
 

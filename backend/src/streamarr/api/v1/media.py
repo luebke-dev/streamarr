@@ -90,6 +90,7 @@ from streamarr.services.media_access import (
     require_media_read_access,
 )
 from streamarr.services.media_detail import MediaDetailService
+from streamarr.services.media_hierarchy import is_show_tree
 from streamarr.services.media_serializer import (
     external_links_for_media as _external_links_for_media,
 )
@@ -1658,7 +1659,10 @@ async def download_media_release(
             str(link.guid),
             str(current_user.guid),
         )
-    elif media_item.media_type == MediaType.SHOWS:
+    elif is_show_tree(media_item.media_type):
+        # Every level of the show tree uses the show flow; the download row's
+        # own type comes from the media item either way, but the hint decides
+        # the downloader set and what the log says it queued.
         await add_show_download.kiq(
             str(link.guid),
             str(current_user.guid),

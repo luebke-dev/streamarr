@@ -5,23 +5,19 @@ from __future__ import annotations
 from streamarr.models.media import MediaItem, MediaType
 from streamarr.services.library import LibraryService
 from streamarr.services.media import MediaService
+from streamarr.services.media_hierarchy import hierarchy_labels, is_show_tree
 from streamarr.services.media_serializer import media_item_detail_payload
 from streamarr.services.person import PersonService
 from streamarr.services.translation import TranslationService
 
 
-def _show_tree_types() -> frozenset:
-    """The media types the show plugin uses for show / season / episode.
-
-    ``MediaType`` is generated from the registered plugins, so a member is
-    only guaranteed to exist when the show plugin is loaded - hence getattr
-    instead of attribute access.
-    """
-    return frozenset(
-        media_type
-        for name in ("SHOWS", "SEASONS", "EPISODES")
-        if (media_type := getattr(MediaType, name, None)) is not None
-    )
+def _empty_hierarchy() -> dict:
+    return {
+        "show_title": None,
+        "show_guid": None,
+        "season_number": None,
+        "episode_number": None,
+    }
 
 
 class MediaDetailService:
@@ -64,59 +60,37 @@ class MediaDetailService:
         media_item: MediaItem,
         library_service: LibraryService,
     ) -> dict:
-        hierarchy = {
-            "show_title": None,
-            "show_guid": None,
-            "season_number": None,
-            "episode_number": None,
-        }
-        if (
-            not media_item.parent_guid
-            or media_item.media_type not in _show_tree_types()
-        ):
+        hierarchy = _empty_hierarchy()
+        if not is_show_tree(media_item.media_type) or not media_item.parent_guid:
             # A root item (show, movie, album, ...) has nothing above it, and
             # only the show tree has a season/episode hierarchy at all.
             return hierarchy
 
+        load_options = {
+            "load_files": False,
+            "load_releases": False,
+            "load_external_ids": False,
+        }
         parent = await library_service.get_media_item(
-            media_item.parent_guid,
-            load_files=False,
-            load_releases=False,
-            load_external_ids=False,
+            media_item.parent_guid, **load_options
         )
         if not parent:
             return hierarchy
 
-        # The show plugin types the three levels SHOWS/SEASONS/EPISODES, but
-        # rows written by older importers are typed SHOWS all the way down.
-        # The episode type decides first, then the depth of the chain.
-        is_episode = media_item.media_type == getattr(MediaType, "EPISODES", None)
-        if is_episode or parent.parent_guid:
-            hierarchy["episode_number"] = media_item.sequence_number
-            hierarchy["season_number"] = parent.sequence_number
-            show = parent
-            if parent.parent_guid:
-                show = await library_service.get_media_item(
-                    parent.parent_guid,
-                    load_files=False,
-                    load_releases=False,
-                    load_external_ids=False,
-                )
-        else:
-            # A season: its parent already is the show.
-            hierarchy["season_number"] = media_item.sequence_number
-            show = parent
-
-        if show:
-            hierarchy["show_title"] = show.title
-            hierarchy["show_guid"] = show.guid
-        return hierarchy
+        # Only an episode needs the show above its season; for a season the
+        # parent already is the show.
+        grandparent = None
+        if parent.parent_guid:
+            grandparent = await library_service.get_media_item(
+                parent.parent_guid, **load_options
+            )
+        return hierarchy_labels(media_item, parent, grandparent)
 
     async def _cast_entries(self, media_item: MediaItem) -> list:
         cast_media_guid = None
         if media_item.media_type == MediaType.MOVIES and not media_item.parent_guid:
             cast_media_guid = media_item.guid
-        elif media_item.media_type in _show_tree_types():
+        elif is_show_tree(media_item.media_type):
             # A season or an episode carries no cast of its own; the show does.
             if not media_item.parent_guid:
                 cast_media_guid = media_item.guid

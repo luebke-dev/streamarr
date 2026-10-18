@@ -36,6 +36,13 @@ from streamarr.schemas.viewing_history import (
 )
 from streamarr.services.friendship import FriendshipService
 from streamarr.services.library import MEDIA_ITEM_LOAD_OPTIONS
+from streamarr.services.media_hierarchy import (
+    SEASON,
+    SHOW,
+    hierarchy_labels,
+    is_show_tree,
+    show_level,
+)
 from streamarr.services.invite import InviteService
 from streamarr.services.permission import MEDIA_TYPE_TO_LIBRARY
 from streamarr.services.user import UserService
@@ -829,25 +836,34 @@ async def get_user_viewing_history(
         episode_number = None
 
         if item.media_item:
-            if item.media_item.media_type == MediaType.MOVIES:
+            media_type = item.media_item.media_type
+            if media_type == MediaType.MOVIES:
                 content_type_str = "movie"
                 movie_guid = item.media_item_guid
-            elif item.media_item.media_type == MediaType.SHOWS:
-                if item.media_item.parent_guid:
-                    content_type_str = "episode"
-                    episode_guid = item.media_item_guid
-                    episode_number = item.media_item.sequence_number
-                    season = item.media_item.parent
-                    if season:
-                        season_number = season.sequence_number
-                        show = season.parent
-                        if show:
-                            show_title = show.title
-                else:
+            elif is_show_tree(media_type):
+                parent = item.media_item.parent
+                level = show_level(item.media_item, parent)
+                labels = hierarchy_labels(
+                    item.media_item, parent, getattr(parent, "parent", None)
+                )
+                if level == SEASON:
+                    # A season never gets a history row of its own; if one ever
+                    # shows up here, report it as the show it belongs to rather
+                    # than inventing an episode number for it.
+                    content_type_str = "show"
+                    movie_guid = labels["show_guid"]
+                    show_title = labels["show_title"]
+                elif level == SHOW:
                     content_type_str = "show"
                     movie_guid = item.media_item_guid
+                else:
+                    content_type_str = "episode"
+                    episode_guid = item.media_item_guid
+                    episode_number = labels["episode_number"]
+                    season_number = labels["season_number"]
+                    show_title = labels["show_title"]
             else:
-                content_type_str = item.media_item.media_type.value.lower()
+                content_type_str = media_type.value.lower()
                 movie_guid = item.media_item_guid
 
         items.append(

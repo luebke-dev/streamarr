@@ -31,6 +31,7 @@ from streamarr.services import (
 from streamarr.services.email import email_service
 from streamarr.services.library import LibraryService
 from streamarr.services.media import MediaService
+from streamarr.services.media_hierarchy import is_show_tree
 from streamarr.services.settings import SettingsService
 from streamarr.services.task_events import (
     record_worker_task_event,
@@ -1061,7 +1062,9 @@ async def refresh_media_item_metadata(media_item_guid_str: str) -> None:
             # Resolve provider plugin and external ID
             external_id = None
 
-            if media_item.media_type in [MediaType.MOVIES, MediaType.SHOWS]:
+            if media_item.media_type == MediaType.MOVIES or is_show_tree(
+                media_item.media_type
+            ):
                 tmdb_api_key = await get_tmdb_api_key(db)
                 if tmdb_api_key:
                     metadata_plugin = TMDB(api_key=tmdb_api_key)
@@ -1087,7 +1090,7 @@ async def refresh_media_item_metadata(media_item_guid_str: str) -> None:
 
             # Delegate to service
             service = MetadataService(db)
-            if media_item.media_type == MediaType.SHOWS and media_item.parent_guid:
+            if is_show_tree(media_item.media_type) and media_item.parent_guid:
                 parent_result = await db.execute(
                     select(MediaItem)
                     .options(selectinload(MediaItem.external_ids))

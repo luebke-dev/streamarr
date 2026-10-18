@@ -1625,6 +1625,63 @@ class TestDownloadRelease:
         assert resp.status_code == 202
         mock_add_show_download.kiq.assert_called_once()
 
+    @patch("streamarr.api.v1.media.add_show_download")
+    @patch("streamarr.api.v1.media.add_download")
+    async def test_download_episode_uses_the_show_flow(
+        self,
+        mock_add_download,
+        mock_add_show_download,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        user_headers,
+    ):
+        """A scanned episode is typed EPISODES, not SHOWS."""
+        from streamarr.models.media import MediaRelease, MediaReleaseLink
+
+        mock_add_download.kiq = AsyncMock()
+        mock_add_show_download.kiq = AsyncMock()
+
+        show = await _create_media_item(db_session, media_type=MediaType.SHOWS)
+        season = await _create_media_item(
+            db_session,
+            media_type=MediaType.SEASONS,
+            parent_guid=show.guid,
+            sequence_number=1,
+        )
+        episode = await _create_media_item(
+            db_session,
+            media_type=MediaType.EPISODES,
+            parent_guid=season.guid,
+            sequence_number=2,
+        )
+        release = MediaRelease(
+            guid=uuid.uuid4(),
+            media_item_guid=episode.guid,
+            title="Show.S01E02.1080p",
+            score=70,
+        )
+        db_session.add(release)
+        await db_session.flush()
+        db_session.add(
+            MediaReleaseLink(
+                guid=uuid.uuid4(),
+                media_release_guid=release.guid,
+                link="magnet:?xt=urn:btih:def",
+                link_type="magnet",
+            )
+        )
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/media/{episode.guid}/releases/{release.guid}/download",
+            headers=user_headers,
+        )
+
+        assert resp.status_code == 202
+        mock_add_show_download.kiq.assert_called_once()
+        mock_add_download.kiq.assert_not_called()
+
 
 # ============================================================================
 # DOWNLOADS

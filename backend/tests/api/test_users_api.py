@@ -378,6 +378,78 @@ class TestUserViewingHistory:
         )
         assert resp.status_code == 404
 
+    async def test_episode_row_carries_the_show_and_numbers(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_user: User,
+        admin_headers,
+    ):
+        """A scanned episode is typed EPISODES; it must still read as an episode."""
+        from streamarr.models.media import MediaItem, MediaType
+        from streamarr.models.viewing_history import ViewingHistory
+
+        now = datetime.now()
+        show = MediaItem(
+            guid=uuid.uuid4(),
+            title="Boardwalk Empire",
+            media_type=MediaType.SHOWS,
+            availability_status="UNKNOWN",
+            created_at=now,
+            updated_at=now,
+        )
+        db_session.add(show)
+        await db_session.flush()
+        season = MediaItem(
+            guid=uuid.uuid4(),
+            title="Season 3",
+            media_type=MediaType.SEASONS,
+            parent_guid=show.guid,
+            sequence_number=3,
+            availability_status="UNKNOWN",
+            created_at=now,
+            updated_at=now,
+        )
+        db_session.add(season)
+        await db_session.flush()
+        episode = MediaItem(
+            guid=uuid.uuid4(),
+            title="Das Pony",
+            media_type=MediaType.EPISODES,
+            parent_guid=season.guid,
+            sequence_number=8,
+            availability_status="UNKNOWN",
+            created_at=now,
+            updated_at=now,
+        )
+        db_session.add(episode)
+        await db_session.flush()
+        db_session.add(
+            ViewingHistory(
+                guid=uuid.uuid4(),
+                user_guid=test_user.guid,
+                media_item_guid=episode.guid,
+                progress_seconds=600,
+                duration_seconds=2400,
+                progress_percentage=25.0,
+                is_completed=False,
+                last_watched_at=now,
+            )
+        )
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/api/users/{test_user.guid}/viewing-history", headers=admin_headers
+        )
+
+        assert resp.status_code == 200
+        row = resp.json()["items"][0]
+        assert row["content_type"] == "episode"
+        assert row["episode_guid"] == str(episode.guid)
+        assert row["show_title"] == "Boardwalk Empire"
+        assert row["season_number"] == 3
+        assert row["episode_number"] == 8
+
 
 # ---------------------------------------------------------------------------
 # PUT /api/users/{user_guid} — OIDC email change branch
