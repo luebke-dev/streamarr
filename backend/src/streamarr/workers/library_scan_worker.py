@@ -16,6 +16,7 @@ from streamarr.database import sessionmanager
 from streamarr.models.activity_log import ActivityLog
 from streamarr.schemas.activity_log import ActivityLogCreate
 from streamarr.services.activity_log import ActivityLogService
+from streamarr.services.artwork_warmup import warm_scanned_artwork
 from streamarr.services.library import LibraryService
 from streamarr.services.library_post_scan import PostScanEnqueuers, dispatch_post_scan
 from streamarr.services.redis_event import get_redis_event_service
@@ -24,6 +25,9 @@ from streamarr.services.settings import SettingsService
 logger = logging.getLogger(__name__)
 _LOCK_KEY = "library_scan:full:lock"
 _PROBE_LIBRARY_TYPES = {"MOVIES", "SHOWS", "MUSIC", "AUDIOBOOKS"}
+# Per-scan artwork warmup budget. Items without a poster yet are skipped, so
+# this only covers items whose artwork the scan could already know about.
+_SCAN_WARMUP_ITEMS = 20
 ProbeEnqueuer = Callable[[str], Awaitable[object]]
 
 
@@ -105,6 +109,7 @@ async def scan_libraries_impl(
         "libraries_skipped": 0,
         "failed": 0,
         "probes_queued": 0,
+        "artwork_warmed": 0,
     }
     try:
         acquired = bool(await redis.set(_LOCK_KEY, token, nx=True, ex=6 * 60 * 60))
@@ -153,6 +158,19 @@ async def scan_libraries_impl(
                         ),
                     )
                     totals["probes_queued"] += queued["probes"]
+
+                    # Best effort and bounded: the browser should find the
+                    # posters of freshly scanned items on disk instead of
+                    # fetching them one by one. Warming must never fail a scan.
+                    try:
+                        warmed = await warm_scanned_artwork(
+                            db, result.media_item_guids, limit_items=_SCAN_WARMUP_ITEMS
+                        )
+                        totals["artwork_warmed"] += warmed["warmed"]
+                    except Exception:
+                        logger.debug(
+                            "Artwork warmup after scan failed", exc_info=True
+                        )
                 except Exception as exc:
                     await db.rollback()
                     totals["failed"] += 1

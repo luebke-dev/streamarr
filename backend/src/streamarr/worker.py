@@ -40,6 +40,7 @@ from streamarr.services.trending import TrendingService
 # Registers the incremental/delta Elasticsearch sync tasks (and their
 # schedule) on the broker so the worker process consumes them.
 from streamarr.workers import search_index_worker  # noqa: F401
+from streamarr.workers.artwork_warmup_worker import warm_recent_artwork_impl
 from streamarr.workers.cleanup import StorageCleanupWorker
 from streamarr.workers.downloads import DownloadRefreshWorker
 from streamarr.workers.favorites_monitor_worker import (
@@ -1889,6 +1890,17 @@ async def tick_render_missing_overlays() -> dict:
     """
     enqueued = await tick_render_missing_overlays_impl()
     return {"enqueued": enqueued}
+
+
+@broker.task(schedule=[{"cron": "40 * * * *"}])  # Hourly, off the hour
+async def tick_warm_artwork_cache() -> dict:
+    """Keep the newest posters warm so a cold browser hits the disk cache.
+
+    Hourly rather than per-import: new artwork only exists after the queued
+    metadata refresh has run, and the warmup is idempotent - an already cached
+    variant costs a glob and no fetch - so the steady-state run is nearly free.
+    """
+    return await warm_recent_artwork_impl()
 
 
 # ------------------------------------------------------------------

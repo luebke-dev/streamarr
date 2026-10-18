@@ -620,16 +620,20 @@ async def proxy_artwork_image(
     return Response(content=content, media_type=media_type, headers=headers)
 
 
-async def warm_artwork_cache_urls(urls: list[str], limit: int = 40) -> None:
-    """Best-effort background warmup for exact remote artwork variants."""
+async def warm_artwork_cache_urls(urls: list[str], limit: int = 40) -> int:
+    """Best-effort background warmup for exact remote artwork variants.
+
+    Returns how many variants were actually fetched (already-cached URLs and
+    failures are skipped), so callers can log a useful number.
+    """
     if not _artwork_cache_enabled():
-        return
+        return 0
 
     warmed = 0
     seen: set[str] = set()
     for url in urls:
         if warmed >= limit:
-            return
+            return warmed
         if not url or url in seen:
             continue
         seen.add(url)
@@ -648,6 +652,7 @@ async def warm_artwork_cache_urls(urls: list[str], limit: int = 40) -> None:
         except Exception as exc:
             record_artwork_cache_event("warmup_failed", urlsplit(url).hostname)
             logger.debug("Failed to warm artwork cache for %s: %s", url, exc)
+    return warmed
 
 
 def _normalize_identify_result(raw: dict) -> dict | None:
