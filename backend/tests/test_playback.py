@@ -884,6 +884,29 @@ class TestNegotiateCodecsExtraCases:
         )
         assert result.audio_codec == "aac"
 
+    def test_audio_copy_when_the_client_advertises_the_surround_codec(self):
+        """A client that says it decodes ac3 gets the file, not a transcode.
+
+        The desktop app advertises ac3, eac3, dts, dts-hd and truehd because mpv
+        decodes them. Mapping those to aac regardless made every film on the test
+        instance a transcode - it has no item whose audio can be copied - so direct
+        play was unreachable for the client that was best equipped to use it.
+        """
+        from streamarr.services.play import negotiate_codecs
+        for source_codec in ("ac3", "eac3", "dts", "truehd"):
+            source_info = {"video_codec": "h264", "audio_codec": source_codec, "height": 1080}
+            f = _make_file()
+            result = negotiate_codecs(
+                source_info=source_info,
+                probe_data={"audio_streams": [{"codec_name": source_codec}]},
+                file=f,
+                supported_video_codecs="h264",
+                supported_audio_codecs=f"aac,{source_codec}",
+                client_max_resolution=None,
+            )
+            assert result.audio_codec == "copy", source_codec
+            assert result.video_codec == "copy", source_codec
+
 
 # ============================================================================
 # download.py — DownloadService edge cases
