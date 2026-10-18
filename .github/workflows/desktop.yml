@@ -92,9 +92,22 @@ jobs:
       - name: GStreamer development libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+          # `-bad` carries `gstreamer-webrtc-1.0.pc`. Without it the `spike` feature
+          # fails in the build script of `gstreamer-webrtc-sys`, which reads as a Rust
+          # error and is a missing C development package.
+          sudo apt-get install -y \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            libgstreamer-plugins-bad1.0-dev \
+            libgstreamer-plugins-bad1.0-dev
           version=$(pkg-config --modversion gstreamer-1.0)
           echo "GStreamer $version"
+          # Also assert the module the feature actually needs, so a future image that
+          # drops `-bad` says so here instead of in a build script 200 lines later.
+          pkg-config --exists gstreamer-webrtc-1.0 || {
+            echo "::error::gstreamer-webrtc-1.0 fehlt (Paket libgstreamer-plugins-bad1.0-dev)"
+            exit 1
+          }
           required=1.22
           if [ "$(printf '%s\n%s\n' "$required" "$version" | sort -V | head -1)" != "$required" ]; then
             echo "::error::GStreamer $version ist aelter als $required; das spike-Feature braucht send_string_full"
@@ -187,9 +200,12 @@ jobs:
       - name: Build the frontend the shell embeds
         working-directory: frontend
         run: |
-          corepack enable
-          corepack yarn install --immutable || corepack yarn install
-          corepack yarn build
+          # `frontend/yarn.lock` is a Yarn classic (v1) lockfile and the runners ship
+          # Yarn 1, so this is the same install the working frontend workflow uses.
+          # `corepack` was wrong here: it is the Berry entry point and the project has no
+          # `packageManager` field for it to read.
+          yarn install --frozen-lockfile
+          yarn build
       - name: Format
         working-directory: frontend/src-tauri
         run: cargo fmt --all --check
@@ -257,7 +273,10 @@ jobs:
             libssl-dev \
             libdbus-1-dev \
             pkg-config \
-            rpm
+            rpm \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            libgstreamer-plugins-bad1.0-dev
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: frontend/src-tauri
@@ -267,8 +286,11 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: |
-          corepack enable
-          corepack yarn install --immutable || corepack yarn install
+          # `frontend/yarn.lock` is a Yarn classic (v1) lockfile and the runners ship
+          # Yarn 1, so this is the same install the working frontend workflow uses.
+          # `corepack` was wrong here: it is the Berry entry point and the project has no
+          # `packageManager` field for it to read.
+          yarn install --frozen-lockfile
       - name: Versions must agree across the three files
         # Before anything is built: a mismatch here means the update checker
         # offers an update that is already installed, or none when one exists.
@@ -371,14 +393,25 @@ jobs:
         working-directory: frontend
         shell: bash
         run: |
-          corepack enable
-          corepack yarn install --immutable || corepack yarn install
+          # `frontend/yarn.lock` is a Yarn classic (v1) lockfile and the runners ship
+          # Yarn 1, so this is the same install the working frontend workflow uses.
+          # `corepack` was wrong here: it is the Berry entry point and the project has no
+          # `packageManager` field for it to read.
+          yarn install --frozen-lockfile
       - name: Build the NSIS and MSI installers
         working-directory: frontend
         shell: bash
         # Both targets, so a configuration that only works for one is visible. The
         # step fails if either bundler cannot run.
-        run: npx tauri build --bundles nsis,msi
+        #
+        # The `gamestream` feature is overridden away on purpose. It needs GStreamer's
+        # **MSVC development package**, which this runner does not have and which is not
+        # a `choco`/`apt` one-liner; `gstreamer-webrtc-sys` fails in its build script
+        # without it (measured on Linux, same build script). So the Windows installers
+        # carry the native media path and **not** game streaming. That limit is real and
+        # is written down in docs/docs/user-guide/desktop.md rather than papered over
+        # with a green tick.
+        run: npx tauri build --bundles nsis,msi --config '{"build":{"features":[]}}'
       - name: Assert both installers exist
         shell: bash
         run: |
@@ -408,14 +441,17 @@ jobs:
       - name: Install
         working-directory: frontend
         run: |
-          corepack enable
-          corepack yarn install --immutable || corepack yarn install
+          # `frontend/yarn.lock` is a Yarn classic (v1) lockfile and the runners ship
+          # Yarn 1, so this is the same install the working frontend workflow uses.
+          # `corepack` was wrong here: it is the Berry entry point and the project has no
+          # `packageManager` field for it to read.
+          yarn install --frozen-lockfile
       - name: Lint
         working-directory: frontend
-        run: corepack yarn lint
+        run: yarn lint
       - name: Build
         working-directory: frontend
-        run: corepack yarn build
+        run: yarn build
       # The 24 known failures are pre-existing and unrelated to the desktop work.
       # Asserting the count keeps them visible: a new failure raises the number and
       # fails here, while the known ones do not block every future change.
@@ -424,7 +460,7 @@ jobs:
         run: |
           set +e
           # `test:unit` is already `vitest run`; adding --run would be redundant.
-          corepack yarn test:unit 2>&1 | tee /tmp/vitest.log
+          yarn test:unit 2>&1 | tee /tmp/vitest.log
           status=$?
           set -e
           failures=$(grep -oE 'Tests +[0-9]+ failed' /tmp/vitest.log | grep -oE '[0-9]+' | head -1)

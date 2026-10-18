@@ -1,5 +1,9 @@
 [package]
 name = "streamarr"
+# Which binary the bundlers package. Required since `[[bin]] game-live-check` was added:
+# with two binaries and no `default-run`, `tauri build` stops with
+# "failed to find main binary" — measured, and it broke both bundle jobs.
+default-run = "streamarr"
 version = "2026.2.1"
 description = "A streaming media center."
 authors = ["Sebastian Lübke <streamarr@luebke.dev>"]
