@@ -4,7 +4,7 @@
 # "Your media, your rules."
 #
 # Supported: Debian 12+, Ubuntu 22.04+, Fedora 39+, RHEL/CentOS 9+
-# Usage:     curl -fsSL https://get.streamarr.media | sudo bash
+# Usage:     sudo bash deployment/install.sh     (from a checkout of the repo)
 #            or:  sudo bash install.sh
 # =============================================================================
 set -euo pipefail

@@ -24,7 +24,8 @@ streamarr.media ships four supported deployment models. All of them run the same
 The fastest path on a fresh Linux host:
 
 ```bash
-curl -fsSL https://get.streamarr.media | sudo bash
+git clone https://github.com/luebke-dev/streamarr.git
+sudo bash streamarr/deployment/install.sh
 ```
 
 The interactive installer:

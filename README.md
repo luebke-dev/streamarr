@@ -13,10 +13,12 @@ The usual way there is a pile of applications that each want their own library, 
 
 It runs on your own hardware, and nobody else has a say in it: no subscription, no licence tiers, no telemetry.
 
-**Want to get started?** The installer does the rest on a fresh Linux box:
+**Want to get started?** The installer in the repository does the rest on a fresh
+Linux box:
 
 ```bash
-curl -fsSL https://get.streamarr.media | sudo bash
+git clone https://github.com/luebke-dev/streamarr.git
+sudo bash streamarr/deployment/install.sh
 ```
 
 It installs Docker, generates the secrets, and starts the stack. Setting things up by hand is just as supported — Docker Compose, Kubernetes (Helm), and Podman quadlets all live in [`deployment/`](deployment/). The [quick start](https://streamarr.luebke.dev/getting-started/quick-start/) then walks you through the setup wizard, your first library, and indexers.

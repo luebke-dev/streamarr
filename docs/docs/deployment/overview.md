@@ -19,7 +19,8 @@ streamarr.media ships four supported deployment models, each with a clearly assi
 The prod Compose file pulls images from `registry.gitlab.com/streamarr.media`. For a fresh box, the interactive installer bootstraps everything:
 
 ```bash
-curl -fsSL https://get.streamarr.media | sudo bash
+git clone https://github.com/luebke-dev/streamarr.git
+sudo bash streamarr/deployment/install.sh
 ```
 
 It installs Docker (Debian/Fedora/RHEL), generates secrets with `openssl rand`, writes a `chmod 600` `.env` plus a systemd unit, and emits a **generated subset** of the maintained Compose file with only the services you opt into. For the full service set (the three Rust downloaders in addition to SABnzbd), deploy `docker/docker-compose.yml` directly — it remains the source of truth.
