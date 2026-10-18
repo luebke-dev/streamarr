@@ -276,7 +276,7 @@ create_directories() {
     mkdir -p "$DATA_DIR"/library/{movies,shows,music}
     mkdir -p "$DATA_DIR"/sabnzbd/{config,downloads,incomplete}
     mkdir -p "$DATA_DIR"/spotdl/{downloads,cache}
-    mkdir -p "$DATA_DIR"/{cache,temp}
+    mkdir -p "$DATA_DIR"/{cache,temp,backups}
 
     # Elasticsearch needs uid 1000
     chown -R 1000:1000 "$DATA_DIR/elastic"

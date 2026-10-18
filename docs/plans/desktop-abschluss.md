@@ -249,9 +249,15 @@ Gamepad. Die Geometrie, die Wiederholregel und die Shell-Befehle sind getestet,
 der Tastaturweg durchgängig — der Controller-Weg ist nie von einem Menschen
 gedrückt worden.
 
-**Windows.** NSIS und MSI werden in der CI auf `windows-latest` gebaut, und der
-Job prüft, dass beide Artefakte existieren. Aber **kein Mensch** hat einen dieser
-Installer ausgeführt. Es gibt in diesem Projekt keinen Windows-Host.
+**Windows.** In der CI auf `windows-latest` entsteht ein NSIS-Installer, und der Job
+prüft, dass das Artefakt existiert. Aber **kein Mensch** hat ihn ausgeführt. Es gibt in
+diesem Projekt keinen Windows-Host.
+
+**Ein MSI gibt es nicht, und das ist eine harte Grenze, keine Auslassung:** WiX legt die
+Major-Version in ein einziges Byte, und `2026.2.1` passt dort nicht hinein — der Bundler
+antwortet `app version major number cannot be greater than 255`. Ein MSI würde
+bedeuten, demselben Release je nach Installer zwei verschiedene Versionsnummern zu
+geben. Für ein MSI müsste zuerst das Versorgungsschema geändert werden.
 
 Das Windows-Paket **zeigt die Bibliothek, spielt aber nichts ab**: Spiele brauchen
 GStreamers MSVC-Entwicklungspaket (auf dem Runner nicht vorhanden), und die

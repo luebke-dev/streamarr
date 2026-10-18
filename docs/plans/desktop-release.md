@@ -94,10 +94,14 @@ verspricht, die er nicht einlösen kann.
 
 ## Windows
 
-Die NSIS- und MSI-Ziele sind in `bundle.targets` konfiguriert und werden im
-CI-Job `bundles-windows` auf `windows-latest` gebaut, der anschließend prüft,
-dass **beide** Artefakte existieren — ein Bundler, der „erfolgreich" ist, ohne
-eine Datei zu schreiben, würde den Build-Schritt sonst wertlos machen.
+Das NSIS-Ziel ist in `bundle.targets` konfiguriert und wird im CI-Job
+`bundles-windows` auf `windows-latest` gebaut, der anschließend prüft, dass das
+Artefakt existiert — ein Bundler, der „erfolgreich" ist, ohne eine Datei zu
+schreiben, würde den Build-Schritt sonst wertlos machen.
+
+Ein MSI entsteht nicht: WiX legt die Major-Version in ein Byte, und `2026.2.1`
+passt dort nicht (`app version major number cannot be greater than 255`). Eine
+MSI-Ausgabe bräuchte zuerst ein anderes Versorgungsschema.
 
 **Es gibt in diesem Projekt keinen Windows-Host.** Die Installer sind also
 gebaut, aber von niemandem ausgeführt worden. Das ist eine andere Art von

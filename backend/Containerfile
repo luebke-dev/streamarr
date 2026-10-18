@@ -1,8 +1,16 @@
 FROM docker.io/library/python:3.13-slim
 
+# postgresql-client ships pg_dump/pg_restore, which the disaster-recovery backup
+# endpoint and the nightly scheduled task shell out to. Without them the feature
+# could only report that it is unavailable.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends postgresql-client && \
+    rm -rf /var/lib/apt/lists/*
+
 # Create a non-root user
 RUN groupadd -r --gid 1001 appgroup && \
-    useradd -r --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
+    useradd -r --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser && \
+    mkdir -p /backups && chown appuser:appgroup /backups
 
 # Install uv.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/

@@ -7,12 +7,12 @@ The row-by-row restore has no referential-integrity transaction guarantee and
 the export omits binary/large data, so it is **not** a disaster-recovery (DR)
 mechanism.
 
-Real DR lives in ``deployment/backup/`` (``pg_dump`` custom-format archives +
-optional Elasticsearch snapshot + separate media-file backup, with off-site
-upload and cron scheduling). The ``/disaster-recovery/*`` endpoints below expose
-the *status* of, and a manual *trigger* for, a server-side ``pg_dump`` (which
-only works if ``pg_dump`` is on the container PATH); the shell scripts remain
-the primary, fully-featured path. See ``deployment/backup/README.md``.
+Real DR is a ``pg_dump`` custom-format archive. The backend image ships the
+Postgres client tools, so the ``/disaster-recovery/*`` endpoints below report
+their availability and write an archive into ``STREAMARR_BACKUP_DIR`` on demand,
+and the nightly ``scheduled_database_backup`` task does the same unattended.
+Elasticsearch holds nothing that cannot be rebuilt from Postgres, and media files
+are backed up at the file level by whatever the operator already uses.
 """
 
 from __future__ import annotations
@@ -278,7 +278,7 @@ async def export_database_backup(
 
     This is not a disaster-recovery backup: rows are truncated per table, secrets
     are redacted by default, and the row-by-row restore has no referential
-    transaction guarantee. For DR use ``deployment/backup/backup.sh`` (pg_dump).
+    transaction guarantee. For DR use ``POST /disaster-recovery/pg-dump``.
     """
     tables = dict(Base.metadata.tables)
     tables.setdefault(Setting.__tablename__, Setting.__table__)
@@ -703,8 +703,7 @@ async def restore_settings_backup(
 # Disaster recovery (real backups): status + server-side pg_dump trigger.
 #
 # The JSON endpoints above are config migration, not DR. These endpoints expose
-# the real DR path (deployment/backup/backup.sh) and, where pg_dump happens to
-# be installed in the container, a manual trigger for it.
+# the real DR path: pg_dump into STREAMARR_BACKUP_DIR, on demand and nightly.
 # ---------------------------------------------------------------------------
 
 
@@ -713,7 +712,6 @@ class DisasterRecoveryStatus(BaseModel):
     backup_dir: str
     elasticsearch_host: str
     elasticsearch_reindexable: bool = True
-    scripts_path: str = "deployment/backup"
     note: str
 
 
@@ -730,8 +728,8 @@ async def disaster_recovery_status(
 ):
     """Report the real disaster-recovery capabilities of this deployment.
 
-    The JSON export endpoints are config migration only; genuine DR is
-    ``deployment/backup/backup.sh`` (pg_dump + optional ES snapshot + media).
+    The JSON export endpoints are config migration only; genuine DR is a
+    pg_dump archive written by the endpoints/task below.
     """
     from streamarr.config import settings as app_settings
     from streamarr.workers.backup_worker import backup_dir, pg_dump_available
@@ -741,8 +739,9 @@ async def disaster_recovery_status(
         "Server-side pg_dump is available; POST /disaster-recovery/pg-dump to run it."
         if available
         else (
-            "pg_dump is not installed in this container. Use "
-            "deployment/backup/backup.sh (runs pg_dump inside the Postgres container)."
+            "pg_dump is not on this container's PATH, so server-side backups are "
+            "unavailable; the nightly task no-ops. Rebuild the backend image "
+            "(the Containerfile installs postgresql-client) to enable them."
         )
     )
     return DisasterRecoveryStatus(
@@ -760,8 +759,8 @@ async def trigger_pg_dump_backup(
 ):
     """Trigger a server-side ``pg_dump`` custom-format backup, if available.
 
-    Returns HTTP 503 with guidance when ``pg_dump`` is not installed in the
-    container (the default images ship without it) — use the shell scripts.
+    Returns HTTP 503 when ``pg_dump`` is not on the container PATH, which means
+    the image was built without postgresql-client.
     """
     from streamarr.workers.backup_worker import run_pg_dump_backup
 
@@ -770,9 +769,9 @@ async def trigger_pg_dump_backup(
         raise HTTPException(
             status_code=503,
             detail=(
-                "pg_dump is not available in this container. Run "
-                "deployment/backup/backup.sh instead (it dumps inside the "
-                "Postgres container)."
+                "pg_dump is not available in this container. Rebuild the backend "
+                "image (its Containerfile installs postgresql-client) or run "
+                "pg_dump against the database yourself."
             ),
         )
 

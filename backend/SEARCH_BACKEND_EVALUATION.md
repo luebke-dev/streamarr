@@ -33,7 +33,7 @@ Die tatsächliche Datenmenge eines self-hosted Media-Servers liegt typischerweis
 **Pro Postgres-FTS:**
 - Eliminiert einen JVM-Dienst (Default nur 512 MB Heap konfiguriert) als SPOF und RAM-/Betriebskosten.
 - **Keine Sync-Ebene mehr** — die in Tier 1 reparierte PG↔ES-Drift entfällt komplett (Suche ist immer konsistent mit der DB, transaktional).
-- Ein Datenspeicher weniger im Backup-/DR-Pfad (siehe `deployment/backup/`).
+- Ein Datenspeicher weniger im Backup-/DR-Pfad.
 - Deckt Musik/Games/Books automatisch mit ab (heute ES-Lücke).
 
 **Contra / Aufwand:**

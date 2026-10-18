@@ -45,15 +45,20 @@ the binary's `DT_NEEDED` entries and fails if anything is missing.
 
 ### Windows
 
-NSIS and MSI installers are configured (`bundle.targets`) and built in CI on
-`windows-latest`; the MSI's upgrade code is pinned explicitly, because Tauri
-otherwise derives it from the product name and a rename would leave users with two
-copies of the app installed.
+**NSIS only.** The installer is configured (`bundle.targets`) and built in CI on
+`windows-latest`.
 
-**They have never been built by a person.** There is no Windows host in this
-project, so the only evidence that the targets work is the CI job — which is a
-different kind of evidence from a build someone ran and clicked through. Treat the
-Windows installers as unverified until someone runs one on Windows.
+There is **no MSI**, and the reason is a hard limit rather than an omission: the MSI
+target refuses this project's version with `app version major number cannot be greater
+than 255`. WiX keeps the major version in a single byte, and this project versions by
+year (`2026.2.1`), so an MSI cannot express the product version at all. Shipping one
+would mean giving the same release two different version numbers depending on the
+installer. If you need an MSI, the version scheme has to change first.
+
+**It has never been built by a person.** There is no Windows host in this project, so
+the only evidence that the target works is the CI job — which is a different kind of
+evidence from a build someone ran and clicked through. Treat the installer as
+unverified until someone runs one on Windows.
 
 **The Windows package can browse the library but cannot play anything yet.** Two
 things are missing, and both are native code rather than a setting:
@@ -251,9 +256,8 @@ worth stating plainly:
     `cargo run --features spike --bin game-pipeline-check` in `frontend/src-tauri/player`).
 
     That proof is **loopback to loopback**. It shows the client's own pipeline
-    works; it says nothing about interoperability with your server, because the
-    test server's database was down for the whole of this work. A game actually
-    appearing on screen has not been observed.
+    works; it says nothing about interoperability with your server. A game
+    actually appearing on screen has not been observed.
 
 ### GStreamer is needed for games, and is not bundled
 
@@ -483,6 +487,13 @@ What has been **measured**, and what has not:
 
 - The app starts on Wayland, creates its configuration, and stores credentials in the OS
   keyring.
+- **Sign-in against a live instance, and the session surviving a restart.** After a real
+  login the keyring holds the session (694 characters, fields `access_token`,
+  `expires_in`, `refresh_token`, `token_type`), and a restart makes **zero** login
+  requests while the authenticated home page loads. The refresh token reaches
+  `/api/auth/refresh` and nowhere else.
+- **A film playing from the real server.** Position advanced from 0.00 s to 2.00 s, and
+  mpv's own track list was read back live (`#1 Video h264`, `#1 Audio ger aac`).
 - **Deep links.** `streamarr://` is registered with the desktop
   (`xdg-mime query default x-scheme-handler/streamarr` answers `streamarr-handler.desktop`),
   and a URL handed to a running app is received — verified with two processes, where the
@@ -502,20 +513,19 @@ What has been **measured**, and what has not:
 
 **Not verified**
 
-- **Playback against a live Streamarr server.** The test server's database was down for
-  the whole of this work. The chain was verified against a stand-in server using the real
-  media, profile, tunnel and player. **What exactly is missing, and how to restore it, is
-  written down** — see the repository's
-  `docs/plans/desktop-testserver-stand.md` (the server's database container was destroyed;
-  a leftover Docker network endpoint holds the address the backend needs; the database
-  files themselves are intact).
-- **A game actually appearing on screen.** The client pipeline is proven
-  (`DECODED=10`, `INPUT_SENT=6 INPUT_RECEIVED=6` in
-  `frontend/src-tauri/player/src/bin/game-pipeline-check.rs`) and it is now **wired into the
-  app** — the shell builds it, renders through the platform sink and forwards
-  input. But that proof is loopback-to-loopback, and the test server's database is
-  down, so no game has ever been streamed to a window. Whether the app and
-  Lightrays interoperate is unverified.
+- **Direct Play.** Not measurable on this instance: it transcodes every `ac3`/`dts`
+  track to `aac`, so nothing it serves is playable by copying. The transcode path is
+  what ran, and it needed a defect fixed first — the HLS manifest carries the play
+  token as a query parameter while its segment URIs are relative, so the query is
+  dropped (RFC 3986 §5.3) and every segment answers `401 No play token provided`.
+  The player now sends the token as an `Authorization` header for the whole chain.
+- **A game's picture on screen.** The client is a real WebRTC peer: it answers the
+  server's offer, sets the remote and local description, and reaches `HTTP 101` and
+  `ICE Checking` against the live Lightrays service. It then fails at `ICE Failed`, and
+  the reason is on the **server**: the offer's SDP carries no candidates and the
+  trickled ones are the game container's Docker-internal `172.21.0.3`, which nothing
+  outside that Docker network can reach (the client's own candidates are right).
+  Negotiation is proven; the picture is not, and it is not this app's defect.
 - **Couch mode with a physical controller.** The geometry, the repeat rule and the
   shell commands are covered by tests, and the keyboard path is tested end to end.
   No gamepad has ever been plugged into this machine, so the controller path has
@@ -526,14 +536,12 @@ What has been **measured**, and what has not:
 - **Installing an update.** No release has been published, so no update has ever been
   downloaded and installed. The feed answers `HTTP 404` today, which the app treats as
   "no release yet" rather than as a failure.
-- **A support report actually arriving.** `POST /api/client-logs` cannot be
-  reached while the test server's database is down, so no report has been
-  delivered or read back. The command's logic and the dialog are tested; the round
-  trip is not.
-- **Windows installation.** The NSIS and MSI installers are built by CI on
-  `windows-latest`, and the job asserts both artefacts exist — but **no person has
-  built or clicked through one**. That is a different kind of evidence from a build
-  someone ran, and this project has no Windows host to do it on.
+- **A support report actually arriving.** The command's logic and the dialog are
+  tested; no report has been sent to a running server and read back.
+- **Windows installation.** An NSIS installer is built by CI on `windows-latest` and
+  the job asserts the artefact exists — but **no person has built or clicked through
+  one**. That is a different kind of evidence from a build someone ran, and this
+  project has no Windows host to do it on.
 - **AppImage *mounting*.** FUSE does not work in the build container
   (`fusermount` is absent), so the mounted image has never been started. The
   **extracted** AppImage was: through `AppRun` it runs until its timeout is reached

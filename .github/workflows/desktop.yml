@@ -376,9 +376,11 @@ jobs:
   # ── Windows bundles ──
   #
   # There is no Windows host in this project, so this job is the *only* place the
-  # NSIS and MSI targets are ever exercised. That is the honest limit: the
-  # configuration is checked here, but a build that only ever runs in CI has not
-  # been run by a person.
+  # NSIS target is ever exercised. That is the honest limit: the configuration is
+  # checked here, but a build that only ever runs in CI has not been run by a person.
+  #
+  # An MSI is not built at all: WiX keeps the major version in one byte, and this
+  # project versions by year, so `bundle.targets` no longer lists `msi`.
   #
   # A note on what this cannot prove: Windows has no equivalent of `ldd` in the
   # Linux sense, so the missing-dependency class of failure that
