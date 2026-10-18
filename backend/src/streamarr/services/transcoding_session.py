@@ -525,6 +525,28 @@ class TranscodingSessionService:
         logger.info("Marked session %s as failed", session_id)
         return True
 
+    async def mark_completed(self, session_id: str) -> bool:
+        """Mark a session whose transcode finished encoding the whole media.
+
+        The container is gone because ffmpeg reached the end of the file, not
+        because it crashed. The session stays active - the player may still be
+        working through the finished segments - and the monitor stops trying to
+        "recover" it.
+        """
+        r = await self._get_redis()
+        session = await self.get_session(session_id)
+        if not session:
+            return False
+
+        session.status = "completed"
+        session.last_accessed_at = datetime.now(UTC)
+
+        session_key = self._get_session_key(session_id)
+        await r.set(session_key, json.dumps(session.to_redis_dict()), ex=7200)
+
+        logger.info("Marked session %s as completed (transcode finished)", session_id)
+        return True
+
     async def mark_active(self, session_id: str, container_id: str | None = None) -> bool:
         """Mark a session as active again (after successful restart)."""
         r = await self._get_redis()

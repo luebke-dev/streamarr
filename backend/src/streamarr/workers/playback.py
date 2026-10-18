@@ -34,7 +34,7 @@ class TranscodeMonitorWorker:
             raise
 
     async def _monitor_sessions(self, session_service, sessions) -> dict:
-        checked = restarted = failed = 0
+        checked = restarted = failed = completed = 0
         async with sessionmanager.session() as db:
             redis_service = get_redis_event_service()
 
@@ -43,10 +43,22 @@ class TranscodeMonitorWorker:
 
             async with ComputingService(db) as computing_service:
                 for session in sessions:
-                    if session.status == "failed":
+                    if session.status in ("failed", "completed"):
                         continue
                     checked += 1
-                    if await self._is_task_running(computing_service, session):
+                    task_status = await self._task_status(computing_service, session)
+                    if task_status in ("running", "pending"):
+                        continue
+                    if task_status == "completed":
+                        # ffmpeg reached the end of the media and exited cleanly,
+                        # so every segment is on disk and the player may well
+                        # still be working through them. Restarting here
+                        # re-encodes from position 0 over the very files the
+                        # client is downloading - which shows up as the stream
+                        # stalling every few minutes, plus a wasted GPU pass per
+                        # cycle, forever.
+                        await session_service.mark_completed(session.session_id)
+                        completed += 1
                         continue
 
                     outcome = await session_service.recover_crashed_session(
@@ -57,24 +69,39 @@ class TranscodeMonitorWorker:
                     )
                     restarted += 1 if outcome == "restarted" else 0
                     failed += 1 if outcome == "failed" else 0
-        return {"checked": checked, "restarted": restarted, "failed": failed}
+        return {
+            "checked": checked,
+            "restarted": restarted,
+            "failed": failed,
+            "completed": completed,
+        }
 
-    async def _is_task_running(self, computing_service, session) -> bool:
+    async def _task_status(self, computing_service, session) -> str | None:
+        """Status of the session's container, or None when it no longer exists.
+
+        Returns the real status rather than a yes/no, because "no container"
+        means different things: it crashed (restart), or it finished encoding
+        the media (leave it alone).
+        """
         try:
             tasks = await computing_service.get_tasks_by_label(
                 "transcode.session_id",
                 session.session_id,
             )
             if not tasks:
-                return False
-            return tasks[0].get("status") in ("running", "pending")
+                return None
+            statuses = [task.get("status") for task in tasks]
+            for live in ("running", "pending"):
+                if live in statuses:
+                    return live
+            return statuses[0]
         except Exception as exc:
             logger.warning(
                 "Failed to check container status for %s: %s",
                 session.session_id,
                 exc,
             )
-            return True
+            return "running"
 
     @staticmethod
     def _restart_fn(db):
