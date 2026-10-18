@@ -348,12 +348,22 @@ jobs:
           # `xvfb-run` gives it a display; without one, GTK aborts before the app's own
           # code runs and the test would prove nothing.
           sudo apt-get install -y xvfb
+          # A runner has no GPU, and WebKitGTK's DMA-BUF renderer aborts without one —
+          # before the app's own code runs, which is why the log held nothing but a
+          # harmless AT-SPI warning. These two variables are WebKit's documented switches
+          # for software rendering; they describe *this runner*, not a requirement of the
+          # app, which has a GPU on a real desktop.
+          export WEBKIT_DISABLE_DMABUF_RENDERER=1
+          export WEBKIT_DISABLE_COMPOSITING_MODE=1
           set +e
           timeout 25 xvfb-run -a Streamarr > /tmp/app.log 2>&1
           status=$?
           set -e
           echo "--- Ausgabe ---"
           cat /tmp/app.log
+          # The number is printed so a failure says which kind it was: 1 a crash, 139 a
+          # segfault, 124 still running when the timeout hit (which is the good case).
+          echo "Status: $status"
           # 124 means the timeout killed it, i.e. it was still running - which is what a
           # working app does. Anything else is a crash.
           if [ "$status" -ne 124 ]; then
@@ -396,11 +406,14 @@ jobs:
           # `corepack` was wrong here: it is the Berry entry point and the project has no
           # `packageManager` field for it to read.
           yarn install --frozen-lockfile
-      - name: Build the NSIS and MSI installers
+      - name: Build the NSIS installer
         working-directory: frontend
         shell: bash
-        # Both targets, so a configuration that only works for one is visible. The
-        # step fails if either bundler cannot run.
+        # NSIS only, and not for lack of trying: the MSI target failed with
+        # `app version major number cannot be greater than 255`. WiX keeps the major
+        # version in a single byte and this project versions by year (2026.2.1), so an
+        # MSI cannot express the product version at all. Building one anyway would mean
+        # numbering the same release differently per installer. NSIS has no such limit.
         #
         # The `gamestream` feature is overridden away on purpose. It needs GStreamer's
         # **MSVC development package**, which this runner does not have and which is not
@@ -409,20 +422,18 @@ jobs:
         # carry the native media path and **not** game streaming. That limit is real and
         # is written down in docs/docs/user-guide/desktop.md rather than papered over
         # with a green tick.
-        run: npx tauri build --bundles nsis,msi --config '{"build":{"features":[]}}'
-      - name: Assert both installers exist
+        run: npx tauri build --bundles nsis --config '{"build":{"features":[]}}'
+      - name: Assert the installer exists
         shell: bash
         run: |
           set -euo pipefail
           ls -la frontend/src-tauri/target/release/bundle/nsis/
-          ls -la frontend/src-tauri/target/release/bundle/msi/
           # A bundler that "succeeds" without writing a file would make the step above
-          # meaningless, so the artefacts are counted rather than assumed.
+          # meaningless, so the artefact is counted rather than assumed.
           nsis=$(ls frontend/src-tauri/target/release/bundle/nsis/*.exe 2>/dev/null | wc -l)
-          msi=$(ls frontend/src-tauri/target/release/bundle/msi/*.msi 2>/dev/null | wc -l)
-          echo "NSIS: $nsis, MSI: $msi"
-          if [ "$nsis" -lt 1 ] || [ "$msi" -lt 1 ]; then
-            echo "::error::Es fehlt ein Installer (NSIS: $nsis, MSI: $msi)."
+          echo "NSIS: $nsis"
+          if [ "$nsis" -lt 1 ]; then
+            echo "::error::Es fehlt ein Installer (NSIS: $nsis)."
             exit 1
           fi
 

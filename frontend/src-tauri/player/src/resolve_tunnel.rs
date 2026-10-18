@@ -286,7 +286,13 @@ fn handle_client(
         let _ = std::io::copy(&mut upstream_reader, &mut client_writer);
         let _ = client_writer.shutdown(std::net::Shutdown::Write);
     });
-    let _ = std::io::copy(&mut reader.into_inner(), &mut upstream.try_clone()?);
+    // `reader` is kept, not unwrapped with `into_inner()`: that would hand over the
+    // socket and **discard the BufReader's buffer**. A client may send its first payload
+    // bytes in the same packet as the CONNECT request — browsers and curl do, and mpv
+    // can — and those bytes would already sit in that buffer. Copying *through* the
+    // reader returns them first. This was a real hang, not a theory: the tunnel test
+    // below waited for a greeting that had arrived and been thrown away.
+    let _ = std::io::copy(&mut reader, &mut upstream.try_clone()?);
     let _ = upstream.shutdown(std::net::Shutdown::Write);
     let _ = up.join();
     Ok(())
@@ -347,7 +353,7 @@ mod tests {
     /// The test failed in CI exactly this way (`WouldBlock` at `read_exact`), on a runner
     /// slow enough to miss a read that is instant on this machine. A test that depends on
     /// being fast is a test that fails for the wrong reason.
-    fn read_exactly(stream: &mut std::net::TcpStream, buf: &mut [u8]) {
+    fn read_exactly<R: std::io::Read>(stream: &mut R, buf: &mut [u8]) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         let mut filled = 0;
         while filled < buf.len() {
@@ -391,14 +397,28 @@ mod tests {
         (port, handle)
     }
 
-    fn connect_through(proxy_port: u16, target: &str) -> std::io::Result<TcpStream> {
+    fn connect_through(proxy_port: u16, target: &str) -> std::io::Result<BufReader<TcpStream>> {
+        connect_through_with_payload(proxy_port, target, b"")
+    }
+
+    /// Sends the request and an optional payload in **one** `write_all`.
+    ///
+    /// That single write is the point: it is what puts payload bytes into the proxy's
+    /// read buffer before the tunnel is established, which is exactly the case the
+    /// `into_inner()` defect swallowed.
+    fn connect_through_with_payload(
+        proxy_port: u16,
+        target: &str,
+        payload: &[u8],
+    ) -> std::io::Result<BufReader<TcpStream>> {
         let mut stream = TcpStream::connect(("127.0.0.1", proxy_port))?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-        write!(
-            stream,
-            "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n"
-        )?;
-        let mut reader = BufReader::new(stream.try_clone()?);
+        let mut request = format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n");
+        request.push_str(std::str::from_utf8(payload).unwrap_or_default());
+        write!(stream, "{request}")?;
+        // The reader is returned rather than dropped: it may hold payload bytes that
+        // arrived behind the response headers, and dropping it would lose them.
+        let mut reader = BufReader::new(stream);
         let mut status = String::new();
         reader.read_line(&mut status)?;
         // Headers until the blank line.
@@ -408,7 +428,7 @@ mod tests {
                 break;
             }
         }
-        Ok(stream)
+        Ok(reader)
     }
 
     #[test]
@@ -431,12 +451,52 @@ mod tests {
         read_exactly(&mut stream, &mut greeting);
         assert_eq!(&greeting, b"UPSTREAM-HELLO");
 
-        stream.write_all(b"ping").unwrap();
+        stream.get_mut().write_all(b"ping").unwrap();
         let mut echo = [0u8; 4];
         read_exactly(&mut stream, &mut echo);
         assert_eq!(&echo, b"ping");
 
         assert_eq!(tunnel.accepted_connections(), 1);
+    }
+
+    /// Payload sent together with the `CONNECT` request must reach the upstream.
+    ///
+    /// The proxy reads the request headers through a `BufReader`, which reads ahead. When
+    /// it handed the socket on with `into_inner()`, that read-ahead was discarded — so a
+    /// client that pipelines the first bytes behind its CONNECT request had them silently
+    /// dropped, and then waited for an answer that could never come. This test failed
+    /// with "0 of 14 bytes" in CI before the fix, with the greeting consumed by the
+    /// proxy's buffer.
+    #[test]
+    fn a_payload_shipped_with_the_connect_request_survives() {
+        let (upstream_port, _up) = spawn_upstream();
+        let tunnel = ResolveTunnel::start(vec![Mapping::to_ip(
+            "streamarr.luebke.internal",
+            upstream_port,
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+        )])
+        .unwrap();
+
+        // Request and payload in one write, so the payload is inside the proxy's buffer
+        // before it decides to tunnel.
+        let mut stream = connect_through_with_payload(
+            tunnel.port(),
+            &format!("streamarr.luebke.internal:{upstream_port}"),
+            b"ping",
+        )
+        .unwrap();
+
+        // The upstream greets first, then echoes what it received.
+        let mut greeting = [0u8; 14];
+        read_exactly(&mut stream, &mut greeting);
+        assert_eq!(&greeting, b"UPSTREAM-HELLO");
+
+        let mut echo = [0u8; 4];
+        read_exactly(&mut stream, &mut echo);
+        assert_eq!(
+            &echo, b"ping",
+            "die Nutzlast aus dem CONNECT-Paket hat den Upstream nicht erreicht"
+        );
     }
 
     #[test]
