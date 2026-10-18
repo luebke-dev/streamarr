@@ -249,6 +249,7 @@ downloads
 cache
 temp
 users
+backups
 {{- end -}}
 
 {{- define "streamarr.dataVolumes" -}}
@@ -274,4 +275,5 @@ users
 - { name: cache,     mountPath: /cache }
 - { name: temp,      mountPath: /temp }
 - { name: users,     mountPath: /user-data }
+- { name: backups,   mountPath: /backups }
 {{- end -}}

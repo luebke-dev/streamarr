@@ -101,6 +101,8 @@ services:
       - ${DATA_DIR:-./data}/usenet/downloads:/usenet-downloads:rw,z
       - ${DATA_DIR:-./data}/cache:/cache:rw,z
       - ${DATA_DIR:-./data}/temp:/temp:rw,z
+      # pg_dump archives for disaster recovery (STREAMARR_BACKUP_DIR).
+      - ${DATA_DIR:-./data}/backups:/backups:rw,z
       - ${DATA_DIR:-./data}/users:/user-data:rw,z
       # Read-only view of the Lightrays state dir so the backend can read a
       # user's persistent Steam library (apps_state/<user>-steam) for import.
@@ -161,6 +163,8 @@ services:
       - ${DATA_DIR:-./data}/usenet/downloads:/usenet-downloads:rw,z
       - ${DATA_DIR:-./data}/cache:/cache:rw,z
       - ${DATA_DIR:-./data}/temp:/temp:rw,z
+      # pg_dump archives for disaster recovery (STREAMARR_BACKUP_DIR).
+      - ${DATA_DIR:-./data}/backups:/backups:rw,z
       - ${DATA_DIR:-./data}/users:/user-data:rw,z
       - /var/run/docker.sock:/var/run/docker.sock:rw,z
     depends_on:

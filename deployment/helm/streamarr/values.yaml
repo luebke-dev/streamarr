@@ -152,6 +152,12 @@ persistence:
     size: 100Gi
     storageClass: ""
     accessMode: ReadWriteMany
+  # pg_dump archives for disaster recovery (STREAMARR_BACKUP_DIR=/backups).
+  # Small but precious: never put these on an ephemeral volume.
+  backups:
+    size: 20Gi
+    storageClass: ""
+    accessMode: ReadWriteMany
 
 ## ---------------------------------------------------------------------------
 ## Database migrations

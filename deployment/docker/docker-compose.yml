@@ -66,6 +66,8 @@ services:
       - ${DATA_DIR:-./data}/usenet/downloads:/usenet-downloads:rw,z
       - ${DATA_DIR:-./data}/cache:/cache:rw,z
       - ${DATA_DIR:-./data}/temp:/temp:rw,z
+      # pg_dump archives for disaster recovery (STREAMARR_BACKUP_DIR).
+      - ${DATA_DIR:-./data}/backups:/backups:rw,z
       - /var/run/docker.sock:/var/run/docker.sock:rw,z
     ports:
       - "${BACKEND_PORT:-8000}:8000"
@@ -107,6 +109,8 @@ services:
       - ${DATA_DIR:-./data}/usenet/downloads:/usenet-downloads:rw,z
       - ${DATA_DIR:-./data}/cache:/cache:rw,z
       - ${DATA_DIR:-./data}/temp:/temp:rw,z
+      # pg_dump archives for disaster recovery (STREAMARR_BACKUP_DIR).
+      - ${DATA_DIR:-./data}/backups:/backups:rw,z
       - /var/run/docker.sock:/var/run/docker.sock:rw,z
     depends_on:
       migrate:

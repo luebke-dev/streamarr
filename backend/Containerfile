@@ -9,7 +9,8 @@ RUN apt-get update && \
 
 # Create a non-root user
 RUN groupadd -r --gid 1001 appgroup && \
-    useradd -r --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
+    useradd -r --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser && \
+    mkdir -p /backups && chown appuser:appgroup /backups
 
 # Install uv.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
