@@ -2,7 +2,7 @@
 Description=Streamarr Redis Cache
 
 [Container]
-Image=redis:7-alpine
+Image=docker.io/library/redis:7-alpine
 ContainerName=streamarr-redis
 
 # Secrets & host paths (POSTGRES_PASSWORD, SECRET_KEY, DATA_DIR,

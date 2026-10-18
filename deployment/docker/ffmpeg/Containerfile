@@ -1,6 +1,6 @@
-FROM jellyfin/jellyfin:latest AS source
+FROM docker.io/jellyfin/jellyfin:latest AS source
 
-FROM debian:trixie-slim
+FROM docker.io/library/debian:trixie-slim
 
 # Copy jellyfin-ffmpeg binaries and libraries
 COPY --from=source /usr/lib/jellyfin-ffmpeg /usr/lib/jellyfin-ffmpeg

@@ -16,7 +16,7 @@
 # userspace are all packaged. The libretro CORES are fetched from the
 # canonical libretro nightly buildbot (they aren't reliably packaged), which
 # keeps the curated core set explicit and reproducible.
-FROM archlinux:latest
+FROM docker.io/library/archlinux:latest
 
 # Curated libretro core set (buildbot basenames, without the _libretro.so
 # suffix). Add a system here + a row in the backend SYSTEMS registry to

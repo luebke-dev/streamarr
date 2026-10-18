@@ -84,7 +84,7 @@ jobs:
       # "Error 111 connecting to localhost:6379" without one. Image matches the
       # redis service in docker-compose.yml.
       redis:
-        image: redis:7-alpine
+        image: docker.io/library/redis:7-alpine
         ports:
           - 6379:6379
         options: >-

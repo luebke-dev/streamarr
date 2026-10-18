@@ -1,5 +1,5 @@
 ###############################################################################
-# lightrays Dockerfile
+# lightrays Containerfile
 #
 # Multi-stage build:
 #   Stage 1:  Compile gst-wayland-display (Smithay-based Wayland compositor)
@@ -10,7 +10,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1: Build gst-wayland-display from source (Rust + cargo-c)
 # ─────────────────────────────────────────────────────────────────────────────
-FROM ubuntu:24.04 AS gst-wl-builder
+FROM docker.io/library/ubuntu:24.04 AS gst-wl-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -55,7 +55,7 @@ RUN mkdir -p /output && \
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1b: Build lightrays binary
 # ─────────────────────────────────────────────────────────────────────────────
-FROM ubuntu:24.04 AS builder
+FROM docker.io/library/ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -84,7 +84,7 @@ RUN cargo build --release \
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2: Runtime image
 # ─────────────────────────────────────────────────────────────────────────────
-FROM ubuntu:24.04
+FROM docker.io/library/ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 

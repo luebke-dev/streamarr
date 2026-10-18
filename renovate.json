@@ -1,0 +1,114 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+    ":semanticCommits",
+    ":dependencyDashboard",
+    "schedule:weekly",
+    ":automergeMinor",
+    ":automergePatch",
+    "docker:enableMajor",
+    "group:monorepos"
+  ],
+  "timezone": "Europe/Berlin",
+  "labels": ["dependencies"],
+  "rangeStrategy": "bump",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 5am on monday"]
+  },
+  "ignorePaths": [
+    "**/node_modules/**",
+    "docs/site/**",
+    "**/target/**",
+    "downloaders/spotify/vendor/**"
+  ],
+  "packageRules": [
+    {
+      "description": "Group the four Rust crates (lightrays + the three downloaders). They share no workspace, but a bump usually lands in more than one.",
+      "matchManagers": ["cargo"],
+      "groupName": "rust dependencies"
+    },
+    {
+      "description": "Group Docker/Containerfile base images so one PR updates a base across the stack.",
+      "matchManagers": ["dockerfile"],
+      "groupName": "docker base images"
+    },
+    {
+      "description": "Group the Python backend (uv) and the docs site, which shares the toolchain.",
+      "matchManagers": ["pep621", "uv"],
+      "groupName": "python dependencies"
+    },
+    {
+      "description": "Group the Vue/Quasar frontend.",
+      "matchManagers": ["npm", "yarn"],
+      "groupName": "frontend dependencies"
+    },
+    {
+      "description": "Group GitHub Actions bumps; they are low risk and are pinned by digest via config:best-practices.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
+    },
+    {
+      "description": "Group Helm chart dependencies.",
+      "matchManagers": ["helmv3"],
+      "groupName": "helm dependencies"
+    },
+    {
+      "description": "Streaming cores and emulator bases are pinned deliberately: the retro and wine images build against specific libretro/pacman state, and a surprise major there costs a long Arch rebuild to debug. Keep them on the dashboard until approved.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "archlinux",
+        "ghcr.io/games-on-whales/steam",
+        "ghcr.io/games-on-whales/xfce"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Python 3.13 is pinned via .python-version and must match the backend image; do not let Renovate move it without a deliberate decision.",
+      "matchManagers": ["nvm", "asdf"],
+      "matchPackageNames": ["python"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Require manual approval for major bumps. config:best-practices groups automerge on minor/patch only, so majors would otherwise land unreviewed.",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "Never automerge the backend lockfile or the frontend lockfile: both carry a build toolchain that CI exercises, and a broken lock is expensive to bisect.",
+      "matchFileNames": ["backend/uv.lock", "frontend/yarn.lock", "frontend/src-capacitor/yarn.lock"],
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track the gst-wayland-display commit the lightrays compositor is pinned to. The ARG holds a SHA, so it is matched as a digest: currentValue tracks the branch it came from and Renovate proposes the latest commit on it.",
+      "managerFilePatterns": [
+        "/lightrays/docker/[Cc]ontainerfile[^/]*$/"
+      ],
+      "matchStrings": [
+        "ARG GST_WAYLAND_DISPLAY_REV=(?<currentDigest>\\S+)\\s"
+      ],
+      "currentValueTemplate": "master",
+      "datasourceTemplate": "git-refs",
+      "depNameTemplate": "games-on-whales/gst-wayland-display",
+      "packageNameTemplate": "https://github.com/games-on-whales/gst-wayland-display.git"
+    },
+    {
+      "customType": "regex",
+      "description": "DXVK release baked into the wine game container. The ARG holds the bare version while the download URL prefixes it with 'v', so only the version number is captured.",
+      "managerFilePatterns": [
+        "/containers/wine/[Cc]ontainerfile$/"
+      ],
+      "matchStrings": [
+        "ARG DXVK_VERSION=(?<currentValue>[\\d.]+)\\s"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "doitsujin/dxvk",
+      "extractVersionTemplate": "^v?(?<version>.*)$"
+    }
+  ]
+}

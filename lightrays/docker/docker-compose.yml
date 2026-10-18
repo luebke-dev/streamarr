@@ -21,7 +21,7 @@ services:
   lightrays:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Containerfile
     container_name: lightrays
     restart: unless-stopped
 

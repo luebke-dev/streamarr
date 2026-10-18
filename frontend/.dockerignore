@@ -1,0 +1,48 @@
+# Keep the build context small and the COPY deterministic.
+#
+# Without this file `COPY . .` sweeps in node_modules (336 MB), the previous
+# build output and the local test/vitest caches. That mostly wastes disk and
+# time, but it can also poison the build: the runner installs into
+# node_modules fresh, and a copied-in tree from a different platform (for
+# example a host install on macOS) shadows it, so native modules such as
+# esbuild or rollup resolve to the wrong binary.
+#
+# Yarn and npm both honour this file, so it works for every Containerfile in
+# this directory.
+
+# Installed dependencies. The Containerfiles run `yarn install --frozen-lockfile`
+# themselves, so a copied-in tree is never wanted.
+node_modules
+src-capacitor/node_modules
+src-tauri/node_modules
+
+# Build output, recreated by `yarn build`
+dist
+.quasar
+coverage
+
+# Generated TypeScript/vue-tsc state
+*.tsbuildinfo
+quasar.config.*.temporary.compiled*
+
+# Rust build output for the Tauri shell
+src-tauri/target
+
+# Capacitor/Cordova platform output (checked-in sources stay)
+src-capacitor/www
+src-cordova/node_modules
+src-cordova/platforms
+src-cordova/plugins
+src-cordova/www
+
+# Editor and OS noise
+.idea
+.vscode
+.DS_Store
+.thumbs.db
+
+# Local secrets and logs
+.env.local*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

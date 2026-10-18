@@ -1,9 +1,9 @@
 # Multi-stage Android APK build for streamarr.media
-# Usage: docker build -f Dockerfile.android -t streamarr-android .
-# Extract APK: docker run --rm -v $(pwd)/dist:/out streamarr-android
+# Usage: podman build -f Containerfile.android -t streamarr-android .
+# Extract APK: podman run --rm -v $(pwd)/dist:/out streamarr-android
 
 # Stage 1: Build Quasar SPA for Capacitor
-FROM node:22 AS quasar-build
+FROM docker.io/library/node:22 AS quasar-build
 
 WORKDIR /app
 
@@ -14,14 +14,15 @@ RUN npm install -g @quasar/cli
 COPY package.json yarn.lock ./
 COPY . .
 
-# Install dependencies
-RUN yarn install --frozen-lockfile
+# Install dependencies. Clean the yarn 1.x global cache (it lives outside
+# /app) so the tarballs are not baked into the image layer.
+RUN yarn install --frozen-lockfile && yarn cache clean
 
 # Build for Capacitor (produces dist/capacitor)
 RUN quasar build -m capacitor -T android --skip-pkg
 
 # Stage 2: Android SDK + Gradle build
-FROM eclipse-temurin:21-jdk AS android-build
+FROM docker.io/library/eclipse-temurin:21-jdk AS android-build
 
 ENV ANDROID_HOME=/opt/android-sdk
 ENV ANDROID_SDK_ROOT=${ANDROID_HOME}
@@ -71,7 +72,7 @@ RUN chmod +x gradlew && \
     ./gradlew assembleDebug --no-daemon
 
 # Stage 3: Extract APK
-FROM alpine:3.22
+FROM docker.io/library/alpine:3.22
 
 COPY --from=android-build /app/android/app/build/outputs/apk/debug/*.apk /apk/
 

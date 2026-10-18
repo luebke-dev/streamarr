@@ -367,7 +367,7 @@ services:
 
   # ── Database ──────────────────────────────────────────────
   db:
-    image: postgres:16
+    image: docker.io/library/postgres:16
     restart: unless-stopped
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-streamarr}
@@ -386,7 +386,7 @@ services:
 
   # ── Redis ─────────────────────────────────────────────────
   redis:
-    image: redis:7-alpine
+    image: docker.io/library/redis:7-alpine
     restart: unless-stopped
     volumes:
       - ${DATA_DIR}/redis:/data:rw

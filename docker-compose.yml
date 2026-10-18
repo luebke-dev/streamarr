@@ -7,7 +7,7 @@ services:
   # based on whitelist in backend/proxy/nginx.conf.
   # ---------------------------------------------------------------------------
   backend:
-    image: nginx:alpine
+    image: docker.io/library/nginx:alpine
     restart: unless-stopped
     volumes:
       - ./backend/proxy/nginx.conf:/etc/nginx/nginx.conf:ro,z
@@ -266,7 +266,7 @@ services:
   lightrays:
     build:
       context: ./lightrays
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Containerfile
     restart: unless-stopped
     privileged: true
     env_file: .env
@@ -323,7 +323,7 @@ services:
   spotdl:
     build:
       context: ./downloaders/spotify
-      dockerfile: Dockerfile
+      dockerfile: Containerfile
     restart: unless-stopped
     environment:
       WEBHOOK_URL: http://backend:8000/api/webhooks/spotdl
@@ -339,7 +339,7 @@ services:
   torrent-downloader:
     build:
       context: ./downloaders/torrent
-      dockerfile: Dockerfile
+      dockerfile: Containerfile
     restart: unless-stopped
     environment:
       WEBHOOK_URL: http://backend:8000/api/webhooks/torrent
@@ -359,7 +359,7 @@ services:
   usenet-downloader:
     build:
       context: ./downloaders/usenet
-      dockerfile: Dockerfile
+      dockerfile: Containerfile
     restart: unless-stopped
     env_file: .env
     # Downloaded files must end up owned by the backend's UID: the ffmpeg image
@@ -384,7 +384,7 @@ services:
   # PostgreSQL
   # ---------------------------------------------------------------------------
   db:
-    image: postgres:16
+    image: docker.io/library/postgres:16
     restart: unless-stopped
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-streamarr}
@@ -420,7 +420,7 @@ services:
   # Redis
   # ---------------------------------------------------------------------------
   redis:
-    image: redis:7-alpine
+    image: docker.io/library/redis:7-alpine
     restart: unless-stopped
     volumes:
       - ${DATA_DIR:-./data}/redis:/data:rw,z

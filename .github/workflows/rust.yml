@@ -8,7 +8,7 @@ name: Rust CI
 # `*-sys` crates in its Cargo.lock:
 #
 #   lightrays   gstreamer-{,app,sdp,video,webrtc}-sys, glib/gobject/gio-sys
-#               -> exactly the apt list from lightrays/docker/Dockerfile's
+#               -> exactly the apt list from lightrays/docker/Containerfile's
 #                  ubuntu:24.04 builder stage, which is what ubuntu-latest is.
 #   torrent     openssl-sys, libsqlite3-sys (bundled) -> pkg-config + libssl-dev
 #   spotify     openssl-sys, libsqlite3-sys (bundled) -> pkg-config + libssl-dev

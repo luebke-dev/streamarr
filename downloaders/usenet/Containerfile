@@ -1,4 +1,4 @@
-FROM rust:1.87-alpine AS builder
+FROM docker.io/library/rust:1.87-alpine AS builder
 
 RUN apk add --no-cache musl-dev
 
@@ -8,7 +8,7 @@ COPY src/ src/
 
 RUN cargo build --release
 
-FROM debian:bookworm-slim
+FROM docker.io/library/debian:bookworm-slim
 
 RUN apt-get update && \
     echo "deb http://deb.debian.org/debian bookworm non-free" >> /etc/apt/sources.list && \

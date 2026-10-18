@@ -1,5 +1,5 @@
 # Multi-stage build for MkDocs documentation
-FROM python:3.13-slim AS builder
+FROM docker.io/library/python:3.13-slim AS builder
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -17,7 +17,7 @@ RUN uv sync --frozen --no-cache && \
     uv run mkdocs build
 
 # Production stage with nginx
-FROM nginx:alpine
+FROM docker.io/library/nginx:alpine
 
 # Create a non-root user for nginx
 RUN addgroup -g 1001 -S appgroup && \

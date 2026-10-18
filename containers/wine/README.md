@@ -65,7 +65,7 @@ bind-mounts it read-write at launch and points `GAME_EXE` at it.
 
 ## Files
 
-- `Dockerfile` — Arch base + multilib packages + baked DXVK.
+- `Containerfile` for the Arch base, multilib packages and baked DXVK.
 - `run.sh` — the ENTRYPOINT (`/opt/streamarr/run.sh`); implements the contract above.
 - `setup_dxvk` — dependency-free DXVK installer (`/usr/local/bin/setup_dxvk`);
   copies the baked DLLs into the prefix and registers native DLL overrides.
