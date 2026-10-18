@@ -190,6 +190,15 @@ services:
       - ELASTICSEARCH_PORT=9200
       - SECRET_KEY=${SECRET_KEY}
       - PROJECT_ROOT=${PROJECT_ROOT:-/root/streamarr.media/}
+    # The scheduler only dispatches tasks, so it needs neither the library
+    # mounts nor the data volumes - but it does own the schedules, and those
+    # are read from the task labels at startup. With the source mounted a
+    # changed cron needs only a restart, the same way backend and worker pick
+    # up code changes. Without it every schedule edit needs an image rebuild,
+    # which is how a new task can end up registered in the worker but never
+    # dispatched.
+    volumes:
+      - ./backend/src:/app/src:rw,z
     depends_on:
       migrate:
         condition: service_completed_successfully
