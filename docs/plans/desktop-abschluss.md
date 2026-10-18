@@ -28,8 +28,10 @@ Docker-Daemon-Neustart, den der Auftraggeber abgelehnt habe.
   Datenbank** — er sucht den API-Schlüssel nach.
 
 Es gab also keinen Grund, die Live-Nachweise zu unterlassen, und sie sind jetzt
-gemacht worden (siehe unten). `desktop-testserver-stand.md` bleibt als Protokoll
-stehen; die Reparaturanleitung darin ist gegenstandslos geworden.
+gemacht worden (siehe unten). Das Protokoll jener Diagnose ist inzwischen
+entfernt — es beschrieb einen Zustand, der nicht mehr existiert; der einzige
+Befund daraus, der noch Bestand hatte (das fehlende `AUTHORS` im `mediatype`-Enum),
+ist als Migration mit Test festgehalten.
 
 Was von den damaligen Befunden bleibt: der verwaiste Endpunkt und der volle
 Host-Datenträger waren echte Beobachtungen — nur war die Schlussfolgerung daraus
