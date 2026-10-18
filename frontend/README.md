@@ -73,4 +73,4 @@ src-tauri/
 
 ## License
 
-Proprietary. All rights reserved.
+MIT — see [LICENSE](../LICENSE).

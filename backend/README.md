@@ -71,4 +71,4 @@ uv run pytest --cov=streamarr                 # with coverage
 
 ## License
 
-Proprietary. All rights reserved.
+MIT — see [LICENSE](../LICENSE).

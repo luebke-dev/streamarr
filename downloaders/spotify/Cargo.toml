@@ -2,6 +2,7 @@
 name = "spotify-downloader"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 librespot-core = { path = "vendor/librespot-core" }

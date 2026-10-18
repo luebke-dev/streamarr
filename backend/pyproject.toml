@@ -3,6 +3,7 @@ name = "streamarr"
 version = "2026.2.1"
 description = "Add your description here"
 readme = "README.md"
+license = "MIT"
 authors = [
     { name = "Sebastian Lübke", email = "luebke@b1-systems.de" }
 ]

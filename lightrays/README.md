@@ -208,4 +208,4 @@ Browser  <──WebRTC──>  lightrays (Rust)
 
 ## License
 
-MIT
+MIT — see [LICENSE](../LICENSE).

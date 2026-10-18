@@ -51,4 +51,5 @@ Secrets are never committed; each subproject ships its own `.env.example` templa
 
 ## License
 
-Proprietary. All rights reserved.
+MIT — see [LICENSE](LICENSE). Use it, fork it, ship it; the only thing asked in
+return is that the copyright notice travels along.

@@ -5,6 +5,7 @@
   "productName": "Streamarr",
   "homepage": "https://streamarr.media",
   "author": "Sebastian Lübke <streamarr@luebke.dev>",
+  "license": "MIT",
   "type": "module",
   "private": true,
   "scripts": {
