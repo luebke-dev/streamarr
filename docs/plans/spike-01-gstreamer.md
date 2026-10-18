@@ -278,3 +278,10 @@ Build-Cache-Nutzung (4,4 GB).
 Loopback-Aufbau im Abschnitt „Decode-Beweis ohne Server". Offen bleibt nur der
 Durchlauf gegen eine **echte** Lightrays-Session, also inklusive der
 Signalisierung über den Server-WebSocket.
+
+**Nachtrag 2026-10-18: der Engpass ist weg.** 99 verwaiste Transcode-Container
+wurden entfernt (Folge des Restart-Loops, den `fix(playback): stop restarting a
+transcode that already finished` beendet hat), der Build-Cache liegt bei 414 MB,
+und das Dateisystem hat wieder Platz (107 GB frei von 128 GB, 17 % belegt). Die
+verbleibende offene Frage ist unverändert der Durchlauf gegen eine echte
+Lightrays-Session.

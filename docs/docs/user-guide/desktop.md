@@ -243,9 +243,8 @@ worth stating plainly:
     `cargo run --features spike --bin game-pipeline-check` in `desktop/player`).
 
     That proof is **loopback to loopback**. It shows the client's own pipeline
-    works; it says nothing about interoperability with your server, because the
-    test server's database was down for the whole of this work. A game actually
-    appearing on screen has not been observed.
+    works; it says nothing about interoperability with your server. A game
+    actually appearing on screen has not been observed.
 
 ### GStreamer is needed for games, and is not bundled
 
@@ -494,20 +493,16 @@ What has been **measured**, and what has not:
 
 **Not verified**
 
-- **Playback against a live Streamarr server.** The test server's database was down for
-  the whole of this work. The chain was verified against a stand-in server using the real
-  media, profile, tunnel and player. **What exactly is missing, and how to restore it, is
-  written down** — see the repository's
-  `docs/plans/desktop-testserver-stand.md` (the server's database container was destroyed;
-  a leftover Docker network endpoint holds the address the backend needs; the database
-  files themselves are intact).
+- **Playback against a live Streamarr instance.** The chain was verified against a
+  stand-in server that served the real media, profile, tunnel and player, not against a
+  running Streamarr server.
 - **A game actually appearing on screen.** The client pipeline is proven
   (`DECODED=10`, `INPUT_SENT=6 INPUT_RECEIVED=6` in
   `desktop/player/src/bin/game-pipeline-check.rs`) and it is now **wired into the
   app** — the shell builds it, renders through the platform sink and forwards
-  input. But that proof is loopback-to-loopback, and the test server's database is
-  down, so no game has ever been streamed to a window. Whether the app and
-  Lightrays interoperate is unverified.
+  input. But that proof is loopback-to-loopback: no game has ever been streamed from a
+  live Lightrays server to a window. Whether the app and Lightrays interoperate is
+  unverified.
 - **Couch mode with a physical controller.** The geometry, the repeat rule and the
   shell commands are covered by tests, and the keyboard path is tested end to end.
   No gamepad has ever been plugged into this machine, so the controller path has
@@ -518,10 +513,8 @@ What has been **measured**, and what has not:
 - **Installing an update.** No release has been published, so no update has ever been
   downloaded and installed. The feed answers `HTTP 404` today, which the app treats as
   "no release yet" rather than as a failure.
-- **A support report actually arriving.** `POST /api/client-logs` cannot be
-  reached while the test server's database is down, so no report has been
-  delivered or read back. The command's logic and the dialog are tested; the round
-  trip is not.
+- **A support report actually arriving.** The command's logic and the dialog are
+  tested; no report has been sent to a running server and read back.
 - **Windows installation.** The NSIS and MSI installers are built by CI on
   `windows-latest`, and the job asserts both artefacts exist — but **no person has
   built or clicked through one**. That is a different kind of evidence from a build
