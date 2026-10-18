@@ -30,7 +30,7 @@ Below the task cards, **Run History** lists recent runs with a status filter (**
 Navigate to **Admin** → **Settings**, section **Backup and Restore**.
 
 !!! warning "This is config migration, not disaster recovery"
-    The JSON export/restore here serializes settings and database rows so you can move configuration between installs or diff it. Exports are truncated per table, secrets are redacted by default, and the restore has no transactional integrity guarantee. For real disaster recovery use the `pg_dump`-based scripts in `deployment/backup/` — see [Deployment → Observability and disaster recovery](../deployment/overview.md#observability-and-disaster-recovery).
+    The JSON export/restore here serializes settings and database rows so you can move configuration between installs or diff it. Exports are truncated per table, secrets are redacted by default, and the restore has no transactional integrity guarantee. For real disaster recovery use the `pg_dump` endpoint described under [Deployment → Observability and disaster recovery](../deployment/overview.md#observability-and-disaster-recovery).
 
 === "Export"
 
@@ -52,7 +52,7 @@ Navigate to **Admin** → **Settings**, section **Backup and Restore**.
 !!! tip "Always dry-run first"
     Restores default to dry-run for a reason — review the reported row counts and warnings before applying.
 
-For file-level backups, the API additionally offers a media manifest export (`GET /api/backups/media-manifest`) listing every known media file with path and size, and `GET /api/backups/disaster-recovery/status` reports whether a server-side `pg_dump` is available (the default images ship without it).
+For file-level backups, the API additionally offers a media manifest export (`GET /api/backups/media-manifest`) listing every known media file with path and size, and `GET /api/backups/disaster-recovery/status` reports whether a server-side `pg_dump` is available, and `POST /api/backups/disaster-recovery/pg-dump` writes an archive into `STREAMARR_BACKUP_DIR`; a nightly task does the same unattended.
 
 ## Logs
 

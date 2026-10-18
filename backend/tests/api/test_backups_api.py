@@ -586,3 +586,107 @@ class TestMediaManifestBackup:
         data = resp.json()
         assert data["missing_count"] == 1
         assert data["items"][0]["status"] == "missing"
+
+
+class TestDisasterRecovery:
+    """The pg_dump path is the real backup; the JSON exports are not."""
+
+    async def test_status_requires_auth(self, client: AsyncClient):
+        resp = await client.get("/api/backups/disaster-recovery/status")
+        assert resp.status_code == 401
+
+    async def test_status_reports_pg_dump_availability(
+        self,
+        client: AsyncClient,
+        test_superuser: User,
+        admin_headers,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("STREAMARR_BACKUP_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            "streamarr.workers.backup_worker.pg_dump_available", lambda: True
+        )
+
+        resp = await client.get(
+            "/api/backups/disaster-recovery/status", headers=admin_headers
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["pg_dump_available"] is True
+        assert data["backup_dir"] == str(tmp_path)
+        assert data["elasticsearch_reindexable"] is True
+        assert "pg_dump is available" in data["note"]
+        assert "scripts" not in data
+
+    async def test_status_says_what_to_do_without_pg_dump(
+        self,
+        client: AsyncClient,
+        test_superuser: User,
+        admin_headers,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "streamarr.workers.backup_worker.pg_dump_available", lambda: False
+        )
+
+        resp = await client.get(
+            "/api/backups/disaster-recovery/status", headers=admin_headers
+        )
+
+        data = resp.json()
+        assert data["pg_dump_available"] is False
+        assert "not on this container's PATH" in data["note"]
+
+    async def test_trigger_returns_503_without_pg_dump(
+        self,
+        client: AsyncClient,
+        test_superuser: User,
+        admin_headers,
+        monkeypatch,
+    ):
+        """Missing client tools is a configuration problem, not a backup."""
+
+        async def _skip(reason):
+            return {"skipped": "pg_dump_unavailable", "reason": reason}
+
+        monkeypatch.setattr(
+            "streamarr.workers.backup_worker.run_pg_dump_backup", _skip
+        )
+
+        resp = await client.post(
+            "/api/backups/disaster-recovery/pg-dump", headers=admin_headers
+        )
+
+        assert resp.status_code == 503
+        assert "postgresql-client" in resp.json()["detail"]
+
+    async def test_trigger_reports_the_archive(
+        self,
+        client: AsyncClient,
+        test_superuser: User,
+        admin_headers,
+        monkeypatch,
+    ):
+        async def _dump(reason):
+            return {
+                "status": "completed",
+                "file": "/backups/streamarr-db-20260101T000000Z.dump",
+                "bytes": 4096,
+                "reason": reason,
+            }
+
+        monkeypatch.setattr(
+            "streamarr.workers.backup_worker.run_pg_dump_backup", _dump
+        )
+
+        resp = await client.post(
+            "/api/backups/disaster-recovery/pg-dump", headers=admin_headers
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "completed"
+        assert data["bytes"] == 4096
+        assert data["file"].endswith(".dump")

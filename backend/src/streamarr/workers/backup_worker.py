@@ -7,11 +7,9 @@ rebuildable from Postgres — and a separate media-file backup). This module
 provides a small pg_dump helper shared by the admin API and a scheduled worker
 task.
 
-``pg_dump`` must be on the container ``PATH``. In the default deployment the
-Postgres client tools live only in the ``db`` container, so this helper no-ops
-gracefully (logging a hint to use ``deployment/backup/backup.sh``) when
-``pg_dump`` is unavailable. See ``deployment/backup/README.md`` for the primary,
-fully-featured backup path.
+``pg_dump`` must be on the container ``PATH``, which the backend image arranges
+by installing postgresql-client. On an image built without it this helper no-ops
+gracefully instead of failing the scheduled task every night.
 """
 
 from __future__ import annotations
@@ -81,12 +79,12 @@ async def run_pg_dump_backup(reason: str = "scheduled") -> dict:
     Returns a status dict. When ``pg_dump`` is not installed the call is a
     graceful no-op (``{"skipped": "pg_dump_unavailable"}``) rather than an
     error, so a scheduled task in an image without client tools does not spam
-    failures — the shell scripts are the primary path.
+    failures.
     """
     if not pg_dump_available():
         logger.warning(
-            "pg_dump not on PATH; skipping server-side backup. "
-            "Use deployment/backup/backup.sh as the primary backup path."
+            "pg_dump not on PATH; skipping server-side backup. Rebuild the "
+            "backend image (postgresql-client) to enable scheduled backups."
         )
         return {"skipped": "pg_dump_unavailable", "reason": reason}
 

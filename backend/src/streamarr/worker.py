@@ -1941,8 +1941,8 @@ async def run_mass_operation_rule(
 async def scheduled_database_backup() -> dict:
     """Nightly pg_dump custom-format archive for disaster recovery.
 
-    No-ops gracefully when pg_dump is not on PATH (the default backend/worker
-    images ship without it) — deployment/backup/backup.sh is the primary path.
+    No-ops gracefully when pg_dump is not on PATH, so an image built without
+    postgresql-client does not spam failures every night.
     """
     from streamarr.workers.backup_worker import run_pg_dump_backup
 
