@@ -107,7 +107,7 @@ distrobox enter tauri44 -- bash -lc '
 
 ## Spike-Client: Ergebnis
 
-Der Client liegt als `desktop/player/src/bin/spike-webrtc.rs` hinter dem
+Der Client liegt als `frontend/src-tauri/player/src/bin/spike-webrtc.rs` hinter dem
 Feature `spike`. Er nutzt für jede Nachricht das echte
 `streamarr_desktop_player::protocol`-Modul, prüft also den committeten
 Wire-Vertrag gegen einen laufenden Server.
@@ -129,7 +129,7 @@ nachgewiesen — siehe den nächsten Abschnitt.
 
 ## Decode-Beweis ohne Server
 
-`desktop/player/src/bin/spike-local-webrtc.rs` (Feature `spike`) lässt zwei
+`frontend/src-tauri/player/src/bin/spike-local-webrtc.rs` (Feature `spike`) lässt zwei
 `webrtcbin`-Elemente über **Loopback** miteinander verhandeln:
 
 ```

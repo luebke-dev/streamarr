@@ -1,7 +1,7 @@
 //! Game streaming, wired into the shell.
 //!
 //! Plan task 3.2–3.8, the part that was missing: the pipeline, the wire contract
-//! and the input channel are all proven in `desktop/player`, but nothing in the
+//! and the input channel are all proven in `frontend/src-tauri/player`, but nothing in the
 //! *app* used them. This module is that connection.
 //!
 //! # The shape, and why it is this shape
@@ -1572,7 +1572,7 @@ mod reconnect_tests {
     //! The reconnect decision reaches the shell's game thread.
     //!
     //! `ReconnectPolicy` and its rules are tested in the core
-    //! (`desktop/player/src/signaling.rs`), including the one that matters most:
+    //! (`frontend/src-tauri/player/src/signaling.rs`), including the one that matters most:
     //! a container that exited is never retried. What those tests cannot show is
     //! whether anything *calls* the policy — and for a while nothing did, which is
     //! why this module exists.

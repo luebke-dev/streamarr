@@ -2,7 +2,7 @@ name: Desktop app CI
 
 # The desktop app is two Rust crates plus the frontend they embed:
 #
-#   desktop/player        shell-independent core (no GUI dependency)
+#   frontend/src-tauri/player        shell-independent core (no GUI dependency)
 #   frontend/src-tauri    the Tauri shell (windows, IPC, transport)
 #   frontend/             the web UI, built into what the shell embeds
 #
@@ -32,12 +32,10 @@ on:
   push:
     branches: [main]
     paths:
-      - "desktop/**"
       - "frontend/**"
       - ".github/workflows/desktop.yml"
   pull_request:
     paths:
-      - "desktop/**"
       - "frontend/**"
       - ".github/workflows/desktop.yml"
   workflow_dispatch:
@@ -69,15 +67,15 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: desktop/player
+          workspaces: frontend/src-tauri/player
       - name: Format
-        working-directory: desktop/player
+        working-directory: frontend/src-tauri/player
         run: cargo fmt --all --check
       - name: Clippy (no features)
-        working-directory: desktop/player
+        working-directory: frontend/src-tauri/player
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Test (no features)
-        working-directory: desktop/player
+        working-directory: frontend/src-tauri/player
         run: cargo test --locked
       # Every feature variant, not just the default. Each one adds code that is
       # otherwise never compiled: `mpv` brings the player integration, `spike` the
@@ -113,7 +111,7 @@ jobs:
             exit 1
           fi
       - name: Clippy (every feature variant)
-        working-directory: desktop/player
+        working-directory: frontend/src-tauri/player
         run: |
           set -euo pipefail
           for feature in gamepad mpv spike; do
@@ -124,7 +122,7 @@ jobs:
       # when those are absent, so this asserts the paths really resolved — otherwise
       # the suite could degrade into no-ops that report success.
       - name: Golden tests reached the server sources
-        working-directory: desktop/player
+        working-directory: frontend/src-tauri/player
         run: cargo test --locked --test wire_contract -- --nocapture
       # The mpv and WebRTC layer can only be verified against real programs. Both
       # silently *skip* when their prerequisites are missing, so installing them
@@ -136,9 +134,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mpv ffmpeg xvfb
       - name: Generate the test media
-        run: ./desktop/scripts/make_test_media.sh
+        run: ./frontend/src-tauri/scripts/make_test_media.sh
       - name: mpv integration tests against a real mpv
-        working-directory: desktop/player
+        working-directory: frontend/src-tauri/player
         run: |
           set -o pipefail
           # `--test-threads=1` is not needed (each player gets its own socket), but
@@ -157,7 +155,7 @@ jobs:
             exit 1
           fi
       - name: Test (gamepad feature)
-        working-directory: desktop/player
+        working-directory: frontend/src-tauri/player
         run: |
           sudo apt-get update
           sudo apt-get install -y libudev-dev
@@ -294,7 +292,7 @@ jobs:
       - name: Versions must agree across the three files
         # Before anything is built: a mismatch here means the update checker
         # offers an update that is already installed, or none when one exists.
-        run: desktop/scripts/check_versions.sh
+        run: frontend/src-tauri/scripts/check_versions.sh
       - name: Build bundles
         working-directory: frontend
         # AppImage is excluded on purpose: it needs FUSE to run, which the runner has,
@@ -317,7 +315,7 @@ jobs:
           # installs cleanly and crashes on start on a machine that is not this one.
           # `libudev` arrived with the `gamepad` feature and was missing exactly so.
           RPM=$(ls frontend/src-tauri/target/release/bundle/rpm/*.rpm)
-          desktop/scripts/check_bundle_deps.sh \
+          frontend/src-tauri/scripts/check_bundle_deps.sh \
             frontend/src-tauri/target/release/Streamarr "$DEB" "$RPM"
           # The shipped package must contain the game pipeline. `tauri build`
           # uses the `build.features` from the configuration, and the default build

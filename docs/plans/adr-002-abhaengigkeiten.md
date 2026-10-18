@@ -92,7 +92,7 @@ Paketvorschlag), statt ein schwarzes Bild zu zeigen.
 
 ## Konsequenzen
 
-1. `desktop/scripts/check_bundle_deps.sh` prüft, dass die Pakete jede **direkt
+1. `frontend/src-tauri/scripts/check_bundle_deps.sh` prüft, dass die Pakete jede **direkt
    gelinkte** Bibliothek deklarieren. GStreamer erscheint dort erst, wenn die
    Shell das `spike`-Feature aktiviert — dann **muss** die Liste mitwachsen, und
    das Skript schlägt fehl, wenn sie es nicht tut.
@@ -115,7 +115,7 @@ Paketvorschlag), statt ein schwarzes Bild zu zeigen.
 
 ## Offen
 
-Die Spiel-Pipeline ist in `desktop/player` implementiert und live belegt
+Die Spiel-Pipeline ist in `frontend/src-tauri/player` implementiert und live belegt
 (`waylandsink`, `DECODED=10`, `INPUT_SENT=6 INPUT_RECEIVED=6`), aber **noch nicht
 in der Shell verdrahtet**: dort ist nur das Feature `gamepad` aktiv. Solange das
 so ist, braucht der **ausgelieferte** Build GStreamer nicht — und die

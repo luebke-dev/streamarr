@@ -1,6 +1,6 @@
 # Spike 0.4 — Gamepad-Messprogramm
 
-Reproduktion der Messung aus [spike-04-gamepad.md](../../../docs/plans/spike-04-gamepad.md).
+Reproduktion der Messung aus [spike-04-gamepad.md](../../spike-04-gamepad.md).
 
 Es gibt hier kein physisches Gamepad. Statt die Leseseite ungetestet zu lassen,
 erzeugt `virtual-pad` über `/dev/uinput` ein **echtes Eingabegerät**, das Kernel
@@ -20,7 +20,7 @@ test -w /dev/uinput && echo "uinput schreibbar"
 read-only, sodass sich Nodes nicht nachreichen lassen.
 
 ```bash
-cd desktop/player
+cd frontend/src-tauri/player
 cargo build --release --features gamepad
 ```
 

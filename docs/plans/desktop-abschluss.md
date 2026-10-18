@@ -138,7 +138,7 @@ Ergebnis der drei Fehler oben, nicht der Grund.
 
 ## Was gemessen ist
 
-**Rust.** `desktop/player` 514 Tests feature-frei und mit `mpv`/`spike`, 537 mit
+**Rust.** `frontend/src-tauri/player` 514 Tests feature-frei und mit `mpv`/`spike`, 537 mit
 `gamepad`. `frontend/src-tauri` 144 Tests ohne Zutaten und mit `custom-protocol`,
 152 mit `gamestream` — in beiden Kombinationen mit `custom-protocol`. `cargo fmt
 --all --check` und `clippy --all-targets -- -D warnings` sauber in **allen acht**
@@ -151,7 +151,7 @@ internen Anker aufgelöst worden, weil `--strict` sie **nicht** prüft.
 
 **Pakete.** `.deb` (10,8 MB), `.rpm` (10,8 MB) und AppImage (120 MB) gebaut und
 geöffnet. Jede direkt gelinkte Bibliothek ist deklariert, geprüft von
-`desktop/scripts/check_bundle_deps.sh` — das Skript hat dabei **acht** fehlende
+`frontend/src-tauri/scripts/check_bundle_deps.sh` — das Skript hat dabei **acht** fehlende
 Abhängigkeiten gefunden, darunter `libudev1` (durch die eigene
 Controller-Unterstützung) und drei GStreamer-Pakete (durch die Spiel-Verdrahtung).
 

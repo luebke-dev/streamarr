@@ -8,7 +8,7 @@
 # Paket, dem eine Bibliothek fehlt, installiert sauber und stürzt beim Start ab —
 # der Fehler zeigt sich also erst beim Nutzer.
 #
-# Aufruf: desktop/scripts/check_bundle_deps.sh <pfad-zu-Streamarr> <deb> <rpm>
+# Aufruf: frontend/src-tauri/scripts/check_bundle_deps.sh <pfad-zu-Streamarr> <deb> <rpm>
 set -euo pipefail
 
 BINARY="${1:?Pfad zum Binary fehlt}"

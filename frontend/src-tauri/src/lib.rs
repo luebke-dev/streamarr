@@ -8,7 +8,7 @@
 //! * owning the HTTP transport
 //!
 //! What this crate deliberately does **not** contain is any playback logic. The
-//! player core lives in `desktop/player`, is shell-independent and is tested without
+//! player core lives in `frontend/src-tauri/player`, is shell-independent and is tested without
 //! a GUI (ADR 001). Everything decision-shaped — when a token is refreshed, whether a
 //! file direct-plays, what the wire messages look like — is decided there and merely
 //! carried out here.
@@ -130,7 +130,7 @@ impl AppState {
     /// claim a version the build does not have.
     pub fn app_version(&self) -> String {
         // `env!("CARGO_PKG_VERSION")` is the shell crate's version, which is kept
-        // in step with the product version by `desktop/scripts/check_versions.sh`.
+        // in step with the product version by `frontend/src-tauri/scripts/check_versions.sh`.
         env!("CARGO_PKG_VERSION").to_string()
     }
 

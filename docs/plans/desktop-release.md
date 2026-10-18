@@ -25,12 +25,12 @@ Sie **müssen** gleich sein, und zwar nicht aus Ordnungsliebe:
   installierten Pakets: Laufen sie auseinander, entsteht ein Paket, das sich nicht
   sauber aktualisieren lässt.
 
-`desktop/scripts/check_versions.sh` prüft das und **schlägt fehl**, wenn eine der
+`frontend/src-tauri/scripts/check_versions.sh` prüft das und **schlägt fehl**, wenn eine der
 drei abweicht. Zwei Mutationen wurden geprüft: eine geänderte
 `Cargo.toml`-Version und eine geänderte `tauri.conf.json` werden beide namentlich
 gemeldet.
 
-`desktop/player/Cargo.toml` trägt bewusst eine **eigene** Version (`0.1.0`): die
+`frontend/src-tauri/player/Cargo.toml` trägt bewusst eine **eigene** Version (`0.1.0`): die
 Kiste ist eine interne Bibliothek und wird nicht ausgeliefert. Das Skript meldet
 das als Hinweis, nicht als Fehler.
 
@@ -39,13 +39,13 @@ das als Hinweis, nicht als Fehler.
 ```bash
 # 1. Version an allen drei Stellen setzen (Beispiel 2026.3.0)
 #    package.json, src-tauri/Cargo.toml, src-tauri/tauri.conf.json
-./desktop/scripts/check_versions.sh          # muss "OK" sagen
+./frontend/src-tauri/scripts/check_versions.sh          # muss "OK" sagen
 
 # 2. Alles prüfen
-cd desktop/player && cargo test --locked
+cd frontend/src-tauri/player && cargo test --locked
 cd ../../frontend/src-tauri && cargo test --locked
 cd ../.. && (cd frontend && npx vitest run)  # 24 bekannte Fehler sind die Baseline
-./desktop/scripts/check_bundle_deps.sh \
+./frontend/src-tauri/scripts/check_bundle_deps.sh \
     frontend/src-tauri/target/release/Streamarr \
     frontend/src-tauri/target/release/bundle/deb/*.deb \
     frontend/src-tauri/target/release/bundle/rpm/*.rpm

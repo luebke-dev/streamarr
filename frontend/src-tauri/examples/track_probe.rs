@@ -9,7 +9,7 @@
 //! interface. Run from `frontend/src-tauri`:
 //!
 //! ```text
-//! ./desktop/scripts/make_test_media.sh
+//! ./frontend/src-tauri/scripts/make_test_media.sh
 //! cargo run --example track_probe -- /tmp/mpvt/test.mkv
 //! cargo run --example track_probe -- /tmp/mpvt/sub.mkv
 //! ```

@@ -59,7 +59,7 @@ tauri-plugin-log = "2"
 # (GStreamer) is behind a shell feature of its own, so the shell still builds with
 # no GStreamer at all — the constraint that the core crate stays buildable without
 # system dependencies applies to the shell too.
-streamarr-desktop-player = { path = "../../desktop/player", features = ["gamepad"] }
+streamarr-desktop-player = { path = "player", features = ["gamepad"] }
 
 # `native-tls` over rustls for the same reason spike 0.1 chose it: the internal
 # `Luebke Internal CA` lives in the system trust store, and rustls would need the
@@ -128,7 +128,7 @@ custom-protocol = ["tauri/custom-protocol"]
 #
 # Off by default and separate on purpose. It is the one feature that pulls a large
 # native dependency with a version floor (GStreamer **1.22**, see
-# `desktop/player/Cargo.toml`), so a build without it needs no GStreamer headers
+# `frontend/src-tauri/player/Cargo.toml`), so a build without it needs no GStreamer headers
 # and the package dependencies stay honest — `check_bundle_deps.sh` reads the
 # binary, not the intent.
 gamestream = [

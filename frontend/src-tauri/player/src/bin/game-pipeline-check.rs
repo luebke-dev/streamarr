@@ -10,7 +10,7 @@
 //! network. The receiver side is assembled from
 //! [`streamarr_desktop_player::game_pipeline`], which is the point of the exercise.
 //!
-//! Run from `desktop/player`:
+//! Run from `frontend/src-tauri/player`:
 //!
 //! ```text
 //! cargo run --features spike --bin game-pipeline-check

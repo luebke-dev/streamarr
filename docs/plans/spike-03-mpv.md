@@ -17,7 +17,7 @@ verfügbar) und wird deshalb **nicht** verwendet.
 
 ## Entscheidung: separater Prozess mit JSON-IPC
 
-**Der Prozess-Weg ist gewählt.** Gemessen mit `desktop/player/src/bin/spike-mpv.rs`
+**Der Prozess-Weg ist gewählt.** Gemessen mit `frontend/src-tauri/player/src/bin/spike-mpv.rs`
 (Feature `mpv`), gegen einen echten Server-Stream und gegen lokale Testdateien.
 
 | Kriterium | Ergebnis |

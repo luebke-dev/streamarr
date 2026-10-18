@@ -10,7 +10,7 @@
 //! feed does **not** come from the Streamarr instance the user is logged into.
 //!
 //! The app is a client. `ProfileStore` holds a list of servers, each with its own
-//! `ServerAddress` (`desktop/player/src/profile.rs`), and the active one says where *media
+//! `ServerAddress` (`frontend/src-tauri/player/src/profile.rs`), and the active one says where *media
 //! and games* come from. The update endpoint, by contrast, is a static value compiled into
 //! the bundle, and it has to point somewhere that exists independently of any instance:
 //!

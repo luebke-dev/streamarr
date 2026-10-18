@@ -1,6 +1,6 @@
 # Spike 0.2 — Messprogramme
 
-Reproduktion der Messungen aus [spike-02-fenster.md](../../../docs/plans/spike-02-fenster.md).
+Reproduktion der Messungen aus [spike-02-fenster.md](../../spike-02-fenster.md).
 Diese Dateien sind **Messwerkzeuge, nicht Teil der App** — sie liegen hier, damit
 die Gate-Entscheidung aus ADR 001 nachprüfbar bleibt und nicht auf einer
 Behauptung steht.

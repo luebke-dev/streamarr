@@ -40,7 +40,7 @@ inside the extracted directory — that is the real entry point, and starting
 The `.deb` and `.rpm` declare the libraries the app links directly, including
 `libudev1` and `libgudev-1.0-0` for controller support. A build that forgets one
 installs cleanly and crashes on start — which is why
-`desktop/scripts/check_bundle_deps.sh` compares the package's declarations against
+`frontend/src-tauri/scripts/check_bundle_deps.sh` compares the package's declarations against
 the binary's `DT_NEEDED` entries and fails if anything is missing.
 
 ### Windows
@@ -248,7 +248,7 @@ worth stating plainly:
     The client pipeline is proven — a real GStreamer pipeline decodes a real WebRTC
     stream over a real data channel, and input reaches the other side
     (`DECODED=10 INPUT_SENT=6 INPUT_RECEIVED=6`, reproducible with
-    `cargo run --features spike --bin game-pipeline-check` in `desktop/player`).
+    `cargo run --features spike --bin game-pipeline-check` in `frontend/src-tauri/player`).
 
     That proof is **loopback to loopback**. It shows the client's own pipeline
     works; it says nothing about interoperability with your server, because the
@@ -495,7 +495,7 @@ What has been **measured**, and what has not:
   equivalent of `curl --resolve`.
 - Bundles: `.deb` and `.rpm` built, their contents inspected, and every directly
   linked library declared — checked mechanically by
-  `desktop/scripts/check_bundle_deps.sh`, which found eight undeclared
+  `frontend/src-tauri/scripts/check_bundle_deps.sh`, which found eight undeclared
   dependencies the first time it ran.
 - The extracted AppImage starts. `check_versions.sh` holds the three product
   versions together.
@@ -511,7 +511,7 @@ What has been **measured**, and what has not:
   files themselves are intact).
 - **A game actually appearing on screen.** The client pipeline is proven
   (`DECODED=10`, `INPUT_SENT=6 INPUT_RECEIVED=6` in
-  `desktop/player/src/bin/game-pipeline-check.rs`) and it is now **wired into the
+  `frontend/src-tauri/player/src/bin/game-pipeline-check.rs`) and it is now **wired into the
   app** — the shell builds it, renders through the platform sink and forwards
   input. But that proof is loopback-to-loopback, and the test server's database is
   down, so no game has ever been streamed to a window. Whether the app and

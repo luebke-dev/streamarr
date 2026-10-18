@@ -133,7 +133,7 @@ Die naheliegende Annahme ist die umgekehrte — „self-hosted, also liefert der
 Server auch die App aus". Sie trägt nicht:
 
 - **Die App ist ein Client, kein Bestandteil einer Instanz.** `ProfileStore`
-  hält eine *Liste* von Servern (`desktop/player/src/profile.rs`); keiner davon
+  hält eine *Liste* von Servern (`frontend/src-tauri/player/src/profile.rs`); keiner davon
   ist der „Hauptserver". Welcher sollte den Update-Feed bestimmen?
 - **Es wäre eine Codeverteilung durch Dritte.** Wer die Adresse eintippt, deren
   Feed die App folgt, könnte beliebigen Code auf das Gerät schieben. Das ist

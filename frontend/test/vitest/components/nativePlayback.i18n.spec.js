@@ -24,7 +24,7 @@ import enUS from 'src/i18n/en-US'
 import deDE from 'src/i18n/de-DE'
 
 const REPO_ROOT = resolve(__dirname, '../../../..')
-const PLAN_RS = resolve(REPO_ROOT, 'desktop/player/src/plan.rs')
+const PLAN_RS = resolve(REPO_ROOT, 'frontend/src-tauri/player/src/plan.rs')
 
 /** The `kind` values the core crate can emit. */
 function noticeKindsFromRust() {

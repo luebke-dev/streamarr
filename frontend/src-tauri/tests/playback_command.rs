@@ -7,7 +7,7 @@
 //! never reached mpv, a property pass-through that would let a page change how mpv runs.
 //! Those are mistakes in the join, not in the parts.
 //!
-//! The server is a stand-in (`desktop/scripts/fake_playback_server.py`), because the test
+//! The server is a stand-in (`frontend/src-tauri/scripts/fake_playback_server.py`), because the test
 //! server's database was down while this was written. It answers with the *measured*
 //! response shapes and serves the real test medium with range support.
 

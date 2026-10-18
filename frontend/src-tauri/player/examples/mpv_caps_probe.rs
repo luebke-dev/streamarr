@@ -4,7 +4,7 @@
 //! cannot: what the capability set looks like in full, and whether the two HDR answers
 //! come out as expected.
 //!
-//! Run from `desktop/player`:
+//! Run from `frontend/src-tauri/player`:
 //!
 //! ```text
 //! cargo run --example mpv_caps_probe

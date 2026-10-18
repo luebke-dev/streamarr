@@ -1,6 +1,6 @@
 //! Drives the shell's **own** live game client against a real Lightrays session.
 //!
-//! The loopback pipeline check (`desktop/player`) proves that the decode chain the plan
+//! The loopback pipeline check (`frontend/src-tauri/player`) proves that the decode chain the plan
 //! names can be linked and decodes frames. What it cannot prove is interoperability: two
 //! `webrtcbin` elements in one process agree with each other by construction, and the
 //! closing report says so in exactly those words. This binary closes that gap by using

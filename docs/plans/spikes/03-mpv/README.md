@@ -1,6 +1,6 @@
 # Spike 0.3 — mpv-Messprogramm
 
-Reproduktion der Messung aus [spike-03-mpv.md](../../../docs/plans/spike-03-mpv.md).
+Reproduktion der Messung aus [spike-03-mpv.md](../../spike-03-mpv.md).
 
 Der Spike steuert `mpv` als **separaten Prozess** über dessen JSON-IPC. Er linkt
 bewusst **nicht** gegen libmpv — genau das ist die Entscheidung, die er belegt.
@@ -39,7 +39,7 @@ ffmpeg -y -f lavfi -i testsrc=duration=120:size=640x360:rate=25 \
 ## Lauf
 
 ```bash
-cd desktop/player
+cd frontend/src-tauri/player
 cargo build --features mpv --bin spike-mpv
 
 ./target/debug/spike-mpv /tmp/mpvt/test.mkv
