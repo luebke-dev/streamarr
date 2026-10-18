@@ -55,6 +55,14 @@ The backend auto-detects Kubernetes and runs FFmpeg, ffprobe, chromaprint, and t
 
 The leanest single-host option: systemd `.container` units with SABnzbd as the **only** downloader — no Rust downloader services and no nginx backend proxy (the backend unit publishes port 8000 directly). Secrets come from `EnvironmentFile=/etc/streamarr/streamarr.env` (`root:root`, mode `0600`); without it the units start with empty passwords and paths.
 
+### The shared network
+
+The units address each other by container name (`streamarr-postgres`, `streamarr-redis`, `streamarr-elasticsearch`, `streamarr-lightrays`). That lookup only works on a network with the built-in DNS server enabled, and Podman's default network ships with DNS **off**. Left on the default network, every unit resolves nothing and the stack fails at startup on the first database connection.
+
+The `streamarr.network` unit in `deployment/quadlets/` defines such a network, and each container unit joins it with `Network=streamarr.network`. Install the `.network` file alongside the `.container` files, otherwise the units cannot start.
+
+The subnet is `10.89.0.0/24`. Change it in `streamarr.network` if that range is already in use.
+
 ## Migrations, secrets, Elasticsearch
 
 Database migrations run as a dedicated **one-shot step** before any app process starts — app containers never race to apply DDL:

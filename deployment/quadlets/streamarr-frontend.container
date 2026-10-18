@@ -5,6 +5,9 @@ Description=Streamarr Frontend (Quasar SPA)
 Image=registry.gitlab.com/streamarr.media/frontend:latest
 ContainerName=streamarr-frontend
 
+# Attach to the shared network so the other units resolve this one by name.
+Network=streamarr.network
+
 PublishPort=3000:3000
 
 [Service]

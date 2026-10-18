@@ -12,7 +12,7 @@ copy.
 | **Helm chart** | `helm/streamarr` | **Kubernetes / production** | **Authoritative** for K8s. Maintained. |
 | **Docker Compose (prod)** | `docker/docker-compose.yml` | **Single-host production** (pre-built registry images) | **Authoritative** for single-host prod. Maintained. |
 | **Root Compose (dev)** | `../docker-compose.yml` | **Local development only** (all images built locally) | Maintained for dev; **not** a production artifact. |
-| **Quadlets** | `quadlets/*.container` | Single-host **Podman / systemd** alternative | Alternative to Docker Compose prod. **SABnzbd-only variant** (see below). |
+| **Quadlets** | `quadlets/*.container` + `quadlets/streamarr.network` | Single-host **Podman / systemd** alternative | Alternative to Docker Compose prod. **SABnzbd-only variant** (see below). The `.network` unit is required: the units resolve each other by name, which Podman's default network does not support. |
 | **install.sh** | `install.sh` | Interactive single-host bootstrap | Convenience wrapper. Emits a **generated subset** of the prod Compose (see below). |
 
 Rules of thumb:
@@ -119,6 +119,47 @@ Docker Compose (prod) and Helm models run — the backend unit publishes port
 8000 directly. If you need the full downloader set or the proxy, use the Docker
 Compose prod model or Helm. Bringing the quadlets to full parity is deferred;
 they are kept as the minimal Podman/systemd variant, not deprecated.
+
+### Installing the quadlets
+
+Two things are required beyond copying the unit files, and both are silent
+failures if missed:
+
+1. **Set the images to a registry you can pull from.** The units ship pointing
+   at `registry.gitlab.com/streamarr.media`; the GitHub workflow publishes to
+   `ghcr.io/<owner>/`. Adjust `Image=` in the units (or retag locally) to match
+   where your images actually live.
+2. **Copy `streamarr.network` along with the `.container` files.** The units
+   reference each other by container name, and Podman only provides that name
+   resolution on a network created for it. Its built-in default network has
+   the DNS server disabled. Each unit carries `Network=streamarr.network`, so
+   without the `.network` file the units fail to start.
+
+```bash
+sudo cp quadlets/*.container quadlets/streamarr.network /etc/containers/systemd/
+sudo systemctl daemon-reload
+```
+
+Every unit carries `WantedBy=default.target`, so they all start on the next
+boot. To start them now, name the units directly. `Requires=` only propagates
+from `streamarr-migrate` (and from there to PostgreSQL), while Redis and
+Elasticsearch appear only in `After=` lines, which order a start but do not pull
+anything in, so they have to be listed:
+
+```bash
+sudo systemctl start streamarr-postgres streamarr-redis streamarr-elasticsearch \
+                   streamarr-backend streamarr-scheduler streamarr-worker \
+                   streamarr-lightrays streamarr-frontend streamarr-sabnzbd
+```
+
+`streamarr-migrate` runs once and is pulled in automatically by the units that
+require it. Check the generated units before starting if something fails:
+
+```bash
+/usr/libexec/podman/quadlet -dryrun
+sudo systemctl status streamarr-backend
+journalctl -u streamarr-backend -n 50
+```
 
 ## Database migrations
 

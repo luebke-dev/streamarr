@@ -8,6 +8,9 @@ Requires=streamarr-migrate.service
 Image=registry.gitlab.com/streamarr.media/backend:latest
 ContainerName=streamarr-backend
 
+# Attach to the shared network so the other units resolve this one by name.
+Network=streamarr.network
+
 # Secrets & host paths (POSTGRES_PASSWORD, SECRET_KEY, DATA_DIR,
 # PROJECT_ROOT, ...) are injected from this file. Create it with mode 0600,
 # owned by root. See deployment/README.md.

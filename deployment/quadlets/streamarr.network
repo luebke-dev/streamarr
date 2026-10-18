@@ -1,0 +1,28 @@
+# Shared Podman network for the Streamarr quadlets.
+#
+# The units address each other by container name (streamarr-postgres,
+# streamarr-redis, streamarr-elasticsearch, streamarr-lightrays). That name
+# resolution only works on a network with DNS enabled: Podman's built-in
+# default network ships with dns_enabled=false, so a unit left on the default
+# network resolves nothing and every database/Redis/cache connection fails
+# with a name lookup error.
+#
+# Declaring the network here and referencing it from each unit
+# (Network=streamarr.network) gives a Docker-compatible network with the
+# built-in DNS server active, which is what the compose stack relies on.
+#
+# The subnet is deliberately a 10.89.0.0/24 block that Podman does not hand
+# out by default; change it if that range is already in use on the host.
+[Unit]
+Description=Streamarr container network
+
+[Network]
+Subnet=10.89.0.0/24
+
+# Route through the host so container egress matches the host's own routing.
+Gateway=10.89.0.1
+
+# Name the created network "streamarr" instead of the generator's default
+# "systemd-streamarr", so it is easy to recognise in `podman network ls` and
+# can be used as a LIGHTRAYS_SESSION_NETWORK override if ever needed.
+NetworkName=streamarr
