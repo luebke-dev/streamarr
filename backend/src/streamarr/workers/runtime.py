@@ -31,9 +31,38 @@ setup_logging(
     fmt=connection_settings.log_format,
 )
 
-result_backend = RedisAsyncResultBackend(
-    redis_url=settings.redis_url,
-)
+# Ephemeral by design: nothing in the codebase reads a task result back
+# (every dispatch is fire-and-forget, there is no wait_result/get_result
+# anywhere), so results only need to survive long enough for the worker's
+# event middleware to record success/failure. Taskiq's defaults are the
+# opposite of that: ``keep_results=True`` with no expiry, which calls
+# ``redis.set`` without ``ex`` and leaks one permanent key per task forever.
+# That had grown to ~5M keys / 1.3 GB RAM and was the top memory consumer on
+# the host, contributing to cgroup OOM kills of Redis.
+#
+# One hour is generous for the middleware and for a human debugging a recent
+# failure; anything longer just re-accumulates. Override with
+# ``WORKER_RESULT_TTL_SECONDS`` when debugging, and set it to 0 to keep
+# results indefinitely (the old, leaky behaviour).
+_RESULT_TTL_SECONDS = int(os.getenv("WORKER_RESULT_TTL_SECONDS", "3600"))
+
+
+def build_result_backend(redis_url: str, ttl_seconds: int = _RESULT_TTL_SECONDS):
+    """Create the result backend with a bounded result lifetime.
+
+    Kept as a function so the TTL wiring is testable without re-importing this
+    module (which would re-register the Prometheus gauge and raise
+    ``Duplicated timeseries``).
+    """
+    return RedisAsyncResultBackend(
+        redis_url=redis_url,
+        # ``0``/negative disables the expiry again, so fall back to no TTL only
+        # when explicitly requested.
+        result_ex_time=ttl_seconds if ttl_seconds > 0 else None,
+    )
+
+
+result_backend = build_result_backend(settings.redis_url)
 
 # The task stream is unbounded by default: every cron tick is appended and
 # nothing ever removes an acknowledged entry, so the key grows without limit

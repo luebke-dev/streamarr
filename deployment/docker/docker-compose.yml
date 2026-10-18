@@ -293,6 +293,14 @@ services:
   redis:
     image: docker.io/library/redis:7-alpine
     restart: unless-stopped
+    # Bounded memory, matching the root compose and the quadlet. Task results
+    # are the only keys with an expiry; volatile-ttl evicts those first and
+    # never drops the persistent queue/lock/counter keys.
+    command: >-
+      redis-server
+      --maxmemory ${REDIS_MAXMEMORY:-512mb}
+      --maxmemory-policy volatile-ttl
+      --save 900 1
     volumes:
       - ${DATA_DIR:-./data}/redis:/data:rw,z
     healthcheck:

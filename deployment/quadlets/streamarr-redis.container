@@ -15,6 +15,16 @@ EnvironmentFile=/etc/streamarr/streamarr.env
 
 Volume=${DATA_DIR}/redis:/data:rw,z
 
+# Bound Redis memory, matching the compose files. Task results are the only
+# keys with an expiry, so volatile-ttl evicts those and never the persistent
+# queue/lock/counter keys.
+#
+# The bound is literal rather than a `${REDIS_MAXMEMORY}` reference: systemd
+# has no `${VAR:-default}` form, so an unset variable would expand to nothing
+# and redis-server would swallow the following flag as the value and refuse to
+# start. Edit the number here to change it.
+Exec=redis-server --maxmemory 512mb --maxmemory-policy volatile-ttl --save 900 1
+
 [Service]
 Restart=unless-stopped
 TimeoutStartSec=30
