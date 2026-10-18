@@ -113,6 +113,7 @@ nav:
     - Monitoring: administration/monitoring.md
   - Development:
     - Overview: developer-guide/overview.md
+    - Versioning & Releases: developer-guide/releases.md
   - Deployment:
     - Overview: deployment/overview.md
 

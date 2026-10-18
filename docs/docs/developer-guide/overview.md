@@ -15,7 +15,8 @@ streamarr.media is a monorepo: a Python backend, a Quasar/Vue frontend, several 
 | `observability/` | Prometheus config and provisioned Grafana dashboard |
 | `docs/` | This MkDocs Material site |
 
-Each component has its own README with deeper development notes. The backend serves the API under `/api/v1` and a WebSocket at `/api/ws`; data lives in PostgreSQL 16, Redis 7 (queue/cache/pub-sub), and Elasticsearch 9.2 (search index).
+Each component has its own README with deeper development notes. How the project
+is numbered and released is described in [Versioning and Releases](releases.md). The backend serves the API under `/api/v1` and a WebSocket at `/api/ws`; data lives in PostgreSQL 16, Redis 7 (queue/cache/pub-sub), and Elasticsearch 9.2 (search index).
 
 ## Running the full stack
 
