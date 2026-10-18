@@ -41,7 +41,7 @@ zu weitgehend.
 |---|---|---|
 | 1 | Medien über den nativen mpv-Kern | **live nachgewiesen**, samt Login und Sitzung über einen Neustart |
 | 2 | HDR10 durchgereicht oder nachweisbar gemappt | **gemessen** |
-| 3 | Spiele über GStreamer/WebRTC nativ | **live nachgewiesen bis zur Aushandlung**; Medienpfad serverseitig blockiert |
+| 3 | Spiele über GStreamer/WebRTC nativ | **live nachgewiesen bis zur Aushandlung**; Client nutzt jetzt die ICE-Server, Relay läuft — aber UDP aus VLAN 20 erreicht den Server nicht |
 | 4 | Couch-/Big-Picture-Modus in der UI | **gebaut**, ohne Controller |
 | 5 | Alle Rust-Crates grün | **gemessen** |
 | 6 | Frontend ohne neue Fehler | **gemessen** |
@@ -101,7 +101,33 @@ Der Client verhandelt also richtig, und der Medienpfad scheitert daran, dass der
 Server eine Adresse anbietet, die außerhalb seines Docker-Netzes niemand erreicht.
 Das ist eine Ausrollfrage (externe Adresse, Portweiterleitung oder TURN), kein
 Client-Fehler — und es steht zum ersten Mal als **gemessene** Tatsache da statt als
-Vermutung. Behoben wurde es nicht; dafür braucht es eine Serveränderung.
+Vermutung.
+
+**Nachtrag: der Client war nur die halbe Ursache.** Bei der Reparatur zeigte sich, dass
+`make_webrtcbin` die `ice_servers` aus der Startantwort **nie angewendet** hat — nicht
+einmal das STUN, das der Server mitschickt. Der Grund war ehrenwert und musste erhalten
+bleiben: eine frühere Fassung setzte `stun-server=""`, und ein leerer Wert ist nicht
+dasselbe wie kein Wert — die Pipeline handelte aus, kodierte genau einen Puffer und
+stand. `IceConfig` bildet Abwesenheit deshalb als `None` ab und setzt sie nie. Der
+Client nutzt die Liste jetzt (Stun, Turn samt Zugangsdaten im URL, prozentkodiert).
+
+**Und der Relay steht, aber der Weg dorthin ist zu.** coturn läuft im Deployment,
+antwortet auf eine STUN-Anfrage an `10.10.60.20:3478` (lokal gemessen, 100 Bytes), und
+Lightrays startet mit allen drei `LIGHTRAYS_TURN_*`-Variablen. Die Firewall hat eine
+Regel für `10.10.20.161 → 10.10.60.20` auf 3478 und 49200–49220 und protokolliert den
+Verkehr als **`pass`**.
+
+Trotzdem kommt kein UDP an — zwei unabhängige Messungen:
+
+* `tcpdump` auf dem Server, `udp port 3478`: **0 Pakete**;
+* ein einfacher UDP-Listener auf 49205 bekommt vom Client **nichts**;
+* TCP 22 und 443 zum selben Host funktionieren.
+
+Ausgeschlossen, jeweils gemessen: kein Shaper (0 Regeln), keine lokale Firewall auf dem
+Server (INPUT ACCEPT), `rp_filter` loose (2), Rückroute über eth0. Das Paket verlässt
+die Firewall nach dem `pass` und erreicht den Server nie. Eine Erklärung dafür gibt es
+noch nicht; sie braucht einen Mitschnitt **auf** OPNsense, und deren SSH ist nur aus
+VLAN 10 erreichbar.
 
 ### Login: läuft, samt Sitzung über einen Neustart
 
@@ -324,13 +350,15 @@ Fehlern entstanden sind.
 
 ## Was vor einer Auslieferung noch fehlte
 
-1. **Den Spiel-Medienpfad serverseitig freimachen** — TURN oder eine extern
-   erreichbare Adresse; heute nennt das Angebot nur `172.21.0.3`. Und **Direct Play**
-   ermöglichen: `playback_decision.py` bildet `ac3/eac3/dts/truehd` fest auf `aac` ab,
-   kopiert werden nur `aac/mp3/opus/flac` — deshalb hat jedes Medium dieser Instanz
-   einen Transcode.
-2. Einen Windows-Installer von Hand installieren und starten. Für Medien fehlt
+1. **Den UDP-Weg zum Relay öffnen.** coturn läuft, die Regel ist gesetzt und
+   protokolliert `pass` — die Pakete erreichen den Server trotzdem nicht. Das braucht
+   einen Mitschnitt auf OPNsense (nur aus VLAN 10 erreichbar), nicht weitere
+   Clientarbeit.
+2. **Direct Play ausrollen.** Der Fix liegt in `playback_decision.py` (kopieren, wenn der
+   Client den Quellcodec anbietet) und ist getestet; wirksam wird er mit einem neuen
+   Backend-Image.
+3. Einen Windows-Installer von Hand installieren und starten. Für Medien fehlt
    vorher der Named-Pipe-Client für mpv, sonst zeigt die App dort nur die Bibliothek.
-3. Ein Release veröffentlichen, damit ein Update einmal durchläuft.
-4. Ein physisches Gamepad an den Couch-Modus stecken.
-5. Den Support-Bericht einmal wirklich abschicken und zurücklesen.
+4. Ein Release veröffentlichen, damit ein Update einmal durchläuft.
+5. Ein physisches Gamepad an den Couch-Modus stecken.
+6. Den Support-Bericht einmal wirklich abschicken und zurücklesen.
