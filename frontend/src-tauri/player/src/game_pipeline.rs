@@ -369,6 +369,111 @@ impl JitterBufferProperty {
     }
 }
 
+/// The ICE configuration a `webrtcbin` is built with.
+///
+/// The server sends a **list** (`ice_servers`, the browser shape), while `webrtcbin`
+/// takes one STUN and one TURN server as properties — so the first usable entry of each
+/// kind wins. TURN credentials travel inside the URL, which is the form `webrtcbin`
+/// parses.
+///
+/// Until now the client ignored that list: `make_webrtcbin` set nothing at all. The
+/// reason was a real failure — an earlier version set `stun-server=""`, and an empty
+/// value is **not** the same as no value: the pipeline negotiated, encoded exactly one
+/// buffer and stalled. This type exists so the repair cannot repeat it: an empty value
+/// is `None`, and `None` is never set as a property.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct IceConfig {
+    pub stun_server: Option<String>,
+    pub turn_server: Option<String>,
+}
+
+impl IceConfig {
+    /// Reads whatever the server put in `ice_servers` and keeps what `webrtcbin` accepts.
+    ///
+    /// `urls` may be a single string or an array; unknown schemes and malformed entries
+    /// are skipped rather than turned into a property — a wrong URL in `webrtcbin` fails
+    /// the same silent way an empty one did.
+    pub fn from_ice_servers(servers: &[serde_json::Value]) -> Self {
+        let mut config = Self::default();
+        for entry in servers {
+            for url in Self::urls_of(entry) {
+                let lower = url.trim().to_ascii_lowercase();
+                if config.stun_server.is_none() && lower.starts_with("stun:") {
+                    config.stun_server = Self::as_uri(&url, "stun");
+                } else if config.turn_server.is_none() && lower.starts_with("turn:") {
+                    config.turn_server = Self::turn_uri(&url, entry);
+                }
+            }
+        }
+        config
+    }
+
+    /// The `urls` field of one entry, as plain strings.
+    fn urls_of(entry: &serde_json::Value) -> Vec<String> {
+        match entry.get("urls") {
+            Some(serde_json::Value::String(s)) => vec![s.clone()],
+            Some(serde_json::Value::Array(items)) => items
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// `stun:host:port` to `stun://host:port`, which is what `webrtcbin` parses.
+    fn as_uri(url: &str, scheme: &str) -> Option<String> {
+        let rest = url.trim();
+        let rest = rest
+            .strip_prefix(&format!("{scheme}://"))
+            .or_else(|| rest.strip_prefix(&format!("{scheme}:")))?;
+        if rest.is_empty() {
+            return None;
+        }
+        Some(format!("{scheme}://{rest}"))
+    }
+
+    /// Adds the credentials from the entry to the URL, percent-encoded.
+    ///
+    /// `webrtcbin` reads `turn://user:pass@host:port`, so a password containing `@` or
+    /// `:` would otherwise be read as part of the address.
+    fn turn_uri(url: &str, entry: &serde_json::Value) -> Option<String> {
+        let base = Self::as_uri(url, "turn")?;
+        let user = entry
+            .get("username")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let pass = entry
+            .get("credential")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        if user.is_empty() {
+            return Some(base);
+        }
+        let host = base.strip_prefix("turn://").unwrap_or(&base);
+        let encoded_user = Self::percent_encode(user);
+        let encoded_pass = Self::percent_encode(pass);
+        Some(format!("turn://{encoded_user}:{encoded_pass}@{host}"))
+    }
+
+    /// Keeps the characters that would otherwise change the URL's meaning.
+    fn percent_encode(value: &str) -> String {
+        let mut out = String::with_capacity(value.len());
+        for byte in value.bytes() {
+            match byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    out.push(byte as char)
+                }
+                _ => out.push_str(&format!("%{byte:02X}")),
+            }
+        }
+        out
+    }
+}
+
+// The ICE translation sits outside the GStreamer-gated module on purpose: it is a
+// pure function over the server's JSON, so it is testable on a machine without
+// GStreamer at all - and the test that matters most asserts that *nothing* is
+// produced when the server sends nothing.
 #[cfg(feature = "spike")]
 pub use gst_impl::*;
 
@@ -723,6 +828,17 @@ mod gst_impl {
     /// (`lightrays/src/stream.rs`); without it the two sides can end up with different
     /// numbers of transceivers and the offer is answered with a mismatch.
     pub fn make_webrtcbin(name: &str) -> Result<gst::Element, BranchError> {
+        make_webrtcbin_with_ice(name, &IceConfig::default())
+    }
+
+    /// The same builder, with the server's ICE configuration applied.
+    ///
+    /// Only non-empty values become properties. That is the whole point of
+    /// [`IceConfig`]: `stun-server=""` once cost this pipeline its display.
+    pub fn make_webrtcbin_with_ice(
+        name: &str,
+        ice: &IceConfig,
+    ) -> Result<gst::Element, BranchError> {
         // `stun-server` is deliberately *not* set. The spike builds its `webrtcbin` with
         // `bundle-policy` alone; an earlier version of this function also set
         // `stun-server=""`, and the result was a pipeline that negotiated, encoded exactly
@@ -730,14 +846,19 @@ mod gst_impl {
         // empty STUN server is not the same as no STUN server.
         //
         // `bundle-policy=max-bundle` matches the server (`lightrays/src/stream.rs`).
-        gst::ElementFactory::make("webrtcbin")
+        let mut builder = gst::ElementFactory::make("webrtcbin")
             .name(name)
-            .property_from_str("bundle-policy", "max-bundle")
-            .build()
-            .map_err(|_| BranchError::MissingElement {
-                factory: "webrtcbin".to_string(),
-                role: "WebRTC-Empfang",
-            })
+            .property_from_str("bundle-policy", "max-bundle");
+        if let Some(stun) = &ice.stun_server {
+            builder = builder.property("stun-server", stun.as_str());
+        }
+        if let Some(turn) = &ice.turn_server {
+            builder = builder.property("turn-server", turn.as_str());
+        }
+        builder.build().map_err(|_| BranchError::MissingElement {
+            factory: "webrtcbin".to_string(),
+            role: "WebRTC-Empfang",
+        })
     }
 }
 
@@ -1009,5 +1130,120 @@ mod tests {
                 other => panic!("unerwartete Eigenschaft {other}"),
             }
         }
+    }
+
+    // --- ICE configuration -------------------------------------------------
+    //
+    // The client ignored the server's `ice_servers` until now, and a game therefore
+    // had no path to the media: the offer carries the game container's Docker-internal
+    // address and nothing else. These tests cover the pure translation, which is where
+    // a mistake is silent.
+
+    fn ice(json: serde_json::Value) -> IceConfig {
+        IceConfig::from_ice_servers(&[json])
+    }
+
+    #[test]
+    fn a_stun_url_becomes_a_webrtcbin_uri() {
+        let config = ice(serde_json::json!({"urls": "stun:stun.example.org:19302"}));
+        assert_eq!(
+            config.stun_server.as_deref(),
+            Some("stun://stun.example.org:19302")
+        );
+        assert_eq!(config.turn_server, None);
+    }
+
+    #[test]
+    fn an_already_prefixed_stun_url_is_not_prefixed_twice() {
+        let config = ice(serde_json::json!({"urls": "stun://stun.example.org:19302"}));
+        assert_eq!(
+            config.stun_server.as_deref(),
+            Some("stun://stun.example.org:19302")
+        );
+    }
+
+    #[test]
+    fn turn_credentials_go_into_the_url() {
+        let config = ice(serde_json::json!({
+            "urls": "turn:turn.example.org:3478",
+            "username": "streamarr",
+            "credential": "s3cret",
+        }));
+        assert_eq!(
+            config.turn_server.as_deref(),
+            Some("turn://streamarr:s3cret@turn.example.org:3478")
+        );
+    }
+
+    #[test]
+    fn a_password_with_reserved_characters_is_encoded() {
+        // `@` and `:` in a password would otherwise be read as part of the address.
+        let config = ice(serde_json::json!({
+            "urls": "turn:turn.example.org:3478",
+            "username": "user",
+            "credential": "p@ss:word",
+        }));
+        assert_eq!(
+            config.turn_server.as_deref(),
+            Some("turn://user:p%40ss%3Aword@turn.example.org:3478")
+        );
+    }
+
+    #[test]
+    fn a_turn_entry_without_credentials_stays_without_them() {
+        let config = ice(serde_json::json!({"urls": "turn:turn.example.org:3478"}));
+        assert_eq!(
+            config.turn_server.as_deref(),
+            Some("turn://turn.example.org:3478")
+        );
+    }
+
+    #[test]
+    fn urls_may_be_an_array() {
+        let config = ice(serde_json::json!({
+            "urls": ["stun:stun.example.org:19302", "turn:turn.example.org:3478"],
+        }));
+        assert_eq!(
+            config.stun_server.as_deref(),
+            Some("stun://stun.example.org:19302")
+        );
+        assert_eq!(
+            config.turn_server.as_deref(),
+            Some("turn://turn.example.org:3478")
+        );
+    }
+
+    #[test]
+    fn the_first_usable_entry_of_each_kind_wins() {
+        let config = IceConfig::from_ice_servers(&[
+            serde_json::json!({"urls": "stun:first.example.org:19302"}),
+            serde_json::json!({"urls": "stun:second.example.org:19302"}),
+        ]);
+        assert_eq!(
+            config.stun_server.as_deref(),
+            Some("stun://first.example.org:19302")
+        );
+    }
+
+    #[test]
+    fn an_empty_list_sets_nothing() {
+        // The important case: no property may be set at all. `stun-server=""` is not
+        // "no STUN server" - it once stalled this pipeline after one buffer.
+        let config = IceConfig::from_ice_servers(&[]);
+        assert_eq!(config, IceConfig::default());
+        assert_eq!(config.stun_server, None);
+        assert_eq!(config.turn_server, None);
+    }
+
+    #[test]
+    fn unknown_schemes_and_broken_entries_are_skipped() {
+        let config = IceConfig::from_ice_servers(&[
+            serde_json::json!({"urls": "http://example.org"}),
+            serde_json::json!({"urls": "stun:"}),
+            serde_json::json!({"urls": 42}),
+            serde_json::json!({}),
+            serde_json::json!({"urls": "turn:"}),
+        ]);
+        assert_eq!(config, IceConfig::default());
     }
 }

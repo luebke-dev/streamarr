@@ -76,6 +76,22 @@ fn main() {
     println!("  Pin:    {}", pin.as_deref().unwrap_or("keiner (DNS)"));
     println!();
 
+    // Optional, so the diagnostic can exercise a TURN server the way the app will:
+    // `GAME_ICE='[{"urls":"turn:host:3478","username":"u","credential":"p"}]'`.
+    let ice = std::env::var("GAME_ICE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .and_then(|value| serde_json::from_str::<Vec<serde_json::Value>>(&value).ok())
+        .map(|servers| {
+            streamarr_desktop_player::game_pipeline::IceConfig::from_ice_servers(&servers)
+        })
+        .unwrap_or_default();
+    println!(
+        "  ICE:    stun={} turn={}\n",
+        ice.stun_server.is_some(),
+        ice.turn_server.is_some()
+    );
+
     let endpoint = ResolvedEndpoint { url, ticket };
     let state = Arc::new(Mutex::new(SessionState::Connecting));
     let (commands, receiver) = std::sync::mpsc::channel::<GameCommand>();
@@ -83,7 +99,7 @@ fn main() {
     let thread_state = Arc::clone(&state);
     let handle = std::thread::Builder::new()
         .name("game-live-check".to_string())
-        .spawn(move || live::run(endpoint, receiver, thread_state, pin))
+        .spawn(move || live::run(endpoint, receiver, thread_state, pin, ice))
         .expect("Der Live-Thread konnte nicht starten");
 
     let deadline = Instant::now() + Duration::from_secs(seconds);
