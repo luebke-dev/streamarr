@@ -381,7 +381,16 @@ jobs:
           applog="$HOME/.local/share/media.streamarr.desktop/logs/streamarr-desktop.log"
           if [ -f "$applog" ]; then echo "--- Logfile ---"; cat "$applog";
           else echo "(kein Logfile unter $applog)"; fi
-          { cat /tmp/app.log; cat "$applog" 2>/dev/null; } | grep -q 'Konfiguration:'
+          # Two separate greps, not a pipe into `grep -q`: -q exits at the first match,
+          # the feeding `cat` then dies of SIGPIPE, and `pipefail` turns that into a
+          # failed step — which it did, with the line plainly present in both files.
+          if grep -q 'Konfiguration:' /tmp/app.log 2>/dev/null \
+             || grep -q 'Konfiguration:' "$applog" 2>/dev/null; then
+            echo "Konfiguration gelesen — der Start erreicht eigenen Code."
+          else
+            echo "::error::Die App hat ihre Konfiguration nicht gelesen."
+            exit 1
+          fi
 
   # ── Windows bundles ──
   #
