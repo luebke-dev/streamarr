@@ -224,6 +224,37 @@ class TestSessionListing:
         result = await service.terminate_session("nonexistent")
         assert result["success"] is False
 
+    @pytest.mark.asyncio
+    async def test_terminate_session_cleans_its_temp_files(
+        self, service: TranscodingSessionService
+    ):
+        """Segments are hundreds of MB; the Redis entry is the only index to them."""
+        await service.create_session(_create_session_data("sess_001"))
+
+        with patch(
+            "streamarr.services.storage_cleanup.cleanup_session_temp_files",
+            MagicMock(return_value={"deleted": 3, "errors": 0}),
+        ) as cleanup:
+            result = await service.terminate_session("sess_001")
+
+        cleanup.assert_called_once_with("sess_001")
+        assert result["temp_files_deleted"] == 3
+
+    @pytest.mark.asyncio
+    async def test_mark_failed_cleans_its_temp_files(
+        self, service: TranscodingSessionService
+    ):
+        """A failed session is never swept again, so nothing else would clean it."""
+        await service.create_session(_create_session_data("sess_001"))
+
+        with patch(
+            "streamarr.services.storage_cleanup.cleanup_session_temp_files",
+            MagicMock(return_value={"deleted": 0, "errors": 0}),
+        ) as cleanup:
+            await service.mark_failed("sess_001")
+
+        cleanup.assert_called_once_with("sess_001")
+
 
 class TestSessionLogs:
     @pytest.mark.asyncio

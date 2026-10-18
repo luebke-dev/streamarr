@@ -522,6 +522,12 @@ class TranscodingSessionService:
         session_key = self._get_session_key(session_id)
         await r.set(session_key, json.dumps(session.to_redis_dict()), ex=7200)
 
+        # The sweep only looks at active sessions, so a failed one keeps its
+        # segments on disk forever unless they are dropped here.
+        from streamarr.services.storage_cleanup import cleanup_session_temp_files
+
+        cleanup_session_temp_files(session_id)
+
         logger.info("Marked session %s as failed", session_id)
         return True
 
@@ -613,6 +619,16 @@ class TranscodingSessionService:
         # Mark session as inactive and delete
         session.is_active = False
         await self.delete_session(session_id)
+
+        # Segments are hundreds of MB per session. Cleaning them here is the
+        # only chance once the Redis entry is gone: the stale sweep iterates
+        # sessions, so a deleted one is never visited again.
+        from streamarr.services.storage_cleanup import cleanup_session_temp_files
+
+        temp_result = cleanup_session_temp_files(session_id)
+        result["temp_files_deleted"] = temp_result["deleted"]
+        if temp_result["errors"]:
+            result["temp_errors"] = temp_result["errors"]
 
         return result
 
