@@ -184,6 +184,18 @@ export default {
     backdrop: 'Backdrop',
     uploadArtwork: 'Artwork hochladen',
     gameStreaming: 'Spielstreaming',
+    gameDebug: 'Diagnose',
+    gameDebugTitle: 'Stream-Diagnose',
+    gameResolution: 'Auflösung',
+    gameCodec: 'Codec',
+    gameBitrate: 'Bitrate',
+    gameJitter: 'Jitter',
+    gameDecode: 'Dekodierung',
+    gamePacketsLost: 'Verlorene Pakete',
+    gameFramesDecoded: 'Dekodierte Bilder',
+    gameController: 'Controller',
+    gameControllerConnected: 'verbunden',
+    gameControllerNone: 'keiner',
     runtime: 'Runtime',
     runtimeHint: 'Container-Profil, in dem dieses Spiel startet (leer = Standard)',
     appRef: 'Startziel',
@@ -1548,7 +1560,26 @@ export default {
   },
 
   // Episode Play Page
+
   playPage: {
+    // Native (Desktop-)Wiedergabe. Das Video läuft im eigenen mpv-Fenster; diese Texte
+    // beschreiben den Statusbildschirm und die zwei Dinge, die sonst unsichtbar wären:
+    // ob der Server umrechnet und ob die Wiedergabe fortgesetzt wurde.
+    nativePlayback: {
+      hint: 'Die Wiedergabe läuft im eigenen Fenster (mpv). Mit F wird es vollbild, mit Leertaste pausiert.',
+      restart: 'Von vorne beginnen',
+      audioTrack: 'Tonspur',
+      subtitleTrack: 'Untertitel',
+      subtitlesOff: 'Aus',
+      external: 'extern',
+      notice: {
+        resuming: 'Wiedergabe wird bei {position} fortgesetzt.',
+        transcode: 'Der Server rechnet dieses Video um (Transcode) — das kostet Serverleistung.',
+        resolution:
+          'Der Servername zeigt auf eine andere Adresse als das Profil — die Wiedergabe braucht die im Profil hinterlegte Adresse.',
+      },
+    },
+
     loading: 'Wird geladen...',
     checkingAvailability: 'Verfügbarkeit wird geprüft...',
     startingPlayback: 'Wiedergabe wird gestartet...',
@@ -1595,6 +1626,21 @@ export default {
     gameMatchResolution: 'Auflösung anpassen',
     gameDisconnect: 'Trennen',
     gameStreaming: 'Spiel wird gestreamt',
+    // Nativer Spielestream (Desktop-App): das Bild zeichnet die Shell.
+    nativeGame: {
+      phase: {
+        launching: 'Spiel wird gestartet…',
+        connecting: 'Verbindung zum Stream…',
+        negotiating: 'Verbindung wird ausgehandelt…',
+        streaming: 'Das Spiel läuft in einem eigenen Fenster ({resolution}).',
+        resizing: 'Stream wird auf die neue Größe umgebaut…',
+        ended: 'Das Spiel ist beendet.',
+        stopped: 'Der Stream wurde beendet.',
+        failed: 'Der Stream ist fehlgeschlagen.',
+      },
+      hint:
+        'Das Spiel wird in einem eigenen Fenster gezeichnet, nicht hier. Controller funktionieren direkt; Tastatur und Maus gehören zu diesem Fenster, solange es den Fokus hat.',
+    },
   },
 
   // Player Controls
@@ -3652,5 +3698,36 @@ export default {
       cron: 'Cron (optional)',
       enabled: 'Aktiviert',
     },
+  },
+
+  // Couch-/Big-Picture-Modus (Desktop-App)
+  couch: {
+    title: 'Couch-Modus',
+    enter: 'Couch-Modus starten',
+    exit: 'Couch-Modus verlassen',
+    active: 'Couch-Modus ist an',
+    status: 'Couch-Modus aktiv. Mit den Pfeiltasten oder einem Controller navigieren, Enter öffnet, Escape verlässt.',
+    noController: 'Kein Controller gefunden — die Pfeiltasten funktionieren ebenfalls.',
+    controller: 'Controller: {name}',
+    controllers: '{count} Controller verbunden',
+    unavailable: 'Der Couch-Modus ist nur in der Desktop-App verfügbar.',
+    loading: 'Layout wird vermessen…',
+  },
+
+  // Desktop-App: Diagnosebericht senden (Shell-Command `report_problem`)
+  desktopReport: {
+    title: 'Problem melden',
+    subtitle: 'Sendet Diagnoseinformationen an das Server-Protokoll.',
+    appVersion: 'App-Version',
+    platform: 'Plattform',
+    notInstalled: 'nicht installiert',
+    notInBuild: 'nicht in diesem Build',
+    logs: 'Spieler-Protokolle',
+    logCount: '{count} Datei(en), {kb} KB',
+    noLogs: 'keine',
+    excluded:
+      'Es werden keine Token, keine Serveradresse, keine Dateipfade und keine Gerätekennungen übertragen.',
+    collected: 'Gesammelter Bericht',
+    send: 'Bericht senden',
   },
 }

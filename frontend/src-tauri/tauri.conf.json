@@ -7,6 +7,7 @@
   "build": {
     "beforeDevCommand": "yarn dev",
     "beforeBuildCommand": "yarn build",
+    "features": ["gamestream"],
     "devUrl": "http://localhost:9000",
     "frontendDist": "../dist/spa"
   },
@@ -25,15 +26,24 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' blob: https://js.stripe.com; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self' http: https: wss: ws: ipc: http://ipc.localhost; media-src 'self' blob: http: https:; worker-src 'self' blob:; font-src 'self' data:; frame-src 'self' https://js.stripe.com https://hooks.stripe.com;",
-      "capabilities": ["main"]
+      "csp": "default-src 'self'; script-src 'self' blob: https://js.stripe.com; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self' http: https: wss: ws: ipc: ipc://localhost http://ipc.localhost; media-src 'self' blob: http: https:; worker-src 'self' blob:; font-src 'self' data:; frame-src 'self' https://js.stripe.com https://hooks.stripe.com;",
+      "capabilities": [
+        "main",
+        "player"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["appimage", "deb", "dmg", "nsis"],
+    "targets": [
+      "appimage",
+      "deb",
+      "rpm",
+      "nsis",
+      "msi"
+    ],
     "category": "Video",
-    "publisher": "Sebastian Lübke",
+    "publisher": "Sebastian L\u00fcbke",
     "homepage": "https://streamarr.media",
     "shortDescription": "A streaming media center.",
     "longDescription": "A streaming media center.",
@@ -43,6 +53,64 @@
       "../public/icons/favicon-96x96.png",
       "../public/favicon.ico"
     ],
-    "linux": {}
+    "windows": {
+      "wix": {
+        "upgradeCode": "7818935a-be79-58de-92f1-d3a642e253fc"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libcairo2",
+          "libgdk-pixbuf-2.0-0",
+          "libglib2.0-0",
+          "libsoup-3.0-0",
+          "libjavascriptcoregtk-4.1-0",
+          "libudev1",
+          "libgudev-1.0-0",
+          "libssl3",
+          "libgstreamer1.0-0",
+          "libgstreamer-plugins-base1.0-0",
+          "libgstreamer-plugins-bad1.0-0"
+        ],
+        "recommends": ["mpv"]
+      },
+      "rpm": {
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3",
+          "cairo",
+          "gdk-pixbuf2",
+          "glib2",
+          "libsoup3",
+          "javascriptcoregtk4.1",
+          "systemd-libs",
+          "libgudev",
+          "openssl-libs",
+          "gstreamer1",
+          "gstreamer1-plugins-base",
+          "gstreamer1-plugins-bad-free-libs"
+        ],
+        "recommends": ["mpv"]
+      }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "streamarr"
+        ]
+      }
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/luebke-dev/streamarr/releases/latest/download/latest.json"
+      ],
+      "pubkey": "PLACEHOLDER_REPLACE_WITH_THE_TAURI_UPDATER_PUBLIC_KEY",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

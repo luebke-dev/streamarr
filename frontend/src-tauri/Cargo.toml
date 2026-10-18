@@ -16,3 +16,137 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+# Deep links (`streamarr://…`) are how an OIDC login returns from the system browser: the
+# provider redirects to a URL the operating system hands back to the app. That is the only
+# way a native app receives a login from an external browser, and it is why the scheme has
+# to be registered rather than the redirect being read inside the webview.
+tauri-plugin-deep-link = "2"
+# 2.12.0, not the newest: 2.13.0 requires rustc 1.90 while this crate declares
+# `rust-version = "1.77.2"`. The check command in src/commands/update.rs is deliberately
+# separate, so an unconfigured build still builds.
+tauri-plugin-updater = "2.12.0"
+# Window geometry is persisted per label by the plugin, which is why the player
+# window comes back where the user left it instead of centred every launch.
+tauri-plugin-window-state = "2"
+# A second launch focuses the existing window rather than starting a rival instance
+# that would double-register the device and fight over the token store.
+# The `deep-link` feature matters: on Linux and Windows the operating system carries a
+# `streamarr://` URL by starting a *new* process with the URL as an argument. Without this
+# feature the second process is simply stopped and the URL is dropped — which looks exactly
+# like "the browser login never comes back", with nothing in any log.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+# Without a logging plugin, `log::info!` goes nowhere: the `log` facade does nothing
+# until a logger is installed, so diagnostics silently vanish. That is a trap worth
+# closing before there is anything to debug - it already hid two startup messages
+# during development of this shell. Writes to stderr and to a file in the config dir,
+# which is what a user can be asked to attach to a bug report.
+tauri-plugin-log = "2"
+
+# The shell-independent core: profiles, session state, capabilities, wire contract.
+# Everything decision-shaped lives there and is tested without a GUI; this crate
+# only supplies the transport and the window (ADR 001).
+# `gamepad` is enabled: the couch interface is driven by a real controller, and a
+# build without the feature can only ever pretend — the plan requires hot-plug and
+# the shell has to know when a pad vanishes. The feature pulls in `gilrs`, which
+# needs `libudev` on Linux; that is the cost, and it is the reason the core crate
+# keeps the feature optional for everything that does not need it.
+# The core crate. `gamepad` is a *default* feature of the shell because the couch
+# interface is always available and a build without it could only pretend; `spike`
+# (GStreamer) is behind a shell feature of its own, so the shell still builds with
+# no GStreamer at all — the constraint that the core crate stays buildable without
+# system dependencies applies to the shell too.
+streamarr-desktop-player = { path = "../../desktop/player", features = ["gamepad"] }
+
+# `native-tls` over rustls for the same reason spike 0.1 chose it: the internal
+# `Luebke Internal CA` lives in the system trust store, and rustls would need the
+# CA bundled or loaded by hand. `resolve` is required for the split-DNS pin.
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "native-tls",
+    "gzip",
+] }
+tokio = { version = "1", features = ["sync"] }
+# Only for the game stream: its websocket, its message pump, and the TLS stack
+# that keeps the server's certificate checking. Versions and the ALPN choice match
+# the core crate's, which the spike proved against the real server.
+tokio-stream = { version = "0.1", optional = true }
+futures-util = { version = "0.3", optional = true }
+tokio-tungstenite = { version = "0.24", default-features = false, features = [
+    "connect",
+    "handshake",
+    "native-tls",
+], optional = true }
+native-tls = { version = "0.2", features = ["alpn"], optional = true }
+tokio-native-tls = { version = "0.3", optional = true }
+# The GStreamer crates, for the same reason and with the same version features as
+# the core crate: `v1_22` provides the *checked* data-channel send. Version-gated
+# so a build without `gamestream` links no GStreamer at all.
+gstreamer = { version = "0.23", optional = true }
+# Parsing the server's SDP and rendering our own: `webrtcbin` takes descriptions as
+# objects, and the signalling socket carries text. Already in the tree through
+# `gstreamer-webrtc`, so this declares a dependency rather than adding one.
+gstreamer-sdp = { version = "0.23", optional = true }
+gstreamer-webrtc = { version = "0.23", optional = true, features = ["v1_18", "v1_22"] }
+glib = { version = "0.20", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+thiserror = "2"
+# Credentials go to the OS store: Secret Service (gnome-keyring/KWallet) on Linux,
+# Credential Manager on Windows. `sync-secret-service` rather than the default
+# keyutils backend: keyutils is kernel keyrings, which do not survive a reboot -
+# useless for a seven-day refresh token. The `crypto-rust` variant avoids pulling in
+# a C crypto dependency, so a source build needs no extra system packages.
+keyring = { version = "3", features = [
+    "sync-secret-service",
+    "crypto-rust",
+    "vendored",
+] }
+
+[features]
+default = []
+# Production assets, and the reason a plain `cargo build` is not a usable app.
+#
+# Tauri decides where the frontend comes from at **compile time**, and it does so
+# from this feature, not from the build profile: `tauri::is_dev()` is
+# `!cfg!(feature = "custom-protocol")`. Without it the binary keeps loading
+# `build.devUrl` — `http://localhost:9000` — no matter whether it was built with
+# `--release`, and an app started outside `tauri dev` shows an error page instead
+# of the interface. Measured, not read: the debug binary contained the string
+# `localhost:9000` while `dist/spa` was already built and complete.
+#
+# `tauri build` adds this feature itself, which is why the packaged bundles always
+# worked and why the defect stayed invisible until someone ran the binary directly.
+# Declaring it is what the Tauri template requires ("DO NOT REMOVE") and what makes
+# `cargo build --features custom-protocol` a standalone app that needs no dev server.
+custom-protocol = ["tauri/custom-protocol"]
+# Game streaming: the GStreamer/WebRTC receiver.
+#
+# Off by default and separate on purpose. It is the one feature that pulls a large
+# native dependency with a version floor (GStreamer **1.22**, see
+# `desktop/player/Cargo.toml`), so a build without it needs no GStreamer headers
+# and the package dependencies stay honest — `check_bundle_deps.sh` reads the
+# binary, not the intent.
+gamestream = [
+    "streamarr-desktop-player/spike",
+    "dep:tokio-stream",
+    "dep:futures-util",
+    "dep:tokio-tungstenite",
+    "dep:native-tls",
+    "dep:tokio-native-tls",
+    "dep:gstreamer",
+    "dep:gstreamer-sdp",
+    "dep:gstreamer-webrtc",
+    "dep:glib",
+]
+
+# The live game-stream diagnostic. It drives the shell's own `live::run` against a
+# session that already exists, which is why it needs the GStreamer feature and is not
+# built without it.
+[[bin]]
+name = "game-live-check"
+path = "src/bin/game-live-check.rs"
+required-features = ["gamestream"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }

@@ -1,7 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "Permissions for the main Streamarr desktop window",
-  "windows": ["main"],
-  "permissions": ["core:default", "core:app:default", "opener:allow-default-urls"]
+  "description": "Permissions for the main Streamarr desktop window (the UI). It gets core defaults and the opener plugin only: all native work - playback, profiles, tokens, filesystem - is reachable solely through the invoke commands in src/commands, each of which validates its own arguments. See plan task 1.2.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:app:default",
+    "opener:allow-default-urls"
+  ]
 }

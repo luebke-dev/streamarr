@@ -183,6 +183,18 @@ export default {
     backdrop: 'Backdrop',
     uploadArtwork: 'Upload artwork',
     gameStreaming: 'Game Streaming',
+    gameDebug: 'Debug',
+    gameDebugTitle: 'Stream Debug',
+    gameResolution: 'Resolution',
+    gameCodec: 'Codec',
+    gameBitrate: 'Bitrate',
+    gameJitter: 'Jitter',
+    gameDecode: 'Decode',
+    gamePacketsLost: 'Packets lost',
+    gameFramesDecoded: 'Frames decoded',
+    gameController: 'Controller',
+    gameControllerConnected: 'connected',
+    gameControllerNone: 'none',
     runtime: 'Runtime',
     runtimeHint: 'Container profile this game launches in (empty = default)',
     appRef: 'Launch target',
@@ -1931,7 +1943,26 @@ export default {
   },
 
   // Episode Play Page
+
   playPage: {
+    // Native (desktop) playback. The video runs in mpv's own window, so these describe
+    // the status screen and the two things that are otherwise invisible: that the server
+    // is transcoding, and that playback resumed from a stored position.
+    nativePlayback: {
+      hint: 'Playback runs in its own window (mpv). Press F for fullscreen and Space to pause.',
+      restart: 'Start from the beginning',
+      audioTrack: 'Audio track',
+      subtitleTrack: 'Subtitles',
+      subtitlesOff: 'Off',
+      external: 'external',
+      notice: {
+        resuming: 'Resuming at {position}.',
+        transcode: 'The server is transcoding this video, which costs server capacity.',
+        resolution:
+          "The server name points to a different address than the profile — playback needs the address stored in the profile.",
+      },
+    },
+
     loading: 'Loading...',
     checkingAvailability: 'Checking availability...',
     startingPlayback: 'Starting playback...',
@@ -1975,6 +2006,21 @@ export default {
     gameMatchResolution: 'Match resolution',
     gameDisconnect: 'Disconnect',
     gameStreaming: 'Game is streaming',
+    // Native game stream (desktop app): the picture is drawn by the shell.
+    nativeGame: {
+      phase: {
+        launching: 'Starting the game…',
+        connecting: 'Connecting to the stream…',
+        negotiating: 'Negotiating the connection…',
+        streaming: 'The game is running in its own window ({resolution}).',
+        resizing: 'Rebuilding the stream at the new size…',
+        ended: 'The game has ended.',
+        stopped: 'The stream was stopped.',
+        failed: 'The stream failed.',
+      },
+      hint:
+        'The game is drawn in its own window, not here. Controllers work directly; keyboard and mouse belong to that window while it has the focus.',
+    },
   },
 
   // Player Controls
@@ -3650,5 +3696,39 @@ export default {
       cron: 'Cron (optional)',
       enabled: 'Enabled',
     },
+  },
+
+  // Couch / big-picture mode (desktop app)
+  couch: {
+    title: 'Couch Mode',
+    enter: 'Enter couch mode',
+    exit: 'Leave couch mode',
+    active: 'Couch mode is on',
+    // Screen-reader text: the mode is invisible to a sighted user, so it has to
+    // be announced rather than only shown.
+    status: 'Couch mode active. Use the arrow keys or a controller to navigate, Enter to open, Escape to leave.',
+    noController: 'No controller found — the arrow keys work as well.',
+    controller: 'Controller: {name}',
+    controllers: '{count} controllers connected',
+    // Shown when the shell cannot provide the feature at all (browser build).
+    unavailable: 'Couch mode is only available in the desktop app.',
+    loading: 'Measuring the layout…',
+  },
+
+  // Desktop app: send a diagnostic report (shell command `report_problem`)
+  desktopReport: {
+    title: 'Report a problem',
+    subtitle: 'Sends diagnostic information to your server log.',
+    appVersion: 'App version',
+    platform: 'Platform',
+    notInstalled: 'not installed',
+    notInBuild: 'not in this build',
+    logs: 'Player logs',
+    logCount: '{count} file(s), {kb} KB',
+    noLogs: 'none',
+    excluded:
+      'No tokens, no server address, no file paths and no machine identifiers are included.',
+    collected: 'Collected report',
+    send: 'Send report',
   },
 }

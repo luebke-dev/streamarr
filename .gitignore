@@ -18,6 +18,9 @@
 # --- Fremde Referenz-Repos (bewusst nicht Teil des Monorepos) ---
 /references/
 
+# --- Pi Goal-State (lokaler Agenten-Zustand, kein Projektinhalt) ---
+/.pi/
+
 # --- Node / Frontend ---
 node_modules/
 dist/

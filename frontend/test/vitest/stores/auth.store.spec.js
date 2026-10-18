@@ -9,6 +9,9 @@ vi.mock('src/boot/axios', () => ({
     put: vi.fn(),
     delete: vi.fn(),
   },
+  // The auth store clears the shell's keyring copy on sign-out. Mocked so the test
+  // stays a unit test; without this export the store's import fails outright.
+  forgetShellTokens: vi.fn().mockResolvedValue(undefined),
 }))
 
 import { api } from 'src/boot/axios'

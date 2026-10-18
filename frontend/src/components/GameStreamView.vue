@@ -53,7 +53,7 @@
           tabindex="-1"
           @click="showDebug = !showDebug"
         >
-          <span class="gt-md q-ml-xs">Debug</span>
+          <span class="gt-md q-ml-xs">{{ $t('playPage.gameDebug') }}</span>
         </q-btn>
         <span class="stats-text text-caption text-grey-5 q-ml-sm">
           {{ stats.mbps }} Mbps | {{ stats.fps }} fps | {{ stats.rtt }}ms
@@ -75,19 +75,23 @@
       <video ref="videoRef" autoplay playsinline muted class="stream-video" />
       <!-- Debug overlay -->
       <div v-if="showDebug" class="debug-overlay">
-        <div class="debug-title">Stream Debug</div>
-        <div>Resolution: {{ stats.resolution }}</div>
-        <div>Codec: {{ stats.codec }}</div>
+        <div class="debug-title">{{ $t('playPage.gameDebugTitle') }}</div>
+        <div>{{ $t('playPage.gameResolution') }}: {{ stats.resolution }}</div>
+        <div>{{ $t('playPage.gameCodec') }}: {{ stats.codec }}</div>
         <div>FPS: {{ stats.fps }}</div>
-        <div>Bitrate: {{ stats.mbps }} Mbps</div>
+        <div>{{ $t('playPage.gameBitrate') }}: {{ stats.mbps }} Mbps</div>
         <div>RTT: {{ stats.rtt }}ms</div>
-        <div>Jitter: {{ stats.jitter }}ms</div>
-        <div>Decode: {{ stats.decodeTime }}ms/frame</div>
-        <div>Packets lost: {{ stats.packetsLost }}</div>
-        <div>Frames decoded: {{ stats.frames }}</div>
+        <div>{{ $t('playPage.gameJitter') }}: {{ stats.jitter }}ms</div>
+        <div>{{ $t('playPage.gameDecode') }}: {{ stats.decodeTime }}ms/frame</div>
+        <div>{{ $t('playPage.gamePacketsLost') }}: {{ stats.packetsLost }}</div>
+        <div>{{ $t('playPage.gameFramesDecoded') }}: {{ stats.frames }}</div>
         <div>
-          Controller:
-          {{ controllerConnected ? controllerName || 'connected' : 'none' }}
+          {{ $t('playPage.gameController') }}:
+          {{
+            controllerConnected
+              ? controllerName || $t('playPage.gameControllerConnected')
+              : $t('playPage.gameControllerNone')
+          }}
         </div>
       </div>
     </div>

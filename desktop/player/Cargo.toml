@@ -1,0 +1,133 @@
+[package]
+name = "streamarr-desktop-player"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77.2"
+description = "Shell-independent media and game-streaming core for the Streamarr desktop app"
+license = "proprietary"
+
+# This crate is deliberately free of any GUI-shell dependency (Tauri, GTK,
+# Electron, ...). It owns the native playback paths: WebRTC game streaming
+# (GStreamer) and media playback (mpv). Shells call into it through
+# `streamarr_desktop_player::Player` — see docs/plans/adr-001-desktop-shell.md.
+#
+# The GStreamer/WebRTC stack lives behind the optional `spike` feature so the
+# wire-contract module and its golden tests stay buildable with no system
+# dependencies (see .github/workflows/rust.yml). The feature exists to carry
+# spike 0.1 while the WebRTC client is not yet part of the public API; it will
+# be folded into the main dependency set once the pipeline module lands.
+#
+# Building with `--features spike` requires the GStreamer development packages
+# plus a decoder — including the RPM Fusion "freeworld" packages on Fedora, or
+# the app gets no hardware decode (docs/plans/spike-01-gstreamer.md).
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+
+# ── Gamepad (feature "gamepad") ──
+# `gilrs` rather than raw evdev: it handles hot-plug, the device database and
+# cross-platform backends, which matters because Windows is a target from the
+# start. Raw evdev would have to be rewritten per platform.
+gilrs = { version = "0.11", optional = true }
+evdev = { version = "0.13", optional = true }
+
+# ── Spike 0.1 only (feature "spike") ──
+# No version features are enabled, matching lightrays/Cargo.toml exactly.
+# Enabling them (e.g. v1_18) makes the generated wrapper types disagree with
+# what `webrtcbin` actually returns, and `emit_by_name` then fails its
+# return-value check with the confusing "expected GstWebRTCDataChannel, got
+# GstWebRTCDataChannel". The data channel is therefore handled as a plain
+# `glib::Object`, which is also how lightrays/src/webrtc.rs does it.
+gstreamer = { version = "0.23", optional = true }
+gstreamer-sdp = { version = "0.23", optional = true }
+# Two version features are needed, and neither is cosmetic:
+#
+# * `v1_18` — `WebRTCDataChannel`, the type of the server-created input channel.
+#   Without it the type does not exist at all, so the client could receive video
+#   and never send a single key.
+# * `v1_22` — `send_string_full`, the *checked* send. The unchecked
+#   `send_string` drops a message without a word when the send buffer is full,
+#   and a dropped key release is a button stuck down forever.
+#
+# The cost is a real one and is stated plainly: building with the `spike`
+# feature now needs GStreamer **1.22 or newer**. That is the version the checked
+# send was added in. This machine runs 1.28.7.
+gstreamer-webrtc = { version = "0.23", optional = true, features = ["v1_18", "v1_22"] }
+glib = { version = "0.20", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"], optional = true }
+# `native-tls` (not `rustls`) is deliberate: it uses the system trust store,
+# which is where the internal `Luebke Internal CA` is installed. rustls would
+# need the CA bundled or loaded explicitly, and the WebSocket upgrade runs over
+# the same internal TLS endpoint as the REST API.
+#
+# The `default-features = false` + explicit `connect`/`handshake`/`native-tls`
+# combination mirrors what the client needs and nothing more.
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "handshake", "native-tls"], optional = true }
+futures-util = { version = "0.3", optional = true }
+# The `alpn` feature is required to pin ALPN to http/1.1; without it a
+# WebSocket upgrade against an h2-capable nginx hangs instead of failing.
+native-tls = { version = "0.2", features = ["alpn"], optional = true }
+# Needed to wrap the hand-dialled TcpStream from the tokio side.
+tokio-native-tls = { version = "0.3", optional = true }
+
+# The local WebRTC proof uses the same GStreamer stack as the real client, so it
+# needs the `spike` feature like spike-webrtc does.
+[[bin]]
+name = "game-pipeline-check"
+path = "src/bin/game-pipeline-check.rs"
+required-features = ["spike"]
+
+[[bin]]
+name = "spike-local-webrtc"
+path = "src/bin/spike-local-webrtc.rs"
+required-features = ["spike"]
+
+# The gamepad spikes drive/read a real device and therefore need the `gamepad`
+# feature; declaring it here lets `--all-targets` skip them in a feature-free
+# build instead of failing on missing `gilrs`/`evdev`.
+[[bin]]
+name = "spike-gamepad"
+path = "src/bin/spike-gamepad.rs"
+required-features = ["gamepad"]
+
+[[bin]]
+name = "virtual-pad"
+path = "src/bin/virtual-pad.rs"
+required-features = ["gamepad"]
+
+# The mpv spike needs no feature to build (it only uses serde_json), but it is a
+# measurement tool rather than part of the library surface.
+
+[features]
+# Reading physical gamepads (spike 0.4). `gilrs` needs libudev on Linux, so it
+# stays behind a feature like the other native subsystems — the wire-contract
+# module and its golden tests must remain buildable with no system dependencies.
+# `evdev` is only for the virtual-pad test tool: there is no physical pad in
+# this environment, so the reader is verified against a real uinput device
+# instead of being left untested.
+gamepad = ["dep:gilrs", "dep:evdev"]
+# Spike 0.3: media playback via a separate mpv process over its JSON IPC.
+# Deliberately dependency-free beyond serde_json — it drives `mpv` as a child
+# process rather than linking libmpv, which is the very choice being validated.
+mpv = []
+spike = [
+    "dep:gstreamer",
+    "dep:gstreamer-sdp",
+    "dep:gstreamer-webrtc",
+    "dep:glib",
+    "dep:tokio",
+    "dep:tokio-tungstenite",
+    "dep:futures-util",
+    "dep:native-tls",
+    "dep:tokio-native-tls",
+]
+
+[[bin]]
+name = "spike-webrtc"
+path = "src/bin/spike-webrtc.rs"
+required-features = ["spike"]
+
+[dev-dependencies]
+serde_json = "1"

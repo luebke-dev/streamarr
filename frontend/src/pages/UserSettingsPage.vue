@@ -474,7 +474,30 @@
         </q-card>
       </div>
     </div>
-  </q-page>
+  
+    <!--
+      Desktop only. The report is assembled by the shell, which is the only place
+      that can read mpv's log files; a browser has no such thing, so the section
+      would be an empty promise.
+    -->
+    <q-card v-if="isDesktop" flat bordered class="q-mt-lg">
+      <q-card-section>
+        <div class="text-h6">{{ $t('desktopReport.title') }}</div>
+        <div class="text-caption text-grey-6 q-mt-xs">{{ $t('desktopReport.subtitle') }}</div>
+      </q-card-section>
+      <q-card-actions>
+        <q-btn
+          outline
+          color="primary"
+          icon="mdi-bug-outline"
+          :label="$t('desktopReport.title')"
+          @click="showDesktopReport = true"
+        />
+      </q-card-actions>
+    </q-card>
+
+    <DesktopReportDialog v-model="showDesktopReport" />
+</q-page>
 </template>
 
 <script setup>
@@ -492,6 +515,7 @@ import { logger } from 'src/utils/logger'
 import FormBanner from 'src/components/FormBanner.vue'
 import LanguagePrioritySelector from 'src/components/LanguagePrioritySelector.vue'
 import DevicesSection from 'src/components/user-settings/DevicesSection.vue'
+import DesktopReportDialog from 'src/components/DesktopReportDialog.vue'
 import PlaybackSection from 'src/components/user-settings/PlaybackSection.vue'
 import GamingSection from 'src/components/user-settings/GamingSection.vue'
 import { MEDIA_LANGUAGES, SUBTITLE_LANGUAGES, UI_LANGUAGES } from 'src/utils/mediaLanguages'
@@ -501,6 +525,9 @@ const authStore = useAuthStore()
 const settingsStore = useSettingsStore()
 
 const isDesktop = isDesktopApp()
+// The report dialog's visibility. Only reachable on the desktop; the section
+// that opens it is behind the same flag.
+const showDesktopReport = ref(false)
 const desktopServerUrl = ref(isDesktop ? getServerUrl('http://localhost:8000') : '')
 
 // State

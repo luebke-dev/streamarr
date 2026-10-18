@@ -51,7 +51,24 @@
       </div>
     </div>
 
-    <!-- Game Streaming via Lightrays -->
+    <!--
+      The desktop's native game stream. The picture is drawn by GStreamer in the
+      shell's own window; this page is the control panel. `GameStreamView` below
+      is the web path and is never reached on the desktop — see
+      `useNativeGameStream`, which is what decides.
+    -->
+    <NativeGameView
+      v-else-if="status === 'native-game-streaming'"
+      :title="contentTitle"
+      :phase="nativeGamePhase"
+      :state="nativeGameState"
+      @match-resolution="matchGameResolution"
+      @fullscreen="toggleGameFullscreen"
+      @disconnect="disconnectNativeGame"
+      @close="disconnectNativeGame"
+    />
+
+    <!-- Game Streaming via Lightrays (web path) -->
     <GameStreamView
       v-else-if="status === 'game-streaming'"
       :session-id="gameSessionId"
@@ -62,6 +79,23 @@
       @back="goBack"
       @retry="checkContent"
       @disconnected="goBack"
+    />
+
+    <!--
+      Native playback: the video is in mpv's own window, so this is the status screen
+      rather than a player. Only on the desktop, and only when the shell started a
+      playback.
+    -->
+    <native-playback-view
+      v-else-if="status === 'native-streaming'"
+      :title="contentTitle"
+      :tracks="nativeTracks"
+      :notices="nativePlayer.state.value.notices"
+      :is-resuming="nativePlayer.state.value.isResuming"
+      @close="goBack"
+      @restart="restartNativePlayback"
+      @select-audio="onSelectAudioTrack"
+      @select-subtitle="onSelectSubtitleTrack"
     />
 
     <!-- Video Player with Custom Controls (when streamable) -->
@@ -147,6 +181,9 @@ import { logger } from 'src/utils/logger'
 import { getTmdbImageUrl } from 'src/composables/useMediaFormatters'
 import { useDownloadPolling } from 'src/composables/useDownloadPolling'
 import { useViewingProgress } from 'src/composables/useViewingProgress'
+import { useNativePlayback, usesNativePlayback } from 'src/composables/useNativePlayback'
+import { isDesktopApp } from 'src/utils/desktopPlatform'
+import NativePlaybackView from 'src/components/NativePlaybackView.vue'
 import { useStreamSwap } from 'src/composables/useStreamSwap'
 import { useVideoPlayerEvents } from 'src/composables/useVideoPlayerEvents'
 import { useBookPlayback } from 'src/composables/useBookPlayback'
@@ -172,6 +209,7 @@ const VideoPlayer = defineAsyncComponent(() =>
 const CustomPlayerControls = defineAsyncComponent(() => import('components/CustomPlayerControls.vue'))
 const SkipOverlay = defineAsyncComponent(() => import('components/SkipOverlay.vue'))
 const GameStreamView = defineAsyncComponent(() => import('components/GameStreamView.vue'))
+const NativeGameView = defineAsyncComponent(() => import('components/NativeGameView.vue'))
 const BookReader = defineAsyncComponent(() => import('components/BookReader.vue'))
 const PlayStatusScreen = defineAsyncComponent(() => import('components/PlayStatusScreen.vue'))
 const ReportProblemDialog = defineAsyncComponent(() => import('components/ReportProblemDialog.vue'))
@@ -274,6 +312,10 @@ const {
   selectedPlatform,
   launchGameStream,
   fetchGamePlatforms,
+  nativeGame,
+  matchResolution,
+  stopNativeGameStream,
+  fetchGameStats,
 } = useGameLaunch({
   uuid,
   status,
@@ -281,6 +323,71 @@ const {
   errorMessage,
   t,
 })
+
+// The native game stream's state and phase, for `NativeGameView`.
+const nativeGameState = computed(() => nativeGame.value)
+/**
+ * A live reading for the stats panel, once a second.
+ *
+ * 1 Hz because the figures a user reads are averages: asking more often would
+ * spend calls on numbers nobody can see change, and asking less often would make
+ * a stutter invisible.
+ */
+let gameStatsTimer = null
+onMounted(() => {
+  gameStatsTimer = setInterval(() => {
+    if (nativeGame.value?.running) fetchGameStats()
+  }, 1000)
+})
+onUnmounted(() => {
+  if (gameStatsTimer) clearInterval(gameStatsTimer)
+})
+
+const nativeGamePhase = computed(() => {
+  if (nativeGame.value?.error) return 'failed'
+  return nativeGame.value?.phase || 'connecting'
+})
+
+/**
+ * Asks the server to rebuild its pipeline at the current window size.
+ *
+ * Deliberately user-initiated, like the web toolbar's button: a server-side
+ * resize tears down the whole WebRTC pipeline and blanks the picture for a few
+ * seconds, so it must not happen on every window drag.
+ */
+const matchGameResolution = async () => {
+  await matchResolution()
+}
+
+/**
+ * Puts the main window into fullscreen for the game.
+ *
+ * Through the shell, like the couch mode's: the WebView's own API makes an
+ * *element* fill the page, and what a game needs is the window leaving the
+ * desktop. The stream's picture is in a window of its own, so this is about the
+ * control window rather than the picture — which is why it is a separate button
+ * from the stream itself.
+ */
+const toggleGameFullscreen = async () => {
+  if (!isDesktopApp()) return
+  const { invoke } = await import('@tauri-apps/api/core')
+  await invoke('couch_set_fullscreen', { fullscreen: !document.fullscreenElement }).catch(
+    () => {},
+  )
+}
+
+/**
+ * Ends the native stream and returns to the previous screen.
+ *
+ * The shell's `game_stop` joins the game thread, so the socket and the pipeline
+ * are released before this returns — which is what makes "start again" work
+ * afterwards.
+ */
+const disconnectNativeGame = async () => {
+  await stopNativeGameStream()
+  status.value = 'idle'
+  goBack()
+}
 
 const { bookFileUrl, bookFormat, bookFileName, openBookFile } = useBookPlayback({
   status,
@@ -582,6 +689,58 @@ const handleStartPlaybackError = (err) => {
 }
 
 // Start playback with smart defaults (Netflix-style: just play immediately)
+// The native player. `onProgress` is the existing reporter, so both playback paths
+// report progress through one implementation.
+const nativePlayer = useNativePlayback({
+  onProgress: (position, duration) => {
+    // `updateProgress` is created further down by `useViewingProgress`; the closure is
+    // only called during playback, long after both are set up.
+    updateProgressRef.current?.(position, duration)
+  },
+})
+const updateProgressRef = { current: null }
+
+/**
+ * mpv's track list, read when a native playback starts.
+ *
+ * Read *after* the player reported the file loaded, not before: mpv fills its
+ * track list while opening the file, and asking too early returns the previous
+ * file's tracks or none at all. That is why this is a `watch` on the loaded flag
+ * rather than a call in `startNativePlayback`.
+ */
+const nativeTracks = ref(null)
+
+watch(
+  () => nativePlayer.state.value.loaded,
+  async (loaded) => {
+    if (!loaded) {
+      nativeTracks.value = null
+      return
+    }
+    try {
+      nativeTracks.value = await nativePlayer.fetchTracks()
+    } catch (error) {
+      // Not fatal: playback continues, only the selection panel stays hidden.
+      logger.warn('Tonspuren konnten nicht gelesen werden:', error)
+      nativeTracks.value = null
+    }
+  },
+)
+
+/** Switches mpv's audio track. `null` restores mpv's own choice. */
+const onSelectAudioTrack = async (trackId) => {
+  await nativePlayer.selectAudioTrack(trackId)
+  // Re-read so the panel shows what mpv actually selected, not what was asked
+  // for — mpv may refuse, and showing the request would hide that.
+  nativeTracks.value = await nativePlayer.fetchTracks().catch(() => nativeTracks.value)
+}
+
+/** Switches mpv's subtitle track, or turns subtitles off with `null`. */
+const onSelectSubtitleTrack = async (trackId) => {
+  await nativePlayer.selectSubtitleTrack(trackId)
+  nativeTracks.value = await nativePlayer.fetchTracks().catch(() => nativeTracks.value)
+}
+
 const startPlayback = async () => {
   if (isStartingPlayback.value) return
   isStartingPlayback.value = true
@@ -621,9 +780,23 @@ const startPlayback = async () => {
       options.subtitle_stream_index = routeSubtitleStreamIndex
     }
 
+    // Native playback on the desktop: mpv decodes the video in its own process, never
+    // the webview (ADR 001). It is deliberately *after* the download check below, so an
+    // item that is still downloading keeps showing the download screen and reaches this
+    // point again through the polling callback once it is available.
+    const wantsNative = usesNativePlayback({
+      isDesktop: isDesktopApp(),
+      contentType: contentType.value,
+    })
+
     const offlineResponse = await tryOfflinePlayback()
     if (offlineResponse) {
       await setupStreamablePlayback(offlineResponse)
+      return
+    }
+
+    if (wantsNative) {
+      await startNativePlayback()
       return
     }
 
@@ -669,6 +842,41 @@ const startPlayback = async () => {
   }
 }
 
+/**
+ * Starts playback through the shell's own player.
+ *
+ * The shell asks the play endpoint, applies the profile's address pin and starts mpv, so
+ * the page does not build a stream URL at all. Progress reporting still goes through
+ * `useViewingProgress`, so both paths share one definition of "watched".
+ */
+const restartNativePlayback = async () => {
+  // The stored position is ignored on purpose: the user asked to start over, and
+  // passing `0` is how the shell is told so.
+  await nativePlayer.start(uuid.value, 0)
+}
+
+const startNativePlayback = async () => {
+  const override = numericRouteQuery('t')
+  try {
+    nativePlayer.state.value = { ...nativePlayer.state.value, error: null }
+    const result = await nativePlayer.start(uuid.value, override ?? null)
+    status.value = 'native-streaming'
+    loading.value = false
+    lastPosition.value = 0
+    // The same reporter the web path uses; only the position source differs.
+    startProgressUpdates()
+    return result
+  } catch (error) {
+    // No silent fallback to a `<video>` element: that would hide exactly the failures
+    // that matter (missing mpv, blocked address, refused stream) and would ship a
+    // playback path the plan excludes. The shell's message already says what to do.
+    status.value = 'error'
+    errorMessage.value = String(error?.message || error)
+    loading.value = false
+    return null
+  }
+}
+
 // Expose startPlayback as a store action so download-polling / bootstrap can
 // trigger it without threading a forward-reference closure through composables.
 videoPlayerStore.registerStartPlaybackHandler(startPlayback)
@@ -695,6 +903,9 @@ const { subscribe: subscribeRemoteControl, unsubscribe: unsubscribeRemoteControl
     playNextEpisode: playNextPlaybackItem,
     playPreviousEpisode: playPreviousPlaybackItem,
   })
+// The progress reporter is created before the player uses it; the native player only
+// calls it during playback, which is long after both exist.
+updateProgressRef.current = updateProgress
 
 const partySync = usePartySync({
   partyStore,
