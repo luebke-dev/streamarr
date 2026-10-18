@@ -80,6 +80,18 @@ class PlayAction:
 async def check_transcode_capacity(db: AsyncSession) -> bool:
     """Check if the server has capacity for another transcode session.
 
+    The active count comes from Redis, where a session stays ``is_active``
+    until something clears it. That bookkeeping lags reality in two ways that
+    both end in the same place: a session whose container died is only marked
+    failed by a monitor that cannot always tell, and a play request the client
+    abandoned mid-start leaves a session behind with no container at all. With
+    ``max_concurrent_transcodes`` reached on paper, *every* play request was
+    refused with 503 until the six-hourly sweep ran.
+
+    So before refusing, sweep the stale sessions once and count again. Only the
+    rejection path pays for the container listing, so a server under its limit
+    is unaffected.
+
     Args:
         db: Database session
 
@@ -93,13 +105,29 @@ async def check_transcode_capacity(db: AsyncSession) -> bool:
     transcoding_settings = await settings_service.get_transcoding_settings()
     max_concurrent = transcoding_settings.get("max_concurrent_transcodes", 0)
 
-    if max_concurrent > 0:
-        session_service = get_transcoding_session_service()
-        active_sessions = await session_service.get_all_sessions(active_only=True)
-        if len(active_sessions) >= max_concurrent:
-            return False
+    if max_concurrent <= 0:
+        return True
 
-    return True
+    session_service = get_transcoding_session_service()
+    active_sessions = await session_service.get_all_sessions(active_only=True)
+    if len(active_sessions) < max_concurrent:
+        return True
+
+    logger.warning(
+        "Transcode capacity reached (%d/%d active sessions), sweeping stale sessions",
+        len(active_sessions),
+        max_concurrent,
+    )
+    try:
+        await session_service.cleanup_stale_sessions()
+    except Exception as exc:
+        # A failed sweep must not turn into a hard error: the count below then
+        # simply still includes whatever the sweep would have removed.
+        logger.warning("Stale transcode session sweep failed: %s", exc)
+        return False
+
+    active_sessions = await session_service.get_all_sessions(active_only=True)
+    return len(active_sessions) < max_concurrent
 
 
 # ---------------------------------------------------------------------------

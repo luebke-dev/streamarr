@@ -1481,13 +1481,19 @@ async def cleanup_orphaned_transcode_containers() -> dict:
         raise
 
 
-@broker.task(schedule=[{"cron": "0 */6 * * *"}])  # Every 6 hours
+@broker.task(schedule=[{"cron": "*/15 * * * *"}])  # Every 15 minutes
 async def cleanup_stale_transcoding_sessions() -> dict:
     """
     Clean up stale transcoding sessions from Redis.
 
     This task runs periodically to remove sessions whose containers
     are no longer running and haven't been accessed recently.
+
+    Runs every 15 minutes rather than every 6 hours: a session that is still
+    marked active after its container is gone consumes a slot against
+    ``transcoding.max_concurrent_transcodes``, and while it does the server
+    refuses new playback. Waiting 6 hours for the sweep is a 6-hour outage;
+    the task itself is a container listing plus a handful of Redis writes.
     """
     from streamarr.services.transcoding_session import get_transcoding_session_service
 

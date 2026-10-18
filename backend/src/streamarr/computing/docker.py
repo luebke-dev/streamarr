@@ -322,6 +322,42 @@ class DockerComputingProvider(ComputingBase):
             # Assume bytes
             return int(memory_limit)
 
+    async def _resolve_container(self, task_id: str):
+        """The container for ``task_id``, or ``None`` when it does not exist.
+
+        ``_containers`` only knows the tasks *this* provider instance started,
+        and every task run builds a fresh one. A container created by another
+        process - the API that started a transcode, or an earlier worker run -
+        therefore looked up as "not found" and the stop was silently skipped.
+        That is how containers left in ``created`` state (an aborted start)
+        survived the orphan sweep: it stopped nothing, counted it as stopped,
+        and retried the same container every minute forever.
+
+        Falls back to the label every container is started with, and remembers
+        the result so the next call is a map hit again.
+        """
+        if not self.client:
+            raise RuntimeError("Docker client not initialized")
+
+        container_id = self._containers.get(task_id)
+        if container_id:
+            try:
+                return await self.client.containers.get(container_id)
+            except aiodocker.exceptions.DockerError:
+                # Container went away since we started it; look it up by label
+                # before concluding it does not exist.
+                self._containers.pop(task_id, None)
+
+        containers = await self.client.containers.list(
+            all=True, filters={"label": [f"streamarr.task_id={task_id}"]}
+        )
+        if not containers:
+            return None
+
+        container = containers[0]
+        self._containers[task_id] = container.id
+        return container
+
     async def get_task_status(self, task_id: str) -> str:
         """
         Get current status of a task.
@@ -355,16 +391,11 @@ class DockerComputingProvider(ComputingBase):
 
     async def get_task_logs(self, task_id: str, follow: bool = False) -> str:
         """Get logs from a task."""
-        if not self.client:
-            raise RuntimeError("Docker client not initialized")
-
-        container_id = self._containers.get(task_id)
-        if not container_id:
+        container = await self._resolve_container(task_id)
+        if container is None:
             raise ValueError(f"Task {task_id} not found")
 
         try:
-            container = await self.client.containers.get(container_id)
-
             if follow:
                 # Stream logs
                 logs = []
@@ -382,16 +413,23 @@ class DockerComputingProvider(ComputingBase):
 
     async def stop_task(self, task_id: str, force: bool = False) -> None:
         """Stop a running task."""
-        if not self.client:
-            raise RuntimeError("Docker client not initialized")
-
-        container_id = self._containers.get(task_id)
-        if not container_id:
+        container = await self._resolve_container(task_id)
+        if container is None:
             logger.warning("Task %s not found, cannot stop", task_id)
             return
 
         try:
-            container = await self.client.containers.get(container_id)
+            info = await container.show()
+            if not info["State"]["Running"]:
+                # A container that never started, or already exited, cannot be
+                # stopped. Removing it is the caller's next step; failing here
+                # would only produce the same warning forever.
+                logger.debug(
+                    "Docker task %s is not running (status=%s), nothing to stop",
+                    task_id,
+                    info["State"].get("Status"),
+                )
+                return
 
             if force:
                 await container.kill()
@@ -406,17 +444,16 @@ class DockerComputingProvider(ComputingBase):
 
     async def delete_task(self, task_id: str) -> None:
         """Delete a task and clean up resources."""
-        if not self.client:
-            raise RuntimeError("Docker client not initialized")
-
-        container_id = self._containers.get(task_id)
-        if not container_id:
-            logger.warning("Task %s not found, cannot delete", task_id)
+        container = await self._resolve_container(task_id)
+        if container is None:
+            # Already gone - that is the state the caller wanted, so drop the
+            # tracking entry instead of warning on every sweep.
+            self._containers.pop(task_id, None)
+            self._cancel_task_timeout(task_id)
+            logger.debug("Docker task %s already gone, nothing to delete", task_id)
             return
 
         try:
-            container = await self.client.containers.get(container_id)
-
             # Stop if running
             info = await container.show()
             if info["State"]["Running"]:
@@ -426,19 +463,20 @@ class DockerComputingProvider(ComputingBase):
             await container.delete()
 
             # Remove from tracking
-            del self._containers[task_id]
-
-            # Cancel any pending timeout handler — container is gone, no
-            # point waking up only to discover that.
-            timeout_task = self._timeout_tasks.pop(task_id, None)
-            if timeout_task is not None:
-                timeout_task.cancel()
+            self._containers.pop(task_id, None)
+            self._cancel_task_timeout(task_id)
 
             logger.info("Deleted Docker task %s", task_id)
 
         except aiodocker.exceptions.DockerError as e:
             logger.error("Failed to delete task %s: %s", task_id, e)
             raise
+
+    def _cancel_task_timeout(self, task_id: str) -> None:
+        """Cancel any pending timeout handler - the container is gone."""
+        timeout_task = self._timeout_tasks.pop(task_id, None)
+        if timeout_task is not None:
+            timeout_task.cancel()
 
     async def list_tasks(
         self, labels: dict[str, str] | None = None
