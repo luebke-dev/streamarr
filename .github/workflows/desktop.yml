@@ -356,7 +356,10 @@ jobs:
           export WEBKIT_DISABLE_DMABUF_RENDERER=1
           export WEBKIT_DISABLE_COMPOSITING_MODE=1
           set +e
-          timeout 25 xvfb-run -a Streamarr > /tmp/app.log 2>&1
+          # 45 s, not 25: a cold runner spends a while in WebKit startup before the app's
+          # own code runs, and a timeout that fires early would report a hang that is
+          # only slowness.
+          timeout 45 xvfb-run -a Streamarr > /tmp/app.log 2>&1
           status=$?
           set -e
           echo "--- Ausgabe ---"
@@ -370,8 +373,15 @@ jobs:
             echo "::error::Die installierte App endete mit Status $status statt zu laufen."
             exit 1
           fi
-          # It must have got as far as reading its configuration.
-          grep -q 'Konfiguration:' /tmp/app.log
+          # It must have got as far as reading its configuration. Stdout is checked
+          # together with the app's own log file: stdout can be behind a pipe or lost
+          # when the timeout kills the process, and this file is the artifact the
+          # support report uploads anyway — so if only one of them survives, the honest
+          # one is the file.
+          applog="$HOME/.local/share/media.streamarr.desktop/logs/streamarr-desktop.log"
+          if [ -f "$applog" ]; then echo "--- Logfile ---"; cat "$applog";
+          else echo "(kein Logfile unter $applog)"; fi
+          { cat /tmp/app.log; cat "$applog" 2>/dev/null; } | grep -q 'Konfiguration:'
 
   # ── Windows bundles ──
   #

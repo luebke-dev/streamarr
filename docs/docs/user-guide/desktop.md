@@ -411,8 +411,8 @@ The line `AO: [<driver>]` names the output device mpv chose.
 ### Nothing loads at all, and the interface stays empty
 
 The app's own log is at `~/.config/media.streamarr.desktop/` (and on stderr). Look for
-`Konfiguration:` on startup, which reports where the configuration lives and where
-credentials are stored.
+`Konfiguration:` on startup, which reports where the configuration lives, and for
+`Token-Ablage:` right after it, which reports where credentials end up.
 
 ### Credentials are not stored in the keyring
 
