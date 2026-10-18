@@ -1071,6 +1071,45 @@ class ComputingService:
         # FFmpeg filter syntax requires escaping \ : ' [ ]
         return path.replace("\\", "\\\\").replace("'", "'\\''").replace(":", "\\:")
 
+    def _append_hw_rate_control(
+        self,
+        cmd: list[str],
+        *,
+        video_bitrate: str | None,
+        hw_type: str | None,
+        quality: int,
+    ) -> None:
+        """Attach rate control to a hardware encoder command.
+
+        Both knobs on the transcoding page have to reach the encoder: a
+        configured bitrate caps the stream, otherwise the quality value is used.
+        Neither was passed for any hardware encoder, so "Default Video Bitrate"
+        and "Default CRF" were silent no-ops on every accelerated host and Intel
+        QSV fell back to its own default of ICQ 23 - a 1080p episode then ran at
+        ~11 Mbit/s with no cap, which starves a thin client connection and shows
+        up as regular stalls rather than as an obviously broken stream.
+
+        Bitrate and QSV's ``-global_quality`` are mutually exclusive modes
+        (CBR/AVBR vs ICQ), hence the either/or.
+        """
+        if video_bitrate:
+            bitrate_kbps = self._parse_bitrate(video_bitrate)
+            cmd.extend(
+                [
+                    "-b:v",
+                    video_bitrate,
+                    "-maxrate",
+                    video_bitrate,
+                    "-bufsize",
+                    f"{bitrate_kbps * 2}k",
+                ]
+            )
+            return
+
+        if hw_type == "qsv":
+            # QSV's global_quality is ICQ - the equivalent of x264's CRF.
+            cmd.extend(["-global_quality", str(quality)])
+
     def _build_ffmpeg_command(
         self,
         input_path: str,
@@ -1178,23 +1217,31 @@ class ComputingService:
             cmd.extend(["-tag:v", "hvc1"])
         elif video_codec == "h265" or video_codec == "hevc":
             # Use hardware encoder if available
-            if hw_accel and hw_accel.get("encoder_suffix"):
-                encoder = f"hevc{hw_accel['encoder_suffix']}"  # hevc_qsv
+            hw_encoder = hw_accel.get("encoder_suffix") if hw_accel else None
+            if hw_encoder:
+                encoder = f"hevc{hw_encoder}"  # hevc_qsv
                 cmd.extend(["-c:v", encoder])
                 if hw_type == "qsv":
-                    cmd.extend(["-preset", "medium", "-global_quality", "25"])
+                    cmd.extend(["-preset", "medium"])
+                self._append_hw_rate_control(
+                    cmd,
+                    video_bitrate=video_bitrate,
+                    hw_type=hw_type,
+                    quality=default_crf if default_crf is not None else 25,
+                )
                 logger.info("Using hardware H.265 encoder: %s", encoder)
             else:
                 cmd.extend(["-c:v", "libx265", "-preset", "fast"])
+                if video_bitrate:
+                    cmd.extend(["-b:v", video_bitrate])
+                else:
+                    # H.265 needs lower CRF to match H.264 quality (see ffmpeg docs).
+                    cmd.extend(
+                        ["-crf", str(default_crf if default_crf is not None else 28)]
+                    )
 
             # Tag HEVC as hvc1 for HLS compatibility (required for browsers)
             cmd.extend(["-tag:v", "hvc1"])
-
-            if video_bitrate and not (hw_accel and hw_accel.get("encoder_suffix")):
-                cmd.extend(["-b:v", video_bitrate])
-            elif not hw_accel:
-                # H.265 needs lower CRF to match H.264 quality (see ffmpeg docs).
-                cmd.extend(["-crf", str(default_crf if default_crf is not None else 28)])
         elif video_codec == "vp9":
             cmd.extend(
                 ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "4"]
@@ -1205,11 +1252,18 @@ class ComputingService:
                 cmd.extend(["-crf", str(default_crf if default_crf is not None else 31), "-b:v", "0"])
         elif video_codec == "av1":
             # Use hardware encoder if available
-            if hw_accel and hw_accel.get("encoder_suffix"):
-                encoder = f"av1{hw_accel['encoder_suffix']}"  # av1_qsv
+            hw_encoder = hw_accel.get("encoder_suffix") if hw_accel else None
+            if hw_encoder:
+                encoder = f"av1{hw_encoder}"  # av1_qsv
                 cmd.extend(["-c:v", encoder])
                 if hw_type == "qsv":
-                    cmd.extend(["-preset", "medium", "-global_quality", "25"])
+                    cmd.extend(["-preset", "medium"])
+                self._append_hw_rate_control(
+                    cmd,
+                    video_bitrate=video_bitrate,
+                    hw_type=hw_type,
+                    quality=default_crf if default_crf is not None else 25,
+                )
                 logger.info("Using hardware AV1 encoder: %s", encoder)
             else:
                 cmd.extend(
@@ -1222,34 +1276,42 @@ class ComputingService:
                         "fast-decode=1",
                     ]
                 )
-            if video_bitrate and not (hw_accel and hw_accel.get("encoder_suffix")):
-                cmd.extend(["-b:v", video_bitrate])
-            elif not hw_accel:
-                cmd.extend(["-crf", str(default_crf if default_crf is not None else 30)])
+                if video_bitrate:
+                    cmd.extend(["-b:v", video_bitrate])
+                else:
+                    cmd.extend(
+                        ["-crf", str(default_crf if default_crf is not None else 30)]
+                    )
         else:  # Default to h264
             # Use hardware encoder if available
-            if hw_accel and hw_accel.get("encoder_suffix"):
-                encoder = f"h264{hw_accel['encoder_suffix']}"  # h264_qsv
+            hw_encoder = hw_accel.get("encoder_suffix") if hw_accel else None
+            if hw_encoder:
+                encoder = f"h264{hw_encoder}"  # h264_qsv
                 cmd.extend(["-c:v", encoder])
                 if hw_type == "qsv":
-                    cmd.extend(["-preset", "medium", "-global_quality", "23"])
+                    cmd.extend(["-preset", "medium"])
+                self._append_hw_rate_control(
+                    cmd,
+                    video_bitrate=video_bitrate,
+                    hw_type=hw_type,
+                    quality=default_crf if default_crf is not None else 23,
+                )
                 logger.info("Using hardware H.264 encoder: %s", encoder)
             else:
                 cmd.extend(["-c:v", "libx264", "-preset", "fast"])
-
-            if video_bitrate and not (hw_accel and hw_accel.get("encoder_suffix")):
-                cmd.extend(
-                    [
-                        "-b:v",
-                        video_bitrate,
-                        "-maxrate",
-                        video_bitrate,
-                        "-bufsize",
-                        f"{self._parse_bitrate(video_bitrate) * 2}k",
-                    ]
-                )
-            elif not hw_accel:
-                cmd.extend(["-crf", str(default_crf if default_crf is not None else 23)])
+                if video_bitrate:
+                    cmd.extend(
+                        [
+                            "-b:v",
+                            video_bitrate,
+                            "-maxrate",
+                            video_bitrate,
+                            "-bufsize",
+                            f"{self._parse_bitrate(video_bitrate) * 2}k",
+                        ]
+                    )
+                else:
+                    cmd.extend(["-crf", str(default_crf if default_crf is not None else 23)])
 
         # Build video filter chain (skip for audio-only)
         vf_filters = []

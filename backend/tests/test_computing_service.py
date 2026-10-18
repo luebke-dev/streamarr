@@ -797,6 +797,90 @@ class TestComputingServiceFFmpegCommandBuilder:
         cv_index = cmd.index("-c:v")
         assert cmd[cv_index + 1] == "copy"
 
+    # ------------------------------------------------------------------
+    # Rate control on hardware encoders
+    # ------------------------------------------------------------------
+    #
+    # The bitrate and CRF settings on the transcoding page used to be dropped
+    # for every hardware encoder: only the software paths ever emitted -b:v or
+    # -crf, and QSV hardcoded its own -global_quality 23/25. On a QSV host the
+    # result was an uncapped ~11 Mbit/s 1080p stream no matter what was
+    # configured, which stalls thin client connections.
+
+    @staticmethod
+    def _cmd(service, **overrides):
+        kwargs = dict(
+            input_path="/input/video.mp4",
+            rel_output="/output/playlist.m3u8",
+            segment_pattern="/output/segment_%03d.ts",
+            hls_time=10,
+            video_codec="h264",
+            audio_codec="aac",
+            video_bitrate=None,
+            audio_bitrate="128k",
+            start_position=None,
+            resolution=None,
+            audio_stream_index=None,
+            subtitle_stream_index=None,
+            burn_subtitles=False,
+        )
+        kwargs.update(overrides)
+        return service._build_ffmpeg_command(**kwargs)
+
+    @staticmethod
+    def _qsv():
+        return {"type": "qsv", "devices": ["/dev/dri/renderD128"], "encoder_suffix": "_qsv"}
+
+    def test_hardware_encoder_honours_the_configured_bitrate(self, db_session: AsyncSession):
+        service = ComputingService(db_session)
+
+        cmd = self._cmd(
+            service, video_bitrate="6000k", hw_accel=self._qsv(), default_crf=23
+        )
+
+        assert "h264_qsv" in cmd
+        assert cmd[cmd.index("-b:v") + 1] == "6000k"
+        assert cmd[cmd.index("-maxrate") + 1] == "6000k"
+        assert cmd[cmd.index("-bufsize") + 1] == "12000k"
+        # ICQ and bitrate mode are mutually exclusive for QSV.
+        assert "-global_quality" not in cmd
+
+    def test_hardware_encoder_honours_the_crf_setting(self, db_session: AsyncSession):
+        service = ComputingService(db_session)
+
+        cmd = self._cmd(service, hw_accel=self._qsv(), default_crf=18)
+
+        assert cmd[cmd.index("-global_quality") + 1] == "18"
+        assert "-b:v" not in cmd
+
+    def test_hardware_encoder_keeps_its_default_quality(self, db_session: AsyncSession):
+        service = ComputingService(db_session)
+
+        cmd = self._cmd(service, hw_accel=self._qsv())
+
+        assert cmd[cmd.index("-global_quality") + 1] == "23"
+
+    def test_hardware_hevc_encoder_honours_the_bitrate(self, db_session: AsyncSession):
+        service = ComputingService(db_session)
+
+        cmd = self._cmd(
+            service, video_codec="h265", video_bitrate="5000k", hw_accel=self._qsv()
+        )
+
+        assert "hevc_qsv" in cmd
+        assert cmd[cmd.index("-b:v") + 1] == "5000k"
+        assert "-global_quality" not in cmd
+        assert cmd[cmd.index("-tag:v") + 1] == "hvc1"
+
+    def test_software_encoder_keeps_its_bitrate_cap(self, db_session: AsyncSession):
+        service = ComputingService(db_session)
+
+        cmd = self._cmd(service, video_bitrate="4000k")
+
+        assert "libx264" in cmd
+        assert cmd[cmd.index("-b:v") + 1] == "4000k"
+        assert cmd[cmd.index("-maxrate") + 1] == "4000k"
+
     def test_build_ffmpeg_command_video_codec_h265(self, db_session: AsyncSession):
         """Test FFmpeg command with H.265 codec."""
         service = ComputingService(db_session)
