@@ -55,6 +55,14 @@ project, so the only evidence that the targets work is the CI job — which is a
 different kind of evidence from a build someone ran and clicked through. Treat the
 Windows installers as unverified until someone runs one on Windows.
 
+**The Windows package has no game streaming.** Media playback works; games do not,
+because the game path needs GStreamer's **MSVC development package** and the CI
+runner does not have it — it is not available through `choco` or `apt`, and the
+build fails in `gstreamer-webrtc-sys` without it. The installers are therefore
+built with the feature switched off rather than not built at all. If you need games
+on Windows, build from source with the GStreamer MSVC SDK installed and without
+that override.
+
 ### mpv is required, and not bundled
 
 The app needs `mpv` on your `PATH`. It is **not** installed as a package dependency,
