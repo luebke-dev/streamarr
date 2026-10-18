@@ -1,0 +1,236 @@
+name: Build and publish images
+
+# Every image this stack runs is published here, to GHCR. The GitLab pipeline
+# that used to do this was deleted in 4c7bf11 ("remove leftover GitLab CI
+# configs") when the project moved to GitHub, and nothing replaced it. The only
+# images that existed afterwards were the ones built by hand on whichever host
+# happened to need them, which is how a container profile can point at a tag no
+# registry serves.
+#
+# What is published, and what deliberately is not:
+#
+#   backend, frontend, lightrays, the three downloaders: pulled by the prod
+#   Compose file (deployment/docker/docker-compose.yml), so they are built and
+#   pushed on every relevant change. The backend image is built once and reused
+#   for migrate/worker/scheduler, which are that Containerfile with a different
+#   command.
+#
+#   retro: pushed as well. It is not in the prod Compose file, but the `retro`
+#   container profile is seeded into the database by migration ctnprof004 and
+#   names ghcr.io/luebke-dev/streamarr-retro, so a deployment that never built
+#   it locally has a profile pointing at nothing.
+#
+#   wine: build-on-demand only, and never pushed. containers/wine/README.md
+#   states it explicitly ("Do not push ... is never pulled"); its ghcr.io tag
+#   exists only to satisfy lightrays' registry allowlist.
+#
+# Tags: `latest` on the default branch plus the commit SHA, and the version on
+# a v* tag, so a deployment can pin an exact image and still follow `latest`.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "lightrays/**"
+      - "downloaders/**"
+      - "containers/**"
+      - ".github/workflows/images.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "lightrays/**"
+      - "downloaders/**"
+      - "containers/**"
+      - ".github/workflows/images.yml"
+  workflow_dispatch:
+    inputs:
+      build_wine:
+        description: "Also build the local-only wine game container (never pushed)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  # Required to push to GHCR. Without it the build succeeds and the push fails
+  # with a 403, which reads like a registry problem rather than a token scope.
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # Cheap guard against the exact drift that prompted this workflow: a build
+  # recipe no pipeline builds, or a Compose reference pointing at a file that
+  # was renamed. Runs before anything expensive.
+  preflight:
+    name: Verify build matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every Compose build target resolves to an existing Containerfile
+        run: |
+          python3 - <<'PY'
+          import glob, os, sys, yaml
+
+          # Read the Compose files directly rather than shelling out to
+          # `docker compose config`: that command needs a populated .env (it
+          # exits non-zero without one) and would make this check depend on
+          # deployment secrets for no reason.
+          files = ["docker-compose.yml", "deployment/docker/docker-compose.yml"]
+          failures = []
+          checked = 0
+          for f in files:
+              if not os.path.exists(f):
+                  continue
+              doc = yaml.safe_load(open(f)) or {}
+              for name, svc in (doc.get("services") or {}).items():
+                  build = svc.get("build")
+                  if not build:
+                      continue
+                  ctx = build.get("context")
+                  if not isinstance(ctx, str):
+                      continue
+                  # Compose resolves `dockerfile` relative to the context.
+                  df = os.path.join(ctx, build.get("dockerfile", "Dockerfile"))
+                  checked += 1
+                  if not os.path.exists(df):
+                      failures.append(f"{f}: service {name} -> {df}")
+          print(f"checked {checked} build target(s) across {len(files)} file(s)")
+          if failures:
+              print("MISSING:", *failures, sep="\n  ")
+              sys.exit(1)
+          PY
+
+      - name: The retro profile image matches the documented build tag
+        run: |
+          set -euo pipefail
+          # ctnprof005 renamed this from pyrate-retro to streamarr-retro. The
+          # two must agree again, or a deployment pulls a tag nobody publishes.
+          seeded=$(grep -rhoE 'ghcr\.io/luebke-dev/streamarr-retro:latest' \
+                     backend/alembic/versions/ | sort -u | head -1)
+          documented=$(grep -oE 'ghcr\.io/luebke-dev/streamarr-retro:latest' \
+                         containers/retro/README.md | head -1)
+          echo "seeded:     ${seeded:-<none>}"
+          echo "documented: ${documented:-<none>}"
+          test -n "$seeded" && test -n "$documented"
+          test "$seeded" = "$documented"
+          # The pre-rename name must survive only inside the migration that
+          # retires it; anywhere else means a rename was applied one-sided.
+          if grep -rl 'pyrate-retro' --include='*.py' --include='*.md' \
+               backend containers docs 2>/dev/null \
+               | grep -v 'ctnprof005_rename_retro_image.py' | grep -q .; then
+            echo "pyrate-retro referenced outside its retirement migration:"
+            grep -rn 'pyrate-retro' --include='*.py' --include='*.md' backend containers docs \
+              | grep -v 'ctnprof005_rename_retro_image.py'
+            exit 1
+          fi
+          echo "OK"
+
+  build:
+    name: ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: backend
+            file: backend/Containerfile
+          - image: frontend
+            context: frontend
+            file: frontend/Containerfile
+            build-args: |
+              VITE_ARTWORK_CACHE_ENABLED=true
+          - image: lightrays
+            context: lightrays
+            file: lightrays/docker/Containerfile
+          - image: downloaders/torrent
+            context: downloaders/torrent
+            file: downloaders/torrent/Containerfile
+          - image: downloaders/usenet
+            context: downloaders/usenet
+            file: downloaders/usenet/Containerfile
+          - image: downloaders/spotify
+            context: downloaders/spotify
+            file: downloaders/spotify/Containerfile
+          - image: retro
+            context: containers/retro
+            file: containers/retro/Containerfile
+          # Local-only per containers/wine/README.md. Buildable on demand so a
+          # change here is still validated, but never published.
+          - image: wine
+            context: containers/wine
+            file: containers/wine/Containerfile
+            publish: "false"
+            manual: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide whether to build
+        id: gate
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.manual }}" = "true" ] \
+             && [ "${{ inputs.build_wine }}" != "true" ]; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping ${{ matrix.image }} (local-only, opt in via workflow_dispatch)" \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.gate.outputs.build == 'true'
+
+      # Never log in on a pull request: the token of a fork is read-only, and
+      # publishing is gated below anyway.
+      - name: Log in to GHCR
+        if: steps.gate.outputs.build == 'true' && github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags
+        if: steps.gate.outputs.build == 'true'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=ref,event=branch
+            type=sha,format=long
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        if: steps.gate.outputs.build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          build-args: ${{ matrix.build-args }}
+          # Publish only from a trusted event, and never for an image that is
+          # local-only by design. Everything else still builds, so a pull
+          # request verifies the recipe without being able to write a tag.
+          push: >-
+            ${{ github.event_name != 'pull_request'
+                && matrix.publish != 'false' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          provenance: true
+          sbom: true
