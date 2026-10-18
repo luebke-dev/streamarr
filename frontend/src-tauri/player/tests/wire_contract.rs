@@ -19,15 +19,21 @@ use streamarr_desktop_player::session::{
 };
 
 fn repo_root() -> Option<PathBuf> {
-    // CARGO_MANIFEST_DIR is <repo>/desktop/player.
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()?
-        .parent()?
-        .to_path_buf();
-    if root.join("lightrays/src").is_dir() {
-        Some(root)
-    } else {
-        None
+    // Search upwards instead of counting parents.
+    //
+    // Counting worked until the crate moved one directory deeper, and then it did not
+    // fail — it returned `None`, which makes the guard test below return early and every
+    // golden test skip. A suite that reports success while proving nothing is the one
+    // failure mode this whole file exists to prevent, so the search is stated as a
+    // search: walk up from the crate until a directory contains `lightrays/src`.
+    let mut dir = Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();
+    loop {
+        if dir.join("lightrays/src").is_dir() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
     }
 }
 

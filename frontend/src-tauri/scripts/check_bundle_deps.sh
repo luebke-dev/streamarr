@@ -8,7 +8,7 @@
 # Paket, dem eine Bibliothek fehlt, installiert sauber und stürzt beim Start ab —
 # der Fehler zeigt sich also erst beim Nutzer.
 #
-# Aufruf: desktop/scripts/check_bundle_deps.sh <pfad-zu-Streamarr> <deb> <rpm>
+# Aufruf: frontend/src-tauri/scripts/check_bundle_deps.sh <pfad-zu-Streamarr> <deb> <rpm>
 set -euo pipefail
 
 BINARY="${1:?Pfad zum Binary fehlt}"
@@ -44,6 +44,10 @@ map_soname() {
     libgstbase-1.0.so.0) echo "libgstreamer1.0-0 gstreamer1" ;;
     libgstapp-1.0.so.0|libgstaudio-1.0.so.0|libgstvideo-1.0.so.0|libgstpbutils-1.0.so.0|libgsttag-1.0.so.0|libgstfft-1.0.so.0) echo "libgstreamer-plugins-base1.0-0 gstreamer1-plugins-base" ;;
     libgstwebrtc-1.0.so.0) echo "libgstreamer-plugins-bad1.0-0 gstreamer1-plugins-bad-free-libs" ;;
+    # `gstreamer-sdp` was added for the WebRTC answer, and it links its own shared
+    # object. Found by this script in CI, which is what it is for: the package shipped
+    # without the dependency and would have failed to start on a machine without it.
+    libgstsdp-1.0.so.0) echo "libgstreamer-plugins-bad1.0-0 gstreamer1-plugins-bad-free-libs" ;;
     libssl.so.3|libcrypto.so.3) echo "libssl3 openssl-libs" ;;
     # libc, libm und der dynamische Lader sind Teil jeder glibc-Installation und
     # werden von keinem Paket einzeln deklariert.

@@ -965,7 +965,7 @@ fn capabilities_summary(app: &tauri::AppHandle) -> Option<String> {
 fn gstreamer_version() -> Option<String> {
     // No `cfg(feature = "spike")` here, and that is not an omission. The shell
     // does **not** enable the core's `spike` feature: the game pipeline is
-    // implemented and proven in `desktop/player`, but it is not yet wired into the
+    // implemented and proven in `frontend/src-tauri/player`, but it is not yet wired into the
     // shell, so this build links no GStreamer at all. A `cfg` on a feature the
     // crate does not have is a warning, and rightly so — it would claim a
     // conditional that can never be true.

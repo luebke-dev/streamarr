@@ -8,14 +8,14 @@ Zielplattformen: Linux (primär), Windows, macOS
 
 | Phase | Stand | Ergebnis |
 |---|---|---|
-| 0.1 GStreamer-Spike | offen | Crate-Gerüst steht (`desktop/player`) |
+| 0.1 GStreamer-Spike | offen | Crate-Gerüst steht (`frontend/src-tauri/player`) |
 | 0.2 Fenster-Spike | **erledigt** (Linux) | [spike-02-fenster.md](spike-02-fenster.md); Gate bestanden (58–60 fps @4K), Windows-Messung offen |
 | 0.3 libmpv-Spike | **erledigt** | [spike-03-mpv.md](spike-03-mpv.md); Prozess-Weg bestätigt, `--wid` entfällt |
 | 0.4 Gamepad-Spike | **erledigt** | [spike-04-gamepad.md](spike-04-gamepad.md); hängende Tasten gefunden und behoben |
 | 0.5 Native-Audit | **erledigt** | `isNativePlatform()` kannte nur Capacitor; Tauri-Desktop lief als „web" und persistierte keine Tokens. Behoben + 10 Tests |
 | Shell-Entscheidung | **erledigt** | [ADR 001](adr-001-desktop-shell.md): Tauri bleibt, mit harter Trennung von UI und nativem Player |
 
-**Neu angelegt:** `desktop/player` — shell-unabhängiges Rust-Crate für den
+**Neu angelegt:** `frontend/src-tauri/player` — shell-unabhängiges Rust-Crate für den
 Player-Kern (siehe ADR 001). Enthält das Wire-Protokoll zu Lightrays, das aus
 den Server-Quellen abgeleitet und durch Golden-Tests gegen genau diese Quellen
 abgesichert ist. 18 Tests, CI-Eintrag in `.github/workflows/rust.yml`.
@@ -216,28 +216,48 @@ nativen Fenster wieder eingeblendet — die UI bleibt also die Chrome-Schicht.
 
 ### 4.3 Modul-Zuschnitt (Stand: Kern angelegt)
 
-Der Player-Kern liegt **außerhalb** der Shell, in `desktop/player/`, damit die
-Shell austauschbar bleibt (ADR 001). Die Shell selbst bleibt dünn:
+Der Player-Kern ist ein **eigenes Crate**, das die Shell als Pfad-Abhängigkeit
+ einbindet — damit die Shell austauschbar bleibt (ADR 001) und der Kern ohne
+GTK/WebKit testbar ist. Er liegt seit dem Umzug **innerhalb** von
+`frontend/src-tauri/`, damit die Desktop-App einen einzigen Ort hat:
 
 ```
-desktop/
-  player/                 # shell-unabhängiges Rust-Crate (angelegt)
-    src/
-      lib.rs              # öffentliche Oberfläche
-      protocol.rs         # Wire-Vertrag zu Lightrays (getestet)
-      media/              # Phase 2: mpv-Steuerung, Negotiation, Resume
-      games/              # Phase 3: Session, Signaling, Pipeline, Input
-      input/              # Phase 3: gilrs/evdev, Tastatur, Maus
-      stats.rs            # GStreamer/WebRTC-Statistiken
-
-frontend/src-tauri/       # Shell: Fenster, IPC, Plugins
+frontend/src-tauri/
+  Cargo.toml            # Shell-Crate, hängt von `player` ab
+  tauri.conf.json       # Fenster, Bundles, Rechte
+  capabilities/         # pro Fenster getrennte Rechte
   src/
-    lib.rs
-    windows.rs            # Hauptfenster + Player-Overlay, Z-Order, Fullscreen
-    profile.rs            # Profile (Server, User, mpv.conf), Pfade
-    ipc.rs                # dünne Brücke Shell → desktop/player
-  capabilities/           # pro Fenster getrennte Rechte
+    main.rs
+    lib.rs              # Aufbau der App, Plugin-Registrierung
+    api.rs              # alle Server-Aufrufe der Shell (Pfad, nie URL)
+    storage.rs          # Token-Ablage (Keyring), Dateirechte
+    commands/           # IPC-Befehle: playback, game, couch, report, session,
+                        # profiles, deeplink, update, bridge
+    bin/                # game-live-check: Diagnose gegen den echten Server
+  tests/                # Playback-Befehle gegen den Kern
+  examples/             # Sonden: caps, play_live, track, update
+  scripts/              # check_versions, check_bundle_deps, make_test_media,
+                        # issue_test_api_key
+  player/               # ← DER KERN: shell-unabhängig, kein Tauri
+    src/
+      lib.rs
+      protocol.rs       # Wire-Vertrag zu Lightrays (golden getestet)
+      plan.rs           # Wiedergabeplan, HLS-Token-Header
+      mpv.rs            # Steuerung über JSON-IPC (Unix-Socket)
+      mpv_caps.rs       # Fähigkeiten der installierten mpv
+      playback.rs       # Lebenszyklus einer Wiedergabe
+      game_pipeline.rs  # GStreamer-Pipeline
+      game_session.rs   # Sitzung, Reconnect, Aufräumen
+      signaling.rs      # WebSocket-Signaling, SDP-Antwort
+      input.rs, pad.rs, keymap.rs, toolbar.rs   # Eingabe und Bedienleiste
+      couch.rs          # Fokus-Geometrie für den Couch-Modus
+      display_hdr.rs    # EDID/CTA-861, HDR-Entscheidung
+      resolve_tunnel.rs # DNS-Pin und Tunnel
+      session.rs, profile.rs, capabilities.rs, updater.rs, deeplink.rs
 ```
+
+Die Spike-Notizen liegen unter `docs/plans/spikes/`, neben den ausführlichen
+Fassungen, die sie reproduzieren.
 
 ## 5. Arbeitspakete
 
@@ -274,7 +294,7 @@ siehe Phase 2.4).
 | # | Aufgabe | Details |
 |---|---|---|
 | 2.1 | Native-Playback-Vertrag | Neues Tauri-Command-Set: `player_open(url, opts)`, `player_play/pause/seek/stop`, `player_set_audio`, `player_set_subtitle`, `player_set_speed`, `player_state` (Event-Stream) |
-| 2.2 | Codec-/Container-Erkennung | Rust ermittelt `mpv`-Fähigkeiten (`--list-options`, Decoder-Liste) und meldet sie als Client-Capabilities an den Server → Transcoding-Entscheidung wird präziser als im Browser. **Datenschicht erledigt** (`desktop/player/src/capabilities.rs`, Golden-Tests gegen die Serverquellen); offen: Decoder-Liste zur Laufzeit aus mpv lesen statt fester Liste |
+| 2.2 | Codec-/Container-Erkennung | Rust ermittelt `mpv`-Fähigkeiten (`--list-options`, Decoder-Liste) und meldet sie als Client-Capabilities an den Server → Transcoding-Entscheidung wird präziser als im Browser. **Datenschicht erledigt** (`frontend/src-tauri/player/src/capabilities.rs`, Golden-Tests gegen die Serverquellen); offen: Decoder-Liste zur Laufzeit aus mpv lesen statt fester Liste |
 | 2.3 | Direct-Play statt HLS | `/api/v1/play/{id}` mit Desktop-Profil: wenn mpv den Stream direkt kann, wird die Datei-/Direct-Stream-URL übergeben statt HLS-Manifest; sonst HLS wie bisher |
 | 2.4 | Fallback-Pfad | Feature-Flag `native_player = false` → exakt der heutige Web-Player in der WebView. Wichtig für Plattformen/Codecs, die Phase 0 nicht abdeckt |
 | 2.5 | Fortschritt & Resume | Position aus mpv periodisch an die bestehenden Playback-Position-Endpunkte; Resume-Position beim Öffnen setzen; „Skip Intro/Outro" und Kapitel aus den vorhandenen Markern an mpv übergeben |

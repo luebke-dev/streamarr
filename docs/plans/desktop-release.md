@@ -25,12 +25,12 @@ Sie **müssen** gleich sein, und zwar nicht aus Ordnungsliebe:
   installierten Pakets: Laufen sie auseinander, entsteht ein Paket, das sich nicht
   sauber aktualisieren lässt.
 
-`desktop/scripts/check_versions.sh` prüft das und **schlägt fehl**, wenn eine der
+`frontend/src-tauri/scripts/check_versions.sh` prüft das und **schlägt fehl**, wenn eine der
 drei abweicht. Zwei Mutationen wurden geprüft: eine geänderte
 `Cargo.toml`-Version und eine geänderte `tauri.conf.json` werden beide namentlich
 gemeldet.
 
-`desktop/player/Cargo.toml` trägt bewusst eine **eigene** Version (`0.1.0`): die
+`frontend/src-tauri/player/Cargo.toml` trägt bewusst eine **eigene** Version (`0.1.0`): die
 Kiste ist eine interne Bibliothek und wird nicht ausgeliefert. Das Skript meldet
 das als Hinweis, nicht als Fehler.
 
@@ -39,13 +39,13 @@ das als Hinweis, nicht als Fehler.
 ```bash
 # 1. Version an allen drei Stellen setzen (Beispiel 2026.3.0)
 #    package.json, src-tauri/Cargo.toml, src-tauri/tauri.conf.json
-./desktop/scripts/check_versions.sh          # muss "OK" sagen
+./frontend/src-tauri/scripts/check_versions.sh          # muss "OK" sagen
 
 # 2. Alles prüfen
-cd desktop/player && cargo test --locked
+cd frontend/src-tauri/player && cargo test --locked
 cd ../../frontend/src-tauri && cargo test --locked
 cd ../.. && (cd frontend && npx vitest run)  # 24 bekannte Fehler sind die Baseline
-./desktop/scripts/check_bundle_deps.sh \
+./frontend/src-tauri/scripts/check_bundle_deps.sh \
     frontend/src-tauri/target/release/Streamarr \
     frontend/src-tauri/target/release/bundle/deb/*.deb \
     frontend/src-tauri/target/release/bundle/rpm/*.rpm
@@ -94,10 +94,14 @@ verspricht, die er nicht einlösen kann.
 
 ## Windows
 
-Die NSIS- und MSI-Ziele sind in `bundle.targets` konfiguriert und werden im
-CI-Job `bundles-windows` auf `windows-latest` gebaut, der anschließend prüft,
-dass **beide** Artefakte existieren — ein Bundler, der „erfolgreich" ist, ohne
-eine Datei zu schreiben, würde den Build-Schritt sonst wertlos machen.
+Das NSIS-Ziel ist in `bundle.targets` konfiguriert und wird im CI-Job
+`bundles-windows` auf `windows-latest` gebaut, der anschließend prüft, dass das
+Artefakt existiert — ein Bundler, der „erfolgreich" ist, ohne eine Datei zu
+schreiben, würde den Build-Schritt sonst wertlos machen.
+
+Ein MSI entsteht nicht: WiX legt die Major-Version in ein Byte, und `2026.2.1`
+passt dort nicht (`app version major number cannot be greater than 255`). Eine
+MSI-Ausgabe bräuchte zuerst ein anderes Versorgungsschema.
 
 **Es gibt in diesem Projekt keinen Windows-Host.** Die Installer sind also
 gebaut, aber von niemandem ausgeführt worden. Das ist eine andere Art von

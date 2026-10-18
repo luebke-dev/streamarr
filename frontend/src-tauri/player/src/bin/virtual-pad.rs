@@ -1,3 +1,4 @@
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 //! Creates a virtual gamepad and drives it, so the reader can be tested.
 //!
 //! Spike 0.4. There is no physical pad in this environment, and a test that only
@@ -19,7 +20,9 @@
 use std::thread::sleep;
 use std::time::Duration;
 
+#[cfg(unix)]
 use evdev::uinput::VirtualDevice;
+#[cfg(unix)]
 use evdev::{
     AbsInfo, AbsoluteAxisCode, AttributeSet, BusType, EventType, InputEvent, InputId, KeyCode,
     UinputAbsSetup,
@@ -28,7 +31,9 @@ use evdev::{
 /// Axis range matching what a real pad reports. `gilrs` scales this into
 /// [-1.0, 1.0], so a test that used a different range would not exercise the
 /// same normalisation the app will see.
+#[cfg(unix)]
 const AXIS_MIN: i32 = -32768;
+#[cfg(unix)]
 const AXIS_MAX: i32 = 32767;
 
 /// Builds a virtual pad that looks like a real controller.
@@ -36,6 +41,7 @@ const AXIS_MAX: i32 = 32767;
 /// The device name matters: `layout_for` decides the button layout from it, so
 /// passing a name here is how both the standard and the non-standard path are
 /// exercised against a device that reports standard codes.
+#[cfg(unix)]
 fn build_pad(name: &str) -> std::io::Result<VirtualDevice> {
     let mut keys = AttributeSet::<KeyCode>::new();
     for code in [
@@ -85,16 +91,19 @@ fn build_pad(name: &str) -> std::io::Result<VirtualDevice> {
         .build()
 }
 
+#[cfg(unix)]
 fn press(device: &mut VirtualDevice, code: KeyCode, down: bool) {
     let event = InputEvent::new(EventType::KEY.0, code.0, i32::from(down));
     let _ = device.emit(&[event]);
 }
 
+#[cfg(unix)]
 fn move_stick(device: &mut VirtualDevice, code: AbsoluteAxisCode, value: i32) {
     let event = InputEvent::new(EventType::ABSOLUTE.0, code.0, value);
     let _ = device.emit(&[event]);
 }
 
+#[cfg(unix)]
 fn main() {
     let scenario = std::env::args()
         .nth(1)
@@ -215,4 +224,10 @@ fn main() {
 
     println!("done");
     sleep(Duration::from_millis(400));
+}
+
+/// `uinput` is a Linux interface; `evdev` exposes no such module elsewhere.
+#[cfg(not(unix))]
+fn main() {
+    eprintln!("Dieses Werkzeug legt ein uinput-Gerät an und läuft nur unter Linux.");
 }

@@ -1,7 +1,7 @@
 //! Couch / big-picture mode, as seen from the web UI.
 //!
 //! Plan phase 5. The geometry — focus movement, repeat, activation — lives in
-//! `desktop/player/src/couch.rs` and is already tested there. What this module
+//! `frontend/src-tauri/player/src/couch.rs` and is already tested there. What this module
 //! adds is the part the UI actually needs and cannot compute itself: **where the
 //! focus is**, and **which items exist**.
 //!

@@ -39,8 +39,7 @@
       "appimage",
       "deb",
       "rpm",
-      "nsis",
-      "msi"
+      "nsis"
     ],
     "category": "Video",
     "publisher": "Sebastian L\u00fcbke",

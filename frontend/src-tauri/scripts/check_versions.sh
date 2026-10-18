@@ -7,7 +7,7 @@
 #   frontend/package.json            die Web-UI, und was `yarn` anzeigt
 #   frontend/src-tauri/Cargo.toml    die Shell, und damit das Binary
 #   frontend/src-tauri/tauri.conf.json  was der Bundler ins Paket schreibt
-#   desktop/player/Cargo.toml        der Player-Kern
+#   frontend/src-tauri/player/Cargo.toml        der Player-Kern
 #
 # Eine Abweichung ist nicht kosmetisch. Der Update-Prüfer vergleicht die Version
 # des *laufenden* Builds (`tauri.conf.json`) mit der des Feeds; steht dort eine
@@ -17,10 +17,20 @@
 # des bereits installierten Pakets hält: ein Auseinanderlaufen erzeugt dort ein
 # Paket, das sich nicht sauber aktualisieren lässt.
 #
-# Aufruf: desktop/scripts/check_versions.sh
+# Aufruf: frontend/src-tauri/scripts/check_versions.sh
 set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Walk up to the repository root instead of counting `..`: the script moved one
+# directory deeper once already, and a wrong depth would compare the wrong files.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$here"
+while [ ! -f "$root/frontend/src-tauri/tauri.conf.json" ] && [ "$root" != "/" ]; do
+  root="$(dirname "$root")"
+done
+if [ ! -f "$root/frontend/src-tauri/tauri.conf.json" ]; then
+  echo "FEHLER: Repo-Wurzel nicht gefunden (erwartet frontend/src-tauri/tauri.conf.json)" >&2
+  exit 1
+fi
 cd "$root"
 
 read_json_version() {
@@ -46,18 +56,18 @@ PY
 package_json="$(read_json_version frontend/package.json)"
 shell_cargo="$(read_cargo_version frontend/src-tauri/Cargo.toml)"
 tauri_conf="$(read_json_version frontend/src-tauri/tauri.conf.json)"
-player_cargo="$(read_cargo_version desktop/player/Cargo.toml)"
+player_cargo="$(read_cargo_version frontend/src-tauri/player/Cargo.toml)"
 
 echo "== Versionen =="
 printf '  %-34s %s\n' "frontend/package.json" "$package_json"
 printf '  %-34s %s\n' "frontend/src-tauri/Cargo.toml" "$shell_cargo"
 printf '  %-34s %s\n' "frontend/src-tauri/tauri.conf.json" "$tauri_conf"
-printf '  %-34s %s\n' "desktop/player/Cargo.toml" "$player_cargo"
+printf '  %-34s %s\n' "frontend/src-tauri/player/Cargo.toml" "$player_cargo"
 echo
 
 fail=0
 
-# Die drei, die das *Produkt* beschreiben, müssen gleich sein. `desktop/player`
+# Die drei, die das *Produkt* beschreiben, müssen gleich sein. `frontend/src-tauri/player`
 # ist eine Bibliothek und wird nicht ausgeliefert; ihre Version folgt der
 # Cargo-Konvention und muss nicht mitwandern. Dass sie es *nicht* tut, wird
 # ausdrücklich berichtet statt stillschweigend geduldet — sonst liest sich eine
@@ -82,10 +92,10 @@ else
   exit 1
 fi
 
-# Ein Hinweis, kein Fehler: `desktop/player` ist eine interne Bibliothek.
+# Ein Hinweis, kein Fehler: `frontend/src-tauri/player` ist eine interne Bibliothek.
 if [ "$player_cargo" = "$package_json" ]; then
-  echo "Hinweis: desktop/player trägt dieselbe Version wie das Produkt."
+  echo "Hinweis: frontend/src-tauri/player trägt dieselbe Version wie das Produkt."
 else
-  echo "Hinweis: desktop/player ist eine interne Bibliothek (Version $player_cargo)"
+  echo "Hinweis: frontend/src-tauri/player ist eine interne Bibliothek (Version $player_cargo)"
   echo "         und wird nicht ausgeliefert — das ist in Ordnung."
 fi

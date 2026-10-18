@@ -1,7 +1,7 @@
 // useCouchMode — the big-picture interface's focus and controller handling.
 //
 // Phase 5 of the desktop-app plan. The geometry lives in the Rust core
-// (`desktop/player/src/couch.rs`, `pad.rs`) and is reached through the shell's
+// (`frontend/src-tauri/player/src/couch.rs`, `pad.rs`) and is reached through the shell's
 // `couch_*` commands; this composable is the thin layer that reports the layout
 // and performs what the shell decides.
 //

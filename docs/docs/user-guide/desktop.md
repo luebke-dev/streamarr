@@ -40,28 +40,41 @@ inside the extracted directory — that is the real entry point, and starting
 The `.deb` and `.rpm` declare the libraries the app links directly, including
 `libudev1` and `libgudev-1.0-0` for controller support. A build that forgets one
 installs cleanly and crashes on start — which is why
-`desktop/scripts/check_bundle_deps.sh` compares the package's declarations against
+`frontend/src-tauri/scripts/check_bundle_deps.sh` compares the package's declarations against
 the binary's `DT_NEEDED` entries and fails if anything is missing.
 
 ### Windows
 
-NSIS and MSI installers are configured (`bundle.targets`) and built in CI on
-`windows-latest`; the MSI's upgrade code is pinned explicitly, because Tauri
-otherwise derives it from the product name and a rename would leave users with two
-copies of the app installed.
+**NSIS only.** The installer is configured (`bundle.targets`) and built in CI on
+`windows-latest`.
 
-**They have never been built by a person.** There is no Windows host in this
-project, so the only evidence that the targets work is the CI job — which is a
-different kind of evidence from a build someone ran and clicked through. Treat the
-Windows installers as unverified until someone runs one on Windows.
+There is **no MSI**, and the reason is a hard limit rather than an omission: the MSI
+target refuses this project's version with `app version major number cannot be greater
+than 255`. WiX keeps the major version in a single byte, and this project versions by
+year (`2026.2.1`), so an MSI cannot express the product version at all. Shipping one
+would mean giving the same release two different version numbers depending on the
+installer. If you need an MSI, the version scheme has to change first.
 
-**The Windows package has no game streaming.** Media playback works; games do not,
-because the game path needs GStreamer's **MSVC development package** and the CI
-runner does not have it — it is not available through `choco` or `apt`, and the
-build fails in `gstreamer-webrtc-sys` without it. The installers are therefore
-built with the feature switched off rather than not built at all. If you need games
-on Windows, build from source with the GStreamer MSVC SDK installed and without
-that override.
+**It has never been built by a person.** There is no Windows host in this project, so
+the only evidence that the target works is the CI job — which is a different kind of
+evidence from a build someone ran and clicked through. Treat the installer as
+unverified until someone runs one on Windows.
+
+**The Windows package can browse the library but cannot play anything yet.** Two
+things are missing, and both are native code rather than a setting:
+
+* **Games** need GStreamer's **MSVC development package**, which the CI runner does
+  not have — it is not available through `choco` or `apt`, and the build fails in
+  `gstreamer-webrtc-sys` without it. The installers are built with the feature
+  switched off rather than not built at all.
+* **Media** is driven over a **Unix domain socket** (`--input-ipc-server`). Windows
+  has no Unix socket — mpv uses a **named pipe** there, and that client is not
+  written. `Mpv::start` therefore returns an explanation instead of starting a
+  process it could not talk to.
+
+So on Windows the app shows the library, artwork and metadata and gives a clear
+message when you press play. Both gaps are work, not switches: the named-pipe
+client, and a Windows machine to test it on.
 
 ### mpv is required, and not bundled
 
@@ -240,7 +253,7 @@ worth stating plainly:
     The client pipeline is proven — a real GStreamer pipeline decodes a real WebRTC
     stream over a real data channel, and input reaches the other side
     (`DECODED=10 INPUT_SENT=6 INPUT_RECEIVED=6`, reproducible with
-    `cargo run --features spike --bin game-pipeline-check` in `desktop/player`).
+    `cargo run --features spike --bin game-pipeline-check` in `frontend/src-tauri/player`).
 
     That proof is **loopback to loopback**. It shows the client's own pipeline
     works; it says nothing about interoperability with your server. A game
@@ -398,8 +411,8 @@ The line `AO: [<driver>]` names the output device mpv chose.
 ### Nothing loads at all, and the interface stays empty
 
 The app's own log is at `~/.config/media.streamarr.desktop/` (and on stderr). Look for
-`Konfiguration:` on startup, which reports where the configuration lives and where
-credentials are stored.
+`Konfiguration:` on startup, which reports where the configuration lives, and for
+`Token-Ablage:` right after it, which reports where credentials end up.
 
 ### Credentials are not stored in the keyring
 
@@ -474,6 +487,13 @@ What has been **measured**, and what has not:
 
 - The app starts on Wayland, creates its configuration, and stores credentials in the OS
   keyring.
+- **Sign-in against a live instance, and the session surviving a restart.** After a real
+  login the keyring holds the session (694 characters, fields `access_token`,
+  `expires_in`, `refresh_token`, `token_type`), and a restart makes **zero** login
+  requests while the authenticated home page loads. The refresh token reaches
+  `/api/auth/refresh` and nowhere else.
+- **A film playing from the real server.** Position advanced from 0.00 s to 2.00 s, and
+  mpv's own track list was read back live (`#1 Video h264`, `#1 Audio ger aac`).
 - **Deep links.** `streamarr://` is registered with the desktop
   (`xdg-mime query default x-scheme-handler/streamarr` answers `streamarr-handler.desktop`),
   and a URL handed to a running app is received — verified with two processes, where the
@@ -486,23 +506,26 @@ What has been **measured**, and what has not:
   equivalent of `curl --resolve`.
 - Bundles: `.deb` and `.rpm` built, their contents inspected, and every directly
   linked library declared — checked mechanically by
-  `desktop/scripts/check_bundle_deps.sh`, which found eight undeclared
+  `frontend/src-tauri/scripts/check_bundle_deps.sh`, which found eight undeclared
   dependencies the first time it ran.
 - The extracted AppImage starts. `check_versions.sh` holds the three product
   versions together.
 
 **Not verified**
 
-- **Playback against a live Streamarr instance.** The chain was verified against a
-  stand-in server that served the real media, profile, tunnel and player, not against a
-  running Streamarr server.
-- **A game actually appearing on screen.** The client pipeline is proven
-  (`DECODED=10`, `INPUT_SENT=6 INPUT_RECEIVED=6` in
-  `desktop/player/src/bin/game-pipeline-check.rs`) and it is now **wired into the
-  app** — the shell builds it, renders through the platform sink and forwards
-  input. But that proof is loopback-to-loopback: no game has ever been streamed from a
-  live Lightrays server to a window. Whether the app and Lightrays interoperate is
-  unverified.
+- **Direct Play.** Not measurable on this instance: it transcodes every `ac3`/`dts`
+  track to `aac`, so nothing it serves is playable by copying. The transcode path is
+  what ran, and it needed a defect fixed first — the HLS manifest carries the play
+  token as a query parameter while its segment URIs are relative, so the query is
+  dropped (RFC 3986 §5.3) and every segment answers `401 No play token provided`.
+  The player now sends the token as an `Authorization` header for the whole chain.
+- **A game's picture on screen.** The client is a real WebRTC peer: it answers the
+  server's offer, sets the remote and local description, and reaches `HTTP 101` and
+  `ICE Checking` against the live Lightrays service. It then fails at `ICE Failed`, and
+  the reason is on the **server**: the offer's SDP carries no candidates and the
+  trickled ones are the game container's Docker-internal `172.21.0.3`, which nothing
+  outside that Docker network can reach (the client's own candidates are right).
+  Negotiation is proven; the picture is not, and it is not this app's defect.
 - **Couch mode with a physical controller.** The geometry, the repeat rule and the
   shell commands are covered by tests, and the keyboard path is tested end to end.
   No gamepad has ever been plugged into this machine, so the controller path has
@@ -515,10 +538,10 @@ What has been **measured**, and what has not:
   "no release yet" rather than as a failure.
 - **A support report actually arriving.** The command's logic and the dialog are
   tested; no report has been sent to a running server and read back.
-- **Windows installation.** The NSIS and MSI installers are built by CI on
-  `windows-latest`, and the job asserts both artefacts exist — but **no person has
-  built or clicked through one**. That is a different kind of evidence from a build
-  someone ran, and this project has no Windows host to do it on.
+- **Windows installation.** An NSIS installer is built by CI on `windows-latest` and
+  the job asserts the artefact exists — but **no person has built or clicked through
+  one**. That is a different kind of evidence from a build someone ran, and this
+  project has no Windows host to do it on.
 - **AppImage *mounting*.** FUSE does not work in the build container
   (`fusermount` is absent), so the mounted image has never been started. The
   **extracted** AppImage was: through `AppRun` it runs until its timeout is reached

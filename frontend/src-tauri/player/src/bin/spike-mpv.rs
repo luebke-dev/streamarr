@@ -1,3 +1,4 @@
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 // Spike 0.3: media playback through mpv.
 //
 // Answers plan task 0.3 and, more importantly, open decision #2 in the plan:
@@ -20,6 +21,7 @@
 // Requires `mpv` on PATH and the `--wid`-free window path (see note below).
 
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -27,11 +29,13 @@ use std::time::{Duration, Instant};
 
 /// Path of the IPC socket. Located in the runtime dir so it never lands in a
 /// world-readable temp directory.
+#[cfg(unix)]
 fn socket_path() -> PathBuf {
     let dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     PathBuf::from(dir).join(format!("streamarr-spike-mpv-{}.sock", std::process::id()))
 }
 
+#[cfg(unix)]
 struct Mpv {
     child: Child,
     stream: UnixStream,
@@ -47,6 +51,7 @@ struct Mpv {
     next_id: u64,
 }
 
+#[cfg(unix)]
 impl Mpv {
     /// Reads one JSON line, returning `Ok(None)` when the read timed out.
     ///
@@ -274,6 +279,7 @@ impl Mpv {
     }
 }
 
+#[cfg(unix)]
 impl Drop for Mpv {
     fn drop(&mut self) {
         self.stop();
@@ -292,6 +298,7 @@ struct Check {
     detail: String,
 }
 
+#[cfg(unix)]
 fn main() {
     let url = match std::env::args().nth(1) {
         Some(u) => u,
@@ -551,4 +558,12 @@ fn return_summary(checks: &[Check]) {
         println!("RESULT: {} check(s) failed", failed.len());
         std::process::exit(1);
     }
+}
+
+/// The mpv spike drives mpv over a Unix socket, so it has nothing to do on Windows.
+/// A stub `main` rather than a `cfg`-ed-out file: an empty crate has no `main` and
+/// would fail to build with a message about a missing function instead of this one.
+#[cfg(not(unix))]
+fn main() {
+    eprintln!("Dieses Werkzeug steuert mpv über einen Unix-Socket und läuft nur dort.");
 }

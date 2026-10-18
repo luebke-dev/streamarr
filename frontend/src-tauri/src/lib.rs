@@ -8,7 +8,7 @@
 //! * owning the HTTP transport
 //!
 //! What this crate deliberately does **not** contain is any playback logic. The
-//! player core lives in `desktop/player`, is shell-independent and is tested without
+//! player core lives in `frontend/src-tauri/player`, is shell-independent and is tested without
 //! a GUI (ADR 001). Everything decision-shaped — when a token is refreshed, whether a
 //! file direct-plays, what the wire messages look like — is decided there and merely
 //! carried out here.
@@ -68,6 +68,12 @@ impl AppState {
     }
 
     fn load(config_root: std::path::PathBuf) -> Result<Self, String> {
+        // Logged first, before anything that can be slow or fail. This line is the
+        // evidence that startup reached its own code — the package smoke test in CI
+        // greps for it — so it must not sit behind a keyring lookup or a device
+        // identity that might block. What it says is true at that moment: where the
+        // configuration lives. Where tokens end up is logged once that is known.
+        log::info!("Konfiguration: {}", config_root.display());
         // A fresh installation gets one profile, written to disk immediately, so the
         // login screen has a server to talk to and the user can see and edit the
         // address from the first launch. Without this the app starts with no profile
@@ -79,11 +85,7 @@ impl AppState {
         let profiles = storage::load_profiles(&config_root).unwrap_or_default();
         let device = storage::device_identity(&config_root, env!("CARGO_PKG_VERSION"), "Desktop")?;
         let tokens = storage::TokenStorage::open(&config_root);
-        log::info!(
-            "Konfiguration: {} — Token-Ablage: {}",
-            config_root.display(),
-            tokens.backend().describe()
-        );
+        log::info!("Token-Ablage: {}", tokens.backend().describe());
         Ok(Self {
             config_root,
             api: std::sync::Mutex::new(None),
@@ -130,7 +132,7 @@ impl AppState {
     /// claim a version the build does not have.
     pub fn app_version(&self) -> String {
         // `env!("CARGO_PKG_VERSION")` is the shell crate's version, which is kept
-        // in step with the product version by `desktop/scripts/check_versions.sh`.
+        // in step with the product version by `frontend/src-tauri/scripts/check_versions.sh`.
         env!("CARGO_PKG_VERSION").to_string()
     }
 

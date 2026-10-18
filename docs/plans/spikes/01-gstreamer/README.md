@@ -1,6 +1,6 @@
 # Spike 0.1 — WebRTC-Messprogramme
 
-Reproduktion der Messungen aus [spike-01-gstreamer.md](../../../docs/plans/spike-01-gstreamer.md).
+Reproduktion der Messungen aus [spike-01-gstreamer.md](../../spike-01-gstreamer.md).
 
 ## 1. Lokaler Decode-Beweis (kein Server nötig)
 
@@ -9,7 +9,7 @@ Lightrays-Session angewiesen zu sein.
 
 ```bash
 distrobox enter tauri44
-cd desktop/player
+cd frontend/src-tauri/player
 cargo build --features spike --bin spike-local-webrtc
 ./target/debug/spike-local-webrtc
 ```

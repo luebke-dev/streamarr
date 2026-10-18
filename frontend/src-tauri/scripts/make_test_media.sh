@@ -7,10 +7,10 @@
 # wovon die Tests ausgehen.
 #
 # Ausführen:
-#   ./desktop/scripts/make_test_media.sh [ZIELVERZEICHNIS]
+#   ./frontend/src-tauri/scripts/make_test_media.sh [ZIELVERZEICHNIS]
 #
 # Standardziel ist /tmp/mpvt, weil genau dort die Tests suchen
-# (desktop/player/tests/mpv_integration.rs).
+# (frontend/src-tauri/player/tests/mpv_integration.rs).
 
 set -euo pipefail
 
