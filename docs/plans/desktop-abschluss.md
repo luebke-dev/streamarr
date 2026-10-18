@@ -1,7 +1,14 @@
 # Abschluss der Desktop-App (Phasen 2–5)
 
-**Stand:** alle sieben Arbeitspakete abgeschlossen · 63 Commits auf `feat/desktop-app`
-**Nicht gepusht, nicht ausgeliefert, kein Servereingriff.**
+**Stand:** auf `main` gemerged (`68676ba`), `desktop.yml` grün in allen fünf Jobs.
+**Nicht ausgeliefert.**
+**Server:** für die Live-Nachweise berührt (eine Anmeldung, ein Film, ein Spielstart),
+**nicht verändert**.
+
+Die Zahlen im Abschnitt „Was gemessen ist" stammen vom 11.10. Die heutigen, nach dem
+Merge erneut gemessen: `frontend/src-tauri/player` **518** Tests ohne Features und mit
+`mpv`/`spike`, **541** mit `gamepad`; `frontend/src-tauri` **154** ohne und **165** mit
+`gamestream`.
 
 Diese Seite liest die zehn Erfolgskriterien Punkt für Punkt gegen und trennt
 scharf zwischen *gemessen* und *offen*.
@@ -27,12 +34,6 @@ stehen; die Reparaturanleitung darin ist gegenstandslos geworden.
 Was von den damaligen Befunden bleibt: der verwaiste Endpunkt und der volle
 Host-Datenträger waren echte Beobachtungen — nur war die Schlussfolgerung daraus
 zu weitgehend.
-begründet, ist damit **jedenfalls teilweise vorbei**. Ob die Datenbank zurück ist,
-ist damit nicht belegt (beide Endpunkte können ohne sie antworten), und die drei
-Live-Nachweise sind weiterhin **nicht versucht** — es bleibt bei offen.
-
-Deshalb sind genau drei Dinge offen, die eine Live-Verbindung brauchen: **Login,
-Medienwiedergabe und Spiel-Streaming gegen den echten Server.**
 
 ## Die zehn Kriterien
 
@@ -45,8 +46,8 @@ Medienwiedergabe und Spiel-Streaming gegen den echten Server.**
 | 5 | Alle Rust-Crates grün | **gemessen** |
 | 6 | Frontend ohne neue Fehler | **gemessen** |
 | 7 | Golden-Tests des Wire-Vertrags | **gemessen** |
-| 8 | Installierbare Pakete, Linux und Windows | **Linux gemessen**, Windows in CI |
-| 9 | Doku und CI | Doku **gemessen**; CI **nie gelaufen** |
+| 8 | Installierbare Pakete, Linux und Windows | **Linux gemessen**; Windows baut NSIS in CI — kein MSI (WiX-Grenze), nie von Hand installiert |
+| 9 | Doku und CI | beide **gemessen**: `desktop.yml` grün in allen fünf Jobs |
 | 10 | Server-Zwischenstand festgehalten | **gemessen** |
 
 ## Die drei Live-Nachweise, am 11.10. gemacht
@@ -200,29 +201,38 @@ echten WebRTC-Datenkanal, reproduzierbar. Die `mouseabs`-Zeile zeigt die
 Letterbox-Korrektur in Aktion: aus einem Punkt in der Flächenmitte wird
 `x=640, y=360` — die Mitte des *Bildes*.
 
-## Kriterium 9: der CI-Workflow ist geschrieben, aber nie gelaufen
+## Kriterium 9: der CI-Workflow läuft — nach sieben Ursachen
 
-Ehrlich benannt, weil es ein Erfolgskriterium ist und in der ersten Fassung
-dieser Seite fehlte: **`.github/workflows/desktop.yml` hat nie ausgeführt.**
+In der ersten Fassung dieser Seite stand, `.github/workflows/desktop.yml` habe nie
+gelaufen, weil der Branch nie gepusht wurde. Der Push kam später, und damit begann
+das eigentliche Prüfen: der Workflow fiel in **sieben** Punkten durch, die kein
+lokaler Lauf gezeigt hätte.
 
-Der Branch wurde nie gepusht — das war ausdrücklich so vereinbart — und ohne Push
-läuft kein GitHub-Actions-Job. Was geprüft ist, ist die *Substanz* des Workflows:
+| Symptom | Ursache |
+|---|---|
+| `failed to find main binary` | ein zweites `[[bin]]` lässt kein eindeutiges Standard-Binary übrig; `default-run` benennt es |
+| `gstreamer-webrtc-sys` scheitert | `libgstreamer-plugins-bad1.0-dev` stand doppelt beim Player-Job und **gar nicht** beim Shell-Job |
+| `check_bundle_deps.sh` scheitert | `libgstsdp-1.0.so.0` war gelinkt, aber nicht zugeordnet — das Skript tat genau seine Arbeit |
+| Windows kompiliert nicht | `mpv.rs` nutzte `std::os::unix` ohne `cfg`; fiel nie auf, weil der Build vorher an GStreamer starb |
+| `Test (no features)` scheitert | Read-Ahead in Testhelfer **und** Produktionstunnel (s. u.) |
+| Windows bündelt nicht | WiX kann keine Major-Version über 255 — `2026.2.1` passt nicht in ein Byte |
+| installiertes `.deb` endet | WebKitGTK bricht ohne GPU ab; danach fehlte die Logzeile, weil sie hinter dem Schlüsselbund stand |
 
-* alle 30 `run:`-Skripte bestehen `bash -n`,
-* die Schritte decken ab, was sie sollen (Baseline-Gate `>24`, Bundle-Job,
-  `recvonly`-Prüfung im Paket, Windows-Job mit Artefakt-Zählung,
-  GStreamer-Versionsschranke, `gamestream`-Variante),
-* und jeder Schritt wurde inhaltlich lokal nachgestellt.
+Der eine Fund darunter ist **kein CI-Problem**: `handle_client` reichte den Socket mit
+`into_inner()` weiter und **verwarf dabei den Puffer des `BufReader`**. Ein Client, der
+seine ersten Nutzdaten im selben Paket wie den `CONNECT` schickt, verliert sie und
+wartet auf eine Antwort, die nie kommt. Mit Regressionstest, der gegen den alten Code
+nachweislich fällt.
 
-Das ist **nicht** dasselbe wie ein grüner Lauf. Ein grüner Lauf braucht einen
-Push, und der ist nicht freigegeben.
+Ergebnis: Lauf
+[39157597568](https://github.com/luebke-dev/streamarr/actions/runs/39157597568) — alle
+fünf Jobs grün, auf dem Merge-Commit.
 
 ## Was offen ist, und warum
 
-**Login.** Siehe oben: der Anmeldeweg der App ist nicht nachgewiesen, weil kein
-Passwort hinterlegt ist und der Auftraggeber sich selbst anmelden wollte. Das ist
-der einzige der drei Live-Nachweise, der noch aussteht — und er hängt an einer
-Anmeldung, nicht an einem Serverproblem.
+**Login.** Am 11.10. nachgewiesen und nicht mehr offen: echte Anmeldung, Sitzung im
+Keyring (694 Zeichen), Neustart mit **null** Login-POSTs und vollständiger Startseite.
+Offen bleibt nur der **OIDC-Weg**, weil der Testserver `oidc_enabled: false` hat.
 
 **Ein Spiel auf dem Bildschirm.** Der Pipeline-Beweis ist Schleife-zu-Schleife und
 sagt nichts über die Interoperabilität mit Lightrays — das ist jetzt geschlossen:
@@ -314,8 +324,13 @@ Fehlern entstanden sind.
 
 ## Was vor einer Auslieferung noch fehlte
 
-1. Den Server instand setzen (`desktop-testserver-stand.md`) und die drei
-   Live-Nachweise nachholen.
-2. Einen Windows-Installer von Hand installieren und starten.
+1. **Den Spiel-Medienpfad serverseitig freimachen** — TURN oder eine extern
+   erreichbare Adresse; heute nennt das Angebot nur `172.21.0.3`. Und **Direct Play**
+   ermöglichen: `playback_decision.py` bildet `ac3/eac3/dts/truehd` fest auf `aac` ab,
+   kopiert werden nur `aac/mp3/opus/flac` — deshalb hat jedes Medium dieser Instanz
+   einen Transcode.
+2. Einen Windows-Installer von Hand installieren und starten. Für Medien fehlt
+   vorher der Named-Pipe-Client für mpv, sonst zeigt die App dort nur die Bibliothek.
 3. Ein Release veröffentlichen, damit ein Update einmal durchläuft.
 4. Ein physisches Gamepad an den Couch-Modus stecken.
+5. Den Support-Bericht einmal wirklich abschicken und zurücklesen.
