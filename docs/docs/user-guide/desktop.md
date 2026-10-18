@@ -55,13 +55,21 @@ project, so the only evidence that the targets work is the CI job — which is a
 different kind of evidence from a build someone ran and clicked through. Treat the
 Windows installers as unverified until someone runs one on Windows.
 
-**The Windows package has no game streaming.** Media playback works; games do not,
-because the game path needs GStreamer's **MSVC development package** and the CI
-runner does not have it — it is not available through `choco` or `apt`, and the
-build fails in `gstreamer-webrtc-sys` without it. The installers are therefore
-built with the feature switched off rather than not built at all. If you need games
-on Windows, build from source with the GStreamer MSVC SDK installed and without
-that override.
+**The Windows package can browse the library but cannot play anything yet.** Two
+things are missing, and both are native code rather than a setting:
+
+* **Games** need GStreamer's **MSVC development package**, which the CI runner does
+  not have — it is not available through `choco` or `apt`, and the build fails in
+  `gstreamer-webrtc-sys` without it. The installers are built with the feature
+  switched off rather than not built at all.
+* **Media** is driven over a **Unix domain socket** (`--input-ipc-server`). Windows
+  has no Unix socket — mpv uses a **named pipe** there, and that client is not
+  written. `Mpv::start` therefore returns an explanation instead of starting a
+  process it could not talk to.
+
+So on Windows the app shows the library, artwork and metadata and gives a clear
+message when you press play. Both gaps are work, not switches: the named-pipe
+client, and a Windows machine to test it on.
 
 ### mpv is required, and not bundled
 

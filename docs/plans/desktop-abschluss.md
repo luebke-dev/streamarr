@@ -253,6 +253,14 @@ gedrückt worden.
 Job prüft, dass beide Artefakte existieren. Aber **kein Mensch** hat einen dieser
 Installer ausgeführt. Es gibt in diesem Projekt keinen Windows-Host.
 
+Das Windows-Paket **zeigt die Bibliothek, spielt aber nichts ab**: Spiele brauchen
+GStreamers MSVC-Entwicklungspaket (auf dem Runner nicht vorhanden), und die
+Medienwiedergabe wird über einen **Unix-Socket** gesteuert — unter Windows wäre es
+eine Named Pipe, und dieser Client ist nicht geschrieben. `Mpv::start` liefert dort
+eine Erklärung, statt einen Prozess zu starten, mit dem es nicht reden kann. Das
+Paket entsteht ohne `gamestream`, damit aus „nicht gebaut“ wenigstens „gebaut, mit
+benannter Lücke“ wird.
+
 **OIDC-Login.** Der Testserver hat `oidc_enabled: false`.
 
 **AppImage-*Einhängen*.** FUSE funktioniert im Baucontainer nicht. Der

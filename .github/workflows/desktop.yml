@@ -98,7 +98,6 @@ jobs:
           sudo apt-get install -y \
             libgstreamer1.0-dev \
             libgstreamer-plugins-base1.0-dev \
-            libgstreamer-plugins-bad1.0-dev \
             libgstreamer-plugins-bad1.0-dev
           version=$(pkg-config --modversion gstreamer-1.0)
           echo "GStreamer $version"
@@ -188,6 +187,7 @@ jobs:
             libudev-dev \
             libgstreamer1.0-dev \
             libgstreamer-plugins-base1.0-dev \
+            libgstreamer-plugins-bad1.0-dev \
             pkg-config
       - uses: Swatinem/rust-cache@v2
         with:

@@ -338,6 +338,40 @@ mod tests {
     use std::io::Read;
     use std::net::Ipv4Addr;
 
+    /// Reads exactly `buf.len()` bytes, tolerating the stream's read timeout.
+    ///
+    /// `read_exact` reports `WouldBlock` when the timeout expires, and it may already have
+    /// consumed part of the data by then — calling it again would lose that part. This
+    /// loop keeps what arrived and waits for the rest.
+    ///
+    /// The test failed in CI exactly this way (`WouldBlock` at `read_exact`), on a runner
+    /// slow enough to miss a read that is instant on this machine. A test that depends on
+    /// being fast is a test that fails for the wrong reason.
+    fn read_exactly(stream: &mut std::net::TcpStream, buf: &mut [u8]) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut filled = 0;
+        while filled < buf.len() {
+            match stream.read(&mut buf[filled..]) {
+                Ok(0) => panic!(
+                    "Die Verbindung endete nach {filled} von {} Bytes",
+                    buf.len()
+                ),
+                Ok(n) => filled += n,
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "Zeitüberschreitung nach {filled} von {} Bytes",
+                        buf.len()
+                    );
+                }
+                Err(e) => panic!("Lesefehler: {e}"),
+            }
+        }
+    }
+
     /// A stand-in for the media server: it accepts, sends a greeting and echoes.
     fn spawn_upstream() -> (u16, std::thread::JoinHandle<()>) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
@@ -394,12 +428,12 @@ mod tests {
         .unwrap();
 
         let mut greeting = [0u8; 14];
-        stream.read_exact(&mut greeting).unwrap();
+        read_exactly(&mut stream, &mut greeting);
         assert_eq!(&greeting, b"UPSTREAM-HELLO");
 
         stream.write_all(b"ping").unwrap();
         let mut echo = [0u8; 4];
-        stream.read_exact(&mut echo).unwrap();
+        read_exactly(&mut stream, &mut echo);
         assert_eq!(&echo, b"ping");
 
         assert_eq!(tunnel.accepted_connections(), 1);

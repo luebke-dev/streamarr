@@ -35,6 +35,9 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+#[cfg(not(unix))]
+use std::process::Child;
+#[cfg(unix)]
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -58,6 +61,7 @@ pub mod observe {
 ///
 /// mpv creates the socket asynchronously, and on a loaded machine that can take a
 /// moment. Measured well under a second in spike 0.3.
+#[cfg_attr(not(unix), allow(dead_code))]
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long a command reply may take.
@@ -68,6 +72,7 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 /// Not a failure condition: mpv sends events only when something happens, so an idle
 /// socket is the normal state while polling. The timeout is what makes the deadlines
 /// in this module real instead of decorative.
+#[cfg_attr(not(unix), allow(dead_code))]
 const READ_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// HDR handling for media playback (plan task 2.9).
@@ -721,6 +726,7 @@ pub fn ipc_endpoint(tag: &str) -> String {
 /// and because the tests are the only place two players coexist today, the bug would
 /// have shipped. The counter is what makes the tag unique; the process id keeps it
 /// unique across processes.
+#[cfg_attr(not(unix), allow(dead_code))]
 fn instance_tag() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -732,16 +738,27 @@ fn instance_tag() -> String {
 }
 
 /// A running mpv process with its IPC connection.
+/// The control channel to mpv.
+///
+/// A Unix domain socket on Unix. Windows would need a **named pipe**, which this crate
+/// does not implement yet: `Mpv::start` fails there with an explanation instead of the
+/// crate failing to compile. The placeholder exists only so the struct is well-formed on
+/// Windows, where no value of it is ever constructed.
+#[cfg(unix)]
+type IpcStream = std::os::unix::net::UnixStream;
+#[cfg(not(unix))]
+type IpcStream = std::fs::File;
+
 pub struct Mpv {
     child: Child,
     /// This instance's own IPC endpoint. Stored rather than recomputed: recomputing it
     /// would produce a *different* tag, so the socket would never be cleaned up.
     endpoint: String,
-    stream: std::os::unix::net::UnixStream,
+    stream: IpcStream,
     /// One persistent reader. A fresh `BufReader` per call discards read-ahead, and
     /// whatever it buffered is then lost to the next reader — which was a silent hang
     /// in spike 0.3 (defect 3).
-    reader: BufReader<std::os::unix::net::UnixStream>,
+    reader: BufReader<IpcStream>,
     /// Carries a partially received line across read timeouts; a large reply such as
     /// `track-list` arrives in fragments (defect 4).
     partial: String,
@@ -753,6 +770,7 @@ impl Mpv {
     ///
     /// The observers are registered *after* `loadfile` on purpose: registered before,
     /// they produced no events for the file loaded afterwards (defect 5).
+    #[cfg(unix)]
     pub fn start(url: &str, options: &PlayerOptions) -> Result<Self, MpvError> {
         let endpoint = ipc_endpoint(&instance_tag());
         if !cfg!(windows) {
@@ -788,6 +806,7 @@ impl Mpv {
         })?;
 
         let stream = connect_with_timeout(&endpoint)?;
+        #[cfg(unix)]
         stream
             .set_read_timeout(Some(READ_TIMEOUT))
             .map_err(|e| MpvError::Start(e.to_string()))?;
@@ -820,6 +839,21 @@ impl Mpv {
             mpv.send(&serde_json::json!(["observe_property", id, property]))?;
         }
         Ok(mpv)
+    }
+
+    /// Windows has no Unix domain socket, and this crate has no named-pipe client yet.
+    ///
+    /// An error rather than a `cfg`-ed-out module, because the Windows build has to
+    /// compile and the person running it deserves the reason instead of a missing
+    /// command. It fails **before** spawning mpv on purpose: a process whose socket never
+    /// appears would be a leftover, not a diagnosis.
+    #[cfg(not(unix))]
+    pub fn start(_url: &str, _options: &PlayerOptions) -> Result<Self, MpvError> {
+        Err(MpvError::Start(
+            "Die Wiedergabe wird über einen Unix-Socket gesteuert; unter Windows fehlt \
+             dafür die Named-Pipe-Unterstützung."
+                .to_string(),
+        ))
     }
 
     /// This instance's IPC endpoint, for diagnostics and tests.
@@ -994,6 +1028,7 @@ pub fn log_file_path(endpoint: &str) -> PathBuf {
 }
 
 /// Connects to the IPC endpoint, waiting for mpv to create it.
+#[cfg(unix)]
 fn connect_with_timeout(endpoint: &str) -> Result<std::os::unix::net::UnixStream, MpvError> {
     let deadline = Instant::now() + SOCKET_TIMEOUT;
     loop {
