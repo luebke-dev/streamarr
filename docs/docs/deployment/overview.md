@@ -9,7 +9,7 @@ streamarr.media ships four supported deployment models, each with a clearly assi
 | **Helm chart** | `deployment/helm/streamarr` | Kubernetes / production | Authoritative for K8s |
 | **Docker Compose (prod)** | `deployment/docker/docker-compose.yml` | Single-host production, pre-built registry images | Authoritative for single-host prod |
 | **Root Compose (dev)** | `docker-compose.yml` (repo root) | Local development, all images built locally | Not a production artifact |
-| **Podman quadlets** | `deployment/quadlets/*.container` | Single-host Podman + systemd | Lean SABnzbd-only variant |
+| **Podman quadlets** | `deployment/quadlets/*.container` + `streamarr.network` | Single-host Podman + systemd | Lean SABnzbd-only variant |
 
 !!! tip "Rules of thumb"
     Kubernetes → **Helm** (nothing else is kept current for K8s). One box with Docker → **`docker/docker-compose.yml`** or the installer. One box with Podman/systemd → **quadlets**. Hacking on the code → the repo-root compose file.
@@ -62,6 +62,38 @@ The units address each other by container name (`streamarr-postgres`, `streamarr
 The `streamarr.network` unit in `deployment/quadlets/` defines such a network, and each container unit joins it with `Network=streamarr.network`. Install the `.network` file alongside the `.container` files, otherwise the units cannot start.
 
 The subnet is `10.89.0.0/24`. Change it in `streamarr.network` if that range is already in use.
+
+### Podman's socket
+
+Two units need the container runtime socket, because they start other containers:
+
+| Unit | Why |
+|------|-----|
+| `streamarr-backend` | Spawns FFmpeg transcode containers |
+| `streamarr-lightrays` | Spawns the per-session game containers |
+
+Both units ship mounting `/var/run/docker.sock`, which is the Docker path. Podman listens elsewhere, so on a Podman host point the bind at Podman's socket instead. Because the socket still lands on `/var/run/docker.sock` inside the container, nothing else changes:
+
+```ini
+# Rootful Podman
+Volume=/run/podman/podman.sock:/var/run/docker.sock:rw,z
+
+# Rootless Podman (root's own socket)
+Volume=/run/user/0/podman/podman.sock:/var/run/docker.sock:rw,z
+```
+
+!!! warning "Enable the socket service first"
+    The socket file only exists once `podman.socket` is running, otherwise the unit starts with an empty mount and container spawning fails at runtime:
+
+    ```bash
+    sudo systemctl enable --now podman.socket
+    ```
+
+    If Podman rejects the `:z` SELinux label on a socket, drop it. Sockets are never relabelled.
+
+Podman's API is Docker-compatible, and the pieces Streamarr needs were checked against a Podman 5.4 socket: create, start, inspect, logs, exec and the network list all behave as expected, and the Docker API version prefix is accepted. Two behaviours differ from Docker and are worth knowing: a `logs?follow=true` request does not return its HTTP response until the first line arrives, and the Docker socket does not exist at all unless the compatibility shim (`podman-docker`) is installed. That is exactly why the bind above is needed.
+
+The backend's **Docker Host** setting (Admin → Computing) also accepts a Podman URL, for the case where the socket is mounted somewhere other than `/var/run/docker.sock`.
 
 ## Migrations, secrets, Elasticsearch
 

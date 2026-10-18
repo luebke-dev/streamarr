@@ -78,5 +78,5 @@ system.
 ## Build
 
 ```
-docker build -t ghcr.io/luebke-dev/pyrate-retro:latest containers/retro
+docker build -t ghcr.io/luebke-dev/streamarr-retro:latest containers/retro
 ```

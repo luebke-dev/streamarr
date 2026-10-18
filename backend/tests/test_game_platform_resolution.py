@@ -93,7 +93,12 @@ class TestGameGearSplitFromMasterSystem:
 
 
 class TestNewlyRegisteredSystems:
-    """Atari 2600 / Mega-CD / 3DO resolved to nothing and were unlaunchable."""
+    """Atari 2600 / Mega-CD / 3DO resolved to nothing and were unlaunchable.
+
+    The second block covers the seven systems a ROM-set survey also found
+    unregistered (990 ROMs across atari5200/atari7800/colecovision/jaguar/
+    lynx/sega32x/virtualboy), which had the same symptom.
+    """
 
     @pytest.mark.parametrize(
         ("name", "slug", "core", "label"),
@@ -103,12 +108,84 @@ class TestNewlyRegisteredSystems:
             ("Sega CD", "megacd", "genesis_plus_gx", "Sega Mega-CD"),
             ("megacd", "megacd", "genesis_plus_gx", "Sega Mega-CD"),
             ("3do", "3do", "opera", "3DO"),
+            # Atari 8-bit family: one core covers 5200 and the home computers.
+            ("Atari 5200", "atari5200", "atari800", "Atari 5200"),
+            ("atari5200", "atari5200", "atari800", "Atari 5200"),
+            ("Atari 7800", "atari7800", "prosystem", "Atari 7800"),
+            ("atari7800", "atari7800", "prosystem", "Atari 7800"),
+            ("ColecoVision", "colecovision", "gearcoleco", "ColecoVision"),
+            ("colecovision", "colecovision", "gearcoleco", "ColecoVision"),
+            ("Atari Jaguar", "jaguar", "virtualjaguar", "Atari Jaguar"),
+            ("jaguar", "jaguar", "virtualjaguar", "Atari Jaguar"),
+            ("Atari Lynx", "lynx", "handy", "Atari Lynx"),
+            ("lynx", "lynx", "handy", "Atari Lynx"),
+            ("Sega 32X", "sega32x", "picodrive", "Sega 32X"),
+            ("sega32x", "sega32x", "picodrive", "Sega 32X"),
+            ("Virtual Boy", "virtualboy", "mednafen_vb", "Virtual Boy"),
+            ("virtualboy", "virtualboy", "mednafen_vb", "Virtual Boy"),
         ],
     )
     def test_registered(self, name, slug, core, label):
         assert normalize_platform(name) == slug
         assert retro_core_for(slug) == core
         assert platform_label(slug) == label
+
+    @pytest.mark.parametrize(
+        ("path", "slug"),
+        [
+            ("/library/games/roms/atari5200/Star Raiders (USA).a52", "atari5200"),
+            ("/library/games/roms/atari7800/Asteroids (USA).a78", "atari7800"),
+            ("/library/games/roms/colecovision/Donkey Kong (USA).col", "colecovision"),
+            ("/library/games/roms/jaguar/Alien vs Predator (USA).jag", "jaguar"),
+            ("/library/games/roms/lynx/California Games (USA).lnx", "lynx"),
+            ("/library/games/roms/sega32x/Doom (USA).32x", "sega32x"),
+            ("/library/games/roms/virtualboy/Red Alarm (USA).vb", "virtualboy"),
+        ],
+    )
+    def test_rom_set_directory_resolves(self, path, slug):
+        """Each newly supported ROM-set folder resolves via its own extension."""
+        assert platform_from_path(path) == slug
+
+    def test_32x_is_not_swallowed_by_genesis(self):
+        """
+        "genesis 32x" must not resolve to ``genesis``.
+
+        ``normalize_platform`` falls back to a word-boundary contains match, so
+        registering "genesis 32x" as an alias would make a release titled
+        "Sonic 32X" or a "genesis 32x" folder resolve to Mega Drive instead of
+        the 32X add-on. The 32X aliases are therefore deliberately narrow.
+        """
+        assert normalize_platform("genesis 32x") == "genesis"
+        assert normalize_platform("sega32x") == "sega32x"
+        # The extension and the ROM-set directory are unambiguous, though.
+        assert platform_from_path("/roms/sega32x/x.32x") == "sega32x"
+
+    def test_new_systems_need_no_bios(self):
+        """
+        These boot straight from the cartridge.
+
+        32X is the interesting case: PicoDrive has an HLE fallback when no 32X
+        BIOS is supplied, so a BIOS mount is not required. Registering one would
+        make the launcher refuse platforms whose BIOS folder is absent.
+
+        ColecoVision is deliberately absent here: Gearcoleco marks its
+        ``colecovision.rom`` firmware as mandatory, so it does need a mount.
+        """
+        for slug in (
+            "atari5200",
+            "atari7800",
+            "jaguar",
+            "lynx",
+            "sega32x",
+            "virtualboy",
+        ):
+            assert bios_dir_for(slug) is None
+            assert requires_bios(slug) is False
+
+    def test_colecovision_requires_its_os7_bios(self):
+        """Gearcoleco's firmware0_opt is false, so the OS-7 ROM is mandatory."""
+        assert bios_dir_for("colecovision") == "colecovision"
+        assert requires_bios("colecovision") is True
 
     def test_release_titles_parse(self):
         assert platform_from_release_title("Pitfall (Atari 2600) (USA)") == "atari2600"
@@ -154,7 +231,13 @@ class TestBiosRequirements:
 
     @pytest.mark.parametrize(
         ("slug", "bios_dir"),
-        [("psx", "psx"), ("megacd", "megacd"), ("3do", "3do"), ("arcade", "arcade")],
+        [
+            ("psx", "psx"),
+            ("megacd", "megacd"),
+            ("3do", "3do"),
+            ("arcade", "arcade"),
+            ("colecovision", "colecovision"),
+        ],
     )
     def test_platforms_needing_bios(self, slug, bios_dir):
         assert bios_dir_for(slug) == bios_dir

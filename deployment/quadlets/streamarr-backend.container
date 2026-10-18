@@ -44,6 +44,12 @@ Volume=${DATA_DIR}/sabnzbd/downloads:/downloads:rw,z
 Volume=${DATA_DIR}/sabnzbd/incomplete:/incomplete:rw,z
 Volume=${DATA_DIR}/cache:/cache:rw,z
 Volume=${DATA_DIR}/temp:/temp:rw,z
+# Container runtime socket. Needed to bind-mount media into FFmpeg transcode
+# containers. Podman serves the same API on its own socket; on a Podman host
+# mount that path here instead and the in-container default keeps working:
+#   rootful:  /run/podman/podman.sock
+#   rootless: /run/user/0/podman/podman.sock
+# If Podman refuses an SELinux label on a socket, drop the trailing :z.
 Volume=/var/run/docker.sock:/var/run/docker.sock:rw,z
 
 [Service]

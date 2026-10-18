@@ -32,12 +32,27 @@ class DockerComputingProvider(ComputingBase):
         self._timeout_tasks: dict[str, asyncio.Task] = {}
 
     async def setup(self):
-        """Initialize Docker client."""
+        """Initialize Docker client.
+
+        ``docker_host`` is honoured so a Podman host or a remote daemon can be
+        addressed without editing the environment. It was already advertised in
+        the config schema below, but the value was dropped on the floor and the
+        client therefore always fell back to environment auto-discovery, which
+        only ever probes the Docker socket paths. A Podman installation listens
+        on ``/run/podman/podman.sock`` instead, so the configured host is the
+        only way to reach it.
+
+        ``aiodocker.Docker`` reads ``DOCKER_HOST`` when passed no URL, so an
+        unset option keeps the previous behaviour exactly.
+        """
+        host = (self.config or {}).get("docker_host") or None
+        if isinstance(host, str) and not host.strip():
+            host = None
         try:
-            self.client = aiodocker.Docker()
+            self.client = aiodocker.Docker(url=host)
             # Test connection
             await self.client.version()
-            logger.info("Docker computing provider initialized")
+            logger.info("Docker computing provider initialized (host=%s)", host or "auto")
         except Exception as e:
             logger.error("Failed to initialize Docker client: %s", e)
             raise
@@ -85,7 +100,16 @@ class DockerComputingProvider(ComputingBase):
             "docker_host": {
                 "type": "string",
                 "label": "Docker Host",
-                "hint": "Docker daemon socket or URL (e.g., unix:///var/run/docker.sock or tcp://127.0.0.1:2375)",
+                # Podman speaks the same API on its own socket, which is what a
+                # quadlet deployment uses. Both paths are named so the field is
+                # usable on either runtime.
+                "hint": (
+                    "Container runtime socket or URL. Docker: "
+                    "unix:///var/run/docker.sock. Podman: "
+                    "unix:///run/podman/podman.sock (rootful) or "
+                    "unix://$XDG_RUNTIME_DIR/podman/podman.sock (rootless). "
+                    "Empty = auto-discover."
+                ),
                 "required": False,
                 "default": "unix:///var/run/docker.sock",
                 "placeholder": "unix:///var/run/docker.sock",

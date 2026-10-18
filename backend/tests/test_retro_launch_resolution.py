@@ -29,7 +29,7 @@ from streamarr.models.media import (
 )
 from streamarr.services import container_profiles as cp
 
-RETRO_IMAGE = "ghcr.io/luebke-dev/pyrate-retro:latest"
+RETRO_IMAGE = "ghcr.io/luebke-dev/streamarr-retro:latest"
 
 
 @pytest_asyncio.fixture

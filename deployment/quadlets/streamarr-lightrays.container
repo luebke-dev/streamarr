@@ -18,7 +18,16 @@ EnvironmentFile=/etc/streamarr/streamarr.env
 SecurityLabelDisable=true
 PodmanArgs=--privileged
 
-# Docker socket so Lightrays can manage game containers (GOW)
+# Container runtime socket, so Lightrays can manage game containers (GOW).
+# Podman serves the same API, so a Podman host can mount its socket here
+# instead; because it lands on the same in-container path, nothing else needs
+# to change (no LIGHTRAYS_DOCKER_SOCKET override).
+#
+# Rootful Podman:  Volume=/run/podman/podman.sock:/var/run/docker.sock:rw,z
+# Rootless Podman: Volume=/run/user/0/podman/podman.sock:/var/run/docker.sock:rw,z
+#
+# The bind target must stay /var/run/docker.sock. If Podman refuses to start
+# with an SELinux label on a socket, drop the trailing :z.
 Volume=/var/run/docker.sock:/var/run/docker.sock:rw,z
 
 # Shared runtime & state dirs visible to both Lightrays and game containers

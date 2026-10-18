@@ -48,13 +48,20 @@ The bundled retro image ships these cores. A system without a core here cannot b
 | PlayStation | `psx` | pcsx_rearmed |
 | Arcade | `arcade` | fbneo |
 | 3DO | `3do` | opera |
+| Atari 5200 | `atari5200` | atari800 |
+| Atari 7800 | `atari7800` | prosystem |
+| Atari Jaguar | `jaguar` | virtualjaguar |
+| Atari Lynx | `lynx` | handy |
+| ColecoVision | `colecovision` | gearcoleco |
+| Sega 32X | `sega32x` | picodrive |
+| Virtual Boy | `virtualboy` | mednafen_vb |
 
 !!! warning "Not every descriptive folder name is recognised"
     The folder has to match a known platform alias exactly. `mastersystem`, `pcengine`, and `segacd` are **not** aliases: a ROM in a folder with one of those names and an ambiguous extension (`.bin`, `.iso`, `.chd`) silently resolves to the wrong platform. Use the names in the table above. A `.sms` file in `mastersystem/` still works because the extension itself is unambiguous, but do not rely on that.
 
 ## BIOS files
 
-Cartridge systems boot straight from the ROM and need nothing else. Four systems cannot start without a firmware image, and the core looks it up **by bare filename** in RetroArch's system directory. That is why each system's BIOS files live in their own folder and are mounted flat for the session.
+Cartridge systems boot straight from the ROM and need nothing else. Five systems cannot start without a firmware image, and the core looks it up **by bare filename** in RetroArch's system directory. That is why each system's BIOS files live in their own folder and are mounted flat for the session.
 
 Put them here, one folder per system, using the **exact filenames** in the tables below:
 
@@ -102,6 +109,18 @@ Any one of these is enough:
 | `goldstar.bin` | Goldstar GDO-101M |
 
 Some Japanese titles additionally need a Kanji font ROM (`panafz1-kanji.bin`). See the [Opera core documentation](https://docs.libretro.com/library/opera/) for the full list.
+
+### ColecoVision (`colecovision`)
+
+Gearcoleco marks its OS-7 image as mandatory, so this is the one cartridge-era system that needs a BIOS:
+
+| Filename | Purpose |
+|----------|---------|
+| `colecovision.rom` | ColecoVision OS-7 ROM |
+
+The core also accepts `coleco.rom` and `os7.u2`. The file must have a valid CRC32 of `3aa93ef3` (8192 bytes); the core rejects a wrong image rather than booting from it. Verify with `md5sum`: the expected hash is `2c66f5911e5b42b8ebe113403548eee7`.
+
+The optional ADAM expansion also uses `eos.rom` and `writer.rom`, which are not required for ColecoVision cartridges.
 
 ### Arcade (`arcade`)
 
@@ -179,19 +198,40 @@ Mega-CD, PlayStation, and 3DO titles are disc images. Multi-track games should u
 
 ## Not yet supported
 
-These systems have no core in the bundled image, and no platform alias either. Their ROMs are therefore **not imported at all**: they never appear in the library, so nothing is shown for them and no scan warning is raised.
+These systems have no core in the bundled image. There are two distinct cases, and only the first is truly unsupported.
+
+**No alias at all.** The ROMs are not imported: they never appear in the library, so nothing is shown for them and no scan warning is raised. The ROM collection carries empty folders for every system Batocera knows about, so a folder existing under `roms/` does not mean the system is supported.
 
 | ROM-set folder | System |
 |----------------|--------|
-| `atari5200` | Atari 5200 |
-| `atari7800` | Atari 7800 |
-| `colecovision` | ColecoVision |
-| `jaguar` | Atari Jaguar |
-| `lynx` | Atari Lynx |
-| `sega32x` | Sega 32X |
-| `virtualboy` | Virtual Boy |
+| `c64` | Commodore 64 |
+| `atari800` | Atari 8-bit computers |
+| `msx1`, `msx2` | MSX |
+| `amiga500`, `amiga1200` | Amiga |
+| `pc98`, `x68000` | Japanese home computers |
 
-Adding one is a code change: register the platform and its aliases, map its ROM extensions, and add the core to the retro image. See `backend/src/streamarr/services/game_platforms.py` and `containers/retro/Dockerfile`.
+**Registered, but no core.** These have a platform alias, so a release tagged with them is recognised and the item is imported, but there is no core to run it, so the game cannot start. They appear in the library as platform names without playback:
+
+| Platform | Slug |
+|----------|------|
+| Sega Saturn | `saturn` |
+| Dreamcast | `dreamcast` |
+| Nintendo DS / 3DS | `ds`, `3ds` |
+| PlayStation 2 and newer | `ps2` … `ps5` |
+| GameCube / Wii / Wii U | `gamecube`, `wii`, `wiiu` |
+| Xbox family | `xbox` |
+| Nintendo Switch | `switch` |
+
+Neo Geo sets are the exception that works: `neogeo` resolves to `arcade` and runs on FBNeo, provided the `neogeo.zip` BIOS is present.
+
+Adding a system is a code change: register the platform and its aliases, map its ROM extensions, add the core to the retro image, and add a BIOS folder to `_BIOS_DIRS` if the core requires firmware. See `backend/src/streamarr/services/game_platforms.py` and `containers/retro/Containerfile`.
+
+Two things are easy to get wrong when doing so:
+
+- **Core names must exist on the buildbot.** The image fails the build when a core `.so` is missing, and it fails when the matching `.info` is empty. Both checks were added because the `.info` step used a URL that returned 404 for every core, leaving 19 empty metadata files that RetroArch silently tolerated.
+- **Aliases are matched with word boundaries.** A broad alias can be swallowed by an existing one: registering `genesis 32x` would make "Sonic 32X" and any `genesis 32x` folder resolve to Mega Drive. The 32X therefore matches `sega32x` and `32x` only.
+
+Also note that a platform resolving does not imply its BIOS is optional. Gearcoleco requires its OS-7 image, while PicoDrive has an HLE fallback for 32X and needs none; check the core's `.info` (`firmware0_opt`) rather than assuming.
 
 ## Troubleshooting
 

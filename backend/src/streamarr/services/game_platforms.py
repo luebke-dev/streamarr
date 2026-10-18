@@ -46,6 +46,40 @@ _PLATFORMS: dict[str, tuple[tuple[str, ...], str | None]] = {
         ("atari 2600", "atari2600", "2600", "vcs", "atari vcs"),
         "stella",
     ),
+    # Atari 5200 shares the Atari 8-bit family; the Atari800 core covers both.
+    # "a52" is the ROM-set directory name, "5200" the usual release tag.
+    "atari5200": (
+        ("atari 5200", "atari5200", "5200", "a52"),
+        "atari800",
+    ),
+    "atari7800": (
+        ("atari 7800", "atari7800", "7800", "a78"),
+        "prosystem",
+    ),
+    "colecovision": (
+        ("colecovision", "coleco vision", "coleco", "col"),
+        "gearcoleco",
+    ),
+    # Jaguar cartridges run on Virtual Jaguar. The Jaguar CD needs a CD BIOS,
+    # but no such disk images are present, so the platform stays cartridge-only.
+    "jaguar": (
+        ("atari jaguar", "jaguar", "jag"),
+        "virtualjaguar",
+    ),
+    "lynx": (
+        ("atari lynx", "lynx", "lnx"),
+        "handy",
+    ),
+    # 32X cartridges need the two 32X BIOS ROMs, which the set already has in
+    # bios/sega32x/. PicoDrive also runs Genesis/Mega-CD, hence the shared core.
+    "sega32x": (
+        ("sega 32x", "sega32x", "32x"),
+        "picodrive",
+    ),
+    "virtualboy": (
+        ("virtual boy", "virtualboy", "virtual-boy"),
+        "mednafen_vb",
+    ),
     "pcengine": (
         ("pc engine", "turbografx-16", "turbografx", "tg16", "turbografx-16/pc engine", "pce"),
         "mednafen_pce_fast",
@@ -173,7 +207,11 @@ _PLATFORM_LABELS: dict[str, str] = {
     "gb": "Game Boy", "gbc": "Game Boy Color", "gba": "Game Boy Advance",
     "genesis": "Sega Genesis", "mastersystem": "Master System",
     "gamegear": "Game Gear", "megacd": "Sega Mega-CD",
-    "atari2600": "Atari 2600", "3do": "3DO",
+    "atari2600": "Atari 2600", "atari5200": "Atari 5200",
+    "atari7800": "Atari 7800", "3do": "3DO",
+    "colecovision": "ColecoVision", "jaguar": "Atari Jaguar",
+    "lynx": "Atari Lynx", "sega32x": "Sega 32X",
+    "virtualboy": "Virtual Boy",
     "pcengine": "PC Engine", "psx": "PlayStation", "arcade": "Arcade",
     "pc": "PC", "ps2": "PlayStation 2", "ps3": "PlayStation 3",
     "ps4": "PlayStation 4", "ps5": "PlayStation 5", "xbox": "Xbox",
@@ -202,6 +240,12 @@ _EXT_TO_PLATFORM: dict[str, str] = {
     ".68k": "genesis",
     ".sms": "mastersystem", ".sg": "mastersystem",
     ".gg": "gamegear",
+    # 32X cartridges. Deliberately not aliased as "genesis 32x" (see below):
+    # the word-boundary match would otherwise resolve such a name to "genesis".
+    ".32x": "sega32x",
+    ".a52": "atari5200", ".a78": "atari7800",
+    ".col": "colecovision",
+    ".jag": "jaguar", ".lnx": "lynx", ".vb": "virtualboy",
     ".pce": "pcengine", ".sgx": "pcengine",
     ".cue": "psx", ".pbp": "psx", ".m3u": "psx",
     ".nds": "ds", ".3ds": "3ds",
@@ -320,6 +364,12 @@ _BIOS_DIRS: dict[str, str] = {
     "megacd": "megacd",
     "3do": "3do",
     "arcade": "arcade",
+    # Gearcoleco requires the ColecoVision OS-7 ROM as ``colecovision.rom`` and
+    # refuses to boot without it (its ``firmware0_opt`` is false, unlike the
+    # optional EOS/SmartWriter images). The set ships the correct file, but
+    # named "ColecoVision BIOS (1982).col" inside the ROM folder, so it has to
+    # be staged as roms/bios/colecovision/colecovision.rom.
+    "colecovision": "colecovision",
 }
 
 
