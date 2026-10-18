@@ -1,0 +1,72 @@
+# Version consistency.
+#
+# The product version is stated in six places because six tools read it, and each
+# of them is the only one that matters for its artifact: the Python package, two
+# npm packages, the Tauri shell's crate and its bundle configuration, and the
+# `VERSION` file that is the source of truth. They are allowed to disagree only
+# in a commit that nobody releases, which is why this runs on every change and on
+# every tag.
+#
+# Two failures are worth separating:
+#   * manifests that disagree with VERSION  -> scripts/version.py check
+#   * a tag that disagrees with VERSION     -> the same check, reading the tag
+# A release tag pointing at a tree with a different version would publish images
+# and desktop bundles under a number that no manifest believes in, and the
+# desktop updater would then offer or withhold updates based on that number.
+
+name: version
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: version-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Every manifest agrees with VERSION
+        run: python3 scripts/version.py check
+
+      - name: The desktop script agrees with them
+        run: bash desktop/scripts/check_versions.sh
+
+      - name: A release tag matches the product version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          version="$(python3 scripts/version.py show)"
+          tag="${GITHUB_REF_NAME#v}"
+          echo "tag:     ${tag}"
+          echo "VERSION: ${version}"
+          test "${tag}" = "${version}" || {
+            echo "::error::tag ${GITHUB_REF_NAME} does not match VERSION ${version}"
+            exit 1
+          }
+
+      - name: CHANGELOG mentions the version being released
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          version="$(python3 scripts/version.py show)"
+          # The Unreleased section is renamed to the version at release time; a
+          # release whose notes do not exist is a release nobody can read.
+          grep -qE "^## \[${version}\]" CHANGELOG.md || {
+            echo "::error::CHANGELOG.md has no '## [${version}]' section"
+            exit 1
+          }

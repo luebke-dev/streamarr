@@ -24,8 +24,10 @@ name: Build and publish images
 #   states it explicitly ("Do not push ... is never pulled"); its ghcr.io tag
 #   exists only to satisfy lightrays' registry allowlist.
 #
-# Tags: `latest` on the default branch plus the commit SHA, and the version on
-# a v* tag, so a deployment can pin an exact image and still follow `latest`.
+# Tags: the branch name and commit SHA on a push to main, and on a `v*` release
+# tag the version, the floating `year.release`, and `latest` - so a deployment
+# can pin an exact image, follow a release line, or follow releases. `latest` is
+# deliberately not published from main: it must never point at unreleased code.
 
 on:
   push:
@@ -145,31 +147,39 @@ jobs:
       matrix:
         include:
           - image: backend
+            name: streamarr-backend
             context: backend
             file: backend/Containerfile
           - image: frontend
+            name: streamarr-frontend
             context: frontend
             file: frontend/Containerfile
             build-args: |
               VITE_ARTWORK_CACHE_ENABLED=true
           - image: lightrays
+            name: streamarr-lightrays
             context: lightrays
             file: lightrays/docker/Containerfile
           - image: downloaders/torrent
+            name: streamarr-torrent
             context: downloaders/torrent
             file: downloaders/torrent/Containerfile
           - image: downloaders/usenet
+            name: streamarr-usenet
             context: downloaders/usenet
             file: downloaders/usenet/Containerfile
           - image: downloaders/spotify
+            name: streamarr-spotify
             context: downloaders/spotify
             file: downloaders/spotify/Containerfile
           - image: retro
+            name: streamarr-retro
             context: containers/retro
             file: containers/retro/Containerfile
           # Local-only per containers/wine/README.md. Buildable on demand so a
           # change here is still validated, but never published.
           - image: wine
+            name: streamarr-wine
             context: containers/wine
             file: containers/wine/Containerfile
             publish: "false"
@@ -208,12 +218,16 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.name }}
           tags: |
             type=ref,event=branch
             type=sha,format=long
             type=semver,pattern={{version}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{major}}.{{minor}}
+            # `latest` follows releases only. On main it would point at code
+            # nobody has released, which is precisely what a version tag exists
+            # to prevent.
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
       - name: Build and push
         if: steps.gate.outputs.build == 'true'

@@ -1,0 +1,78 @@
+# Changelog
+
+All notable changes to Streamarr are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
+calendar-ish versions — `year.release.patch` — see
+[Releases](docs/docs/developer-guide/releases.md).
+
+Every released version has a matching `v<version>` tag and, once published, a
+GitHub Release carrying the desktop bundles and the upgrade notes. Changes that
+need operator action (a migration to run, a setting to revisit) are listed under
+**Upgrade notes**, not hidden in a list of fixes.
+
+## [Unreleased]
+
+Nothing released yet: this file starts with the first tag. The material below is
+the work that landed since the project became Streamarr, grouped the way a
+release note would group it. Everything before that is in `git log`.
+
+### Upgrade notes
+
+- **PostgreSQL `mediatype` enum.** `AUTHORS` is now part of the enum. The
+  migration runs with `alembic upgrade head`; without it, `/api/trailers`,
+  `/api/filters` and `/api/suggestions/autocomplete/typed` answer 500.
+- **Backups.** `STREAMARR_BACKUP_DIR` defaults to `/backups`, now mounted from
+  `<data>/backups` in both compose variants and a dedicated PVC in the chart.
+  The shell scripts under `deployment/backup/` are gone; the archive is produced
+  by the app (`POST /api/backups/disaster-recovery/pg-dump` and a nightly task).
+
+### Added
+
+- Media library for movies, shows, music, games, books and photos on one
+  parent/child model, with TMDB/TVDB/IGDB/MusicBrainz/OpenLibrary metadata.
+- Smart Play: press play on something not yet available and it is searched,
+  downloaded and streamed as it arrives.
+- Release automation: Newznab/Torznab indexers, quality and language scoring,
+  SABnzbd and Deluge, plus built-in usenet, torrent and Spotify downloaders.
+- Streaming: on-demand FFmpeg transcoding in disposable containers with Intel
+  QuickSync, HLS delivery, direct-play negotiation, trickplay thumbnails,
+  skip-intro markers, subtitles, lyrics and resume everywhere.
+- Watch parties, Chromecast/AirPlay/DLNA casting, remote control of other
+  signed-in devices, and per-device offline downloads.
+- Cloud gaming through Lightrays: per-session WebRTC containers for Steam, Wine
+  and RetroArch titles, playable in the browser or in the desktop app.
+- Desktop app (Tauri 2) with a native mpv player, game streaming, couch mode,
+  and `.deb`/`.rpm`/AppImage/NSIS/MSI bundles.
+- Administration: groups and permissions, parental controls, invites, OIDC SSO,
+  optional Stripe memberships, Prometheus metrics and a Grafana dashboard.
+- Artwork cache with a warmup that runs after scans and hourly, so posters are
+  served from disk instead of upstream.
+
+### Changed
+
+- Licence is MIT for the whole project.
+- Releases publish container images to `ghcr.io/luebke-dev/streamarr-<component>`
+  and `latest` follows release tags only, not the default branch.
+
+### Fixed
+
+- Transcoding: a finished encode is no longer mistaken for a crash and restarted
+  from the beginning, which had been overwriting the segments a player was
+  reading (the "stream stalls every few minutes" symptom) and leaving 4.5 GB of
+  duplicated segments per episode.
+- Transcoding: the configured bitrate and quality now reach hardware encoders;
+  before, both settings were ignored on any QSV host.
+- Playback: codecs MPEG-TS cannot carry (AV1, VP9, Opus, FLAC) are no longer
+  direct-copied into HLS, which used to produce a valid playlist no browser
+  could play.
+- Playback: a dead session no longer holds a transcode slot until the next
+  six-hourly sweep, and a session's segments are removed when it ends instead of
+  accumulating in `/temp`.
+- Media: episodes resolve their show hierarchy, so a series no longer renders as
+  `· SnullEnull`, and episode metadata refreshes use the right plugin.
+- Artwork: the poster hot path caches, rate-limits on cache misses only, and no
+  longer resolves DNS synchronously per image.
+- Backup: the `pg_dump` path works (client tools in the image, a writable
+  archive volume) instead of failing with a permission error.
+- Database: the `mediatype` enum knows `AUTHORS`, which three endpoints and the
+  home page needed.
