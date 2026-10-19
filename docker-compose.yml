@@ -322,6 +322,51 @@ services:
       - "8099:8081"
 
   # ---------------------------------------------------------------------------
+  # TURN relay for game streaming
+  #
+  # Lightrays starts one session container per game **inside** the compose
+  # network, so its WebRTC offer carries only that container's Docker-internal
+  # address. Nothing outside the network can reach the media: the browser client
+  # reached `ICE Failed` and the desktop client did too, with a correct candidate
+  # list of its own. `LIGHTRAYS_TURN_*` has existed in this file all along and was
+  # empty; this service is what fills it.
+  #
+  # Both ends use it. Lightrays hands the relay URL to its own `webrtcbin`, and
+  # the client receives it in the launch response's `ice_servers` and applies it.
+  #
+  # `network_mode: host` on purpose: TURN allocates one relay port per session,
+  # and a bridged container would need every one of them published individually.
+  # The relay port range is kept small — one client needs a handful — so the
+  # firewall rule that admits it stays narrow.
+  #
+  # Requires `LIGHTRAYS_TURN_USERNAME` and `LIGHTRAYS_TURN_PASSWORD` in `.env`;
+  # with either empty this service exits. `LIGHTRAYS_TURN_SERVER` must then point
+  # at this host as the **client** sees it: `turn:<host-lan-ip>:3478`.
+  # ---------------------------------------------------------------------------
+  coturn:
+    image: docker.io/coturn/coturn:4.6.3
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - "--listening-port=3478"
+      - "--fingerprint"
+      - "--lt-cred-mech"
+      - "--realm=streamarr.internal"
+      - "--user=${LIGHTRAYS_TURN_USERNAME}:${LIGHTRAYS_TURN_PASSWORD}"
+      - "--min-port=49200"
+      - "--max-port=49220"
+      # The relay address is the host's LAN address, named explicitly: without it
+      # coturn advertises whichever interface it happens to pick first — measured
+      # here as the docker bridge 172.21.0.1, which no client outside that bridge
+      # can reach, i.e. the same dead end this service exists to remove.
+      - "--relay-ip=${TURN_RELAY_IP}"
+      # Not an open proxy: no relay to multicast, and no peer can ask for one
+      # without the credentials above.
+      - "--no-multicast-peers"
+      - "--no-cli"
+      - "--log-file=stdout"
+
+  # ---------------------------------------------------------------------------
   # Spotify downloader
   # ---------------------------------------------------------------------------
   spotdl:

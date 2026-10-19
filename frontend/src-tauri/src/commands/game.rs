@@ -512,7 +512,8 @@ pub mod live {
     // expressed in. Imported here rather than at the top of the file so that a
     // build without `gamestream` does not mention them at all.
     use streamarr_desktop_player::game_pipeline::{
-        attach_decode_branch, make_webrtcbin, DecodePlan, DisplayServer, Platform, VideoCodec,
+        attach_decode_branch, make_webrtcbin_with_ice, DecodePlan, DisplayServer, IceConfig,
+        Platform, VideoCodec,
     };
 
     /// Runs one game stream until it stops.
@@ -539,8 +540,9 @@ pub mod live {
         commands: std::sync::mpsc::Receiver<GameCommand>,
         state: Arc<Mutex<SessionState>>,
         server_override: Option<String>,
+        ice: IceConfig,
     ) {
-        if let Err(err) = run_inner(endpoint, commands, state.clone(), server_override) {
+        if let Err(err) = run_inner(endpoint, commands, state.clone(), server_override, ice) {
             let mut guard = state.lock().unwrap();
             // Only reported when the stream is not already in a terminal state:
             // a failure while shutting down is not worth overwriting the reason
@@ -565,6 +567,7 @@ pub mod live {
         commands: std::sync::mpsc::Receiver<GameCommand>,
         state: Arc<Mutex<SessionState>>,
         server_override: Option<String>,
+        ice: IceConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use gstreamer as gst;
         use gstreamer::prelude::*;
@@ -572,7 +575,17 @@ pub mod live {
         gst::init()?;
 
         let pipeline = gst::Pipeline::new();
-        let webrtc = make_webrtcbin("recvonly")?;
+        // With the server's ICE configuration, not without it. Until now the client
+        // ignored `ice_servers` completely, so the only candidates it knew were its own;
+        // the server's offer carries the game container's Docker-internal address and a
+        // relay is the only way through. `IceConfig` never sets an empty property, which
+        // is what stalled an earlier version of this pipeline.
+        log::info!(
+            "ICE-Konfiguration: stun={}, turn={}",
+            ice.stun_server.is_some(),
+            ice.turn_server.is_some()
+        );
+        let webrtc = make_webrtcbin_with_ice("recvonly", &ice)?;
         pipeline.add(&webrtc)?;
 
         // The input channel, owned by this thread. A `thread_local` would work
@@ -1351,11 +1364,16 @@ async fn start_stream(
     let (tx, rx) = std::sync::mpsc::channel::<GameCommand>();
     let thread_state = session_state.clone();
     let server_override = state.resolve_pin();
+    // Moved into the thread closure; the server's list is the only thing that can give
+    // this client a path to the media.
+    let ice_servers = launch.ice_servers.clone();
 
     let join = std::thread::Builder::new()
         .name("streamarr-game".to_string())
         .spawn(move || {
-            crate::commands::game::live::run(endpoint, rx, thread_state, server_override);
+            let ice =
+                streamarr_desktop_player::game_pipeline::IceConfig::from_ice_servers(&ice_servers);
+            crate::commands::game::live::run(endpoint, rx, thread_state, server_override, ice);
         })
         .map_err(|err| format!("Der Spiel-Thread konnte nicht gestartet werden: {err}"))?;
 

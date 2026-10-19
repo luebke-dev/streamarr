@@ -408,23 +408,38 @@ def negotiate_codecs(
         if source_audio_codec:
             source_audio_codec = source_audio_codec.lower()
 
-        audio_codec_map = {
-            "aac": "aac", "mp3": "mp3", "opus": "opus", "flac": "flac",
-            "ac3": "aac", "eac3": "aac", "dts": "aac", "truehd": "aac",
-        }
-
-        mapped_audio = audio_codec_map.get(source_audio_codec)
-        if mapped_audio and mapped_audio in client_audio_codecs:
-            if source_audio_codec in ["aac", "mp3", "opus", "flac"]:
-                effective_audio_codec = "copy"
-                logger.info("Smart audio codec: Using copy for %s", source_audio_codec)
-            else:
-                effective_audio_codec = mapped_audio
-                logger.info("Smart audio codec: Transcoding %s to %s", source_audio_codec, mapped_audio)
-        elif "aac" in client_audio_codecs:
-            effective_audio_codec = "aac"
+        # A client that can decode what the file already contains gets the file. This
+        # is the same question `is_direct_playable` answers further up, and the table
+        # below used to contradict it: ac3/eac3/dts/truehd were mapped to aac
+        # unconditionally, so a client that advertises ac3 - the desktop app does, mpv
+        # decodes it - was handed a transcode instead of the file. Measured on the test
+        # instance: every film carries ac3 or dts, so *no* item it served was playable
+        # by copying.
+        #
+        # Clients that cannot decode ac3 stay protected: `_enforce_hls_ts_compatibility`
+        # re-encodes it for MPEG-TS/HLS (hls.js has no AC-3 profile), and that path is
+        # only taken when a transcode was chosen anyway.
+        if source_audio_codec and source_audio_codec in client_audio_codecs:
+            effective_audio_codec = "copy"
+            logger.info("Smart audio codec: Using copy for %s", source_audio_codec)
         else:
-            effective_audio_codec = requested_audio_codec
+            audio_codec_map = {
+                "aac": "aac", "mp3": "mp3", "opus": "opus", "flac": "flac",
+                "ac3": "aac", "eac3": "aac", "dts": "aac", "truehd": "aac",
+            }
+
+            mapped_audio = audio_codec_map.get(source_audio_codec)
+            if mapped_audio and mapped_audio in client_audio_codecs:
+                effective_audio_codec = mapped_audio
+                logger.info(
+                    "Smart audio codec: Transcoding %s to %s",
+                    source_audio_codec,
+                    mapped_audio,
+                )
+            elif "aac" in client_audio_codecs:
+                effective_audio_codec = "aac"
+            else:
+                effective_audio_codec = requested_audio_codec
 
     # --- Resolution limit from client capabilities ---
     if client_max_resolution and not effective_resolution and effective_video_codec != "copy":
