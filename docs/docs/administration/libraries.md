@@ -56,6 +56,19 @@ Templates control how downloaded files and folders are named. The available temp
 
 Additional options: **Replace Illegal Characters** and **Colon Replacement** (space, dash with spaces, or delete). **Show Preview** renders an example folder, file, and full path before you save, and **Reset to Defaults** restores the built-in templates.
 
+Templates are applied when a download is imported (see **Import Location** below) and when a favorited item is copied into the library. A template that references a value the file does not have yet — an unprobed file has no resolution, an item may have no TVDB id — simply drops that group, so `{series_title} [{resolution}]` becomes the bare title instead of `Title []`.
+
+### Import Location
+
+`automation.import_mode` (System Settings, default `register`) decides what happens to a finished download:
+
+| Mode | Behaviour |
+| --- | --- |
+| `register` | The file stays where the downloader put it and is recorded in place. Right for rclone-backed instances, where the download folder *is* the library entry. |
+| `library` | The file is moved into the library under its final name and the download copy is deleted — the same behaviour as Sonarr/Radarr. |
+
+In `library` mode the move reuses the promotion path (the one favorites use), so templates, path-escape checks and folder creation behave identically. If the move fails, the download is kept and the import is not marked failed: the library copy is what matters, and a leftover download file is handled by retention.
+
 ### Download Scoring Rules
 
 *Movies and Shows only.* Controls how releases from your [indexers](indexers.md) are scored when selecting the best download — higher scores win.
