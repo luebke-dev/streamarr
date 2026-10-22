@@ -2,7 +2,6 @@
 
 import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -384,7 +383,12 @@ class TestBlacklistDownload:
         self, db_session: AsyncSession, test_downloader: Downloader
     ):
         """Create a download linked to a release via MediaReleaseLink."""
-        from streamarr.models.media import MediaItem, MediaRelease, MediaReleaseLink, MediaType
+        from streamarr.models.media import (
+            MediaItem,
+            MediaRelease,
+            MediaReleaseLink,
+            MediaType,
+        )
 
         media_item = MediaItem(
             guid=uuid.uuid4(),
@@ -508,7 +512,12 @@ class TestGetMediaItemGuid:
         db_session: AsyncSession,
         test_downloader: Downloader,
     ):
-        from streamarr.models.media import MediaItem, MediaRelease, MediaReleaseLink, MediaType
+        from streamarr.models.media import (
+            MediaItem,
+            MediaRelease,
+            MediaReleaseLink,
+            MediaType,
+        )
 
         media_item = MediaItem(
             guid=uuid.uuid4(),
