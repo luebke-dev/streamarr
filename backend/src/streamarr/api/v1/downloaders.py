@@ -2,13 +2,14 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from sqlmodel import select
 
 from streamarr.api.dependencies import CurrentSuperuser, DatabaseSession
-from streamarr.models.downloader import Downloader
-from streamarr.schemas.downloader import DownloaderCreate, DownloaderRead, DownloaderUpdate
+from streamarr.schemas.downloader import (
+    DownloaderCreate,
+    DownloaderRead,
+    DownloaderUpdate,
+)
 from streamarr.services.downloader import DownloaderService
-from streamarr.api.utils import get_user_locale
 
 router = APIRouter()
 

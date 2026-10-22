@@ -619,6 +619,7 @@ class MovieLibraryPlugin(LibraryBase):
         template: str | None = None,
         tmdb_id: int | None = None,
         imdb_id: str | None = None,
+        db: Any = None,
     ) -> str:
         """
         Suggest a folder name for a movie using template or Trash Guide convention.
@@ -638,10 +639,22 @@ class MovieLibraryPlugin(LibraryBase):
         if imdb_id:
             media_info = {**media_info, "imdb_id": imdb_id}
 
-        # Use template if provided
+        # Explicit argument first, then an operator-configured template, then
+        # the built-in convention.
+        if not template:
+            template = await self._configured_template(db, "plugin.movies.naming.folder")
         if template:
             return await self._apply_template(
-                template, media_info, tmdb_id=tmdb_id, imdb_id=imdb_id
+                template,
+                {
+                    **media_info,
+                    "movie_title": media_info.get("title", ""),
+                    "title": media_info.get("title", ""),
+                    "movie_year": media_info.get("year", ""),
+                    "year": media_info.get("year", ""),
+                    "tmdb_id": tmdb_id or media_info.get("tmdb_id") or "",
+                    "imdb_id": imdb_id or media_info.get("imdb_id") or "",
+                },
             )
 
         # Default Trash Guide format
@@ -671,6 +684,7 @@ class MovieLibraryPlugin(LibraryBase):
         edition_tags: str | None = None,
         custom_formats: list[str] | None = None,
         release_group: str | None = None,
+        db: Any = None,
     ) -> str:
         """
         Suggest a file name for a movie using template or Trash Guide convention.
@@ -721,8 +735,19 @@ class MovieLibraryPlugin(LibraryBase):
                 }
             )
 
-        # Use template if provided
+        if not template:
+            template = await self._configured_template(db, "plugin.movies.naming.file")
         if template:
+            enriched_info.update(
+                {
+                    "movie_title": media_info.get("title", ""),
+                    "title": media_info.get("title", ""),
+                    "movie_year": media_info.get("year", ""),
+                    "year": media_info.get("year", ""),
+                    "tmdb_id": media_info.get("tmdb_id") or "",
+                    "imdb_id": media_info.get("imdb_id") or "",
+                }
+            )
             return await self._apply_template(
                 template, enriched_info, probe_data=probe_data
             )
@@ -851,6 +876,15 @@ class MovieLibraryPlugin(LibraryBase):
             )
             db.add(media_file)
             await db.commit()
+
+            # Sonarr/Radarr move a finished download into the library under its
+            # final name. Streamarr registers it in place by default (rclone
+            # instances keep one copy); with automation.import_mode=library we
+            # move it here, before anything else reads the path.
+            location = await self.finalize_import_location(media_file, db)
+            if location.get("moved"):
+                logger.info("Movie moved into library: %s", media_file.file_path)
+
             files_imported += 1
             if probe_data:
                 files_probed += 1
@@ -927,7 +961,7 @@ class MovieLibraryPlugin(LibraryBase):
             "tmdb_id": tmdb_id, "imdb_id": imdb_id,
         }
         movie_folder = await self.suggest_folder_name(
-            media_info=movie_info, tmdb_id=tmdb_id,
+            media_info=movie_info, tmdb_id=tmdb_id, imdb_id=imdb_id, db=db,
         )
 
         folder = safe_library_child_path(library_path, movie_folder)
@@ -941,7 +975,7 @@ class MovieLibraryPlugin(LibraryBase):
 
         probe_data = json.loads(media_file.probe_data) if media_file.probe_data else None
         new_name = await self.suggest_file_name(
-            media_info=movie_info, probe_data=probe_data, release_group=None,
+            media_info=movie_info, probe_data=probe_data, release_group=None, db=db,
         )
         dest = safe_library_child_path(folder, f"{new_name}{src.suffix}")
         if dest is None:

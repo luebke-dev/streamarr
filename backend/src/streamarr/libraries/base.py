@@ -5,12 +5,44 @@ This module defines the LibraryBase abstract base class for library management,
 extracted from the former LibraryPlugin in streamarr.plugins.base.
 """
 
+import asyncio
 import logging
 import re
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
+
+# How a finished download is placed on disk. See get_import_mode().
+IMPORT_MODE_SETTING = "automation.import_mode"
+IMPORT_MODE_REGISTER = "register"
+IMPORT_MODE_LIBRARY = "library"
+IMPORT_MODES = (IMPORT_MODE_REGISTER, IMPORT_MODE_LIBRARY)
+
+
+async def get_import_mode(db: Any) -> str:
+    """Return how a finished download should be stored.
+
+    ``register`` - register the downloaded file where it lies. On rclone-backed
+    instances the download folder is the library entry, so copying a multi-GB
+    file would only waste space.
+
+    ``library`` - move it into the library under its final name and delete the
+    download copy, i.e. what Sonarr/Radarr do.
+
+    Unknown or unreadable values fall back to ``register``: an unusual settings
+    row must never turn an import into a surprise file move.
+    """
+    from streamarr.services.settings import SettingsService
+
+    try:
+        value = await SettingsService(db).get(IMPORT_MODE_SETTING, IMPORT_MODE_REGISTER)
+    except Exception as exc:
+        logger.warning("Could not read %s, assuming register: %s", IMPORT_MODE_SETTING, exc)
+        return IMPORT_MODE_REGISTER
+    mode = str(value or IMPORT_MODE_REGISTER).strip().lower()
+    return mode if mode in IMPORT_MODES else IMPORT_MODE_REGISTER
 
 
 # ==================== Shared Probe Data Utilities ====================
@@ -234,10 +266,6 @@ class LibraryBase(ABC):
     Unlike the old LibraryPlugin, this class does NOT inherit from PluginBase
     and has no manifest parameter.
     """
-
-    def __init__(self):
-        """Initialize the library."""
-        pass
 
     async def setup(self) -> None:  # noqa: B027
         """
@@ -574,7 +602,7 @@ class LibraryBase(ABC):
 
         Returns a score adjustment (-20 to +10).
         """
-        from datetime import datetime, timezone
+        from datetime import UTC, datetime
 
         publish_date = metadata.get("publish_date")
         if not publish_date:
@@ -586,9 +614,9 @@ class LibraryBase(ABC):
             except (ValueError, TypeError):
                 return 0.0
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if publish_date.tzinfo is None:
-            publish_date = publish_date.replace(tzinfo=timezone.utc)
+            publish_date = publish_date.replace(tzinfo=UTC)
 
         age_days = (now - publish_date).total_seconds() / 86400
 
@@ -742,6 +770,62 @@ class LibraryBase(ABC):
             f"{self.__class__.__name__} does not implement handle_completed_download"
         )
 
+    async def finalize_import_location(self, media_file: Any, db: Any) -> dict[str, Any]:
+        """Move an imported file to its final place in the library, if configured.
+
+        Plugins register the downloaded file in place first (they need the bytes
+        for probing and for the media_file row). With
+        ``automation.import_mode = library`` the file then takes the same route
+        a favorited item takes - ``promote_to_library`` knows the folder and file
+        name templates - and the download copy is removed afterwards.
+
+        The move is deliberately best-effort on teardown: if the library copy is
+        in place, a leftover download file is retention's problem, not a reason
+        to fail an import that already succeeded.
+        """
+        if await get_import_mode(db) != IMPORT_MODE_LIBRARY:
+            return {"success": True, "moved": False}
+
+        promote = getattr(self, "promote_to_library", None)
+        if promote is None:
+            logger.warning(
+                "%s cannot move imports into the library (no promotion path); "
+                "leaving the file in place",
+                self.__class__.__name__,
+            )
+            return {"success": True, "moved": False}
+
+        source = Path(media_file.file_path)
+        result = await promote(media_file, db)
+        if not result.get("success"):
+            logger.error(
+                "Could not move %s into the library: %s", source, result.get("error")
+            )
+            return {"success": False, "moved": False, "error": result.get("error")}
+        if result.get("already_in_library"):
+            return {"success": True, "moved": False}
+
+        destination = result.get("file_path")
+        if not destination or Path(destination) == source:
+            return {"success": True, "moved": False}
+
+        source_removed = True
+        try:
+            await asyncio.to_thread(source.unlink)
+        except OSError as exc:
+            source_removed = False
+            logger.warning("Could not remove download copy %s: %s", source, exc)
+
+        logger.info(
+            "Moved import into the library: %s -> %s", source, destination
+        )
+        return {
+            "success": True,
+            "moved": True,
+            "source_removed": source_removed,
+            "file_path": destination,
+        }
+
     async def probe_media_file(self, file_path: str) -> dict[str, Any]:
         """
         Probe a media file to extract technical metadata using ffprobe.
@@ -882,6 +966,30 @@ class LibraryBase(ABC):
         logger.debug("suggest_file_name: title=%r year=%s -> %r", title, year, result)
         return result
 
+    @staticmethod
+    async def _configured_template(db: Any, key: str) -> str | None:
+        """Return a naming template only if an operator actually configured it.
+
+        ``SettingsService.get()`` falls back to ``DEFAULT_SETTINGS``, which would
+        make every default look like an explicit choice and silently replace the
+        Trash-style names the plugins build. Only a row that exists in the
+        database counts as "configured".
+        """
+        if db is None:
+            return None
+        from sqlalchemy import select
+
+        from streamarr.models.setting import Setting
+
+        result = await db.execute(select(Setting).where(Setting.key == key))
+        setting = result.scalars().first()
+        if setting is None:
+            return None
+        value = setting.value
+        if isinstance(value, str) and value.strip():
+            return value
+        return None
+
     async def _apply_template(
         self,
         template: str,
@@ -930,7 +1038,27 @@ class LibraryBase(ABC):
             return _fmt(value)
 
         result = re.sub(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", _lookup, template)
-        return self._clean_title(result)
+        return self._clean_title(self._drop_empty_name_groups(result))
+
+    @staticmethod
+    def _drop_empty_name_groups(name: str) -> str:
+        """Remove bracket groups that ended up without content.
+
+        A template like ``{series_title} [{resolution}][{video_codec}]`` must not
+        produce ``Show []`` just because a file was not probed yet, and
+        ``[tvdbid-{tvdb_id}]`` must not become ``[tvdbid-]`` for an item without
+        that id.
+        """
+        previous = None
+        while previous != name:
+            previous = name
+            # "[tvdbid-]" / "[tmdbid-]" - a label whose value is missing
+            name = re.sub(r"\[\s*[A-Za-z]+-\s*\]", "", name)
+            name = re.sub(r"\[\s*\]", "", name)
+            name = re.sub(r"\(\s*\)", "", name)
+            name = re.sub(r"\{\s*\}", "", name)
+            name = " ".join(name.split())
+        return name
 
     def _clean_title(self, title: str) -> str:
         """

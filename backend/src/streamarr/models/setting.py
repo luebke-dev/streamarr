@@ -227,6 +227,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "automation.library_scan_interval_hours": 12,
     "automation.realtime_library_monitor": True,
     "automation.rss_seen_ttl_seconds": 1209600,  # 14 days
+    # Where a finished download ends up. "register" keeps the historical
+    # behaviour: the file stays where the downloader put it and is registered
+    # in place (right for rclone-backed instances, where /downloads *is* the
+    # library). "library" is what Sonarr/Radarr do - the file is moved into the
+    # library under its final name and the download copy is dropped.
+    "automation.import_mode": "register",
     "favorites.monitor_enabled": True,
     # Overlay rendering settings
     "overlays.enabled": True,

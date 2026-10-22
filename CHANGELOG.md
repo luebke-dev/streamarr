@@ -47,10 +47,20 @@ release note would group it. Everything before that is in `git log`.
   optional Stripe memberships, Prometheus metrics and a Grafana dashboard.
 - Artwork cache with a warmup that runs after scans and hourly, so posters are
   served from disk instead of upstream.
+- `automation.import_mode`: a finished download can be moved into the library
+  under its final name (Sonarr/Radarr behaviour) instead of being registered
+  where the downloader left it. `register` stays the default because it is right
+  for rclone-backed instances, where the download folder *is* the library entry.
+- Naming templates (`plugin.shows.naming.*`, `plugin.movies.naming.*`) now
+  actually drive folder and file names. They were shipped as settings with
+  defaults, but nothing read them: the plugins always built the built-in
+  Trash-style name. A configured template wins; unset keeps the old names.
 
 ### Changed
 
 - Licence is MIT for the whole project.
+- Seasons get their folder from `plugin.shows.naming.season_folder` instead of a
+  hardcoded `Season 01`, so the folder layout can be changed in one place.
 - Releases publish container images to `ghcr.io/luebke-dev/streamarr-<component>`
   and `latest` follows release tags only, not the default branch.
 

@@ -635,6 +635,7 @@ class ShowLibraryPlugin(LibraryBase):
         media_info: dict[str, Any],
         tmdb_id: int | None = None,
         imdb_id: str | None = None,
+        db: Any = None,
     ) -> str:
         """
         Suggest a folder name for a show following Trash Guide convention.
@@ -657,6 +658,25 @@ class ShowLibraryPlugin(LibraryBase):
         if not tmdb_id:
             tmdb_id = media_info.get("tmdb_id")
 
+        # An operator-configured template wins over the built-in convention.
+        template = await self._configured_template(
+            db, "plugin.shows.naming.series_folder"
+        )
+        if template:
+            return await self._apply_template(
+                template,
+                {
+                    **media_info,
+                    "series_title": title,
+                    "show_title": title,
+                    "series_year": year,
+                    "year": year,
+                    "tvdb_id": media_info.get("tvdb_id") or "",
+                    "tmdb_id": tmdb_id or "",
+                    "imdb_id": imdb_id or media_info.get("imdb_id") or "",
+                },
+            )
+
         clean_title = self._clean_title(title)
 
         if year:
@@ -675,6 +695,26 @@ class ShowLibraryPlugin(LibraryBase):
 
         return folder
 
+    async def suggest_season_folder_name(
+        self, season_number: int | None, db: Any = None
+    ) -> str:
+        """Season folder, honouring ``plugin.shows.naming.season_folder``."""
+        number = season_number or 1
+        template = await self._configured_template(
+            db, "plugin.shows.naming.season_folder"
+        )
+        if template:
+            return await self._apply_template(
+                template,
+                {
+                    "season_number": number,
+                    "season_number_2": f"{number:02d}",
+                    "season": number,
+                    "season_2": f"{number:02d}",
+                },
+            )
+        return f"Season {number:02d}"
+
     async def suggest_file_name(
         self,
         media_info: dict[str, Any],
@@ -683,6 +723,7 @@ class ShowLibraryPlugin(LibraryBase):
         edition_tags: str | None = None,
         custom_formats: list[str] | None = None,
         release_group: str | None = None,
+        db: Any = None,
     ) -> str:
         """
         Suggest a file name for an episode following Trash Guide convention.
@@ -711,6 +752,39 @@ class ShowLibraryPlugin(LibraryBase):
         season = media_info.get("season", 1)
         episode = media_info.get("episode", 1)
         episode_title = media_info.get("episode_title", "")
+
+        template = await self._configured_template(
+            db, "plugin.shows.naming.episode_file"
+        )
+        if template:
+            naming = (
+                extract_naming_metadata(probe_data)
+                if probe_data and "video_streams" in probe_data
+                else (probe_data or {})
+            )
+            metadata = {**(release_metadata or {}), **naming}
+            return await self._apply_template(
+                template,
+                {
+                    "series_title": show_title,
+                    "show_title": show_title,
+                    "series_year": media_info.get("year", ""),
+                    "year": media_info.get("year", ""),
+                    "season_number": season,
+                    "season_number_2": f"{season:02d}",
+                    "episode_number": episode,
+                    "episode_number_2": f"{episode:02d}",
+                    "episode_title": episode_title,
+                    "resolution": metadata.get("resolution", ""),
+                    "video_codec": metadata.get("video_codec", ""),
+                    "audio_codec": metadata.get("audio_codec", ""),
+                    "audio_channels": metadata.get("audio_channels", ""),
+                    "hdr_format": metadata.get("hdr_format", ""),
+                    "source": metadata.get("source", ""),
+                    "release_group": release_group or "",
+                },
+                probe_data=probe_data,
+            )
 
         clean_show_title = self._clean_title(show_title)
 
@@ -849,6 +923,15 @@ class ShowLibraryPlugin(LibraryBase):
             )
             db.add(media_file)
             await db.commit()
+
+            # Sonarr/Radarr move a finished download into the library under its
+            # final name. Streamarr registers it in place by default (rclone
+            # instances keep one copy); with automation.import_mode=library we
+            # move it here, before anything else reads the path.
+            location = await self.finalize_import_location(media_file, db)
+            if location.get("moved"):
+                logger.info("Episode moved into library: %s", media_file.file_path)
+
             files_imported += 1
             if probe_data:
                 files_probed += 1
@@ -963,13 +1046,13 @@ class ShowLibraryPlugin(LibraryBase):
                 "year": show.release_date.year if show.release_date else None,
                 "tvdb_id": tvdb_id, "tmdb_id": tmdb_id, "imdb_id": imdb_id,
             },
-            tmdb_id=tmdb_id, imdb_id=imdb_id,
+            tmdb_id=tmdb_id, imdb_id=imdb_id, db=db,
         )
         season_number = season.sequence_number or 1
         season_folder = safe_library_child_path(
             library_path,
             show_folder,
-            f"Season {season_number:02d}",
+            await self.suggest_season_folder_name(season_number, db=db),
         )
         if season_folder is None:
             logger.error(
@@ -984,12 +1067,14 @@ class ShowLibraryPlugin(LibraryBase):
         new_name = await self.suggest_file_name(
             media_info={
                 "show_title": show.title,
+                "year": show.release_date.year if show.release_date else "",
                 "season": season_number,
                 "episode": episode.sequence_number or 1,
                 "episode_title": episode.title or f"Episode {episode.sequence_number or 1}",
             },
             probe_data=probe_data,
             release_group=None,
+            db=db,
         )
         dest = safe_library_child_path(season_folder, f"{new_name}{src.suffix}")
         if dest is None:
