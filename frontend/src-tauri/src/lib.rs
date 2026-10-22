@@ -225,6 +225,12 @@ pub fn run() {
                         }
                         Err(err) => log::error!("SPIKE05 Übernahme fehlgeschlagen: {err}"),
                     }
+                    match spike_render::read_handles(&window, size)
+                        .and_then(|h| spike_render::probe_globals(&h))
+                    {
+                        Ok(info) => log::info!("SPIKE05 Globals: {info}"),
+                        Err(err) => log::error!("SPIKE05 Globals fehlgeschlagen: {err}"),
+                    }
                 } else {
                     log::error!("SPIKE05: kein Fenster mit Label main");
                 }

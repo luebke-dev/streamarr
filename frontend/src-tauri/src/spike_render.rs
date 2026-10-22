@@ -103,3 +103,68 @@ pub fn adopt_connection(
     let proxy = WlSurface::from_id(&connection, id).map_err(|e| e.to_string())?;
     Ok((connection, proxy))
 }
+
+/// Binds the globals the subsurface needs, and reports what the compositor offers.
+///
+/// This exists to answer one specific unknown before the subsurface is written: binding
+/// globals on an **adopted** connection needs `Dispatch` implementations for every
+/// interface, and that boilerplate is the part most likely to fight back. If this logs the
+/// compositor, subcompositor and shm versions, the plumbing is done and the magenta test is
+/// only shm handling away.
+#[cfg(feature = "spike-render")]
+pub fn probe_globals(handles: &WindowHandles) -> Result<String, String> {
+    use wayland_client::globals::{registry_queue_init, GlobalListContents};
+    use wayland_client::protocol::{wl_compositor::WlCompositor, wl_registry::WlRegistry,
+        wl_shm::WlShm, wl_subcompositor::WlSubcompositor};
+    use wayland_client::{Connection, Dispatch, QueueHandle};
+
+    struct State;
+
+    impl Dispatch<WlRegistry, GlobalListContents> for State {
+        fn event(
+            _: &mut Self,
+            _: &WlRegistry,
+            _: <WlRegistry as wayland_client::Proxy>::Event,
+            _: &GlobalListContents,
+            _: &Connection,
+            _: &QueueHandle<Self>,
+        ) {
+        }
+    }
+
+    macro_rules! ignore {
+        ($iface:ty) => {
+            impl Dispatch<$iface, ()> for State {
+                fn event(
+                    _: &mut Self,
+                    _: &$iface,
+                    _: <$iface as wayland_client::Proxy>::Event,
+                    _: &(),
+                    _: &Connection,
+                    _: &QueueHandle<Self>,
+                ) {
+                }
+            }
+        };
+    }
+    ignore!(WlCompositor);
+    ignore!(WlSubcompositor);
+    ignore!(WlShm);
+
+    let (connection, _parent) = adopt_connection(handles)?;
+    let (globals, queue) = registry_queue_init::<State>(&connection).map_err(|e| e.to_string())?;
+    let qh = queue.handle();
+
+    let compositor: WlCompositor = globals
+        .bind(&qh, 4..=6, ())
+        .map_err(|e| format!("wl_compositor: {e}"))?;
+    let subcompositor: WlSubcompositor = globals
+        .bind(&qh, 1..=1, ())
+        .map_err(|e| format!("wl_subcompositor: {e}"))?;
+    let shm: WlShm = globals.bind(&qh, 1..=1, ()).map_err(|e| format!("wl_shm: {e}"))?;
+
+    // The versions are not the point — that all three could be bound on an *adopted*
+    // connection is. Keeping the bindings alive until here is what proves it.
+    let _ = (compositor, subcompositor, shm);
+    Ok("compositor, subcompositor und shm gebunden".to_string())
+}
