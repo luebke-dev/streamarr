@@ -1452,6 +1452,20 @@ async def delete_library(
 # LIBRARY TYPE CONFIGURATION ENDPOINTS
 # ============================================================================
 
+async def _type_library_enabled(settings_service: SettingsService, prefix: str) -> bool:
+    """Return whether a library type is enabled, defaulting to enabled.
+
+    An unset ``plugin.<type>.enable_library`` means "never configured", not
+    "switched off": every library plugin declares the setting with a default of
+    ``True``, and ``LibraryService.list_visible_libraries`` already treats a
+    missing key as enabled. Reading it as ``False`` here is what made the admin
+    page announce a disabled library while its media stayed browsable and
+    playable — and saving that page would then have hidden the library for
+    real.
+    """
+    value = await settings_service.get(f"{prefix}.enable_library")
+    return True if value is None else bool(value)
+
 
 # MOVIES LIBRARY CONFIG
 @router.get("/movies/config", response_model=MovieLibraryConfig)
@@ -1463,7 +1477,7 @@ async def get_movie_library_config(
     settings_service = SettingsService(session)
 
     library_path = await settings_service.get("plugin.movies.library_path")
-    enable_library = await settings_service.get("plugin.movies.enable_library")
+    enable_library = await _type_library_enabled(settings_service, "plugin.movies")
     enable_on_demand = await settings_service.get(
         "plugin.movies.enable_on_demand_downloads"
     )
@@ -1478,7 +1492,7 @@ async def get_movie_library_config(
 
     return MovieLibraryConfig(
         library_path=library_path or "/library/movies",
-        enable_library=enable_library if enable_library is not None else False,
+        enable_library=enable_library,
         enable_on_demand_downloads=enable_on_demand
         if enable_on_demand is not None
         else False,
@@ -1567,7 +1581,7 @@ async def get_show_library_config(
     settings_service = SettingsService(session)
 
     library_path = await settings_service.get("plugin.shows.library_path")
-    enable_library = await settings_service.get("plugin.shows.enable_library")
+    enable_library = await _type_library_enabled(settings_service, "plugin.shows")
     enable_on_demand = await settings_service.get(
         "plugin.shows.enable_on_demand_downloads"
     )
@@ -1584,7 +1598,7 @@ async def get_show_library_config(
 
     return ShowLibraryConfig(
         library_path=library_path or "/library/shows",
-        enable_library=enable_library if enable_library is not None else False,
+        enable_library=enable_library,
         enable_on_demand_downloads=enable_on_demand
         if enable_on_demand is not None
         else False,
@@ -1726,7 +1740,7 @@ async def get_generic_library_config(
     prefix = f"plugin.{library_type_lower}"
 
     library_path = await settings_service.get(f"{prefix}.library_path")
-    enable_library = await settings_service.get(f"{prefix}.enable_library")
+    enable_library = await _type_library_enabled(settings_service, prefix)
     enable_on_demand = await settings_service.get(
         f"{prefix}.enable_on_demand_downloads"
     )
@@ -1744,7 +1758,7 @@ async def get_generic_library_config(
 
     return SimpleLibraryConfig(
         library_path=library_path or default_path,
-        enable_library=enable_library if enable_library is not None else True,
+        enable_library=enable_library,
         enable_on_demand_downloads=enable_on_demand
         if enable_on_demand is not None
         else False,

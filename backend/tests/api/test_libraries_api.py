@@ -1017,6 +1017,71 @@ class TestShowLibraryConfig:
 
 
 # ============================================================================
+# LIBRARY TYPE ENABLED FLAG
+# ============================================================================
+
+
+class TestLibraryTypeEnabledFlag:
+    """``enable_library`` must mean the same thing in every direction.
+
+    The value decides whether a non-admin sees the library type at all
+    (``LibraryService.list_visible_libraries`` treats a missing setting as
+    enabled), so reporting ``False`` for a key that was never written told the
+    admin the opposite of what the server actually did - and saving that page
+    unchanged would have hidden the library.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _naming_schema(self):
+        with patch("streamarr.api.v1.libraries.get_plugin_instance") as mock_plugin:
+            instance = MagicMock()
+            instance.get_naming_schema.return_value = {
+                "variables": [],
+                "defaults": {"folder": "{title} ({year})", "file": "{title}"},
+                "options": {},
+            }
+            mock_plugin.return_value = instance
+            yield mock_plugin
+
+    @pytest.mark.parametrize("library_type", ["movies", "shows", "music", "games"])
+    async def test_unset_setting_is_reported_as_enabled(
+        self, library_type, client: AsyncClient, admin_headers, db_session: AsyncSession
+    ):
+        """No stored value means "never configured", which means enabled."""
+        from streamarr.services.settings import SettingsService
+
+        # ``delete`` also drops the process-global cache entry, so this does not
+        # depend on test order.
+        await SettingsService(db_session).delete(
+            f"plugin.{library_type}.enable_library"
+        )
+
+        resp = await client.get(
+            f"/api/libraries/{library_type}/config", headers=admin_headers
+        )
+        assert resp.status_code == 200
+        assert resp.json()["enable_library"] is True
+
+    async def test_explicit_false_is_still_honoured(
+        self, client: AsyncClient, admin_headers, db_session: AsyncSession
+    ):
+        """Defaulting to enabled must not mean ignoring an operator's "off"."""
+        from streamarr.services.settings import SettingsService
+
+        await SettingsService(db_session).set("plugin.movies.enable_library", False)
+        try:
+            resp = await client.get(
+                "/api/libraries/movies/config", headers=admin_headers
+            )
+            assert resp.status_code == 200
+            assert resp.json()["enable_library"] is False
+        finally:
+            await SettingsService(db_session).set(
+                "plugin.movies.enable_library", True
+            )
+
+
+# ============================================================================
 # LIBRARY TYPES
 # ============================================================================
 
