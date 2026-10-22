@@ -98,6 +98,71 @@ async def test_refresh_season_updates_existing_episode_and_adds_new_episode(
     assert (episodes[1].guid, "tmdb", "1002") in external_ids
 
 
+@pytest.mark.asyncio
+async def test_a_created_season_and_episode_get_their_own_media_type(
+    db_session: AsyncSession,
+):
+    """A refresh must not type the whole tree as SHOWS.
+
+    ``_upsert_season`` and ``_upsert_episode`` hardcoded ``MediaType.SHOWS`` for
+    the rows they create, so a metadata refresh built a second tree of
+    "seasons" and "episodes" typed as shows, hanging off the real one. Nothing
+    referenced them - no media file, no view - so the only symptom was the UI
+    listing "Staffel 1" as a series. On this instance that produced ~64k rows
+    in a week.
+    """
+    from streamarr.services.media_hierarchy import episode_type, season_type
+
+    media_service = MediaService(db_session)
+    show = await media_service.create_media_item(
+        media_type=MediaType.SHOWS,
+        title="Severance",
+    )
+
+    plugin = AsyncMock()
+    plugin.get_show_season.return_value = {
+        "id": 2001,
+        "name": "Staffel 1",
+        "overview": None,
+        "poster_path": None,
+        "air_date": "2022-02-18",
+        "episodes": [
+            {
+                "id": 3001,
+                "episode_number": 1,
+                "name": "Gute Nachrichten zur Hölle",
+                "overview": None,
+                "still_path": None,
+                "air_date": "2022-02-18",
+            }
+        ],
+    }
+
+    seasons, episodes = await MetadataService(db_session)._refresh_seasons(
+        show, plugin, "95396", [{"season_number": 1}]
+    )
+    assert (seasons, episodes) == (1, 1)
+
+    rows = (
+        await db_session.execute(
+            select(MediaItem).where(MediaItem.parent_guid == show.guid)
+        )
+    ).scalars().all()
+    assert len(rows) == 1
+    season = rows[0]
+    assert season.media_type == season_type()
+    assert season.media_type != MediaType.SHOWS
+
+    episodes = (
+        await db_session.execute(
+            select(MediaItem).where(MediaItem.parent_guid == season.guid)
+        )
+    ).scalars().all()
+    assert len(episodes) == 1
+    assert episodes[0].media_type == episode_type()
+    assert episodes[0].media_type != MediaType.SHOWS
+
+
 @asynccontextmanager
 async def _session_context(session):
     yield session

@@ -20,6 +20,7 @@ from streamarr.services import system_settings
 from streamarr.services.library import LibraryService
 from streamarr.services.list import ListService
 from streamarr.services.media import MediaService
+from streamarr.services.media_hierarchy import episode_type, season_type
 
 logger = logging.getLogger(__name__)
 
@@ -869,8 +870,14 @@ class LibraryImportService:
             )
             return {"item": season_item, "created": False}
 
+        season_type_value = season_type()
+        if season_type_value is None:
+            raise RuntimeError(
+                "Cannot import a season without the shows plugin (no SEASONS media type)"
+            )
+
         season_item = await media_service.create_media_item(
-            media_type=MediaType.SHOWS,
+            media_type=season_type_value,
             title=season_details.get("name", f"Season {season_number}"),
             library_guid=library_guid,
             parent_guid=show_item.guid,
@@ -923,8 +930,14 @@ class LibraryImportService:
                 )
                 continue
 
+            episode_type_value = episode_type()
+            if episode_type_value is None:
+                raise RuntimeError(
+                    "Cannot import an episode without the shows plugin (no EPISODES media type)"
+                )
+
             episode_item = await media_service.create_media_item(
-                media_type=MediaType.SHOWS,
+                media_type=episode_type_value,
                 title=episode_data.get("name", f"Episode {episode_number}"),
                 library_guid=library_guid,
                 parent_guid=season_item.guid,

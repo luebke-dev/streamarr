@@ -16,6 +16,7 @@ from streamarr.models.media import (
     MediaItem,
     MediaType,
 )
+from streamarr.services.media_hierarchy import episode_type, season_type
 
 logger = logging.getLogger(__name__)
 
@@ -415,6 +416,8 @@ class MetadataService:
                 season_item = await self._upsert_season(
                     show, media_service, season_number, season_details
                 )
+                if season_item is None:
+                    continue
                 seasons_updated += 1
 
                 for ep_data in season_details.get("episodes", []):
@@ -437,6 +440,26 @@ class MetadataService:
         return seasons_updated, episodes_updated
 
     async def _upsert_season(self, show, media_service, season_number, details):
+        """Create or update one season row under ``show``.
+
+        The row is a ``SEASONS`` - a season is not a show, and typing it as one
+        is how a refresh used to build a second, wrong tree beside the real
+        one (seasons and episodes typed ``SHOWS`` all the way down). Those rows
+        carried no files, so the damage was invisible until every list in the
+        UI showed "Staffel 1" as a series.
+        """
+        media_type = season_type()
+        if media_type is None:
+            # MediaType is generated from the registered plugins; without the
+            # shows plugin there is no correct type to write, and writing a
+            # wrong one is worse than not writing the row.
+            logger.error(
+                "Cannot create season %s for %r: the shows plugin is not registered",
+                season_number,
+                show.title,
+            )
+            return None
+
         result = await self.db.execute(
             select(MediaItem)
             .where(MediaItem.parent_guid == show.guid)
@@ -455,7 +478,7 @@ class MetadataService:
             return existing
 
         item = await media_service.create_media_item(
-            media_type=MediaType.SHOWS,
+            media_type=media_type,
             title=title,
             parent_guid=show.guid,
             sequence_number=season_number,
@@ -469,6 +492,15 @@ class MetadataService:
         return item
 
     async def _upsert_episode(self, season, media_service, episode_number, data):
+        """Create or update one episode row under ``season`` (typed ``EPISODES``)."""
+        media_type = episode_type()
+        if media_type is None:
+            logger.error(
+                "Cannot create episode %s: the shows plugin is not registered",
+                episode_number,
+            )
+            return None
+
         result = await self.db.execute(
             select(MediaItem)
             .where(MediaItem.parent_guid == season.guid)
@@ -489,7 +521,7 @@ class MetadataService:
             return existing
 
         item = await media_service.create_media_item(
-            media_type=MediaType.SHOWS,
+            media_type=media_type,
             title=title,
             parent_guid=season.guid,
             sequence_number=episode_number,
