@@ -57,3 +57,53 @@ Bedienleiste. Er wird nach der Antwort verworfen oder in die Render-Schicht übe
 
 Diese Liste ist der Punkt, an dem ADR 002 (Abhängigkeiten) fortgeschrieben werden muss,
 sobald der Spike etwas beweist.
+
+## Stand der Umsetzung
+
+**Increment 1 (erledigt, gemessen).** Die App liest ihre eigenen Handles:
+
+```
+SPIKE05 surface=0x562ebdfec9e0 display=0x562ebdcf9800 2800x1800
+```
+
+`read_handles` ist über `HasWindowHandle + HasDisplayHandle` verallgemeinert, weil das
+Fenster ein `WebviewWindow` ist und nicht `Window` — der erste Entwurf nahm `&Window`, der
+Compiler hat es korrigiert.
+
+**Increment 2 (erledigt, gemessen).** Übernahme der bestehenden Verbindung:
+
+```
+SPIKE05 Verbindung übernommen, Oberfläche als Proxy griff
+```
+
+Zwei Aufrufe, die sich als richtig erwiesen haben:
+
+```rust
+let backend = unsafe {
+    wayland_backend::sys::client::Backend::from_foreign_display(display_ptr)
+};                      // Guest-Modus: schließt die Verbindung beim Drop NICHT
+let connection = wayland_client::Connection::from_backend(backend);
+let id = unsafe { ObjectId::from_ptr(WlSurface::interface(), surface_ptr) }?;
+let proxy = WlSurface::from_id(&connection, id)?;
+```
+
+Zwei Annahmen waren falsch und kosteten je einen Compilerlauf: `WlSurface` liegt unter
+`wayland_client::protocol::wl_surface`, und `ObjectId::from_ptr` liefert ein `Result`.
+
+**Increment 3 (nächster Schritt).** Die Frage, um die es geht:
+
+1. `registry_queue_init::<State>(&connection)` — braucht eine `Dispatch`-Implementierung für
+   `WlRegistry` und danach für `WlCompositor`, `WlSubcompositor`, `WlShm`. Das ist
+   Boilerplate; `wayland_client::delegate_noop!` ist der vorgesehene Weg und noch nicht
+   ausprobiert.
+2. Globals binden, Kind-Oberfläche erzeugen:
+   `compositor.create_surface(&qh, ())` → `subcompositor.get_subsurface(&child, &parent, &qh, ())`
+   → `set_position(0, 0)` und **zuerst `place_above`** (siehe unten).
+3. `wl_shm`-Pool mit einem magenta gefüllten Puffer, `attach`, `damage_buffer`, `commit`,
+   `connection.flush()`.
+
+**Warum zuerst `place_above`:** Damit lässt sich die Infrastruktur (Subsurface, Puffer,
+Commit) ohne jede Konfigurationsänderung prüfen — deckt Magenta die Oberfläche ab, steht das
+Fundament. Erst danach kommt `place_below` **zusammen mit** `transparent: true` im Fenster
+und durchsichtigem Seitenhintergrund; das ist die eigentliche Frage 2 und ändert die
+App-Konfiguration, also wird sie bewusst als letzter Teilschritt gemacht.
