@@ -85,6 +85,13 @@ pub async fn api_request(
     body: Option<String>,
     timeout_ms: Option<u64>,
 ) -> Result<BridgeResponse, String> {
+    // One line per call, deliberately: a UI that "does nothing" leaves the shell with no
+    // trace at all, and the difference between "the page never asked" and "the page asked
+    // and the answer failed" decides where to look. No values are logged — paths only.
+    log::info!(
+        "Anfrage der Oberfläche: {method} {path} (Body: {})",
+        body.as_ref().map(|b| b.len()).unwrap_or(0)
+    );
     let client = match state.api() {
         Ok(client) => client,
         Err(err) => {
@@ -408,5 +415,20 @@ mod bridge_tests {
         assert!(!is_refresh_path("/api/auth/local/login"));
         assert!(!is_refresh_path("/api/auth/status"));
         assert!(!is_refresh_path(""));
+    }
+}
+
+/// Writes a message from the webview into the app's log.
+///
+/// Until this existed a JavaScript error was invisible: it happened in the webview's
+/// console, which nothing reads, so the symptom was "nothing happens" next to an empty
+/// log. That is exactly how the login and playback failures presented themselves.
+#[tauri::command]
+pub fn frontend_log(level: String, message: String) {
+    let message = message.replace(['\n', '\r'], " ");
+    match level.as_str() {
+        "error" => log::error!("[webview] {message}"),
+        "warn" => log::warn!("[webview] {message}"),
+        _ => log::info!("[webview] {message}"),
     }
 }

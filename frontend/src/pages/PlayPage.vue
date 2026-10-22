@@ -903,10 +903,6 @@ const { subscribe: subscribeRemoteControl, unsubscribe: unsubscribeRemoteControl
     playNextEpisode: playNextPlaybackItem,
     playPreviousEpisode: playPreviousPlaybackItem,
   })
-// The progress reporter is created before the player uses it; the native player only
-// calls it during playback, which is long after both exist.
-updateProgressRef.current = updateProgress
-
 const partySync = usePartySync({
   partyStore,
   partyWs,
@@ -941,6 +937,15 @@ const {
   playToken,
   transcodeStartPosition,
 })
+
+// After `useViewingProgress`, not before it: this line used to sit above the destructuring,
+// which puts `updateProgress` in its temporal dead zone and throws
+// `ReferenceError: Cannot access 'updateProgress' before initialization` inside `setup`.
+// The page then never mounted — the play button looked like it did nothing, with an empty
+// app log, and the same fault was visible in the web bundle as a minified TDZ error.
+// Nothing else about the order matters: the native player only calls the reporter during
+// playback, long after both exist.
+updateProgressRef.current = updateProgress
 
 const { checkContent } = usePlaybackBootstrap({
   uuid,

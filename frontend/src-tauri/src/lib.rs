@@ -234,6 +234,7 @@ pub fn run() {
             commands::session::auth_status,
             commands::session::diagnose_connection,
             commands::bridge::api_request,
+            commands::bridge::frontend_log,
             commands::bridge::store_tokens,
             commands::bridge::stored_access_token,
             commands::bridge::forget_tokens,
