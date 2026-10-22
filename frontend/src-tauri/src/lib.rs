@@ -15,6 +15,8 @@
 
 pub mod api;
 pub mod commands;
+#[cfg(feature = "spike-render")]
+pub mod spike_render;
 pub mod storage;
 
 use std::sync::Arc;
@@ -192,6 +194,31 @@ pub fn run() {
                 .unwrap_or_else(|_| storage::default_config_root());
             let state = AppState::load(config_root)?;
             app.manage(state);
+
+            // Spike 05: read this window's Wayland handles from inside the app. Cheap,
+            // and it answers the first of the four questions in ADR 003 for the real
+            // window rather than for a documentation page.
+            #[cfg(feature = "spike-render")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let size = window
+                        .inner_size()
+                        .map(|s| (s.width, s.height))
+                        .unwrap_or((0, 0));
+                    match spike_render::read_handles(&window, size) {
+                        Ok(h) => log::info!(
+                            "SPIKE05 surface={:#x} display={:#x} {}x{}",
+                            h.surface,
+                            h.display,
+                            h.width,
+                            h.height
+                        ),
+                        Err(err) => log::error!("SPIKE05 fehlgeschlagen: {err}"),
+                    }
+                } else {
+                    log::error!("SPIKE05: kein Fenster mit Label main");
+                }
+            }
             // Couch mode's own state. Separate from `AppState` because it is
             // per-window session state rather than configuration: it holds the
             // focus and the repeat timers, both of which must start empty.

@@ -93,6 +93,7 @@ gstreamer-sdp = { version = "0.23", optional = true }
 gstreamer-webrtc = { version = "0.23", optional = true, features = ["v1_18", "v1_22"] }
 glib = { version = "0.20", optional = true }
 serde = { version = "1", features = ["derive"] }
+raw-window-handle = { version = "0.6", optional = true }
 serde_json = "1"
 log = "0.4"
 thiserror = "2"
@@ -124,6 +125,9 @@ default = []
 # Declaring it is what the Tauri template requires ("DO NOT REMOVE") and what makes
 # `cargo build --features custom-protocol` a standalone app that needs no dev server.
 custom-protocol = ["tauri/custom-protocol"]
+# Spike 05 (ADR 003): Fenster-Handles auslesen, um libmpv spaeter in eine
+# Wayland-Subsurface unter der WebView zu rendern. Nie in einem Paket.
+spike-render = ["dep:raw-window-handle"]
 # Game streaming: the GStreamer/WebRTC receiver.
 #
 # Off by default and separate on purpose. It is the one feature that pulls a large
