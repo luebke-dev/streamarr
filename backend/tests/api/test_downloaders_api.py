@@ -38,17 +38,55 @@ class TestListDownloaderTypes:
         assert resp.status_code == 200
         data = resp.json()
         by_domain = {entry["domain"]: entry for entry in data}
-        assert set(by_domain) == {"sabnzbd", "deluge", "spotdl"}
+        assert set(by_domain) == {
+            "sabnzbd",
+            "deluge",
+            "spotdl",
+            "usenet_downloader",
+            "torrent_downloader",
+        }
         assert by_domain["sabnzbd"]["name"] == "SABnzbd"
         assert by_domain["deluge"]["description"] == "Deluge BitTorrent client"
         assert by_domain["spotdl"]["config_schema"] == {}
+        assert by_domain["usenet_downloader"]["name"] == "Streamarr Usenet"
+        assert by_domain["torrent_downloader"]["name"] == "Streamarr Torrent"
+
+    async def test_every_advertised_type_can_be_built(
+        self, client: AsyncClient, admin_headers
+    ):
+        """The list is only useful if the factory accepts what it advertises.
+
+        `usenet_downloader` and `torrent_downloader` were supported by
+        `DownloaderService.get_client()` but absent from this list, so the UI
+        offered only third-party clients and the built-in ones could be created
+        by API call alone.
+        """
+        from streamarr.models.downloader import Downloader
+        from streamarr.services.downloader import DownloaderService
+
+        resp = await client.get("/api/downloaders/types", headers=admin_headers)
+        for entry in resp.json():
+            downloader = Downloader(
+                label=entry["domain"],
+                host="http://example.invalid:3000",
+                type=entry["domain"],
+                api_key=None,
+            )
+            client_instance = DownloaderService.get_client(downloader)
+            assert client_instance.get_name()
 
     async def test_list_types_is_static(self, client: AsyncClient, admin_headers):
         """The native downloader list does not depend on plugin registry state."""
         resp = await client.get("/api/downloaders/types", headers=admin_headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert [entry["domain"] for entry in data] == ["sabnzbd", "deluge", "spotdl"]
+        assert [entry["domain"] for entry in data] == [
+            "sabnzbd",
+            "deluge",
+            "spotdl",
+            "usenet_downloader",
+            "torrent_downloader",
+        ]
 
     async def test_list_types_regular_user_forbidden(self, client: AsyncClient, user_headers):
         resp = await client.get("/api/downloaders/types", headers=user_headers)

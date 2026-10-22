@@ -40,6 +40,23 @@ KNOWN_DOWNLOADER_TYPES = [
         description="Spotify music downloader",
         config_schema={},
     ),
+    # The two downloaders that ship with Streamarr itself (downloaders/usenet,
+    # downloaders/torrent). DownloaderService.get_client() has always been able
+    # to build them, but they were missing from this list, so the admin UI could
+    # not create them - only an API call could, which is how this instance was
+    # set up.
+    DownloaderTypeInfo(
+        domain="usenet_downloader",
+        name="Streamarr Usenet",
+        description="Built-in NNTP downloader (downloaders/usenet)",
+        config_schema={},
+    ),
+    DownloaderTypeInfo(
+        domain="torrent_downloader",
+        name="Streamarr Torrent",
+        description="Built-in torrent downloader (downloaders/torrent)",
+        config_schema={},
+    ),
 ]
 
 
