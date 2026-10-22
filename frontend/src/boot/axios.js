@@ -54,6 +54,13 @@ function getBaseURL() {
 // On native platforms (Capacitor), use fetch adapter to leverage native HTTP
 // which bypasses CORS and WebView restrictions.
 const isNative = isNativePlatform()
+// The desktop shell performs every API call, but it does so by replacing
+// `globalThis.fetch` — and axios defaults to **XHR**, which never goes through that
+// replacement. Measured: the login page's requests left the webview itself, the server
+// logged a CORS preflight (`OPTIONS /api/auth/background`) answered with 400, and the
+// app showed a network error while the shell's own requests kept succeeding. The fetch
+// adapter is what makes axios use the shell at all.
+const usesShellTransport = isDesktopApp()
 
 const api = axios.create({
   baseURL: getBaseURL(),
@@ -66,8 +73,17 @@ const api = axios.create({
     // refresh cookie, native ⇒ refresh token in the response body.
     'X-Client-Platform': isNative ? 'native' : 'web',
   },
-  ...(isNative ? { adapter: 'fetch' } : {}),
+  ...(isNative || usesShellTransport ? { adapter: 'fetch' } : {}),
 })
+
+// The default instance matters too, and this is not cosmetic: the login page calls
+// `axios.get(...)` on the *global* axios, not on `api`. Without this line those calls
+// still went out as XHR from the webview — measured after the first fix: 144 requests
+// and 48 CORS preflights with a WebKit user agent in five minutes, next to the shell's
+// own. CORS then rejects the response and the user sees a network error.
+if (usesShellTransport) {
+  axios.defaults.adapter = 'fetch'
+}
 
 /**
  * Clears the shell's stored tokens.
