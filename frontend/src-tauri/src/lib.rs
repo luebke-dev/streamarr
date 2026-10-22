@@ -215,6 +215,16 @@ pub fn run() {
                         ),
                         Err(err) => log::error!("SPIKE05 fehlgeschlagen: {err}"),
                     }
+                    // And the step everything else depends on: adopt the connection Tauri
+                    // is already using and wrap its surface.
+                    match spike_render::read_handles(&window, size)
+                        .and_then(|h| spike_render::adopt_connection(&h))
+                    {
+                        Ok((_connection, _surface)) => {
+                            log::info!("SPIKE05 Verbindung übernommen, Oberfläche als Proxy griff")
+                        }
+                        Err(err) => log::error!("SPIKE05 Übernahme fehlgeschlagen: {err}"),
+                    }
                 } else {
                     log::error!("SPIKE05: kein Fenster mit Label main");
                 }

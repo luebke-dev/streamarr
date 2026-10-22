@@ -9,6 +9,8 @@
 //! Behind the `spike-render` feature, so it never reaches a package.
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
+#[cfg(feature = "spike-render")]
+use wayland_client::protocol::wl_surface::WlSurface;
 
 /// What the spike learned about this window.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,4 +70,36 @@ mod tests {
         assert_ne!(handles.surface, 0);
         assert_ne!(handles.display, 0);
     }
+}
+
+/// Adopts the app's own Wayland connection and hands back a proxy for its surface.
+///
+/// This is the step the whole plan rests on: if the backend cannot take over the display
+/// Tauri is using, nothing else matters — the render API needs a `wl_surface` of *this*
+/// window, and a second connection to the compositor would not help.
+///
+/// `Backend::from_foreign_display` runs in "guest" mode: dropping it does not close the
+/// connection, which is what we want — Tauri owns the display and must keep it.
+#[cfg(feature = "spike-render")]
+pub fn adopt_connection(
+    handles: &WindowHandles,
+) -> Result<(wayland_client::Connection, WlSurface), String> {
+    use wayland_client::backend::ObjectId;
+    use wayland_client::Proxy;
+
+    let display = handles.display as *mut _;
+    let surface = handles.surface as *mut _;
+
+    // SAFETY: both pointers come from `raw_window_handle` for this very window and stay
+    // valid as long as the window lives; the guest backend does not close them.
+    let backend = unsafe { wayland_backend::sys::client::Backend::from_foreign_display(display) };
+    let connection = wayland_client::Connection::from_backend(backend);
+
+    // SAFETY: the interface description is the generated one for `wl_surface`, and the
+    // pointer belongs to the display we just adopted.
+    // SAFETY: as above; the interface description matches the pointer we obtained.
+    let id = unsafe { ObjectId::from_ptr(WlSurface::interface(), surface) }
+        .map_err(|e| format!("ungültige Oberfläche: {e:?}"))?;
+    let proxy = WlSurface::from_id(&connection, id).map_err(|e| e.to_string())?;
+    Ok((connection, proxy))
 }
