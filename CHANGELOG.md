@@ -66,6 +66,11 @@ release note would group it. Everything before that is in `git log`.
 
 ### Fixed
 
+- Episode downloads are no longer rejected as "wrong content" when the episode
+  title is localized. The import guard compared the German title
+  ("Freiheitstag") with the English release name ("Silo.S01E01.German...") and
+  found no overlap; it now compares show title plus SxxExx, and SxxExx tokens no
+  longer count as title tokens - otherwise two different shows looked identical.
 - Importing a title by TMDB id no longer fails because of a genre. Imports that
   only see numeric genre ids tried to link genres the local table did not know,
   the foreign-key violation aborted the transaction and the swallowed error made

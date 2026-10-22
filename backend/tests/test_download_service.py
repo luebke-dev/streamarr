@@ -605,3 +605,62 @@ class TestHandleCompletedDownload:
             path=str(tmp_path),
         )
         assert result["success"] is False
+
+
+class TestExpectedReleaseTitle:
+    """Episode titles are localized, release names are not.
+
+    "Silo S01E01" is `Freiheitstag` in German metadata while the scene release is
+    `Silo.S01E01.German....`. Comparing the episode title rejected a correct
+    import, so the guard now compares the show title plus SxxExx.
+    """
+
+    @staticmethod
+    async def _show_tree(db, episode_title: str):
+        from streamarr.models.media import MediaItem, MediaType
+
+        show = MediaItem(title="Silo", media_type=MediaType.SHOWS)
+        db.add(show)
+        await db.flush()
+        season = MediaItem(
+            title="Staffel 1", media_type=MediaType.SEASONS,
+            parent_guid=show.guid, sequence_number=1,
+        )
+        db.add(season)
+        await db.flush()
+        episode = MediaItem(
+            title=episode_title, media_type=MediaType.EPISODES,
+            parent_guid=season.guid, sequence_number=1,
+        )
+        db.add(episode)
+        await db.flush()
+        return episode
+
+    @pytest.mark.asyncio
+    async def test_expected_title_uses_show_and_numbers(
+        self, download_service: DownloadService, db_session: AsyncSession
+    ):
+        episode = await self._show_tree(db_session, "Freiheitstag")
+        assert await download_service._expected_release_title(episode) == "Silo S01E01"
+
+    @pytest.mark.asyncio
+    async def test_german_episode_title_matches_english_release(
+        self, download_service: DownloadService, db_session: AsyncSession
+    ):
+        episode = await self._show_tree(db_session, "Freiheitstag")
+        expected = await download_service._expected_release_title(episode)
+        reason = download_service._detect_content_mismatch(
+            expected, "Silo.S01E01.German.AC3.DL.1080p.Web.x265-FuN.mkv", "SHOWS",
+        )
+        assert reason is None
+
+    @pytest.mark.asyncio
+    async def test_a_different_show_is_still_rejected(
+        self, download_service: DownloadService, db_session: AsyncSession
+    ):
+        episode = await self._show_tree(db_session, "Freiheitstag")
+        expected = await download_service._expected_release_title(episode)
+        reason = download_service._detect_content_mismatch(
+            expected, "Daredevil.Born.Again.S01E01.1080p.mkv", "SHOWS",
+        )
+        assert reason is not None

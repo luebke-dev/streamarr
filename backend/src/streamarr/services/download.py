@@ -17,7 +17,10 @@ from sqlalchemy.orm import selectinload
 
 from streamarr.downloaders.deluge import Deluge
 from streamarr.downloaders.sabnzbd import Sabnzbd
-from streamarr.libraries import get_library_type_for_media_item_type, get_plugin_instance
+from streamarr.libraries import (
+    get_library_type_for_media_item_type,
+    get_plugin_instance,
+)
 from streamarr.models.downloader import Downloader
 from streamarr.models.downloads import Download, DownloadStatus
 from streamarr.models.media import (
@@ -25,6 +28,7 @@ from streamarr.models.media import (
     MediaItem,
     MediaRelease,
     MediaReleaseLink,
+    MediaType,
 )
 from streamarr.services.download_status import download_phase
 from streamarr.services.observability import (
@@ -679,11 +683,53 @@ class DownloadService:
         from streamarr.parsers.release_parser import ReleaseParser
 
         cleaned = ReleaseParser.RELEASE_GROUP_PATTERN.sub("", Path(text).stem)
-        return {
-            t
-            for t in re.split(r"[^A-Za-z0-9]+", cleaned.lower())
-            if len(t) >= 3 and not t.isdigit()
-        }
+        tokens = set()
+        for token in re.split(r"[^A-Za-z0-9]+", cleaned.lower()):
+            if len(token) < 3 or token.isdigit():
+                continue
+            # "s01e01" is not a title token: season/episode parity is checked
+            # separately, and counting it here would make two different shows
+            # look like the same release.
+            if re.fullmatch(r"s\d{1,2}(e\d{1,3})?", token):
+                continue
+            tokens.add(token)
+        return tokens
+
+    async def _expected_release_title(self, media_item: MediaItem) -> str:
+        """The text a release name is expected to contain for this item.
+
+        For an episode that is the *show* title plus SxxExx, not the episode
+        title: episode titles are localized in the metadata (German "Freiheitstag"
+        for "Freedom Day") while scene releases carry the English title, so
+        comparing them rejects perfectly good imports.
+        """
+        if media_item.media_type not in (MediaType.SHOWS, MediaType.SEASONS,
+                                        MediaType.EPISODES):
+            return media_item.title or ""
+        episode = media_item
+        if episode.media_type != MediaType.EPISODES:
+            return await self._show_title_for(episode) or (episode.title or "")
+        season = (
+            await self.db.get(MediaItem, episode.parent_guid)
+            if episode.parent_guid else None
+        )
+        show = (
+            await self.db.get(MediaItem, season.parent_guid)
+            if season and season.parent_guid else None
+        )
+        if show is None:
+            return episode.title or ""
+        season_number = season.sequence_number or 0
+        episode_number = episode.sequence_number or 0
+        return f"{show.title} S{season_number:02d}E{episode_number:02d}"
+
+    async def _show_title_for(self, item: MediaItem) -> str | None:
+        node = item
+        while node.parent_guid:
+            node = await self.db.get(MediaItem, node.parent_guid)
+            if node is None:
+                return None
+        return node.title
 
     def _detect_content_mismatch(
         self, download_title: str, file_name: str, library_type: str,
@@ -1186,8 +1232,13 @@ class DownloadService:
         # the release (the release itself is fine, the mount handed back the
         # wrong bytes). The caller can retry.
         if library_type in ("SHOWS", "MOVIES") and download.title:
+            expected_title = (
+                await self._expected_release_title(media_item)
+                if library_type == "SHOWS"
+                else download.title
+            )
             mismatch_reason = self._detect_content_mismatch(
-                download.title, files[0].name, library_type,
+                expected_title or download.title, files[0].name, library_type,
             )
             if mismatch_reason:
                 logger.error(
