@@ -91,7 +91,8 @@ mod wayland {
     use std::os::fd::AsFd;
     use wayland_client::globals::{registry_queue_init, GlobalListContents};
     use wayland_client::protocol::{
-        wl_buffer::WlBuffer, wl_compositor::WlCompositor, wl_registry::WlRegistry,
+        wl_buffer::WlBuffer, wl_callback::WlCallback, wl_compositor::WlCompositor,
+        wl_registry::WlRegistry,
         wl_shm::{Format, WlShm}, wl_shm_pool::WlShmPool, wl_subcompositor::WlSubcompositor,
         wl_subsurface::WlSubsurface, wl_surface::WlSurface,
     };
@@ -135,11 +136,12 @@ mod wayland {
         WlShmPool,
         WlBuffer,
         WlSurface,
-        WlSubsurface
+        WlSubsurface,
+        WlCallback
     );
 
     /// Binds the three globals the subsurface needs.
-    fn bind(
+    pub(super) fn bind(
         handles: &WindowHandles,
     ) -> Result<
         (
@@ -363,4 +365,162 @@ fn gl_string(
         return None;
     }
     Some(unsafe { std::ffi::CStr::from_ptr(ptr as *const i8) }.to_string_lossy().into_owned())
+}
+
+/// Renders into the child surface with our own GL context and measures the frame rate.
+///
+/// Question (c): is a real swap loop into the subsurface usable at a sane rate? The loop
+/// waits for a Wayland **frame callback** after every swap, because `swap_buffers` returns
+/// immediately — counting swaps alone would measure how fast the CPU hands over buffers,
+/// not what the screen shows.
+#[cfg(feature = "spike-render")]
+pub fn run_swap_loop(handles: &WindowHandles) -> Result<String, String> {
+    use khronos_egl as egl;
+    use std::ffi::c_void;
+    use std::time::Instant;
+    use wayland_client::Proxy as _;
+
+    const PLATFORM_WAYLAND_KHR: egl::Enum = 0x31d8;
+    const GL_COLOR_BUFFER_BIT: u32 = 0x4000;
+
+    let (connection, mut queue, compositor, subcompositor, _shm, parent) = wayland::bind(handles)?;
+    let qh = queue.handle();
+    let (width, height) = (handles.width as i32, handles.height as i32);
+
+    let child = compositor.create_surface(&qh, ());
+    let subsurface = subcompositor.get_subsurface(&child, &parent, &qh, ());
+    subsurface.set_position(0, 0);
+    subsurface.place_below(&parent);
+    // Independent of the webview's own commits: the picture must not wait for the UI.
+    subsurface.set_desync();
+
+    let egl_lib =
+        unsafe { wayland_sys::egl::wayland_egl_option() }.ok_or("libwayland-egl fehlt")?;
+    // SAFETY: the child surface is alive for as long as this function runs.
+    let raw_surface = unsafe { child.id().as_ptr() } as *mut c_void;
+    // The `dlopen` bindings expose the functions as fields, not as methods.
+    let egl_window =
+        unsafe { (egl_lib.wl_egl_window_create)(raw_surface as *mut _, width, height) };
+    if egl_window.is_null() {
+        return Err("wl_egl_window_create lieferte nichts".into());
+    }
+
+    // SAFETY: same display Tauri uses; the EGL window belongs to that display.
+    let egl = unsafe {
+        egl::DynamicInstance::<egl::EGL1_5>::load_required_from_filename("libEGL.so.1")
+    }
+    .map_err(|e| format!("libEGL nicht ladbar: {e}"))?;
+    let display = unsafe {
+        egl.get_platform_display(
+            PLATFORM_WAYLAND_KHR,
+            handles.display as *mut c_void,
+            &[egl::ATTRIB_NONE],
+        )
+    }
+    .map_err(|e| format!("get_platform_display: {e:?}"))?;
+    egl.initialize(display)
+        .map_err(|e| format!("eglInitialize: {e:?}"))?;
+    let config = egl
+        .choose_first_config(
+            display,
+            &[
+                egl::SURFACE_TYPE,
+                egl::WINDOW_BIT,
+                egl::RENDERABLE_TYPE,
+                egl::OPENGL_BIT,
+                egl::RED_SIZE,
+                8,
+                egl::GREEN_SIZE,
+                8,
+                egl::BLUE_SIZE,
+                8,
+                egl::NONE,
+            ],
+        )
+        .map_err(|e| format!("choose_first_config: {e:?}"))?
+        .ok_or("keine passende EGL-Konfiguration")?;
+    // No version attributes: asking for GL 1.5 explicitly is answered with `BadMatch` when
+    // the window config does not offer exactly that. The context the driver picks is what
+    // libmpv will use anyway.
+    //
+    // `BadConfig` then means the *config* is the problem, so the error carries what the
+    // config actually is instead of leaving the next reader to guess.
+    let config_facts = format!(
+        "Oberfläche={:#x} Renderbar={:#x} Caveat={:#x}",
+        egl.get_config_attrib(display, config, egl::SURFACE_TYPE as i32)
+            .unwrap_or(-1),
+        egl.get_config_attrib(display, config, egl::RENDERABLE_TYPE as i32)
+            .unwrap_or(-1),
+        egl.get_config_attrib(display, config, egl::CONFIG_CAVEAT as i32)
+            .unwrap_or(-1),
+    );
+    // The window config advertises GL *and* ES (`0x4c`), yet a plain GL context is answered
+    // with `BadConfig`. ES2 is explicitly offered, so it is the honest next attempt.
+    let context = egl
+        .create_context(
+            display,
+            config,
+            None,
+            &[egl::CONTEXT_CLIENT_VERSION as i32, 2, egl::NONE],
+        )
+        .or_else(|e| {
+            log::warn!("SPIKE05 GL-Kontext nicht möglich: {e:?} ({config_facts})");
+            egl.create_context(display, config, None, &[egl::CONTEXT_CLIENT_VERSION as i32, 1, egl::NONE])
+        })
+        .map_err(|e| format!("create_context: {e:?} ({config_facts})"))?;
+    let surface = unsafe {
+        egl.create_window_surface(display, config, egl_window as *mut c_void, None)
+    }
+    .map_err(|e| format!("create_window_surface: {e:?}"))?;
+    egl.make_current(display, Some(surface), Some(surface), Some(context))
+        .map_err(|e| format!("make_current: {e:?}"))?;
+
+    type ClearColor = unsafe extern "system" fn(f32, f32, f32, f32);
+    type Clear = unsafe extern "system" fn(u32);
+    let proc = |name: &str| egl.get_proc_address(name).ok_or_else(|| format!("{name} fehlt"));
+    let clear_color: ClearColor = unsafe { std::mem::transmute(proc("glClearColor")?) };
+    let clear: Clear = unsafe { std::mem::transmute(proc("glClear")?) };
+
+    // Warmup without waiting: the very first swaps attach buffers and map the surface, and
+    // a frame callback before that never arrives — the first run of this probe hung there.
+    for _ in 0..3 {
+        unsafe {
+            clear_color(0.05, 0.25, 0.85, 1.0);
+            clear(GL_COLOR_BUFFER_BIT);
+        }
+        egl.swap_buffers(display, surface)
+            .map_err(|e| format!("swap_buffers: {e:?}"))?;
+        connection.flush().ok();
+    }
+
+    let frames = 120u32;
+    let started = Instant::now();
+    let mut done = 0u32;
+    for _ in 0..frames {
+        // SAFETY: a current GL context with a window surface is bound.
+        unsafe {
+            clear_color(0.05, 0.25, 0.85, 1.0);
+            clear(GL_COLOR_BUFFER_BIT);
+        }
+        egl.swap_buffers(display, surface)
+            .map_err(|e| format!("swap_buffers: {e:?}"))?;
+        let _callback = child.frame(&qh, ());
+        queue.roundtrip(&mut wayland::State).map_err(|e| e.to_string())?;
+        done += 1;
+        if started.elapsed().as_secs_f64() > 6.0 {
+            break;
+        }
+    }
+    let seconds = started.elapsed().as_secs_f64();
+
+    egl.make_current(display, None, None, None).ok();
+    egl.destroy_surface(display, surface).ok();
+    egl.destroy_context(display, context).ok();
+    unsafe { (egl_lib.wl_egl_window_destroy)(egl_window) };
+    // Keep the surface chain alive: destroying it would remove the picture we just measured.
+    std::mem::forget((child, subsurface, connection));
+    Ok(format!(
+        "{done} Bilder in {seconds:.2} s = {:.1} fps (mit Frame-Callbacks)",
+        done as f64 / seconds
+    ))
 }

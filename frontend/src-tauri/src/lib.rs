@@ -231,6 +231,31 @@ pub fn run() {
                         Ok(info) => log::info!("SPIKE05 Globals: {info}"),
                         Err(err) => log::error!("SPIKE05 Globals fehlgeschlagen: {err}"),
                     }
+                    match spike_render::read_handles(&window, size)
+                        .and_then(|h| spike_render::show_magenta_patch(&h))
+                    {
+                        Ok(info) => log::info!("SPIKE05 {info}"),
+                        Err(err) => log::error!("SPIKE05 Patch fehlgeschlagen: {err}"),
+                    }
+                    match spike_render::read_handles(&window, size)
+                        .and_then(|h| spike_render::probe_egl(&h))
+                    {
+                        Ok(info) => log::info!("SPIKE05 {info}"),
+                        Err(err) => log::error!("SPIKE05 EGL fehlgeschlagen: {err}"),
+                    }
+                    // In a thread: this measures for seconds, and the setup hook must not
+                    // hold the window back while it does.
+                    if let Ok(handles) = spike_render::read_handles(&window, size) {
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(2500));
+                            match spike_render::run_swap_loop(&handles) {
+                                Ok(info) => log::info!("SPIKE05 Bildrate: {info}"),
+                                Err(err) => {
+                                    log::error!("SPIKE05 Swap-Schleife fehlgeschlagen: {err}")
+                                }
+                            }
+                        });
+                    }
                 } else {
                     log::error!("SPIKE05: kein Fenster mit Label main");
                 }

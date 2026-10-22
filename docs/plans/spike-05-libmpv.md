@@ -170,3 +170,36 @@ Zwei Messungen waren nötig, und beide waren lehrreich:
 Noch offen in (c): eine Swap-Schleife in die Kind-Oberfläche mit gemessener Bildrate — dafür
 kommt `wayland-egl` (`wl_egl_window`) dazu. Und in (d) der eigentliche Nachweis: libmpv
 zeichnet durch diesen Kontext, während WebKit weiterkomponiert.
+
+### Ergebnis zu Frage (c) — Bildrate: **belegt**
+
+Eine Swap-Schleife mit **eigenem** EGL-Kontext in die Kind-Oberfläche unter der WebView,
+getaktet über Wayland-**Frame-Callbacks**:
+
+```
+SPIKE05 Bildrate: 120 Bilder in 2.00 s = 60.0 fps (mit Frame-Callbacks)
+```
+
+Die Frame-Callbacks sind der Punkt: `swap_buffers` kehrt sofort zurück, ein Zählen der
+Aufrufe misst also nur, wie schnell die CPU Puffer einreicht. Erst das Warten auf den
+Callback misst, was das Display zeigt — und das sind hier exakt 60 Hz.
+
+Drei Messungen waren nötig, jede mit einer Lehre:
+
+* **Erst hing die Schleife.** Beim `setup` ist die Oberfläche noch nicht gemappt, also kommt
+  kein Frame-Callback und `roundtrip` blockiert für immer. Der Lauf gehört in einen Thread
+  und braucht Anlaufzeit sowie ein paar Swaps ohne Warten, damit Puffer hängen.
+* **`BadMatch`** bei `EGL_CONTEXT_MAJOR/MINOR_VERSION` 1.5 und einer Fenster-Konfiguration.
+* **`BadConfig`** bei einem GL-Kontext ohne Versionsangabe, obwohl die Konfiguration
+  einwandfrei aussieht: `SURFACE_TYPE=0x5` (Puffer+Window), `RENDERABLE_TYPE=0x4c` (GL und
+  ES), `CONFIG_CAVEAT=0x3038` (kein Caveat). Ein **ES2**-Kontext auf derselben Konfiguration
+  geht sofort.
+
+**Das ist eine Randbedingung für den Umbau, keine Fußnote:** mit einer Wayland-Fenster-
+Konfiguration bekommt man auf diesem Treiber einen **GLES2**-Kontext, keinen Desktop-GL-
+Kontext. Die mpv-Render-API (`MPV_RENDER_API_TYPE_OPENGL`) läuft auf GLES2 — der Weg ist
+also gangbar, aber die Wahl des Render-Backends ist damit vorgezeichnet. Der GL-4.6-Kontext
+aus der Pbuffer-Messung bleibt für einen Offscreen-Pfad verfügbar.
+
+Nebenbei: die Kind-Oberfläche steht auf `set_desync()`, damit das Bild nicht auf die
+Commits der Oberfläche wartet — ohne das hängt die Bildrate an der WebView.
