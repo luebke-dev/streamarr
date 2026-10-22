@@ -203,3 +203,34 @@ aus der Pbuffer-Messung bleibt für einen Offscreen-Pfad verfügbar.
 
 Nebenbei: die Kind-Oberfläche steht auf `set_desync()`, damit das Bild nicht auf die
 Commits der Oberfläche wartet — ohne das hängt die Bildrate an der WebView.
+
+### Ergebnis zu Frage (d) — libmpv im App-Prozess: **blockierender Befund**
+
+Der Versuch, libmpv durch unseren Kontext zeichnen zu lassen, ist nicht bis zur ersten
+Bildausgabe gekommen. Was gemessen ist, ist dafür eindeutig:
+
+| Ort im Programm | Ergebnis |
+|---|---|
+| `run()` ganz am Anfang, vor Tauri | `mpv_create = 0x5599d764a670` — **funktioniert** |
+| `setup`, nach Tauri-Initialisierung | `mpv_create = 0x0` — **scheitert** |
+| API-Version im App-Prozess | `131077` — die Bindung ist korrekt |
+| Minimalprogramm in Rust, gleiche Bindung, gleicher Container | Handle gesetzt, `initialize: 0` |
+| C-Programm mit `pkg-config mpv`, auch ohne Terminal | Handle gesetzt, `initialize: 0` |
+
+Damit ist ausgeschlossen: falsche Symbolbindung (API-Version stimmt), fehlende Bibliothek
+(das Binary bindet `libmpv.so.2`, der Host-`ldd` meldet „not found", weil es auf dem Host
+kein libmpv gibt — im Container läuft es), Umgebungsproblem von `HOME`, und fehlendes
+Terminal. Übrig bleibt: **zwischen Prozessanfang und `setup` geht libmpv in diesem Prozess
+kaputt.**
+
+Das ist kein Nebenbefund. Die ADR 003 setzt „libmpv im App-Prozess" voraus; wenn libmpv dort
+nicht initialisierbar ist, trägt der ganze Weg nicht. Die Ursache ist noch nicht eingekreist —
+in Frage kommen die GTK/WebKit-Initialisierung in `builder.build()` oder das Setup eines der
+Tauri-Plugins (Single-Instance, Deeplink, Updater), die vor dem App-`setup` laufen.
+
+**Nächste Messung, bewusst klein:** je eine Sonde (a) direkt nach `tauri::Builder::default()`,
+(b) nach `builder.build(context)` und vor `.run()`, (c) mit vorübergehend abgeschalteten
+Plugins. Das trennt Builder, Plugins und WebView-Erzeugung als Ursache. Erst danach lässt sich
+sagen, ob der Weg mit einer Anpassung trägt oder ob hier die Alternative vorzulegen ist.
+
+Eine Sonde (`probe_mpv_create`) und ihre zwei Aufrufstellen liegen dafür schon im Code.

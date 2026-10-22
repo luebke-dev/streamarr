@@ -154,6 +154,9 @@ impl AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before Tauri touches anything: does libmpv work in this *process* at all?
+    #[cfg(feature = "spike-render")]
+    eprintln!("SPIKE05 main-start: {}", spike_render::probe_mpv_create("main-start"));
     let mut builder = tauri::Builder::default();
 
     // Single instance first: the plugin must see the command line before anything
@@ -217,6 +220,7 @@ pub fn run() {
                     }
                     // And the step everything else depends on: adopt the connection Tauri
                     // is already using and wrap its surface.
+                    log::info!("SPIKE05 frueh: {}", spike_render::probe_mpv_create("früh"));
                     match spike_render::read_handles(&window, size)
                         .and_then(|h| spike_render::adopt_connection(&h))
                     {
@@ -248,11 +252,9 @@ pub fn run() {
                     if let Ok(handles) = spike_render::read_handles(&window, size) {
                         std::thread::spawn(move || {
                             std::thread::sleep(std::time::Duration::from_millis(2500));
-                            match spike_render::run_swap_loop(&handles) {
-                                Ok(info) => log::info!("SPIKE05 Bildrate: {info}"),
-                                Err(err) => {
-                                    log::error!("SPIKE05 Swap-Schleife fehlgeschlagen: {err}")
-                                }
+                            match spike_render::run_libmpv_probe(&handles) {
+                                Ok(info) => log::info!("SPIKE05 libmpv: {info}"),
+                                Err(err) => log::error!("SPIKE05 libmpv fehlgeschlagen: {err}"),
                             }
                         });
                     }

@@ -397,7 +397,7 @@ pub fn run_swap_loop(handles: &WindowHandles) -> Result<String, String> {
     let egl_lib =
         unsafe { wayland_sys::egl::wayland_egl_option() }.ok_or("libwayland-egl fehlt")?;
     // SAFETY: the child surface is alive for as long as this function runs.
-    let raw_surface = unsafe { child.id().as_ptr() } as *mut c_void;
+    let raw_surface = child.id().as_ptr() as *mut c_void;
     // The `dlopen` bindings expose the functions as fields, not as methods.
     let egl_window =
         unsafe { (egl_lib.wl_egl_window_create)(raw_surface as *mut _, width, height) };
@@ -523,4 +523,274 @@ pub fn run_swap_loop(handles: &WindowHandles) -> Result<String, String> {
         "{done} Bilder in {seconds:.2} s = {:.1} fps (mit Frame-Callbacks)",
         done as f64 / seconds
     ))
+}
+
+/// Let libmpv draw through **our** context — question (d).
+///
+/// The point is not playback convenience but whether WebKit's and mpv's renderers tolerate
+/// each other. mpv renders into the default framebuffer of the window surface we already
+/// swap, so no FBO juggling is involved and a failure points at the render context rather
+/// than at our plumbing.
+///
+/// The source is a generated test pattern (`av://lavfi:…`) on purpose: no token, no server,
+/// nothing to leak — and it is visually unmistakable.
+#[cfg(feature = "spike-render")]
+pub fn run_libmpv_probe(handles: &WindowHandles) -> Result<String, String> {
+    use khronos_egl as egl;
+    use std::ffi::{c_char, c_int, c_void, CStr, CString};
+    use std::time::Instant;
+    use wayland_client::Proxy as _;
+
+    #[repr(C)]
+    struct MpvRenderParam {
+        type_: c_int,
+        data: *mut c_void,
+    }
+
+    #[repr(C)]
+    struct MpvOpenGlInitParams {
+        get_proc_address:
+            Option<unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void>,
+        get_proc_address_ctx: *mut c_void,
+    }
+
+    #[link(name = "mpv")]
+    extern "C" {
+        fn mpv_create() -> *mut c_void;
+        fn mpv_client_api_version() -> u64;
+        fn mpv_initialize(ctx: *mut c_void) -> c_int;
+        fn mpv_command_string(ctx: *mut c_void, args: *const c_char) -> c_int;
+        fn mpv_render_context_create(
+            out: *mut *mut c_void,
+            mpv: *mut c_void,
+            params: *mut MpvRenderParam,
+        ) -> c_int;
+        fn mpv_render_context_render(ctx: *mut c_void, params: *mut MpvRenderParam) -> c_int;
+        fn mpv_error_string(code: c_int) -> *const c_char;
+        fn mpv_get_property_string(ctx: *mut c_void, name: *const c_char) -> *mut c_char;
+    }
+
+    const PARAM_INVALID: c_int = 0;
+    const PARAM_API_TYPE: c_int = 1;
+    const PARAM_OPENGL_INIT_PARAMS: c_int = 2;
+
+    struct Loader {
+        egl: egl::DynamicInstance<egl::EGL1_5>,
+    }
+
+    unsafe extern "C" fn get_proc_address(
+        ctx: *mut c_void,
+        name: *const c_char,
+    ) -> *mut c_void {
+        if ctx.is_null() || name.is_null() {
+            return std::ptr::null_mut();
+        }
+        let loader = unsafe { &*(ctx as *const Loader) };
+        let name = unsafe { CStr::from_ptr(name) }.to_string_lossy().into_owned();
+        loader
+            .egl
+            .get_proc_address(&name)
+            .map(|p| p as *mut c_void)
+            .unwrap_or(std::ptr::null_mut())
+    }
+
+    let error = |code: c_int, what: &str| {
+        let text = unsafe {
+            let ptr = mpv_error_string(code);
+            if ptr.is_null() {
+                String::from("unbekannt")
+            } else {
+                CStr::from_ptr(ptr).to_string_lossy().into_owned()
+            }
+        };
+        format!("{what}: {text} ({code})")
+    };
+
+    let (connection, mut queue, compositor, subcompositor, _shm, parent) = wayland::bind(handles)?;
+    let qh = queue.handle();
+    let (width, height) = (handles.width as i32, handles.height as i32);
+
+    let child = compositor.create_surface(&qh, ());
+    let subsurface = subcompositor.get_subsurface(&child, &parent, &qh, ());
+    subsurface.set_position(0, 0);
+    subsurface.place_below(&parent);
+    subsurface.set_desync();
+
+    let egl_lib =
+        unsafe { wayland_sys::egl::wayland_egl_option() }.ok_or("libwayland-egl fehlt")?;
+    let raw_surface = child.id().as_ptr() as *mut c_void;
+    let egl_window =
+        unsafe { (egl_lib.wl_egl_window_create)(raw_surface as *mut _, width, height) };
+
+    // The instance is not `Clone`, so it lives in the loader from the start and every EGL
+    // call goes through it.
+    let mut loader = Loader {
+        egl: unsafe {
+            egl::DynamicInstance::<egl::EGL1_5>::load_required_from_filename("libEGL.so.1")
+        }
+        .map_err(|e| format!("libEGL nicht ladbar: {e}"))?,
+    };
+    let display = unsafe {
+        loader.egl.get_platform_display(
+            0x31d8,
+            handles.display as *mut c_void,
+            &[egl::ATTRIB_NONE],
+        )
+    }
+    .map_err(|e| format!("get_platform_display: {e:?}"))?;
+    loader.egl
+        .initialize(display)
+        .map_err(|e| format!("eglInitialize: {e:?}"))?;
+    let config = loader.egl
+        .choose_first_config(
+            display,
+            &[
+                egl::SURFACE_TYPE,
+                egl::WINDOW_BIT,
+                egl::RENDERABLE_TYPE,
+                egl::OPENGL_ES2_BIT,
+                egl::NONE,
+            ],
+        )
+        .map_err(|e| format!("choose_first_config: {e:?}"))?
+        .ok_or("keine passende EGL-Konfiguration")?;
+    let context = loader.egl
+        .create_context(
+            display,
+            config,
+            None,
+            &[egl::CONTEXT_CLIENT_VERSION as c_int, 2, egl::NONE],
+        )
+        .map_err(|e| format!("create_context: {e:?}"))?;
+    let surface = unsafe {
+        loader.egl.create_window_surface(display, config, egl_window as *mut c_void, None)
+    }
+    .map_err(|e| format!("create_window_surface: {e:?}"))?;
+    loader.egl
+        .make_current(display, Some(surface), Some(surface), Some(context))
+        .map_err(|e| format!("make_current: {e:?}"))?;
+
+    let mut api_type = CString::new("opengl").map_err(|e| e.to_string())?;
+    let mut init = MpvOpenGlInitParams {
+        get_proc_address: Some(get_proc_address),
+        get_proc_address_ctx: &mut loader as *mut Loader as *mut c_void,
+    };
+    let mut params = [
+        MpvRenderParam {
+            type_: PARAM_API_TYPE,
+            data: api_type.as_ptr() as *mut c_void,
+        },
+        MpvRenderParam {
+            type_: PARAM_OPENGL_INIT_PARAMS,
+            data: &mut init as *mut MpvOpenGlInitParams as *mut c_void,
+        },
+        MpvRenderParam {
+            type_: PARAM_INVALID,
+            data: std::ptr::null_mut(),
+        },
+    ];
+
+    // If the binding is wrong, this number says so before anything else looks mysterious.
+    let api_version = unsafe { mpv_client_api_version() };
+    let mut mpv = unsafe { mpv_create() };
+    if mpv.is_null() {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        mpv = unsafe { mpv_create() };
+    }
+    if mpv.is_null() {
+        return Err(format!(
+            "mpv_create lieferte nichts (API-Version {api_version}, HOME={:?})",
+            std::env::var("HOME").ok()
+        ));
+    }
+    let rc = unsafe { mpv_initialize(mpv) };
+    if rc < 0 {
+        return Err(error(rc, "mpv_initialize"));
+    }
+    let mut render_ctx: *mut c_void = std::ptr::null_mut();
+    let rc = unsafe { mpv_render_context_create(&mut render_ctx, mpv, params.as_mut_ptr()) };
+    if rc < 0 {
+        return Err(error(rc, "mpv_render_context_create"));
+    }
+
+    let command = CString::new("loadfile av://lavfi:testsrc2=size=1280x720:rate=30")
+        .map_err(|e| e.to_string())?;
+    let rc = unsafe { mpv_command_string(mpv, command.as_ptr()) };
+    if rc < 0 {
+        return Err(error(rc, "loadfile"));
+    }
+
+    let mut render_params = [MpvRenderParam {
+        type_: PARAM_INVALID,
+        data: std::ptr::null_mut(),
+    }];
+
+    for _ in 0..3 {
+        unsafe {
+            mpv_render_context_render(render_ctx, render_params.as_mut_ptr());
+        }
+        loader.egl.swap_buffers(display, surface).ok();
+        connection.flush().ok();
+    }
+
+    let frames = 120u32;
+    let started = Instant::now();
+    let mut rendered = 0u32;
+    let mut failed = 0u32;
+    for _ in 0..frames {
+        let rc = unsafe { mpv_render_context_render(render_ctx, render_params.as_mut_ptr()) };
+        if rc < 0 {
+            failed += 1;
+        } else {
+            rendered += 1;
+        }
+        loader.egl
+            .swap_buffers(display, surface)
+            .map_err(|e| format!("swap_buffers: {e:?}"))?;
+        let _callback = child.frame(&qh, ());
+        queue
+            .roundtrip(&mut wayland::State)
+            .map_err(|e| e.to_string())?;
+        if started.elapsed().as_secs_f64() > 8.0 {
+            break;
+        }
+    }
+    let seconds = started.elapsed().as_secs_f64();
+
+    // Evidence that mpv really decoded, not merely that our loop ran.
+    let format = unsafe {
+        let name = CString::new("video-format").unwrap();
+        let value = mpv_get_property_string(mpv, name.as_ptr());
+        if value.is_null() {
+            "?".to_string()
+        } else {
+            CStr::from_ptr(value).to_string_lossy().into_owned()
+        }
+    };
+
+    std::mem::forget((child, subsurface, connection, render_ctx, mpv, loader));
+    Ok(format!(
+        "{rendered} mpv-Bilder ({failed} Fehler) in {seconds:.2} s = {:.1} fps · Format {format}",
+        rendered as f64 / seconds
+    ))
+}
+
+/// Is `mpv_create` failing because of *this process*, or because of *when* it is called?
+///
+/// Calling it at two very different moments answers that, and the two answers point at
+/// completely different problems.
+#[cfg(feature = "spike-render")]
+pub fn probe_mpv_create(when: &str) -> String {
+    use std::ffi::c_void;
+    #[link(name = "mpv")]
+    extern "C" {
+        fn mpv_create() -> *mut c_void;
+        fn mpv_destroy(ctx: *mut c_void);
+    }
+    let handle = unsafe { mpv_create() };
+    let report = format!("{when}: mpv_create = {handle:?}");
+    if !handle.is_null() {
+        unsafe { mpv_destroy(handle) };
+    }
+    report
 }
