@@ -761,29 +761,48 @@ class LibraryImportService:
             genre = result.scalar_one_or_none()
 
             if not genre and genre_name:
-                stmt = (
-                    insert_stmt(Genre)
-                    .values(id=genre_id, name=genre_name)
-                    .on_conflict_do_nothing(index_elements=["name"])
-                )
-                await self.db.execute(stmt)
-                await self.db.flush()
+                # SAVEPOINT: a genre that already exists under a different id
+                # (or under that name) must not poison the import transaction.
+                try:
+                    async with self.db.begin_nested():
+                        await self.db.execute(
+                            insert_stmt(Genre)
+                            .values(id=genre_id, name=genre_name)
+                            .on_conflict_do_nothing(index_elements=["name"])
+                        )
+                except Exception as exc:
+                    logger.debug("Genre %s could not be created: %s", genre_id, exc)
 
-                result = await self.db.execute(select(Genre).where(Genre.id == genre_id))
+                result = await self.db.execute(
+                    select(Genre).where(Genre.id == genre_id)
+                )
                 genre = result.scalar_one_or_none()
 
                 if genre:
                     logger.info("Created genre: %s - %s", genre_id, genre_name)
 
-            if genre or genre_name:
-                try:
+            if genre is None:
+                # Import paths that only see `genre_ids` (TMDB list responses)
+                # have no name, so an unknown id cannot be created. Linking it
+                # anyway violates media_genre.genre_id -> genre.id and aborts
+                # the transaction, which used to take the whole import with it:
+                # every following statement failed with InFailedSQLTransaction.
+                logger.debug(
+                    "Skipping genre %s for %s: unknown and no name to create it",
+                    genre_id, media_item_guid,
+                )
+                continue
+
+            # SAVEPOINT again: a rejected link is not a reason to lose the item.
+            try:
+                async with self.db.begin_nested():
                     await self.db.execute(
                         insert_stmt(media_genre_table)
                         .values(media_item_guid=media_item_guid, genre_id=genre_id)
                         .on_conflict_do_nothing()
                     )
-                except Exception as exc:
-                    logger.debug("Genre %s association error: %s", genre_id, exc)
+            except Exception as exc:
+                logger.debug("Genre %s association error: %s", genre_id, exc)
 
     async def import_show_seasons_and_episodes(
         self,

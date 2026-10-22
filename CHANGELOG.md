@@ -66,6 +66,11 @@ release note would group it. Everything before that is in `git log`.
 
 ### Fixed
 
+- Importing a title by TMDB id no longer fails because of a genre. Imports that
+  only see numeric genre ids tried to link genres the local table did not know,
+  the foreign-key violation aborted the transaction and the swallowed error made
+  every following statement fail - 39 of 87 titles could not be imported at all.
+  Unknown genres are skipped and the risky writes run inside savepoints.
 - Transcoding: a finished encode is no longer mistaken for a crash and restarted
   from the beginning, which had been overwriting the segments a player was
   reading (the "stream stalls every few minutes" symptom) and leaving 4.5 GB of
