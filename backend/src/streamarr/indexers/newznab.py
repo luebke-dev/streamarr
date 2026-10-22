@@ -148,13 +148,22 @@ class Newznab(IndexerBase):
         }
         return await self._search("movie", params)
 
-    async def fetch_recent(self, *, limit: int = 100) -> list[dict[str, Any]]:
-        """Single-page latest feed (``t=search`` with no query) for RSS
-        sync. Does NOT paginate — one request per indexer per tick.
+    async def fetch_recent(
+        self, *, limit: int = 100, categories: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Single-page latest feed for RSS sync.
+
+        ``categories`` restricts the feed to the Newznab categories the library
+        actually stores (e.g. 2000,5000). Without it the indexer answers with its
+        global "newest 100", which on a general-purpose indexer is almost always
+        software - and then no monitored movie or show can ever match.
+
+        Does NOT paginate — one request per indexer per tick.
         Returns [] on any indexer error so a bad feed is just skipped.
         """
+        params = {"cat": categories} if categories else {}
         try:
-            data = await self._request(function="search", params={})
+            data = await self._request(function="search", params=params)
         except IndexerError:
             return []
         except Exception as e:  # pragma: no cover - defensive
@@ -175,7 +184,10 @@ class Newznab(IndexerBase):
             }
             for item in raw[:limit]
         ]
-        logger.debug("Newznab fetch_recent %s returned %d items", self.id, len(items))
+        logger.debug(
+            "Newznab fetch_recent %s (cat=%s) returned %d items",
+            self.id, categories or "all", len(items),
+        )
         return items
 
     async def get_feed(self):

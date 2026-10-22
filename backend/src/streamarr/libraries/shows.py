@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -1014,7 +1015,16 @@ class ShowLibraryPlugin(LibraryBase):
         from streamarr.models.media import MediaItem
 
         src = Path(media_file.file_path)
-        library_path = await self.get_default_path()
+        # The configured library path is the truth; get_default_path() only knows
+        # the built-in /library/... default and would write next to the real
+        # library on an instance that mounts its media elsewhere.
+        from streamarr.services.library import LibraryService
+
+        library = await LibraryService(db).get_library_by_type(self.get_library_type())
+        library_path = (
+            library.path if library is not None and library.path
+            else await self.get_default_path()
+        )
         if str(src).startswith(library_path):
             return {"success": True, "already_in_library": True}
         if not src.exists():
@@ -1089,5 +1099,12 @@ class ShowLibraryPlugin(LibraryBase):
 
         media_file.file_path = str(dest)
         media_file.file_name = dest.name
+        # Record where the file now lives. Without these the row looks like a
+        # download that was never imported (imported_at NULL) and the library
+        # reconciler cannot attribute it to a library root.
+        media_file.imported_at = datetime.now(UTC)
+        media_file.library_root = library_path
+        if library is not None:
+            media_file.library_guid = library.guid
         await db.commit()
         return {"success": True, "file_path": str(dest)}

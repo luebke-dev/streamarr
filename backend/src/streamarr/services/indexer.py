@@ -64,11 +64,33 @@ class IndexerService:
         with observe_indexer_search(indexer_type, "rss") as result_count:
             client = self._create_indexer_client(indexer)
             try:
-                items = await client.fetch_recent(limit=limit)
+                items = await client.fetch_recent(
+                    limit=limit, categories=self._rss_category_filter(indexer)
+                )
             finally:
                 await client.close()
             result_count[0] = len(items)
             return items
+
+    @staticmethod
+    def _rss_category_filter(indexer: Indexer) -> str | None:
+        """Comma-separated Newznab categories to poll for this indexer.
+
+        Only categories that carry something the instance can monitor - movies
+        and shows. Polling everything means the feed is dominated by whatever
+        the indexer posts most (usually software), and RSS matching never sees
+        a release it could act on.
+        """
+        relevant = {"movie", "show"}
+        ids = sorted(
+            {
+                str(cat.newznab_category_id)
+                for cat in (indexer.categories or [])
+                if cat.newznab_category_id is not None
+                and (cat.category_type or "").lower() in relevant
+            }
+        )
+        return ",".join(ids) if ids else None
 
     async def fetch_recent_releases(
         self,

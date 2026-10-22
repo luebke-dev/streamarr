@@ -222,6 +222,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "automation.upgrades_enabled": False,
     "automation.rss_sync_enabled": False,
     "automation.rss_min_interval_minutes": 15,
+    # How many feed items per indexer one RSS tick looks at. A busy indexer's
+    # newest 100 items are often all software, so a monitored show never appears;
+    # a wider window costs one request more and sees the actual media releases.
+    "automation.rss_feed_limit": 100,
     "automation.upgrade_scan_batch_size": 25,
     "automation.max_concurrent_upgrade_downloads": 3,
     "automation.library_scan_interval_hours": 12,

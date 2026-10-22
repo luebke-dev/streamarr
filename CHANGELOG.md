@@ -58,6 +58,11 @@ release note would group it. Everything before that is in `git log`.
 
 ### Changed
 
+- Seasons are imported with their own TMDB namespace (`tmdb_season`). TMDB ids
+  are only unique per namespace - movie 1995 is "Lara Croft: Tomb Raider" while
+  season 1995 is a Star Trek: TNG season - so a season row could answer "already
+  exists" for a movie and silently block its import. Attaching an external id is
+  now best-effort as well: a colliding pair no longer costs the whole import.
 - Licence is MIT for the whole project.
 - Seasons get their folder from `plugin.shows.naming.season_folder` instead of a
   hardcoded `Season 01`, so the folder layout can be changed in one place.
@@ -66,6 +71,24 @@ release note would group it. Everything before that is in `git log`.
 
 ### Fixed
 
+- Promotion to the library uses the library path from the database instead of the
+  built-in `/library/...` default, and records provenance: `imported_at`,
+  `library_guid` and `library_root` are set when a file is moved, so a promoted
+  file no longer looks like a download that was never imported.
+- Episode acquisition works again. When the hierarchy got its own `SEASONS` and
+  `EPISODES` types, several places kept listing only `MOVIES`/`SHOWS`: the release
+  search skipped every episode, the dispatcher rejected them as unsupported, the
+  show context resolved no season/episode numbers, and no library plugin parsed
+  the release - which left every candidate at "480p" and the quality profile
+  rejected it. No episode could be grabbed, by RSS, by the sweep or by hand.
+- RSS sync polls the feed with a category filter (movies and shows) instead of the
+  indexer's global newest items. On a general-purpose indexer the unfiltered feed
+  is almost entirely software, so no monitored title could ever match. The window
+  is configurable via `automation.rss_feed_limit` (default 100).
+- An RSS hit now acquires the release it announces: the feed title is parsed for
+  its season/episode and only that leaf is searched. Previously a single new
+  episode triggered a backfill of the whole show, which queued every missing
+  episode at once (a 13-season series would have queued its entire backlog).
 - Episode downloads are no longer rejected as "wrong content" when the episode
   title is localized. The import guard compared the German title
   ("Freiheitstag") with the English release name ("Silo.S01E01.German...") and

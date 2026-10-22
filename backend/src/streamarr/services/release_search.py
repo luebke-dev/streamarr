@@ -161,7 +161,19 @@ class ReleaseSearchService:
         self, media_item: MediaItem, *, force: bool = False
     ) -> bool:
         """Check if this media type supports release search."""
-        if media_item.media_type not in [MediaType.MOVIES, MediaType.SHOWS, MediaType.SONGS, MediaType.BOOKS, MediaType.GAMES]:
+        if media_item.media_type not in [
+            MediaType.MOVIES,
+            MediaType.SHOWS,
+            # Episodes are the leaves a series is actually acquired at. They used
+            # to be stored as SHOWS, so this whitelist never had to name them -
+            # once the hierarchy got its own EPISODES/SEASONS types, every episode
+            # search started to skip itself and no episode could ever be grabbed.
+            MediaType.EPISODES,
+            MediaType.SEASONS,
+            MediaType.SONGS,
+            MediaType.BOOKS,
+            MediaType.GAMES,
+        ]:
             logger.info(
                 "Media item %s is type %s, skipping release search",
                 media_item.guid,
@@ -234,7 +246,16 @@ class ReleaseSearchService:
             "episode_number": None,
         }
 
-        if media_item.media_type != MediaType.SHOWS or not media_item.parent_guid:
+        # Episodes and seasons are the normal case now (they used to be stored
+        # as SHOWS). Bailing out for anything but SHOWS left season/episode
+        # numbers empty, and the caller then refused to search at all.
+        if media_item.media_type not in (
+            MediaType.SHOWS,
+            MediaType.SEASONS,
+            MediaType.EPISODES,
+        ):
+            return context
+        if not media_item.parent_guid:
             return context
 
         # Traverse up the parent chain to the root show
@@ -259,17 +280,23 @@ class ReleaseSearchService:
                 elif ext_id.provider == "imdb":
                     ids["imdb"] = ext_id.external_id
 
-            if not ids["tvdb"]:
+            if not ids.get("tvdb"):
                 logger.info(
                     "No TVDB ID found for show %s, will use title-based search for episode",
                     show.title,
                 )
 
         # Episode number from the item itself
-        context["episode_number"] = media_item.sequence_number
+        if media_item.media_type == MediaType.EPISODES:
+            context["episode_number"] = media_item.sequence_number
+
+        # A season item carries the season number itself; only an episode has to
+        # look it up in its parent.
+        if media_item.media_type == MediaType.SEASONS:
+            context["season_number"] = media_item.sequence_number
 
         # Season number from parent
-        if media_item.parent_guid:
+        if media_item.media_type == MediaType.EPISODES and media_item.parent_guid:
             season_result = await self.db.execute(
                 select(MediaItem).where(MediaItem.guid == media_item.parent_guid)
             )
@@ -302,7 +329,14 @@ class ReleaseSearchService:
         """Query indexers based on media type. Returns None if search cannot proceed."""
         if media_item.media_type == MediaType.MOVIES:
             return await self._search_movie_releases(media_item, indexer_service, ids)
-        elif media_item.media_type == MediaType.SHOWS:
+        elif media_item.media_type in (
+            MediaType.SHOWS,
+            MediaType.SEASONS,
+            MediaType.EPISODES,
+        ):
+            # Episodes and seasons are the leaves a series is acquired at; the
+            # dispatch used to name only SHOWS (episodes were stored as SHOWS
+            # before the hierarchy got its own types).
             return await self._search_show_releases(
                 media_item, indexer_service, ids, show_context
             )
@@ -458,9 +492,6 @@ class ReleaseSearchService:
     ) -> list[dict[str, Any]]:
         """Search for game releases via indexers."""
         search_query = media_item.title
-        year = None
-        if media_item.release_date:
-            year = media_item.release_date.year
 
         logger.info(
             "Searching for game releases: %s (igdb=%s)",
@@ -640,14 +671,7 @@ class ReleaseSearchService:
         release_count = 0
         seen_titles = {r.title for r in (media_item.releases or []) if r.title}
 
-        # Get library plugin for metadata extraction
-        library_plugin = None
-        if media_item.media_type == MediaType.MOVIES:
-            library_plugin = get_plugin_instance("MOVIES")
-        elif media_item.media_type == MediaType.SHOWS:
-            library_plugin = get_plugin_instance("SHOWS")
-        elif media_item.media_type == MediaType.GAMES:
-            library_plugin = get_plugin_instance("GAMES")
+        library_plugin = self._library_plugin_for(media_item.media_type)
 
         for release_data, match_result in matching_releases:
             release_title = release_data.get("title")
@@ -698,6 +722,22 @@ class ReleaseSearchService:
 
         await self.db.commit()
         return release_count
+
+    @staticmethod
+    def _library_plugin_for(media_type: MediaType):
+        """The library plugin whose parser knows this media type's releases.
+
+        Episodes and seasons use the shows plugin. Without a plugin no release
+        metadata is extracted at all: the resolution fell back to "480p" and the
+        quality profile rejected every episode release before any scoring ran.
+        """
+        if media_type == MediaType.MOVIES:
+            return get_plugin_instance("MOVIES")
+        if media_type in (MediaType.SHOWS, MediaType.SEASONS, MediaType.EPISODES):
+            return get_plugin_instance("SHOWS")
+        if media_type == MediaType.GAMES:
+            return get_plugin_instance("GAMES")
+        return None
 
     async def _enrich_metadata(
         self,

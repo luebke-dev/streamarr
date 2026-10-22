@@ -308,9 +308,15 @@ class LibraryImportService:
             )
 
         media_service = MediaService(self.db)
+        # TMDB ids are only unique per namespace: movie 1995 is "Lara Croft:
+        # Tomb Raider", while season 1995 is "Star Trek: TNG" season 3. Looking
+        # the id up without a media type therefore let a *season* row answer
+        # "already exists" for a movie and the movie was never imported.
+        expected_type = self._tmdb_media_types.get(library.type.lower())
         existing = await media_service.get_by_external_id(
             provider="tmdb",
             external_id=tmdb_id,
+            media_type=expected_type,
         )
         if existing:
             logger.info("Item with TMDB ID %s already exists", tmdb_id)
@@ -615,12 +621,21 @@ class LibraryImportService:
             metadata=details,
             commit=False,
         )
-        await media_service.add_external_id(
-            media_item_guid=media_item.guid,
-            provider=provider,
-            external_id=external_id,
-            commit=False,
-        )
+        try:
+            async with self.db.begin_nested():
+                await media_service.add_external_id(
+                    media_item_guid=media_item.guid,
+                    provider=provider,
+                    external_id=external_id,
+                    commit=False,
+                )
+        except Exception as exc:
+            # A taken (provider, external_id) pair must not cost us the item:
+            # the metadata is already fetched, the id is only a shortcut.
+            logger.warning(
+                "Could not attach %s id %s to '%s': %s",
+                provider, external_id, media_item.title, exc,
+            )
 
         genre_ids = details.get("genre_ids") or details.get("genres", [])
         if genre_ids:
@@ -913,9 +928,15 @@ class LibraryImportService:
 
         season_tmdb_id = season_details.get("id")
         if season_tmdb_id:
+            # TMDB ids are only unique per namespace: movie 1995 is "Lara Croft:
+            # Tomb Raider" while season 1995 belongs to Star Trek: TNG. Writing
+            # both as provider "tmdb" collides with the global
+            # (provider, external_id) constraint - and the season row wins, so
+            # the movie can never be imported. Seasons therefore get their own
+            # namespace, like sonarr_season and tvdb_episode already do.
             await media_service.add_external_id(
                 media_item_guid=season_item.guid,
-                provider="tmdb",
+                provider="tmdb_season",
                 external_id=str(season_tmdb_id),
                 commit=False,
             )

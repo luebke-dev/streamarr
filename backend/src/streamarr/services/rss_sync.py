@@ -1,25 +1,27 @@
 """RSS sync (Subsystem 3).
 
 Polls RSS-enabled indexers' latest feed and, for each *unseen* item whose
-title matches a monitored favorite root, accelerates acquisition by
-enqueuing the proven per-root backfill (which monitors the subtree and
-fans out search + auto-download for missing leaves). Upgrades of items
-that already have a file are handled by the periodic upgrade scan.
+title matches a monitored favorite root, acquires the release it announces:
+the feed title is parsed for its season/episode, resolved to that leaf item and
+searched. Only the announced episode is fetched - not the whole show - because a
+feed hit means "this episode is out now", which is exactly what Sonarr acts on.
+Missing older episodes are the reconcile sweep's job.
 
-Design choice (v1, safety-first): the feed is a *trigger signal*, not a
-grab source — we never grab a raw feed item directly. All real matching,
-scoring and grabbing flows through the existing strict pipeline
-(ReleaseSearchService + AutoDownloadService + ReleaseMatcher), so a noisy
-feed cannot cause a false grab. A Redis seen-set (TTL) keeps each feed
-item from re-triggering.
+Design choice (safety-first): the feed is a *trigger signal*, not a grab source -
+we never grab a raw feed item directly. All real matching, scoring and grabbing
+flows through the existing strict pipeline (ReleaseSearchService +
+AutoDownloadService + ReleaseMatcher), so a noisy feed cannot cause a false grab.
+A Redis seen-set (TTL) keeps each feed item from re-triggering.
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import redis.asyncio as redis_async
 from sqlalchemy import update
@@ -89,6 +91,7 @@ class RssSyncService:
         seen_ttl = int(
             await sset.get("automation.rss_seen_ttl_seconds", 1209600) or 1209600
         )
+        feed_limit = int(await sset.get("automation.rss_feed_limit", 100) or 100)
         grab_enabled = bool(
             await sset.get("automation.favorites_autodownload_enabled", False)
         )
@@ -111,7 +114,9 @@ class RssSyncService:
         res.indexers_polled = len(due)
 
         try:
-            feed = await indexer_service.fetch_recent_releases(due)
+            feed = await indexer_service.fetch_recent_releases(
+                due, per_indexer_limit=feed_limit
+            )
         except Exception as exc:
             res.errors.append(str(exc))
             feed = []
@@ -137,7 +142,7 @@ class RssSyncService:
                 root_index.setdefault(norm, str(root.guid))
 
         rds = await self._redis()
-        matched_root_guids: set[str] = set()
+        matched: dict[str, list[str]] = {}
         try:
             for item in feed:
                 guid = str(item.get("guid") or item.get("title") or "").strip()
@@ -171,7 +176,7 @@ class RssSyncService:
                     if feed_norm == root_norm or feed_norm.startswith(
                         root_norm + " "
                     ):
-                        matched_root_guids.add(root_guid)
+                        matched.setdefault(root_guid, []).append(title)
                         break
         finally:
             if rds is not None:
@@ -180,15 +185,110 @@ class RssSyncService:
                 except Exception:
                     pass
 
-        res.matched_roots = len(matched_root_guids)
-        if matched_root_guids and grab_enabled:
-            from streamarr.worker import backfill_favorite_monitored
+        res.matched_roots = len(matched)
+        if matched and grab_enabled:
+            leaves = await self._resolve_announced_leaves(matched)
+            if leaves:
+                from streamarr.worker import (
+                    auto_download_media_item,
+                    search_media_item_releases,
+                )
 
-            for rg in matched_root_guids:
-                try:
-                    await backfill_favorite_monitored.kiq(rg)
-                    res.triggered += 1
-                except Exception as exc:
-                    res.errors.append(f"enqueue {rg}: {exc}")
+                for leaf_guid in leaves:
+                    try:
+                        await search_media_item_releases.kiq(
+                            str(leaf_guid), None, force=True
+                        )
+                        await auto_download_media_item.kiq(
+                            str(leaf_guid), None, None, backfill=True
+                        )
+                        res.triggered += 1
+                    except Exception as exc:
+                        res.errors.append(f"enqueue {leaf_guid}: {exc}")
 
         return res
+
+    async def _resolve_announced_leaves(
+        self, matched: dict[str, list[str]]
+    ) -> list[Any]:
+        """Map matched feed titles to the concrete item they announce.
+
+        A series release carries SxxEyy, so the announced episode can be looked
+        up under the matched show. Movies are their own leaf. Anything that
+        cannot be resolved is skipped on purpose: fanning out to the whole show
+        because of a single feed item would queue every missing episode at once.
+        """
+        from sqlalchemy import select
+
+        from streamarr.models.media import MediaItem, MediaType
+
+        leaves: list[Any] = []
+        seen: set[str] = set()
+
+        async def _has_file(guid: Any) -> bool:
+            from streamarr.models.media import MediaFile
+
+            return bool(
+                await self.db.scalar(
+                    select(MediaFile.guid).where(MediaFile.media_item_guid == guid).limit(1)
+                )
+            )
+
+        for root_guid, titles in matched.items():
+            try:
+                root_uuid = uuid.UUID(str(root_guid))
+            except (ValueError, TypeError):
+                logger.warning("RSS: ignoring malformed root guid %r", root_guid)
+                continue
+            root = await self.db.get(MediaItem, root_uuid)
+            if root is None:
+                continue
+
+            if root.media_type == MediaType.MOVIES:
+                if not await _has_file(root.guid):
+                    leaves.append(root.guid)
+                continue
+
+            root_norm = ReleaseParser.normalize_title(root.title or "")
+            for title in titles:
+                parsed = ReleaseParser.parse_show_release(title)
+                season_number, episode_number = parsed.season, parsed.episode
+                if season_number is None or episode_number is None:
+                    logger.debug(
+                        "RSS: '%s' announces no episode for %s, skipping",
+                        title, root.title,
+                    )
+                    continue
+                season = await self.db.scalar(
+                    select(MediaItem)
+                    .where(MediaItem.parent_guid == root.guid)
+                    .where(MediaItem.sequence_number == season_number)
+                )
+                if season is None:
+                    logger.debug(
+                        "RSS: %s has no season %s", root.title, season_number
+                    )
+                    continue
+                episode = await self.db.scalar(
+                    select(MediaItem)
+                    .where(MediaItem.parent_guid == season.guid)
+                    .where(MediaItem.sequence_number == episode_number)
+                )
+                if episode is None:
+                    logger.debug(
+                        "RSS: %s S%s has no episode %s",
+                        root.title, season_number, episode_number,
+                    )
+                    continue
+                if await _has_file(episode.guid):
+                    logger.debug(
+                        "RSS: %s S%02dE%02d already has a file (%s)",
+                        root_norm, season_number, episode_number, title,
+                    )
+                    continue
+                if str(episode.guid) in seen:
+                    continue
+                seen.add(str(episode.guid))
+                leaves.append(episode.guid)
+
+        return leaves
