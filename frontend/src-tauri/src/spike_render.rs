@@ -30,10 +30,7 @@ where
     W: HasWindowHandle + HasDisplayHandle,
 {
     let handle = window.window_handle().map_err(|e| e.to_string())?.as_raw();
-    let display = window
-        .display_handle()
-        .map_err(|e| e.to_string())?
-        .as_raw();
+    let display = window.display_handle().map_err(|e| e.to_string())?.as_raw();
 
     let RawWindowHandle::Wayland(surface) = handle else {
         return Err(format!("kein Wayland-Fenster, sondern {handle:?}"));
@@ -48,28 +45,6 @@ where
         width: size.0,
         height: size.1,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // The function cannot be exercised without a real window, but the shape it returns is
-    // what the next step consumes — a compile-time check is still worth having, and the
-    // struct must stay copyable and comparable for logging.
-    #[test]
-    fn the_handles_are_plain_numbers_that_can_be_logged() {
-        let handles = WindowHandles {
-            surface: 0x55d0,
-            display: 0x55c0,
-            width: 1920,
-            height: 1080,
-        };
-        let copy = handles.clone();
-        assert_eq!(handles, copy);
-        assert_ne!(handles.surface, 0);
-        assert_ne!(handles.display, 0);
-    }
 }
 
 /// Adopts the app's own Wayland connection and hands back a proxy for its surface.
@@ -114,8 +89,10 @@ pub fn adopt_connection(
 #[cfg(feature = "spike-render")]
 pub fn probe_globals(handles: &WindowHandles) -> Result<String, String> {
     use wayland_client::globals::{registry_queue_init, GlobalListContents};
-    use wayland_client::protocol::{wl_compositor::WlCompositor, wl_registry::WlRegistry,
-        wl_shm::WlShm, wl_subcompositor::WlSubcompositor};
+    use wayland_client::protocol::{
+        wl_compositor::WlCompositor, wl_registry::WlRegistry, wl_shm::WlShm,
+        wl_subcompositor::WlSubcompositor,
+    };
     use wayland_client::{Connection, Dispatch, QueueHandle};
 
     struct State;
@@ -161,10 +138,34 @@ pub fn probe_globals(handles: &WindowHandles) -> Result<String, String> {
     let subcompositor: WlSubcompositor = globals
         .bind(&qh, 1..=1, ())
         .map_err(|e| format!("wl_subcompositor: {e}"))?;
-    let shm: WlShm = globals.bind(&qh, 1..=1, ()).map_err(|e| format!("wl_shm: {e}"))?;
+    let shm: WlShm = globals
+        .bind(&qh, 1..=1, ())
+        .map_err(|e| format!("wl_shm: {e}"))?;
 
     // The versions are not the point — that all three could be bound on an *adopted*
     // connection is. Keeping the bindings alive until here is what proves it.
     let _ = (compositor, subcompositor, shm);
     Ok("compositor, subcompositor und shm gebunden".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The function cannot be exercised without a real window, but the shape it returns is
+    // what the next step consumes — a compile-time check is still worth having, and the
+    // struct must stay copyable and comparable for logging.
+    #[test]
+    fn the_handles_are_plain_numbers_that_can_be_logged() {
+        let handles = WindowHandles {
+            surface: 0x55d0,
+            display: 0x55c0,
+            width: 1920,
+            height: 1080,
+        };
+        let copy = handles.clone();
+        assert_eq!(handles, copy);
+        assert_ne!(handles.surface, 0);
+        assert_ne!(handles.display, 0);
+    }
 }
