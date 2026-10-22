@@ -90,7 +90,7 @@ let proxy = WlSurface::from_id(&connection, id)?;
 Zwei Annahmen waren falsch und kosteten je einen Compilerlauf: `WlSurface` liegt unter
 `wayland_client::protocol::wl_surface`, und `ObjectId::from_ptr` liefert ein `Result`.
 
-**Increment 3 (nächster Schritt).** Die Frage, um die es geht:
+**Increment 3 (erledigt, gemessen).** Die Frage, um die es geht:
 
 1. `registry_queue_init::<State>(&connection)` — braucht eine `Dispatch`-Implementierung für
    `WlRegistry` und danach für `WlCompositor`, `WlSubcompositor`, `WlShm`. Das ist
@@ -107,3 +107,38 @@ Commit) ohne jede Konfigurationsänderung prüfen — deckt Magenta die Oberflä
 Fundament. Erst danach kommt `place_below` **zusammen mit** `transparent: true` im Fenster
 und durchsichtigem Seitenhintergrund; das ist die eigentliche Frage 2 und ändert die
 App-Konfiguration, also wird sie bewusst als letzter Teilschritt gemacht.
+
+### Ergebnis zu Frage (b) — Durchscheinen: **belegt**
+
+Der Test lief in zwei Stufen, und die Reihenfolge war die eigentliche Absicherung:
+
+1. **`place_above`** — ein magenta `wl_shm`-Patch von 400×300 oben links, **ohne jede
+   Konfigurationsänderung**. Vom Nutzer bestätigt: Rechteck sichtbar. Damit war bewiesen,
+   dass Kind-Oberfläche, Puffer, Commit und Stapelung auf dem echten Fenster funktionieren —
+   unabhängig von der Transparenzfrage.
+2. **`place_below`** plus durchsichtiges Fenster (`transparent: true`,
+   `backgroundColor: "#00000000"`) plus vorübergehende CSS-Regel, die `body` und `#q-app`
+   durchsichtig macht. Vom Nutzer bestätigt: Magenta schimmert **durch die Seite** hindurch.
+
+Log des entscheidenden Laufs:
+
+```
+SPIKE05 Verbindung übernommen, Oberfläche als Proxy griff
+SPIKE05 Globals: compositor, subcompositor und shm gebunden
+SPIKE05 magenta Patch 400x300 unter der WebView gesetzt
+```
+
+Beide Stufen zusammen sind wichtig: Stufe 1 schließt aus, dass ein Ausbleiben in Stufe 2 an
+der Subsurface liegt; Stufe 2 trennt „Transparenz greift nicht" von „Stapelung scheitert".
+
+### Folge für ADR 003, die aus dem Ergebnis folgt
+
+Weil die Videofläche **unter** der Seite liegt, muss das gesamte Fenster alpha-blended sein:
+`transparent: true` und eine Oberfläche, die dort, wo Bild liegen soll, nichts Undurchsichtiges
+malt. Das ist keine Spike-Eigenheit, sondern eine Eigenschaft des Zielaufbaus und gehört in
+die Konsequenzen der ADR — samt der Kosten (jede Fensterfläche wird gemischt) und der Regel,
+dass die Bedienleiste über dem Bild liegt statt daneben.
+
+Die drei Änderungen (Fenster-transparent, Seitenhintergrund, `place_below`) liegen bewusst
+nur auf dem Spike-Branch. Ein durchsichtiges Fenster ist kein Produktzustand, solange die
+Wiedergabe nicht wirklich darin rendert.

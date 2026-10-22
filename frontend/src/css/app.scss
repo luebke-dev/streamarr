@@ -15,3 +15,13 @@ body.cordova {
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+// SPIKE 05, nur auf dem Spike-Branch: damit die Subsurface unter der Seite sichtbar wird,
+// muss die Seite selbst durchsichtig sein. Vor dem Merge zurücknehmen — eine durchsichtige
+// Oberfläche ist kein Produktzustand.
+body,
+body.body--light,
+body.body--dark,
+#q-app {
+  background: transparent !important;
+}
