@@ -142,3 +142,31 @@ dass die Bedienleiste über dem Bild liegt statt daneben.
 Die drei Änderungen (Fenster-transparent, Seitenhintergrund, `place_below`) liegen bewusst
 nur auf dem Spike-Branch. Ein durchsichtiges Fenster ist kein Produktzustand, solange die
 Wiedergabe nicht wirklich darin rendert.
+
+### Ergebnis zu Frage (c)/(d), erste Hälfte: eigener GL-Kontext — **belegt**
+
+Ein EGL-Kontext auf dem **übernommenen** `wl_display`, angelegt während WebKit läuft und
+komponiert:
+
+```
+SPIKE05 EGL Mesa Project · GL 4.6 (Compatibility Profile) Mesa 26.2.3 ·
+         AMD Radeon 8060S Graphics (radeonsi, strix_halo, ACO, DRM …)
+```
+
+Damit ist die Voraussetzung für die mpv-Render-API erfüllt: sie zeichnet durch **unseren**
+Kontext und braucht dessen `get_proc_address`. Ein Pbuffer genügt für diese Teilfrage — kein
+`wl_egl_window`, keine Swap-Schleife; fällt hier etwas aus, liegt es an EGL und nicht an der
+Präsentation.
+
+Zwei Messungen waren nötig, und beide waren lehrreich:
+
+* `get_platform_display` antwortet auf Surface-Attribute (`SURFACE_TYPE`, `PBUFFER_BIT`, …)
+  mit **`BadAttribute`**. Diese Attribute gehören in `choose_first_config`; die
+  Plattformliste enthält nur den Terminator.
+* Die Attributlisten sind **unterschiedlich typisiert**: `get_platform_display` nimmt
+  `&[Attrib]` (= `usize`), `choose_first_config`, `create_context` und
+  `create_pbuffer_surface` nehmen `&[i32]`. Ein einheitlicher Cast ist deshalb falsch.
+
+Noch offen in (c): eine Swap-Schleife in die Kind-Oberfläche mit gemessener Bildrate — dafür
+kommt `wayland-egl` (`wl_egl_window`) dazu. Und in (d) der eigentliche Nachweis: libmpv
+zeichnet durch diesen Kontext, während WebKit weiterkomponiert.

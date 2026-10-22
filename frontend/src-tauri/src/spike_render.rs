@@ -255,3 +255,112 @@ mod tests {
         assert_ne!(handles.display, 0);
     }
 }
+
+/// Creates **our own** EGL context on the display Tauri is already using.
+///
+/// Question (c)/(d) of ADR 003: libmpv's render API draws through *our* GL context, so that
+/// context has to exist next to WebKit's and share the same Wayland display. A pbuffer is
+/// enough to answer whether that works at all — it needs no `wl_egl_window` and no swap
+/// loop, so a failure here is about EGL, not about presentation.
+#[cfg(feature = "spike-render")]
+pub fn probe_egl(handles: &WindowHandles) -> Result<String, String> {
+    use khronos_egl as egl;
+    use std::ffi::c_void;
+
+    let display_ptr = handles.display as *mut c_void;
+    // `EGL_PLATFORM_WAYLAND_KHR`, straight from the Khronos registry: the crate does not
+    // export the platform constants.
+    const PLATFORM_WAYLAND_KHR: egl::Enum = 0x31d8;
+
+    // SAFETY: loading libEGL and handing it the same display Tauri uses.
+    let egl = unsafe { egl::DynamicInstance::<egl::EGL1_5>::load_required_from_filename("libEGL.so.1") }
+        .map_err(|e| format!("libEGL nicht ladbar: {e}"))?;
+    let display = unsafe {
+        egl.get_platform_display(
+            PLATFORM_WAYLAND_KHR,
+            display_ptr,
+            // The platform display takes no surface attributes — those belong in
+            // `choose_first_config`. Passing them here is answered with `BadAttribute`,
+            // which is what the first run of this probe measured.
+            &[egl::ATTRIB_NONE],
+        )
+    }
+    .map_err(|e| format!("get_platform_display: {e:?}"))?;
+    egl.initialize(display)
+        .map_err(|e| format!("eglInitialize: {e:?}"))?;
+
+    let config = egl
+        .choose_first_config(
+            display,
+            &[
+                egl::SURFACE_TYPE,
+                egl::PBUFFER_BIT,
+                egl::RENDERABLE_TYPE,
+                egl::OPENGL_BIT,
+                egl::RED_SIZE,
+                8,
+                egl::GREEN_SIZE,
+                8,
+                egl::BLUE_SIZE,
+                8,
+                egl::NONE,
+            ],
+        )
+        .map_err(|e| format!("choose_first_config: {e:?}"))?
+        .ok_or("keine passende EGL-Konfiguration")?;
+
+    let context = egl
+        .create_context(
+            display,
+            config,
+            None,
+            &[
+                egl::CONTEXT_MAJOR_VERSION,
+                1,
+                egl::CONTEXT_MINOR_VERSION,
+                5,
+                egl::NONE,
+            ],
+        )
+        .map_err(|e| format!("create_context: {e:?}"))?;
+    let surface = egl
+        .create_pbuffer_surface(display, config, &[egl::WIDTH, 16, egl::HEIGHT, 16, egl::NONE])
+        .map_err(|e| format!("create_pbuffer_surface: {e:?}"))?;
+    egl.make_current(display, Some(surface), Some(surface), Some(context))
+        .map_err(|e| format!("make_current: {e:?}"))?;
+
+    // The context is only worth something if GL answers. Fetching the two strings through
+    // `get_proc_address` keeps the spike free of a GL binding crate.
+    let version = gl_string(&egl, "glGetString", 0x1f02).unwrap_or_else(|| "?".into());
+    let renderer = gl_string(&egl, "glGetString", 0x1f01).unwrap_or_else(|| "?".into());
+    let vendor = egl
+        .query_string(Some(display), egl::VENDOR)
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "?".into());
+
+    egl.make_current(display, None, None, None)
+        .map_err(|e| format!("make_current none: {e:?}"))?;
+    egl.destroy_surface(display, surface)
+        .map_err(|e| format!("destroy_surface: {e:?}"))?;
+    egl.destroy_context(display, context)
+        .map_err(|e| format!("destroy_context: {e:?}"))?;
+
+    Ok(format!("EGL {vendor} · GL {version} · {renderer}"))
+}
+
+#[cfg(feature = "spike-render")]
+fn gl_string(
+    egl: &khronos_egl::DynamicInstance<khronos_egl::EGL1_5>,
+    name: &str,
+    what: u32,
+) -> Option<String> {
+    type GetString = unsafe extern "system" fn(u32) -> *const u8;
+    let proc = egl.get_proc_address(name)?;
+    // SAFETY: `glGetString` has this exact signature; the pointer comes from the loader.
+    let f: GetString = unsafe { std::mem::transmute(proc) };
+    let ptr = unsafe { f(what) };
+    if ptr.is_null() {
+        return None;
+    }
+    Some(unsafe { std::ffi::CStr::from_ptr(ptr as *const i8) }.to_string_lossy().into_owned())
+}
