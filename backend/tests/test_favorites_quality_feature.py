@@ -196,6 +196,41 @@ async def test_monitoring_missing_leaves(db_session, show_tree):
     assert {mi.title for mi in missing} == {"E2", "E3"}  # E1 has a file
 
 
+async def test_missing_leaves_can_be_scoped_to_favorites(db_session, show_tree):
+    """A Sonarr/Radarr import is monitored but is not a favourite.
+
+    The favourites sweep must not re-acquire it: doing so queued the whole
+    imported library for download (2.6 TB) instead of only favourited items.
+    """
+    from streamarr.services.monitoring import MonitoringService
+
+    _show, season, eps = show_tree
+    imported = MediaItem(
+        guid=uuid.uuid4(),
+        media_type=MediaType.SHOWS,
+        title="Imported",
+        parent_guid=season.guid,
+        sequence_number=99,
+        monitored=True,
+        monitored_source="imported",
+    )
+    db_session.add(imported)
+    await db_session.commit()
+
+    svc = MonitoringService(db_session)
+    everything = [mi async for mi in svc.iter_missing_monitored_leaves()]
+    assert imported.guid in {mi.guid for mi in everything}
+
+    favourites = [
+        mi
+        async for mi in svc.iter_missing_monitored_leaves(
+            monitored_source="favorite"
+        )
+    ]
+    assert imported.guid not in {mi.guid for mi in favourites}
+    assert {mi.title for mi in favourites} == {"E1", "E2", "E3"}
+
+
 async def test_backfill_worker_helpers(db_session, show_tree):
     from streamarr.workers.favorites_monitor_worker import (
         _collect_subtree,

@@ -130,10 +130,16 @@ class MonitoringService:
             yield mi
 
     async def iter_missing_monitored_leaves(
-        self, *, limit: int | None = None
+        self, *, limit: int | None = None, monitored_source: str | None = None
     ) -> AsyncIterator[MediaItem]:
         """Monitored leaves with NO file AND no active download — the
-        re-acquisition queue (lost / never-downloaded items)."""
+        re-acquisition queue (lost / never-downloaded items).
+
+        ``monitored_source`` scopes the queue to one source. The favourites
+        sweep passes ``"favorite"``: without it a library imported from
+        Sonarr/Radarr (monitored, but never grabbed by Streamarr) is re-acquired
+        wholesale, which turns one sweep into a multi-terabyte download queue.
+        """
         active_dl = (
             select(MediaRelease.media_item_guid)
             .join(
@@ -161,6 +167,8 @@ class MonitoringService:
                 MediaItem.last_searched_at.asc(),
             )
         )
+        if monitored_source is not None:
+            q = q.where(MediaItem.monitored_source == monitored_source)
         if limit is not None:
             q = q.limit(limit)
         res = await self.db.execute(q)

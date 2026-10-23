@@ -71,10 +71,32 @@ release note would group it. Everything before that is in `git log`.
 
 ### Fixed
 
+- Usenet downloads no longer stall the whole pool while connections are being
+  checked. The keepalive sweep held the connection-pool lock across one
+  `DATE` round-trip per connection, so every `acquire()` waited for the entire
+  sweep - a single hung connection froze all jobs for minutes and throughput
+  collapsed to a few hundred KB/s. The probe now runs concurrently without the
+  lock and tops the pool back up when a connection is lost.
+- A dead usenet post aborts as soon as it is provably unrecoverable: once more
+  segments are missing than the available PAR2 volumes could repair, the job
+  stops instead of downloading the remaining segments of a DMCA-removed upload.
+  A 14k-segment file used to occupy a job slot for many minutes and starve the
+  healthy jobs of connections.
+- An incomplete post reports what is actually wrong. A missing PAR2 index used
+  to surface as "PAR2 repair failed: No .par2 file found", which reads like a
+  repair bug although the upload itself is damaged or taken down.
 - A library scan no longer registers a second `media_file` row for a path it
   already knows. An import that moves a file into the library could be scanned
   while the copy was still running, which left a duplicate row next to the real
   one (a 35 MB placeholder beside the finished 3.4 GB file).
+- The favourites sweep only re-acquires items it actually monitors as
+  favourites. `iter_missing_monitored_leaves()` returned every monitored leaf
+  without a file, so a library imported from Sonarr/Radarr (monitored, but never
+  downloaded by Streamarr) was queued wholesale on the first sweep: one pass
+  created 285 downloads totalling 2.6 TB, 90 of them for a single reality show
+  with four files. The sweep now filters on `monitored_source="favorite"`, and
+  the imported library carries its own source instead of masquerading as
+  favourites.
 - Promotion to the library uses the library path from the database instead of the
   built-in `/library/...` default, and records provenance: `imported_at`,
   `library_guid` and `library_root` are set when a file is moved, so a promoted

@@ -345,7 +345,9 @@ async def tick_favorites_reconcile_impl() -> int:
             missing: list = []
             fan_out_enabled = await _autodownload_enabled(db)
             if fan_out_enabled:
-                async for mi in svc.iter_missing_monitored_leaves(limit=500):
+                async for mi in svc.iter_missing_monitored_leaves(
+                    limit=500, monitored_source="favorite"
+                ):
                     missing.append(str(mi.guid))
 
         enqueued = await _fan_out(missing, None) if missing else 0
