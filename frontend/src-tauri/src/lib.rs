@@ -15,6 +15,8 @@
 
 pub mod api;
 pub mod commands;
+#[cfg(feature = "libmpv")]
+pub mod render;
 pub mod storage;
 
 use std::sync::Arc;

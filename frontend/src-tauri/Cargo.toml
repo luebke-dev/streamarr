@@ -101,6 +101,17 @@ thiserror = "2"
 # keyutils backend: keyutils is kernel keyrings, which do not survive a reboot -
 # useless for a seven-day refresh token. The `crypto-rust` variant avoids pulling in
 # a C crypto dependency, so a source build needs no extra system packages.
+# ADR 003: the video surface. libmpv draws through an EGL context on the Wayland display
+# the app already uses, into a subsurface below the webview. All five are optional so a
+# default build stays free of them; `libmpv` turns them on together.
+raw-window-handle = { version = "0.6", optional = true }
+wayland-client = { version = "0.31", optional = true }
+wayland-backend = { version = "0.3", optional = true, features = ["client_system"] }
+# `dynamic`: libEGL is loaded at runtime, so a build does not need the EGL headers.
+khronos-egl = { version = "6", optional = true, features = ["dynamic"] }
+# `dlopen` rather than linking: this system ships `libwayland-egl.so.1` without the `.so`
+# development symlink, so a link-time dependency would fail where a runtime one works.
+wayland-sys = { version = "0.31", optional = true, features = ["egl", "dlopen"] }
 keyring = { version = "3", features = [
     "sync-secret-service",
     "crypto-rust",
@@ -124,6 +135,19 @@ default = []
 # Declaring it is what the Tauri template requires ("DO NOT REMOVE") and what makes
 # `cargo build --features custom-protocol` a standalone app that needs no dev server.
 custom-protocol = ["tauri/custom-protocol"]
+# The video surface: libmpv renders into a Wayland subsurface of the app's own window.
+#
+# Off by default because it links libmpv and touches Wayland/EGL directly. Everything the
+# feature needs is named here, so `check_bundle_deps.sh` sees the real dependency set and a
+# build without it links neither libmpv nor libEGL.
+libmpv = [
+    "streamarr-desktop-player/libmpv",
+    "dep:raw-window-handle",
+    "dep:wayland-client",
+    "dep:wayland-backend",
+    "dep:khronos-egl",
+    "dep:wayland-sys",
+]
 # Game streaming: the GStreamer/WebRTC receiver.
 #
 # Off by default and separate on purpose. It is the one feature that pulls a large
