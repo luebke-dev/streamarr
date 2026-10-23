@@ -155,3 +155,222 @@ mod tests {
         assert_eq!(find(&pairs, "keep-open"), Some("yes"));
     }
 }
+
+/// The libmpv client API, behind the `libmpv` feature.
+///
+/// Kept apart from the option translation above on purpose: the translation is pure and
+/// always compiled, the handle needs a system library at link time.
+///
+/// One measured constraint shapes this API — `mpv_create` returns NULL **after** GTK is
+/// initialised (see `docs/plans/spike-05-libmpv.md`). A handle created before that keeps
+/// working, so the shell must call [`Libmpv::create`] in `run()`, before `tauri::Builder`,
+/// and hand the handle on. Nothing in this type can enforce that order, which is why it is
+/// written down here and in the ADR.
+#[cfg(feature = "libmpv")]
+mod handle {
+    use std::ffi::{c_char, c_int, c_void, CStr, CString};
+
+    #[link(name = "mpv")]
+    extern "C" {
+        fn mpv_create() -> *mut c_void;
+        fn mpv_initialize(ctx: *mut c_void) -> c_int;
+        fn mpv_set_option_string(
+            ctx: *mut c_void,
+            name: *const c_char,
+            data: *const c_char,
+        ) -> c_int;
+        fn mpv_command_string(ctx: *mut c_void, args: *const c_char) -> c_int;
+        fn mpv_get_property_string(ctx: *mut c_void, name: *const c_char) -> *mut c_char;
+        fn mpv_free(data: *mut c_void);
+        fn mpv_terminate_destroy(ctx: *mut c_void);
+        fn mpv_error_string(code: c_int) -> *const c_char;
+    }
+
+    /// What went wrong, with mpv's own wording — never just a number.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct LibmpvError {
+        pub call: &'static str,
+        pub message: String,
+    }
+
+    impl std::fmt::Display for LibmpvError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}: {}", self.call, self.message)
+        }
+    }
+
+    impl std::error::Error for LibmpvError {}
+
+    fn describe(call: &'static str, code: c_int) -> LibmpvError {
+        let message = unsafe {
+            let ptr = mpv_error_string(code);
+            if ptr.is_null() {
+                format!("Fehlercode {code}")
+            } else {
+                CStr::from_ptr(ptr).to_string_lossy().into_owned()
+            }
+        };
+        LibmpvError { call, message }
+    }
+
+    fn cstring(value: &str, call: &'static str) -> Result<CString, LibmpvError> {
+        CString::new(value).map_err(|_| LibmpvError {
+            call,
+            message: "enthält ein Nullbyte".to_string(),
+        })
+    }
+
+    /// An initialised libmpv instance.
+    pub struct Libmpv {
+        handle: *mut c_void,
+    }
+
+    // The handle is only touched through `&self` calls that libmpv documents as safe from
+    // any thread, and `Libmpv` is not shared across threads by this crate.
+    unsafe impl Send for Libmpv {}
+
+    impl Libmpv {
+        /// Creates and initialises an instance.
+        ///
+        /// Must be called **before** GTK is initialised; see the module documentation.
+        pub fn create() -> Result<Self, LibmpvError> {
+            let handle = unsafe { mpv_create() };
+            if handle.is_null() {
+                return Err(LibmpvError {
+                    call: "mpv_create",
+                    message: "lieferte NULL — läuft GTK schon? (siehe ADR 003)".to_string(),
+                });
+            }
+            let instance = Self { handle };
+            let code = unsafe { mpv_initialize(instance.handle) };
+            if code < 0 {
+                // `instance` drops here and terminates the handle it created.
+                return Err(describe("mpv_initialize", code));
+            }
+            Ok(instance)
+        }
+
+        /// Sets one option. Must happen before playback, which is how mpv itself orders it.
+        pub fn set_option(&self, name: &str, value: &str) -> Result<(), LibmpvError> {
+            let name = cstring(name, "mpv_set_option_string")?;
+            let value = cstring(value, "mpv_set_option_string")?;
+            let code = unsafe { mpv_set_option_string(self.handle, name.as_ptr(), value.as_ptr()) };
+            if code < 0 {
+                return Err(describe("mpv_set_option_string", code));
+            }
+            Ok(())
+        }
+
+        /// Applies the translated options in order, so last-wins still holds.
+        pub fn apply_options(&self, pairs: &[(String, String)]) -> Result<(), LibmpvError> {
+            for (name, value) in pairs {
+                self.set_option(name, value)?;
+            }
+            Ok(())
+        }
+
+        /// Runs one command, in mpv's command-string syntax.
+        pub fn command(&self, command: &str) -> Result<(), LibmpvError> {
+            let command = cstring(command, "mpv_command_string")?;
+            let code = unsafe { mpv_command_string(self.handle, command.as_ptr()) };
+            if code < 0 {
+                return Err(describe("mpv_command_string", code));
+            }
+            Ok(())
+        }
+
+        /// Reads a property as text, `None` when mpv has no such value yet.
+        ///
+        /// `None` is not an error: a property that does not exist *yet* is the normal state
+        /// right after loading a file, and callers poll for it.
+        pub fn property_string(&self, name: &str) -> Option<String> {
+            let name = cstring(name, "mpv_get_property_string").ok()?;
+            let value = unsafe { mpv_get_property_string(self.handle, name.as_ptr()) };
+            if value.is_null() {
+                return None;
+            }
+            let owned = unsafe { CStr::from_ptr(value) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { mpv_free(value as *mut c_void) };
+            Some(owned)
+        }
+
+        /// The raw handle, for callers that need to pass it to the render API.
+        pub fn as_raw(&self) -> *mut c_void {
+            self.handle
+        }
+    }
+
+    impl Drop for Libmpv {
+        fn drop(&mut self) {
+            // `mpv_terminate_destroy` also joins mpv's threads, so it is the right call for
+            // an instance the app owns. In the app the handle lives as long as the process.
+            unsafe { mpv_terminate_destroy(self.handle) };
+        }
+    }
+}
+
+#[cfg(feature = "libmpv")]
+pub use handle::{Libmpv, LibmpvError};
+
+#[cfg(all(test, feature = "libmpv"))]
+mod handle_tests {
+    use super::*;
+    use crate::mpv::{HdrMode, PlayerOptions};
+
+    // No GTK in a test binary, so `mpv_create` works — the ordering constraint that bites
+    // in the app does not apply here, which is exactly why this test can exist at all.
+    #[test]
+    fn an_instance_takes_the_translated_options() {
+        let mpv = Libmpv::create().expect("libmpv anlegbar");
+
+        let options = PlayerOptions {
+            hdr: HdrMode::ToneMapSdr,
+            ..PlayerOptions::default()
+        };
+        mpv.apply_options(&option_pairs(&options))
+            .expect("Optionen annehmbar");
+
+        assert_eq!(mpv.property_string("hwdec").as_deref(), Some("auto-safe"));
+        assert_eq!(
+            mpv.property_string("tone-mapping").as_deref(),
+            Some("bt.2390")
+        );
+    }
+
+    #[test]
+    fn the_output_driver_reaches_libmpv() {
+        let mpv = Libmpv::create().expect("libmpv anlegbar");
+        mpv.apply_options(&option_pairs(&PlayerOptions::default()))
+            .expect("Optionen annehmbar");
+
+        // Read back rather than trusting the translation alone: this is the one option the
+        // whole design depends on.
+        assert_eq!(mpv.property_string("vo").as_deref(), Some("libmpv"));
+    }
+
+    #[test]
+    fn a_command_that_cannot_work_reports_mpvs_own_wording() {
+        let mpv = Libmpv::create().expect("libmpv anlegbar");
+
+        let error = mpv
+            .command("no-such-command 1")
+            .expect_err("muss scheitern");
+
+        assert_eq!(error.call, "mpv_command_string");
+        assert!(
+            !error.message.is_empty() && error.message != "Fehlercode 0",
+            "mpv should describe the failure, got {:?}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn an_unreadable_property_is_none_not_an_error() {
+        let mpv = Libmpv::create().expect("libmpv anlegbar");
+
+        // Nothing is loaded, so this has no value yet — the normal state to poll against.
+        assert!(mpv.property_string("video-format").is_none());
+    }
+}

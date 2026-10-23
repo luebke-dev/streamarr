@@ -112,6 +112,10 @@ gamepad = ["dep:gilrs", "dep:evdev"]
 # Deliberately dependency-free beyond serde_json — it drives `mpv` as a child
 # process rather than linking libmpv, which is the very choice being validated.
 mpv = []
+# ADR 003: libmpv inside the app process instead of a child process. Linking libmpv is a
+# system dependency, so it stays behind a feature like the other native subsystems — the
+# option translation and all default tests do not need it.
+libmpv = []
 spike = [
     "dep:gstreamer",
     "dep:gstreamer-sdp",
