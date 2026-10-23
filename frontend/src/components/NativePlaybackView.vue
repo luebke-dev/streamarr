@@ -2,7 +2,9 @@
   <!--
     The screen while mpv plays.
 
-    It is deliberately *small*: the video is in mpv's own window, so nothing here is the
+    It is small on purpose, but no longer because "the video is somewhere else": since
+    ADR 003 the picture is behind this page, so the panel keeps to the bottom and says only
+    what the picture cannot — the title, transcoding, resume, and the track choices.
     film. What the user needs is a way back, the title, and the two things that are
     otherwise invisible — whether the server is transcoding, and whether playback resumed
     from a stored position. A black screen would leave all three unanswered.
@@ -161,7 +163,9 @@ function noticeParams(notice) {
 }
 .native-playback {
   display: flex;
-  align-items: center;
+  /* Bottom, not centre: since ADR 003 the video is behind this page, so a centred
+     block of text would sit exactly where the picture is. */
+  align-items: flex-end;
   justify-content: center;
   min-height: 60vh;
   padding: 2rem;
