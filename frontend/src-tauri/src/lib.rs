@@ -154,9 +154,11 @@ impl AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Before Tauri touches anything: does libmpv work in this *process* at all?
+    // libmpv must be created before GTK is initialised — measured, not assumed: after
+    // `gtk_init` the same call returns NULL. The handle made here is what everything later
+    // uses, so the order in this function is load-bearing.
     #[cfg(feature = "spike-render")]
-    eprintln!("SPIKE05 main-start: {}", spike_render::probe_mpv_create("main-start"));
+    eprintln!("SPIKE05 vor-gtk: {}", spike_render::create_mpv_before_gtk());
     let mut builder = tauri::Builder::default();
 
     // Single instance first: the plugin must see the command line before anything

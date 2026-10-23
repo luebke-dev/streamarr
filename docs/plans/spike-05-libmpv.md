@@ -204,7 +204,7 @@ aus der Pbuffer-Messung bleibt für einen Offscreen-Pfad verfügbar.
 Nebenbei: die Kind-Oberfläche steht auf `set_desync()`, damit das Bild nicht auf die
 Commits der Oberfläche wartet — ohne das hängt die Bildrate an der WebView.
 
-### Ergebnis zu Frage (d) — libmpv im App-Prozess: **blockierender Befund**
+### Ergebnis zu Frage (d) — libmpv im App-Prozess: **belegt, mit zwei Bedingungen**
 
 Der Versuch, libmpv durch unseren Kontext zeichnen zu lassen, ist nicht bis zur ersten
 Bildausgabe gekommen. Was gemessen ist, ist dafür eindeutig:
@@ -234,3 +234,60 @@ Plugins. Das trennt Builder, Plugins und WebView-Erzeugung als Ursache. Erst dan
 sagen, ob der Weg mit einer Anpassung trägt oder ob hier die Alternative vorzulegen ist.
 
 Eine Sonde (`probe_mpv_create`) und ihre zwei Aufrufstellen liegen dafür schon im Code.
+
+#### Auflösung des blockierenden Befunds
+
+Die Ursache war nicht Tauri, sondern **GTK**: `gtk_init()` selbst macht `mpv_create`
+unbrauchbar. Reproduziert außerhalb der App, in einem Minimalprogramm:
+
+```
+vor gtk_init:  mpv_create = 0x5639c0c404a0   (initialize = 0)
+nach gtk_init: mpv_create = 0x0
+```
+
+Ein **vor** `gtk_init()` angelegtes Handle funktioniert danach vollständig — es
+initialisiert, lädt und dekodiert:
+
+```
+handle vor gtk_init: 0x561c738584a0
+mpv_initialize nach GTK: 0   loadfile: 0
+video-format: wrapped_avframe
+```
+
+Damit ist es eine Frage der **Reihenfolge**, nicht der Verträglichkeit. In der App legt
+`run()` das Handle vor `tauri::Builder` an; alles Spätere benutzt es weiter.
+
+#### Der Beweis
+
+```
+SPIKE05 vor-gtk: mpv_create = 0x55c6056f1670 (vor GTK angelegt)
+SPIKE05 libmpv: 120 mpv-Bilder (0 Fehler) in 2.00 s = 60.0 fps · Format wrapped_avframe
+```
+
+Vom Nutzer bestätigt: das Testbild ist im App-Fenster zu sehen. libmpv rendert also im
+App-Prozess, durch unseren EGL-Kontext, in die Subsurface unter der WebView, während WebKit
+weiterkomponiert.
+
+**Zweite Bedingung:** `mpv_render_context_render` braucht `MPV_RENDER_PARAM_OPENGL_FBO` auch
+dann, wenn ins Standard-Framebuffer gezeichnet wird (`fbo = 0`). Ohne den Parameter scheitert
+**jeder** Frame — der erste Lauf lieferte 0 von 120 Bildern bei erfolgreich dekodiertem Video,
+was ohne diese Kenntnis nach einem Kontextproblem ausgesehen hätte.
+
+### Zusammenfassung des Spikes
+
+| Frage | Ergebnis |
+|---|---|
+| (a) `wl_surface` des Fensters erreichbar | belegt — `surface=… display=… 2800x1800` |
+| (b) Subsurface scheint durch die WebView | belegt — zweistufig, vom Nutzer bestätigt |
+| (c) Bildrate mit eigenem GL-Kontext | belegt — 60,0 fps gegen Frame-Callbacks |
+| (d) GL-Kontexte von WebKit und libmpv | belegt — 120 mpv-Bilder, 0 Fehler, Nutzer sieht das Bild |
+
+**Bedingungen für den Umbau**, alle gemessen:
+
+1. libmpv-Handle **vor** `gtk_init()` anlegen (also in `run()`, vor `tauri::Builder`).
+2. `MPV_RENDER_PARAM_OPENGL_FBO` bei jedem Render-Aufruf mitgeben.
+3. Fenster und Seite durchsichtig; das Bild liegt **unter** der Oberfläche, die Bedienleiste
+   darüber.
+4. Wayland-Fenster-Konfiguration liefert **GLES2**, kein Desktop-GL — das Render-Backend ist
+   damit vorgezeichnet.
+5. Die Kind-Oberfläche auf `set_desync()`, sonst hängt die Bildrate an der WebView.

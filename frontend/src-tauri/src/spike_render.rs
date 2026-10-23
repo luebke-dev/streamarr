@@ -547,6 +547,17 @@ pub fn run_libmpv_probe(handles: &WindowHandles) -> Result<String, String> {
         data: *mut c_void,
     }
 
+    /// `mpv_opengl_fbo`: the render target. Required for the OpenGL render API even when
+    /// the target is the default framebuffer (fbo = 0) — without it `render` fails on every
+    /// frame, which is what the first run of this probe measured.
+    #[repr(C)]
+    struct MpvOpenGlFbo {
+        fbo: c_int,
+        w: c_int,
+        h: c_int,
+        internal_format: c_int,
+    }
+
     #[repr(C)]
     struct MpvOpenGlInitParams {
         get_proc_address:
@@ -573,6 +584,7 @@ pub fn run_libmpv_probe(handles: &WindowHandles) -> Result<String, String> {
     const PARAM_INVALID: c_int = 0;
     const PARAM_API_TYPE: c_int = 1;
     const PARAM_OPENGL_INIT_PARAMS: c_int = 2;
+    const PARAM_OPENGL_FBO: c_int = 3;
 
     struct Loader {
         egl: egl::DynamicInstance<egl::EGL1_5>,
@@ -692,17 +704,14 @@ pub fn run_libmpv_probe(handles: &WindowHandles) -> Result<String, String> {
 
     // If the binding is wrong, this number says so before anything else looks mysterious.
     let api_version = unsafe { mpv_client_api_version() };
-    let mut mpv = unsafe { mpv_create() };
-    if mpv.is_null() {
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        mpv = unsafe { mpv_create() };
-    }
-    if mpv.is_null() {
-        return Err(format!(
-            "mpv_create lieferte nichts (API-Version {api_version}, HOME={:?})",
-            std::env::var("HOME").ok()
-        ));
-    }
+    // Created before GTK, because `mpv_create` fails afterwards (measured; see
+    // `create_mpv_before_gtk`).
+    let mpv = EARLY_MPV
+        .get()
+        .map(|p| *p as *mut c_void)
+        .ok_or_else(|| {
+            format!("kein früh angelegtes mpv-Handle (API-Version {api_version})")
+        })?;
     let rc = unsafe { mpv_initialize(mpv) };
     if rc < 0 {
         return Err(error(rc, "mpv_initialize"));
@@ -720,10 +729,23 @@ pub fn run_libmpv_probe(handles: &WindowHandles) -> Result<String, String> {
         return Err(error(rc, "loadfile"));
     }
 
-    let mut render_params = [MpvRenderParam {
-        type_: PARAM_INVALID,
-        data: std::ptr::null_mut(),
-    }];
+    let mut fbo = MpvOpenGlFbo {
+        fbo: 0,
+        w: width,
+        h: height,
+        internal_format: 0,
+    };
+    let mut render_params = [
+        MpvRenderParam {
+            type_: PARAM_OPENGL_FBO,
+            data: &mut fbo as *mut MpvOpenGlFbo as *mut c_void,
+        },
+        MpvRenderParam {
+            type_: PARAM_INVALID,
+            data: std::ptr::null_mut(),
+        },
+    ];
+    let mut first_error: Option<String> = None;
 
     for _ in 0..3 {
         unsafe {
@@ -741,6 +763,9 @@ pub fn run_libmpv_probe(handles: &WindowHandles) -> Result<String, String> {
         let rc = unsafe { mpv_render_context_render(render_ctx, render_params.as_mut_ptr()) };
         if rc < 0 {
             failed += 1;
+            if first_error.is_none() {
+                first_error = Some(error(rc, "render"));
+            }
         } else {
             rendered += 1;
         }
@@ -770,8 +795,11 @@ pub fn run_libmpv_probe(handles: &WindowHandles) -> Result<String, String> {
 
     std::mem::forget((child, subsurface, connection, render_ctx, mpv, loader));
     Ok(format!(
-        "{rendered} mpv-Bilder ({failed} Fehler) in {seconds:.2} s = {:.1} fps · Format {format}",
-        rendered as f64 / seconds
+        "{rendered} mpv-Bilder ({failed} Fehler) in {seconds:.2} s = {:.1} fps · Format {format}{}",
+        rendered as f64 / seconds,
+        first_error
+            .map(|e| format!(" · erster Fehler: {e}"))
+            .unwrap_or_default()
     ))
 }
 
@@ -793,4 +821,35 @@ pub fn probe_mpv_create(when: &str) -> String {
         unsafe { mpv_destroy(handle) };
     }
     report
+}
+
+/// libmpv must be created **before GTK is initialised**.
+///
+/// Measured, and reproduced outside Tauri in a minimal program:
+///
+/// ```text
+/// vor gtk_init:  mpv_create = 0x5639c0c404a0   (initialize = 0)
+/// nach gtk_init: mpv_create = 0x0
+/// ```
+///
+/// A handle created before `gtk_init()` keeps working afterwards — it initialises, loads a
+/// file and decodes (`video-format: wrapped_avframe`). So the constraint is a matter of
+/// *order*, not of incompatibility, and the app can satisfy it: `run()` calls this before
+/// `tauri::Builder`, and everything later reuses the handle.
+#[cfg(feature = "spike-render")]
+pub static EARLY_MPV: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+
+#[cfg(feature = "spike-render")]
+pub fn create_mpv_before_gtk() -> String {
+    use std::ffi::c_void;
+    #[link(name = "mpv")]
+    extern "C" {
+        fn mpv_create() -> *mut c_void;
+    }
+    let handle = unsafe { mpv_create() };
+    if handle.is_null() {
+        return "mpv_create = 0x0".to_string();
+    }
+    let _ = EARLY_MPV.set(handle as usize);
+    format!("mpv_create = {handle:?} (vor GTK angelegt)")
 }
