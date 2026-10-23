@@ -71,6 +71,10 @@ release note would group it. Everything before that is in `git log`.
 
 ### Fixed
 
+- A library scan no longer registers a second `media_file` row for a path it
+  already knows. An import that moves a file into the library could be scanned
+  while the copy was still running, which left a duplicate row next to the real
+  one (a 35 MB placeholder beside the finished 3.4 GB file).
 - Promotion to the library uses the library path from the database instead of the
   built-in `/library/...` default, and records provenance: `imported_at`,
   `library_guid` and `library_root` are set when a file is moved, so a promoted

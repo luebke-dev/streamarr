@@ -237,6 +237,36 @@ class LibraryScanner:
                 continue
 
             item = await self._resolve_item(library.type, entry, Path(path))
+
+            # One row per path. `by_path` only holds rows this library already
+            # claims, so a file that appeared while an import was still moving it
+            # in - or a row that another code path created for the same bytes -
+            # could otherwise be registered a second time.
+            clash = (
+                await self.db.execute(
+                    select(MediaFile)
+                    .where(MediaFile.file_path == path)
+                    .where(MediaFile.media_item_guid == item.guid)
+                )
+            ).scalars().first()
+            if clash is not None:
+                clash.library_guid = library.guid
+                clash.library_root = str(root)
+                clash.last_seen_scan_id = scan_id
+                clash.filesystem_device = file.get("filesystem_device")
+                clash.filesystem_inode = file.get("filesystem_inode")
+                clash.modified_ns = file.get("modified_ns")
+                clash.identity_key = file.get("identity_key")
+                if file.get("size"):
+                    clash.file_size = file.get("size")
+                await self.db.flush()
+                await self._mark_available(item)
+                result.updated += 1
+                if not clash.probe_data:
+                    result.probe_file_guids.append(str(clash.guid))
+                result.media_item_guids.append(str(item.guid))
+                continue
+
             row = MediaFile(
                 media_item_guid=item.guid,
                 library_guid=library.guid,
