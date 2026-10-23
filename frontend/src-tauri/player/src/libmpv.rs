@@ -433,6 +433,36 @@ mod handle_tests {
     }
 
     #[test]
+    fn a_playing_file_exposes_its_tracks_through_property_expansion() {
+        use std::time::{Duration, Instant};
+
+        let mpv = Libmpv::create().expect("libmpv anlegbar");
+        mpv.apply_options(&option_pairs(&PlayerOptions::default()))
+            .expect("Optionen annehmbar");
+        mpv.set_option("vo", "null").expect("vo=null");
+        mpv.command("loadfile av://lavfi:testsrc2=size=320x240:rate=10")
+            .expect("Testquelle ladbar");
+
+        // Tracks appear only once the file is loaded, so wait for the event rather than
+        // sampling once and concluding the expansion does not work.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut list = mpv.track_list();
+        while list.tracks.is_empty() && Instant::now() < deadline {
+            mpv.next_state_event(Duration::from_millis(100));
+            list = mpv.track_list();
+        }
+
+        assert_eq!(
+            list.tracks.len(),
+            1,
+            "erwartet genau eine Videospur, bekam {:?}",
+            list.tracks
+        );
+        assert_eq!(list.tracks[0].kind, crate::mpv::TrackKind::Video);
+        assert!(list.tracks[0].id > 0);
+    }
+
+    #[test]
     fn an_unreadable_property_is_none_not_an_error() {
         let mpv = Libmpv::create().expect("libmpv anlegbar");
 
@@ -908,6 +938,11 @@ mod events {
             Ok(())
         }
 
+        /// The tracks mpv knows about, read through property expansion.
+        pub fn track_list(&self) -> crate::mpv::TrackList {
+            super::track_list_from(|name| self.property_string(name))
+        }
+
         /// Waits for one event and returns it in the shape the IPC path used.
         ///
         /// `None` means the timeout expired without anything interesting — the caller polls,
@@ -1012,5 +1047,123 @@ mod event_tests {
             );
         }
         assert_eq!(OBSERVED_PROPERTIES.len(), 6);
+    }
+}
+
+/// Builds the track list from mpv's property expansion, one value at a time.
+///
+/// The IPC path got `track-list` as JSON over the socket. libmpv could expose the same thing
+/// as an `mpv_node`, but that means dealing with a tagged C union for a handful of scalars —
+/// so this walks the array with mpv's own `track-list/<i>/<field>` expansion instead and reads
+/// plain strings.
+///
+/// Taking the reader as a parameter keeps the logic independent of mpv: the test below feeds it
+/// a table, so the mapping is verified without a player. The bound on the index is not
+/// decoration — a reader that never answers `None` would otherwise spin forever.
+pub fn track_list_from<F>(read: F) -> crate::mpv::TrackList
+where
+    F: Fn(&str) -> Option<String>,
+{
+    use crate::mpv::{Track, TrackKind, TrackList};
+
+    const MAX_TRACKS: usize = 256;
+
+    let mut tracks = Vec::new();
+    for index in 0..MAX_TRACKS {
+        let field = |name: &str| read(&format!("track-list/{index}/{name}"));
+
+        let Some(id) = field("id").and_then(|value| value.parse::<i64>().ok()) else {
+            // No more entries: mpv answers `None` past the end of the array.
+            break;
+        };
+        let Some(kind) = field("type").and_then(|value| TrackKind::from_mpv(&value)) else {
+            // Unknown types are skipped exactly as `TrackList::parse` does: mpv knows more
+            // kinds than this player cares about, and failing here would report a playable
+            // file as broken.
+            continue;
+        };
+
+        let flag = |name: &str| field(name).as_deref() == Some("yes");
+        tracks.push(Track {
+            id,
+            kind,
+            language: field("lang"),
+            title: field("title"),
+            codec: field("codec"),
+            selected: flag("selected"),
+            external: flag("external"),
+            is_default: flag("default"),
+        });
+    }
+    TrackList { tracks }
+}
+
+#[cfg(test)]
+mod track_tests {
+    use super::*;
+    use crate::mpv::TrackKind;
+    use std::collections::HashMap;
+
+    fn table(entries: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let map: HashMap<String, String> = entries
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |name: &str| map.get(name).cloned()
+    }
+
+    #[test]
+    fn two_tracks_come_out_with_their_fields() {
+        let read = table(&[
+            ("track-list/0/id", "1"),
+            ("track-list/0/type", "audio"),
+            ("track-list/0/lang", "ger"),
+            ("track-list/0/codec", "aac"),
+            ("track-list/0/selected", "yes"),
+            ("track-list/1/id", "2"),
+            ("track-list/1/type", "sub"),
+            ("track-list/1/lang", "deu"),
+            ("track-list/1/title", "Deutsch (SDH)"),
+            ("track-list/1/external", "yes"),
+        ]);
+
+        let list = track_list_from(read);
+
+        assert_eq!(list.tracks.len(), 2);
+        assert_eq!(list.tracks[0].kind, TrackKind::Audio);
+        assert_eq!(list.tracks[0].language.as_deref(), Some("ger"));
+        assert!(list.tracks[0].selected);
+        assert!(!list.tracks[0].external);
+        assert_eq!(list.tracks[1].title.as_deref(), Some("Deutsch (SDH)"));
+        assert!(list.tracks[1].external);
+        assert!(!list.tracks[1].selected);
+    }
+
+    #[test]
+    fn an_empty_player_yields_no_tracks() {
+        assert!(track_list_from(|_| None).tracks.is_empty());
+    }
+
+    #[test]
+    fn a_track_without_an_id_ends_the_walk() {
+        // Guards the termination: without this the loop would keep asking for indices that
+        // answer a type but no id.
+        let read = table(&[("track-list/0/type", "audio")]);
+        assert!(track_list_from(read).tracks.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_track_type_is_skipped_but_does_not_stop_the_list() {
+        let read = table(&[
+            ("track-list/0/id", "1"),
+            ("track-list/0/type", "irgendwas-neues"),
+            ("track-list/1/id", "2"),
+            ("track-list/1/type", "audio"),
+        ]);
+
+        let list = track_list_from(read);
+
+        assert_eq!(list.tracks.len(), 1);
+        assert_eq!(list.tracks[0].id, 2);
     }
 }
