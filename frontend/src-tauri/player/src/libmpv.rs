@@ -186,6 +186,14 @@ mod handle {
         fn mpv_error_string(code: c_int) -> *const c_char;
     }
 
+    /// `mpv_opengl_init_params`: how mpv reaches the GL functions of **our** context.
+    #[repr(C)]
+    pub struct OpenGlInitParams {
+        pub get_proc_address:
+            Option<unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void>,
+        pub get_proc_address_ctx: *mut c_void,
+    }
+
     /// What went wrong, with mpv's own wording — never just a number.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct LibmpvError {
@@ -372,5 +380,204 @@ mod handle_tests {
 
         // Nothing is loaded, so this has no value yet — the normal state to poll against.
         assert!(mpv.property_string("video-format").is_none());
+    }
+}
+
+#[cfg(feature = "libmpv")]
+mod render_ctx {
+    use super::handle::{Libmpv, LibmpvError, OpenGlInitParams};
+    use std::ffi::{c_char, c_int, c_void, CStr, CString};
+
+    #[repr(C)]
+    struct MpvRenderParam {
+        type_: c_int,
+        data: *mut c_void,
+    }
+
+    #[repr(C)]
+    struct MpvOpenGlFbo {
+        fbo: c_int,
+        w: c_int,
+        h: c_int,
+        internal_format: c_int,
+    }
+
+    const PARAM_INVALID: c_int = 0;
+    const PARAM_API_TYPE: c_int = 1;
+    const PARAM_OPENGL_INIT_PARAMS: c_int = 2;
+    const PARAM_OPENGL_FBO: c_int = 3;
+
+    #[link(name = "mpv")]
+    extern "C" {
+        fn mpv_render_context_create(
+            out: *mut *mut c_void,
+            mpv: *mut c_void,
+            params: *mut MpvRenderParam,
+        ) -> c_int;
+        fn mpv_render_context_render(ctx: *mut c_void, params: *mut MpvRenderParam) -> c_int;
+        fn mpv_render_context_free(ctx: *mut c_void);
+        fn mpv_error_string(code: c_int) -> *const c_char;
+    }
+
+    /// mpv's renderer, drawing through a GL context the caller owns and keeps current.
+    ///
+    /// The split is deliberate: this type knows mpv, the shell knows EGL and Wayland. What
+    /// crosses the boundary is one callback and the FBO description — no GL code here, no
+    /// mpv code there.
+    ///
+    /// **The GL context must be current on the calling thread** for `create` and `render`;
+    /// mpv renders into whatever context is bound, so it cannot check this for us.
+    pub struct MpvRenderContext {
+        handle: *mut c_void,
+    }
+
+    impl MpvRenderContext {
+        /// Creates the renderer for an existing instance.
+        pub fn create(mpv: &Libmpv, init: &mut OpenGlInitParams) -> Result<Self, LibmpvError> {
+            if init.get_proc_address.is_none() {
+                // Caught here rather than in mpv: a missing loader produces a failure deep
+                // inside the renderer that reads like a driver problem.
+                return Err(LibmpvError {
+                    call: "mpv_render_context_create",
+                    message: "kein get_proc_address übergeben".to_string(),
+                });
+            }
+
+            let api_type = CString::new("opengl").expect("literal");
+            let mut params = [
+                MpvRenderParam {
+                    type_: PARAM_API_TYPE,
+                    // mpv only reads the string; the cast is for its C signature.
+                    data: api_type.as_ptr() as *mut c_void,
+                },
+                MpvRenderParam {
+                    type_: PARAM_OPENGL_INIT_PARAMS,
+                    data: init as *mut OpenGlInitParams as *mut c_void,
+                },
+                MpvRenderParam {
+                    type_: PARAM_INVALID,
+                    data: std::ptr::null_mut(),
+                },
+            ];
+
+            let mut handle: *mut c_void = std::ptr::null_mut();
+            let code = unsafe {
+                mpv_render_context_create(&mut handle, mpv.as_raw(), params.as_mut_ptr())
+            };
+            if code < 0 || handle.is_null() {
+                let message = unsafe {
+                    let ptr = mpv_error_string(code);
+                    if ptr.is_null() {
+                        format!("Fehlercode {code}")
+                    } else {
+                        CStr::from_ptr(ptr).to_string_lossy().into_owned()
+                    }
+                };
+                return Err(LibmpvError {
+                    call: "mpv_render_context_create",
+                    message,
+                });
+            }
+            Ok(Self { handle })
+        }
+
+        /// Draws the current frame into the bound framebuffer.
+        ///
+        /// `fbo` is 0 for the default framebuffer, which is what a window surface uses.
+        pub fn render(&self, fbo: i32, width: i32, height: i32) -> Result<(), LibmpvError> {
+            let mut target = MpvOpenGlFbo {
+                fbo,
+                w: width,
+                h: height,
+                internal_format: 0,
+            };
+            let mut params = [
+                MpvRenderParam {
+                    type_: PARAM_OPENGL_FBO,
+                    data: &mut target as *mut MpvOpenGlFbo as *mut c_void,
+                },
+                MpvRenderParam {
+                    type_: PARAM_INVALID,
+                    data: std::ptr::null_mut(),
+                },
+            ];
+            let code = unsafe { mpv_render_context_render(self.handle, params.as_mut_ptr()) };
+            if code < 0 {
+                let message = unsafe {
+                    let ptr = mpv_error_string(code);
+                    if ptr.is_null() {
+                        format!("Fehlercode {code}")
+                    } else {
+                        CStr::from_ptr(ptr).to_string_lossy().into_owned()
+                    }
+                };
+                return Err(LibmpvError {
+                    call: "mpv_render_context_render",
+                    message,
+                });
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for MpvRenderContext {
+        fn drop(&mut self) {
+            unsafe { mpv_render_context_free(self.handle) };
+        }
+    }
+
+    unsafe impl Send for MpvRenderContext {}
+}
+
+#[cfg(feature = "libmpv")]
+pub use handle::OpenGlInitParams;
+#[cfg(feature = "libmpv")]
+pub use render_ctx::MpvRenderContext;
+
+#[cfg(all(test, feature = "libmpv"))]
+mod render_tests {
+    use super::*;
+
+    use std::ffi::c_void;
+
+    #[test]
+    fn a_missing_proc_loader_is_refused_before_mpv_sees_it() {
+        let mpv = Libmpv::create().expect("libmpv anlegbar");
+        let mut init = OpenGlInitParams {
+            get_proc_address: None,
+            get_proc_address_ctx: std::ptr::null_mut(),
+        };
+
+        let error = match MpvRenderContext::create(&mpv, &mut init) {
+            Ok(_) => panic!("ein fehlender Loader muss abgelehnt werden"),
+            Err(error) => error,
+        };
+
+        // The message names the cause: a missing loader otherwise surfaces as something
+        // that looks like a driver problem, several layers away.
+        assert_eq!(error.call, "mpv_render_context_create");
+        assert!(
+            error.message.contains("get_proc_address"),
+            "unerwartete Meldung: {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn the_init_params_are_a_plain_c_struct() {
+        // The shell fills this in from its EGL loader; keeping it `repr(C)` and free of
+        // Rust-only fields is what makes that possible.
+        unsafe extern "C" fn loader(_: *mut c_void, _: *const std::ffi::c_char) -> *mut c_void {
+            std::ptr::null_mut()
+        }
+        let mut init = OpenGlInitParams {
+            get_proc_address: Some(loader),
+            get_proc_address_ctx: std::ptr::null_mut(),
+        };
+
+        // A pointer that does not resolve is still structurally valid at this level.
+        assert!(init.get_proc_address.is_some());
+        init.get_proc_address_ctx = 0x1234 as *mut c_void;
+        assert_eq!(init.get_proc_address_ctx as usize, 0x1234);
     }
 }
