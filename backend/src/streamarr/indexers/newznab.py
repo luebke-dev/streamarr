@@ -158,35 +158,52 @@ class Newznab(IndexerBase):
         global "newest 100", which on a general-purpose indexer is almost always
         software - and then no monitored movie or show can ever match.
 
-        Does NOT paginate — one request per indexer per tick.
+        Walks as many feed pages as ``limit`` needs (``limit`` <= 100 is a single
+        request). A busy indexer's first page is only an hour or two of releases,
+        so a show that is posted in bursts falls out of the window before the next
+        tick looks at it.
         Returns [] on any indexer error so a bad feed is just skipped.
         """
         params = {"cat": categories} if categories else {}
-        try:
-            data = await self._request(function="search", params=params)
-        except IndexerError:
-            return []
-        except Exception as e:  # pragma: no cover - defensive
-            logger.warning("fetch_recent failed for %s: %s", self.id, e)
-            return []
+        page_size = 100
+        items: list[dict[str, Any]] = []
+        offset = 0
+        while len(items) < limit:
+            page_params = {**params, "offset": offset} if offset else params
+            try:
+                data = await self._request(function="search", params=page_params)
+            except IndexerError:
+                break
+            except Exception as e:  # pragma: no cover - defensive
+                logger.warning("fetch_recent failed for %s: %s", self.id, e)
+                break
 
-        raw = data.get("channel", {}).get("item", []) if isinstance(data, dict) else []
-        if isinstance(raw, dict):
-            raw = [raw]
-        if not isinstance(raw, list):
-            return []
-        items = [
-            {
-                **item,
-                "indexer_id": self.id,
-                "size": self._extract_size(item),
-                "publish_date": item.get("pubDate"),
-            }
-            for item in raw[:limit]
-        ]
+            raw = (
+                data.get("channel", {}).get("item", [])
+                if isinstance(data, dict)
+                else []
+            )
+            if isinstance(raw, dict):
+                raw = [raw]
+            if not isinstance(raw, list) or not raw:
+                break
+            items.extend(
+                {
+                    **item,
+                    "indexer_id": self.id,
+                    "size": self._extract_size(item),
+                    "publish_date": item.get("pubDate"),
+                }
+                for item in raw
+            )
+            if len(raw) < page_size:
+                break
+            offset += page_size
+
+        items = items[:limit]
         logger.debug(
-            "Newznab fetch_recent %s (cat=%s) returned %d items",
-            self.id, categories or "all", len(items),
+            "Newznab fetch_recent %s (cat=%s) returned %d items over %d page(s)",
+            self.id, categories or "all", len(items), (len(items) + page_size - 1) // page_size or 1,
         )
         return items
 
