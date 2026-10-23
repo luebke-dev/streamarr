@@ -92,7 +92,10 @@ class AutoDownloadService:
                     "Release search before download failed for %s: %s",
                     media_item.guid, exc,
                 )
-            media_item = await self._load_media_item(media_item_guid) or media_item
+            media_item = (
+                await self._load_media_item(media_item_guid, refresh=True)
+                or media_item
+            )
             releases = self._filter_blacklisted(media_item.releases or [])
 
         if not releases:
@@ -174,14 +177,22 @@ class AutoDownloadService:
     # Internal helpers
     # ------------------------------------------------------------------ #
 
-    async def _load_media_item(self, media_item_guid: str) -> MediaItem | None:
-        result = await self.db.execute(
+    async def _load_media_item(
+        self, media_item_guid: str, *, refresh: bool = False
+    ) -> MediaItem | None:
+        query = (
             select(MediaItem)
             .where(MediaItem.guid == media_item_guid)
             .options(
                 selectinload(MediaItem.releases).selectinload(MediaRelease.links),
             )
         )
+        if refresh:
+            # The session may already hold this item with an empty `releases`
+            # collection. Without populate_existing, re-selecting returns that
+            # stale instance and a fresh search looks like it found nothing.
+            query = query.execution_options(populate_existing=True)
+        result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
     async def _is_eligible(
