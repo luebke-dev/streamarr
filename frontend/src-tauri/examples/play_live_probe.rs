@@ -37,7 +37,7 @@
 use std::time::{Duration, Instant};
 
 use streamarr_desktop_player::capabilities::Capabilities;
-use streamarr_desktop_player::mpv::{HdrMode, Mpv, PlayerState, TrackKind};
+use streamarr_desktop_player::mpv::{HdrMode, Mpv, PlayerOptions, PlayerState, TrackKind};
 use streamarr_desktop_player::plan::{notices_for, plan_playback};
 use streamarr_desktop_player::playback::PlayResponse;
 use streamarr_desktop_player::profile::{Profile, ServerAddress};
@@ -45,6 +45,45 @@ use streamarr_desktop_player::resolve_tunnel::{tunnel_plan, ResolveTunnel};
 
 /// The test film used throughout this project.
 const DEFAULT_GUID: &str = "9b0308f3-9426-4e92-b765-1b05d87ed656";
+
+/// The same four verbs the shell uses, over whichever backend this build selected.
+///
+/// Both variants exist so the same probe can be run either way; only one is ever constructed
+/// per build, which is the point.
+#[allow(dead_code)]
+enum Player {
+    Process(Mpv),
+    #[cfg(feature = "libmpv")]
+    Native(streamarr_desktop_player::libmpv::InProcessPlayer),
+}
+
+impl Player {
+    fn next_event(&mut self, timeout: Duration) -> Option<serde_json::Value> {
+        match self {
+            Player::Process(mpv) => mpv.next_event(timeout),
+            #[cfg(feature = "libmpv")]
+            Player::Native(player) => player.next_event(timeout),
+        }
+    }
+
+    fn has_exited(&mut self) -> bool {
+        match self {
+            Player::Process(mpv) => mpv.has_exited(),
+            #[cfg(feature = "libmpv")]
+            Player::Native(_) => false,
+        }
+    }
+
+    fn stop(&mut self) {
+        match self {
+            Player::Process(mpv) => mpv.stop(),
+            #[cfg(feature = "libmpv")]
+            Player::Native(player) => {
+                let _ = player.stop();
+            }
+        }
+    }
+}
 
 fn main() {
     let base = std::env::var("PLAY_BASE").expect("PLAY_BASE fehlt");
@@ -223,8 +262,8 @@ fn main() {
     options.ao = "null".to_string();
     options.vo = "null".to_string();
 
-    let mut mpv = Mpv::start(&plan.url, &options).expect("mpv");
-    println!("6. mpv gestartet: {}", mpv.ipc_endpoint());
+    let mut mpv = start_player(&plan.url, &options);
+    println!("6. Wiedergabe gestartet ({})", backend_name());
 
     // ── 6. Watch, the way the shell does ──
     let mut state = PlayerState {
@@ -329,8 +368,40 @@ fn main() {
 }
 
 /// Prints mpv's own track list, grouped by kind.
-fn print_tracks(mpv: &mut Mpv) {
-    let list = mpv.track_list();
+/// Starts the backend this build selected.
+///
+/// With `libmpv` the handle is created here — an example has no GTK, so the ordering
+/// constraint that shapes the app does not apply — and `vo` is forced back to `null`
+/// afterwards, because the in-process option set always sets it to `libmpv` and this probe has
+/// no window to render into.
+fn start_player(url: &str, options: &PlayerOptions) -> Player {
+    #[cfg(feature = "libmpv")]
+    {
+        let mpv = streamarr_desktop_player::libmpv::Libmpv::create().expect("libmpv");
+        let player = streamarr_desktop_player::libmpv::InProcessPlayer::start(mpv, url, options)
+            .expect("libmpv startet");
+        Player::Native(player)
+    }
+    #[cfg(not(feature = "libmpv"))]
+    {
+        Player::Process(Mpv::start(url, options).expect("mpv"))
+    }
+}
+
+fn backend_name() -> &'static str {
+    if cfg!(feature = "libmpv") {
+        "im App-Prozess"
+    } else {
+        "getrennter Prozess"
+    }
+}
+
+fn print_tracks(player: &mut Player) {
+    let list = match player {
+        Player::Process(mpv) => mpv.track_list(),
+        #[cfg(feature = "libmpv")]
+        Player::Native(player) => player.track_list(),
+    };
     if list.tracks.is_empty() {
         println!("   Spuren: keine gemeldet");
         return;
