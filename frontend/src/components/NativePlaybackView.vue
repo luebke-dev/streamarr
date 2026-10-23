@@ -26,6 +26,43 @@
         {{ $t('playPage.nativePlayback.hint') }}
       </p>
 
+      <!--
+        The transport controls. They live here rather than in the web player's bar because there
+        is no media element to attach to: every action is a command to the shell, which owns the
+        player. Seeking is relative on purpose — the panel shows no precise position, so an
+        absolute jump would ask the user to guess a number.
+      -->
+      <div class="native-playback__transport" data-test="native-transport">
+        <q-btn
+          flat
+          dense
+          icon="mdi-rewind-10"
+          data-test="native-back-10"
+          @click="$emit('seek', -10)"
+        />
+        <q-btn
+          flat
+          dense
+          :icon="isPaused ? 'mdi-play' : 'mdi-pause'"
+          data-test="native-toggle-pause"
+          @click="$emit('toggle-pause')"
+        />
+        <q-btn
+          flat
+          dense
+          icon="mdi-fast-forward-10"
+          data-test="native-forward-10"
+          @click="$emit('seek', 10)"
+        />
+        <q-btn
+          flat
+          dense
+          icon="mdi-fullscreen"
+          data-test="native-fullscreen"
+          @click="$emit('toggle-fullscreen')"
+        />
+      </div>
+
       <div class="native-playback__actions">
         <q-btn
           color="primary"
@@ -105,6 +142,8 @@ defineProps({
   title: { type: String, default: '' },
   notices: { type: Array, default: () => [] },
   isResuming: { type: Boolean, default: false },
+  /// Whether the shell currently reports a pause, so the button can show the other action.
+  isPaused: { type: Boolean, default: false },
   /**
    * The track list from mpv, or `null` before one has arrived.
    *
@@ -115,7 +154,15 @@ defineProps({
   tracks: { type: Object, default: null },
 })
 
-defineEmits(['close', 'restart', 'select-audio', 'select-subtitle'])
+defineEmits([
+  'close',
+  'restart',
+  'select-audio',
+  'select-subtitle',
+  'toggle-pause',
+  'seek',
+  'toggle-fullscreen',
+])
 
 /** The interpolation values for one notice, formatted for the current locale. */
 function noticeParams(notice) {
@@ -189,7 +236,14 @@ function noticeParams(notice) {
   font-size: 0.9rem;
 }
 
-.native-playback__actions {
+.native-playback__transport {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-top: 1.25rem;
+  }
+
+  .native-playback__actions {
   display: flex;
   gap: 0.75rem;
   justify-content: center;
