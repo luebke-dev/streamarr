@@ -375,6 +375,28 @@ mod handle_tests {
     }
 
     #[test]
+    fn a_translated_command_actually_changes_mpv() {
+        // The string tests above prove the shape; this one proves the shape is what mpv
+        // accepts. Sending the translated command and reading the property back is the
+        // shortest honest end-to-end check of the translation layer.
+        let mpv = Libmpv::create().expect("libmpv anlegbar");
+        let command =
+            command_string(&serde_json::json!({"command": ["set_property", "volume", 42]}))
+                .expect("übersetzbar");
+
+        mpv.command(&command).expect("mpv nimmt das Kommando an");
+
+        // mpv reports floats with their fraction ("42.000000"), so compare numerically
+        // rather than as text — the value is what matters, not its spelling.
+        let volume: f64 = mpv
+            .property_string("volume")
+            .expect("volume lesbar")
+            .parse()
+            .expect("volume ist eine Zahl");
+        assert!((volume - 42.0).abs() < 0.01, "volume war {volume}");
+    }
+
+    #[test]
     fn an_unreadable_property_is_none_not_an_error() {
         let mpv = Libmpv::create().expect("libmpv anlegbar");
 
@@ -579,5 +601,164 @@ mod render_tests {
         assert!(init.get_proc_address.is_some());
         init.get_proc_address_ctx = 0x1234 as *mut c_void;
         assert_eq!(init.get_proc_address_ctx as usize, 0x1234);
+    }
+}
+
+/// Translates one of the IPC-shaped commands into mpv's command-string syntax.
+///
+/// The process path speaks JSON over a socket: `{"command": ["set_property", "pause", true]}`.
+/// libmpv has no socket, but it parses exactly the same command as text — so the commands are
+/// translated rather than reinvented, and the UI keeps sending what it already sends.
+///
+/// Arguments are quoted when they contain anything the parser would split on. mpv's quoting
+/// is C-like: `"` starts and ends a quoted argument, `\` escapes inside it.
+pub fn command_string(value: &serde_json::Value) -> Result<String, String> {
+    let parts = value
+        .get("command")
+        .ok_or_else(|| "Kommando ohne \"command\"-Feld".to_string())?
+        .as_array()
+        .ok_or_else(|| "\"command\" ist keine Liste".to_string())?;
+
+    if parts.is_empty() {
+        return Err("leere Kommandoliste".to_string());
+    }
+
+    let mut out = Vec::with_capacity(parts.len());
+    for (index, part) in parts.iter().enumerate() {
+        // The first element is the command name, and mpv's **string** parser does not know
+        // every alias its own command API has. Measured against libmpv 2.5.0:
+        //
+        //     set_property volume 42  -> -4 invalid parameter
+        //     set volume 42           ->  0
+        //
+        // So the alias is translated here rather than passed through. A test that only
+        // compared strings would never have found this; it took sending the command.
+        if index == 0 {
+            if let serde_json::Value::String(name) = part {
+                out.push(alias(name).to_string());
+                continue;
+            }
+        }
+
+        out.push(match part {
+            serde_json::Value::String(text) => quote(text),
+            // mpv spells booleans as yes/no; `true` would be read as a property name.
+            serde_json::Value::Bool(flag) => (if *flag { "yes" } else { "no" }).to_string(),
+            serde_json::Value::Number(number) => number.to_string(),
+            serde_json::Value::Null => return Err("null als Kommandoargument".to_string()),
+            other => {
+                return Err(format!(
+                    "verschachtelte Werte sind als Kommandoargument nicht vorgesehen: {other}"
+                ))
+            }
+        });
+    }
+    Ok(out.join(" "))
+}
+
+/// Command names mpv's string parser does not accept, mapped to the ones it does.
+fn alias(name: &str) -> &str {
+    match name {
+        // `set_property` is the name the IPC path sends and the command API accepts; the
+        // string parser only knows `set`.
+        "set_property" => "set",
+        other => other,
+    }
+}
+
+/// Quotes one argument if it needs it. Quotes unless the text is plainly safe.
+fn quote(text: &str) -> String {
+    let plain = !text.is_empty()
+        && !text
+            .chars()
+            .any(|c| c.is_whitespace() || c == '"' || c == '\\' || c == '\'');
+    if plain {
+        return text.to_string();
+    }
+    let mut escaped = String::with_capacity(text.len() + 2);
+    escaped.push('"');
+    for ch in text.chars() {
+        if ch == '"' || ch == '\\' {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    escaped.push('"');
+    escaped
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_boolean_property_becomes_yes_or_no() {
+        assert_eq!(
+            command_string(&json!({"command": ["set_property", "pause", true]})).unwrap(),
+            "set pause yes"
+        );
+        assert_eq!(
+            command_string(&json!({"command": ["set_property", "pause", false]})).unwrap(),
+            "set pause no"
+        );
+    }
+
+    #[test]
+    fn a_number_keeps_its_digits() {
+        assert_eq!(
+            command_string(&json!({"command": ["set_property", "volume", 80]})).unwrap(),
+            "set volume 80"
+        );
+    }
+
+    #[test]
+    fn a_seek_with_a_mode_keeps_the_mode() {
+        assert_eq!(
+            command_string(&json!({"command": ["seek", 30, "absolute"]})).unwrap(),
+            "seek 30 absolute"
+        );
+    }
+
+    #[test]
+    fn an_argument_with_spaces_is_quoted_so_it_stays_one_argument() {
+        // "Big Buck Bunny.mkv" is the realistic case: a title with a space.
+        let command =
+            command_string(&json!({"command": ["loadfile", "Big Buck Bunny.mkv"]})).unwrap();
+        assert_eq!(command, "loadfile \"Big Buck Bunny.mkv\"");
+    }
+
+    #[test]
+    fn quotes_and_backslashes_inside_an_argument_are_escaped() {
+        let command = command_string(&json!({"command": ["loadfile", "a \"b\" c"]})).unwrap();
+        assert_eq!(command, "loadfile \"a \\\"b\\\" c\"");
+    }
+
+    #[test]
+    fn a_plain_argument_is_not_quoted() {
+        assert_eq!(
+            command_string(&json!({"command": ["set_property", "pause", "yes"]})).unwrap(),
+            "set pause yes"
+        );
+    }
+
+    #[test]
+    fn a_command_without_the_field_is_refused() {
+        assert!(command_string(&json!({"name": ["pause"]})).is_err());
+    }
+
+    #[test]
+    fn a_command_that_is_not_a_list_is_refused() {
+        assert!(command_string(&json!({"command": "pause"})).is_err());
+    }
+
+    #[test]
+    fn an_empty_command_list_is_refused() {
+        assert!(command_string(&json!({"command": []})).is_err());
+    }
+
+    #[test]
+    fn a_null_argument_is_refused_rather_than_guessed() {
+        assert!(command_string(&json!({"command": ["seek", null]})).is_err());
     }
 }
