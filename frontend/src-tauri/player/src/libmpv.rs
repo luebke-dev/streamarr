@@ -1167,3 +1167,166 @@ mod track_tests {
         assert_eq!(list.tracks[0].id, 2);
     }
 }
+
+/// A playback session on an in-process libmpv, shaped like the process-based [`Mpv`].
+///
+/// The point of the facade is that `playback.rs` already talks in terms of "send a command,
+/// read a property, wait for an event, ask for tracks". Keeping those four verbs identical
+/// means the swap is a type change rather than a rewrite of the command layer.
+///
+/// Two differences are structural and cannot be hidden, so they are stated instead:
+///
+/// * **The handle is given, not created.** [`Libmpv::create`] must run before GTK, and this
+///   type has no way to enforce that — so it takes an instance someone else made. The shell
+///   creates it in `run()`, exactly as [`crate::libmpv::Libmpv::create`]'s documentation asks.
+/// * **Rendering is not here.** The render context belongs to the shell, because it needs the
+///   window. This type never touches GL.
+///
+/// [`Mpv`]: crate::mpv::Mpv
+#[cfg(feature = "libmpv")]
+pub struct InProcessPlayer {
+    mpv: Libmpv,
+}
+
+#[cfg(feature = "libmpv")]
+impl InProcessPlayer {
+    /// Applies the options, subscribes to the state properties and starts playback.
+    pub fn start(
+        mpv: Libmpv,
+        url: &str,
+        options: &crate::mpv::PlayerOptions,
+    ) -> Result<Self, LibmpvError> {
+        mpv.apply_options(&option_pairs(options))?;
+        mpv.observe_state_properties()?;
+
+        let player = Self { mpv };
+        // `loadfile` rather than `play`: a stream URL with a token must not be re-parsed as an
+        // option. Quoting keeps a URL with `&` or `?` in one piece — a stream URL is exactly
+        // the case where that happens.
+        player.mpv.command(&format!("loadfile {}", quote(url)))?;
+        Ok(player)
+    }
+
+    /// Runs an IPC-shaped command, e.g. `{"command": ["set_property", "pause", true]}`.
+    pub fn send(&self, command: &serde_json::Value) -> Result<(), LibmpvError> {
+        let text = command_string(command).map_err(|message| LibmpvError {
+            call: "command_string",
+            message,
+        })?;
+        self.mpv.command(&text)
+    }
+
+    /// The next state event, in the same JSON shape the socket path produced.
+    pub fn next_event(&self, timeout: std::time::Duration) -> Option<serde_json::Value> {
+        self.mpv.next_state_event(timeout)
+    }
+
+    /// A property as text, `None` while it has no value yet.
+    pub fn property(&self, name: &str) -> Option<String> {
+        self.mpv.property_string(name)
+    }
+
+    /// The tracks currently known.
+    pub fn track_list(&self) -> crate::mpv::TrackList {
+        self.mpv.track_list()
+    }
+
+    /// Stops playback but keeps the instance: one handle serves successive files, the same way
+    /// the process path kept one child alive across titles.
+    pub fn stop(&self) -> Result<(), LibmpvError> {
+        self.mpv.command("stop")
+    }
+
+    /// The raw handle, so the shell can build its render context from the same instance.
+    pub fn as_raw(&self) -> *mut std::ffi::c_void {
+        self.mpv.as_raw()
+    }
+}
+
+#[cfg(all(test, feature = "libmpv"))]
+mod session_tests {
+    use super::*;
+    use crate::mpv::{PlayerOptions, TrackKind};
+    use std::time::{Duration, Instant};
+
+    fn playing(url: &str) -> InProcessPlayer {
+        let mpv = Libmpv::create().expect("libmpv anlegbar");
+        // A unit test has no window; `vo=libmpv` would wait for a render context forever.
+        let options = PlayerOptions {
+            extra_args: vec!["--vo=null".to_string()],
+            ..PlayerOptions::default()
+        };
+        let player = InProcessPlayer::start(mpv, url, &options).expect("Wiedergabe startet");
+        // `option_pairs` forces `vo=libmpv`, so the test overrides it afterwards.
+        player.mpv.set_option("vo", "null").expect("vo=null");
+        player
+    }
+
+    #[test]
+    fn a_session_reports_progress_through_the_same_verbs_as_the_process_path() {
+        let player = playing("av://lavfi:testsrc2=size=320x240:rate=10");
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut position = None;
+        while Instant::now() < deadline {
+            if let Some(event) = player.next_event(Duration::from_millis(100)) {
+                if event["name"] == "time-pos" {
+                    if let Some(value) = event["data"].as_f64() {
+                        if value > 0.0 {
+                            position = Some(value);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(position.is_some(), "kein Fortschritt über die Fassade");
+        assert!(player.property("duration").is_some());
+    }
+
+    #[test]
+    fn commands_through_the_fassade_reach_mpv() {
+        let player = playing("av://lavfi:testsrc2=size=320x240:rate=10");
+
+        player
+            .send(&serde_json::json!({"command": ["set_property", "pause", true]}))
+            .expect("Kommando angenommen");
+
+        let paused = player.property("pause");
+        assert_eq!(paused.as_deref(), Some("yes"));
+    }
+
+    #[test]
+    fn the_track_list_lists_the_playing_source() {
+        let player = playing("av://lavfi:testsrc2=size=320x240:rate=10");
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut list = player.track_list();
+        while list.tracks.is_empty() && Instant::now() < deadline {
+            player.next_event(Duration::from_millis(100));
+            list = player.track_list();
+        }
+
+        assert_eq!(list.tracks.len(), 1);
+        assert_eq!(list.tracks[0].kind, TrackKind::Video);
+    }
+
+    #[test]
+    fn stopping_keeps_the_instance_usable() {
+        let player = playing("av://lavfi:testsrc2=size=320x240:rate=10");
+
+        player.stop().expect("stoppbar");
+
+        // Not torn down: the same handle must still take commands, which is the property the
+        // process path relied on when one child served successive titles.
+        player
+            .send(&serde_json::json!({"command": ["set_property", "volume", 33]}))
+            .expect("nach dem Stoppen noch bedienbar");
+        let volume: f64 = player
+            .property("volume")
+            .and_then(|value| value.parse().ok())
+            .expect("volume lesbar");
+        assert!((volume - 33.0).abs() < 0.01, "volume war {volume}");
+    }
+}
