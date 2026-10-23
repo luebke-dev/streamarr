@@ -1094,7 +1094,20 @@ class ShowLibraryPlugin(LibraryBase):
                 library_path,
             )
             return {"success": False, "error": "Refused to write outside library root"}
-        await asyncio.to_thread(shutil.copy2, str(src), str(dest))
+        # Copy to a temp name and rename atomically. A scan that runs during the
+        # copy would otherwise see a half-written file at the final path, record
+        # its partial size (a 3.1 GB film logged as 478 MB) and, before the
+        # path guard, even register a second row for it.
+        tmp_dest = dest.with_name(f".{dest.name}.part")
+        try:
+            await asyncio.to_thread(shutil.copy2, str(src), str(tmp_dest))
+            await asyncio.to_thread(os.replace, str(tmp_dest), str(dest))
+        finally:
+            if tmp_dest.exists():
+                try:
+                    await asyncio.to_thread(tmp_dest.unlink)
+                except OSError:
+                    pass
         logger.info("Promoted episode to library: %s -> %s", src, dest)
 
         media_file.file_path = str(dest)
