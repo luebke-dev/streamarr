@@ -397,6 +397,42 @@ mod handle_tests {
     }
 
     #[test]
+    fn a_playing_file_reports_time_pos_through_the_event_loop() {
+        use std::time::{Duration, Instant};
+
+        let mpv = Libmpv::create().expect("libmpv anlegbar");
+        mpv.apply_options(&option_pairs(&PlayerOptions::default()))
+            .expect("Optionen annehmbar");
+        // A unit test has no GL context, and `vo=libmpv` would wait for one forever. The
+        // null output is a test detail, not a product decision.
+        mpv.set_option("vo", "null").expect("vo=null");
+        mpv.observe_state_properties().expect("beobachtbar");
+
+        mpv.command("loadfile av://lavfi:testsrc2=size=320x240:rate=10")
+            .expect("Testquelle ladbar");
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut seen = None;
+        while Instant::now() < deadline {
+            if let Some(event) = mpv.next_state_event(Duration::from_millis(200)) {
+                if event["name"] == "time-pos" {
+                    if let Some(position) = event["data"].as_f64() {
+                        if position > 0.0 {
+                            seen = Some(position);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(
+            seen.is_some(),
+            "kein time-pos-Ereignis — die Zustandsmaschine bliebe auf dem Anfangswert stehen"
+        );
+    }
+
+    #[test]
     fn an_unreadable_property_is_none_not_an_error() {
         let mpv = Libmpv::create().expect("libmpv anlegbar");
 
@@ -760,5 +796,221 @@ mod command_tests {
     #[test]
     fn a_null_argument_is_refused_rather_than_guessed() {
         assert!(command_string(&json!({"command": ["seek", null]})).is_err());
+    }
+}
+
+/// The properties `PlayerState` reacts to, and therefore the ones that must be observed.
+///
+/// Taken from `PlayerState::apply_event` rather than invented: if this list and that match
+/// ever disagree, the state machine silently stops updating and nothing fails loudly. A test
+/// below keeps them tied together.
+pub const OBSERVED_PROPERTIES: [&str; 6] = [
+    "time-pos",
+    "duration",
+    "pause",
+    "speed",
+    "eof-reached",
+    "core-idle",
+];
+
+/// Turns mpv's textual property value into the JSON value the IPC path produced.
+///
+/// The IPC path handed `PlayerState::apply_event` typed JSON — numbers for `time-pos`, a
+/// boolean for `pause`. Reading properties as text is simpler than one format per property,
+/// but the *types* still have to come out right, or `apply_event` sees a string where it
+/// expects a flag and quietly ignores it.
+pub fn json_from_property_text(text: &str) -> serde_json::Value {
+    match text {
+        // mpv spells flags as yes/no in its string representation.
+        "yes" => serde_json::Value::Bool(true),
+        "no" => serde_json::Value::Bool(false),
+        other => match other.parse::<f64>() {
+            Ok(number) => serde_json::json!(number),
+            Err(_) => serde_json::Value::String(other.to_string()),
+        },
+    }
+}
+
+#[cfg(feature = "libmpv")]
+mod events {
+    use std::ffi::{c_char, c_int, c_void, CStr, CString};
+    use std::time::Duration;
+
+    use super::handle::{Libmpv, LibmpvError};
+    use super::{json_from_property_text, OBSERVED_PROPERTIES};
+
+    #[repr(C)]
+    struct MpvEvent {
+        event_id: c_int,
+        error: c_int,
+        reply_userdata: u64,
+        data: *mut c_void,
+    }
+
+    #[repr(C)]
+    struct MpvEventProperty {
+        name: *const c_char,
+        format: c_int,
+        data: *mut c_void,
+    }
+
+    #[link(name = "mpv")]
+    extern "C" {
+        fn mpv_observe_property(
+            ctx: *mut c_void,
+            reply_userdata: u64,
+            name: *const c_char,
+            format: c_int,
+        ) -> c_int;
+        fn mpv_wait_event(ctx: *mut c_void, timeout: f64) -> *mut MpvEvent;
+        fn mpv_error_string(code: c_int) -> *const c_char;
+    }
+
+    const EVENT_NONE: c_int = 0;
+    const EVENT_PROPERTY_CHANGE: c_int = 22;
+    /// `MPV_FORMAT_STRING`.
+    const FORMAT_STRING: c_int = 1;
+
+    impl Libmpv {
+        /// Subscribes to the properties the state machine needs.
+        ///
+        /// Idempotent in effect: observing the same property twice replaces the earlier
+        /// observation, so a second playback does not duplicate events.
+        pub fn observe_state_properties(&self) -> Result<(), LibmpvError> {
+            for (index, name) in OBSERVED_PROPERTIES.iter().enumerate() {
+                let c_name = CString::new(*name).map_err(|_| LibmpvError {
+                    call: "mpv_observe_property",
+                    message: format!("{name} enthält ein Nullbyte"),
+                })?;
+                let code = unsafe {
+                    mpv_observe_property(
+                        self.as_raw(),
+                        index as u64 + 1,
+                        c_name.as_ptr(),
+                        FORMAT_STRING,
+                    )
+                };
+                if code < 0 {
+                    let message = unsafe {
+                        let ptr = mpv_error_string(code);
+                        if ptr.is_null() {
+                            format!("Fehlercode {code}")
+                        } else {
+                            CStr::from_ptr(ptr).to_string_lossy().into_owned()
+                        }
+                    };
+                    return Err(LibmpvError {
+                        call: "mpv_observe_property",
+                        message,
+                    });
+                }
+            }
+            Ok(())
+        }
+
+        /// Waits for one event and returns it in the shape the IPC path used.
+        ///
+        /// `None` means the timeout expired without anything interesting — the caller polls,
+        /// exactly as it did against the socket. Property changes come back as
+        /// `{"event": "property-change", "name": …, "data": …}`, which is what
+        /// `PlayerState::apply_event` consumes.
+        pub fn next_state_event(&self, timeout: Duration) -> Option<serde_json::Value> {
+            let deadline = std::time::Instant::now() + timeout;
+            loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                let wait = remaining.as_secs_f64();
+                let event = unsafe { mpv_wait_event(self.as_raw(), wait) };
+                if event.is_null() {
+                    return None;
+                }
+                let event = unsafe { &*event };
+
+                if event.event_id == EVENT_NONE {
+                    // mpv signals "nothing happened within the timeout" this way.
+                    return None;
+                }
+                if event.event_id != EVENT_PROPERTY_CHANGE {
+                    // Other events (file loaded, end file, …) are the caller's business via
+                    // `property_string`; only the state properties travel this path today.
+                    if std::time::Instant::now() >= deadline {
+                        return None;
+                    }
+                    continue;
+                }
+
+                let change = event.data as *const MpvEventProperty;
+                if change.is_null() {
+                    continue;
+                }
+                let change = unsafe { &*change };
+                if change.format != FORMAT_STRING || change.data.is_null() || change.name.is_null()
+                {
+                    // An unavailable property (format NONE) is a valid state, not an error.
+                    continue;
+                }
+                let name = unsafe { CStr::from_ptr(change.name) }
+                    .to_string_lossy()
+                    .into_owned();
+                // The string belongs to mpv and is only valid until the next wait_event, so
+                // it is copied out immediately.
+                let raw = unsafe { *(change.data as *const *const c_char) };
+                if raw.is_null() {
+                    continue;
+                }
+                let text = unsafe { CStr::from_ptr(raw) }
+                    .to_string_lossy()
+                    .into_owned();
+
+                return Some(serde_json::json!({
+                    "event": "property-change",
+                    "name": name,
+                    "data": json_from_property_text(&text),
+                }));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod event_tests {
+    use super::*;
+
+    #[test]
+    fn mpv_flags_become_json_booleans() {
+        assert_eq!(json_from_property_text("yes"), serde_json::json!(true));
+        assert_eq!(json_from_property_text("no"), serde_json::json!(false));
+    }
+
+    #[test]
+    fn numbers_become_json_numbers_not_strings() {
+        // `apply_event` reads `time-pos` as a number; a string here would be ignored in
+        // silence, which is the failure mode this test exists for.
+        let value = json_from_property_text("12.5");
+        assert!(value.is_number(), "got {value:?}");
+        assert_eq!(value.as_f64(), Some(12.5));
+    }
+
+    #[test]
+    fn text_stays_text() {
+        assert_eq!(
+            json_from_property_text("unbekannt"),
+            serde_json::Value::String("unbekannt".to_string())
+        );
+    }
+
+    #[test]
+    fn the_observed_set_matches_what_the_state_machine_reads() {
+        // Guards against the two lists drifting apart: a property the state machine reads but
+        // nobody observes means the UI freezes at its first value, with no error anywhere.
+        for name in OBSERVED_PROPERTIES {
+            assert!(
+                matches!(
+                    name,
+                    "time-pos" | "duration" | "pause" | "speed" | "eof-reached" | "core-idle"
+                ),
+                "{name} is observed but not handled by PlayerState::apply_event"
+            );
+        }
+        assert_eq!(OBSERVED_PROPERTIES.len(), 6);
     }
 }
