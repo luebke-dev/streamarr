@@ -438,3 +438,63 @@ mod tests {
         assert!(checked_size(huge).is_err(), "{:?} must not pass", huge);
     }
 }
+
+/// Plays a generated source through the **production** modules and reports the frame rate.
+///
+/// The spike proved the mechanism with throwaway code; this proves the modules that will ship.
+/// It runs on one thread by design: the GL context belongs to the thread that made it, so the
+/// surface and the player live here together, and only mpv's own handle crosses a boundary.
+///
+/// Started by `STREAMARR_NATIVE_CHECK=1` and nothing else — a diagnostic that runs always would
+/// put a test pattern in front of a user.
+#[cfg(feature = "libmpv")]
+pub fn native_check<W>(window: &W, size: (u32, u32)) -> Result<String, String>
+where
+    W: tauri::Manager<tauri::Wry> + HasWindowHandle + HasDisplayHandle,
+{
+    use std::time::Instant;
+    use streamarr_desktop_player::libmpv::InProcessPlayer;
+    use streamarr_desktop_player::mpv::PlayerOptions;
+
+    let handles = read_handles(window, size)?;
+
+    let mpv = crate::EARLY_LIBMPV
+        .lock()
+        .map_err(|_| "Mutex vergiftet".to_string())?
+        .take()
+        .ok_or("kein vor GTK angelegtes libmpv-Handle")?;
+
+    let mut surface = VideoSurface::create(&handles, &mpv, size)?;
+
+    let options = PlayerOptions {
+        // The whole point of the check: the picture must come through libmpv's renderer.
+        extra_args: Vec::new(),
+        ..PlayerOptions::default()
+    };
+    let player = InProcessPlayer::start(mpv, "av://lavfi:testsrc2=size=1280x720:rate=30", &options)
+        .map_err(|e| e.to_string())?;
+
+    let frames = 120;
+    let started = Instant::now();
+    let mut drawn = 0;
+    for _ in 0..frames {
+        surface.render_once()?;
+        drawn += 1;
+        if started.elapsed().as_secs_f64() > 10.0 {
+            break;
+        }
+    }
+    let seconds = started.elapsed().as_secs_f64();
+    let format = player.property("video-format").unwrap_or_else(|| "?".into());
+
+    // Leaked deliberately: this is a diagnostic run, and tearing the surface down would remove
+    // the picture the user is meant to look at.
+    std::mem::forget((surface, player));
+
+    Ok(format!(
+        "{drawn} Bilder in {seconds:.2} s = {:.1} fps · Format {format} · Größe {}x{}",
+        drawn as f64 / seconds,
+        handles.width,
+        handles.height
+    ))
+}

@@ -153,7 +153,26 @@ impl AppState {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// The libmpv instance, created before GTK and handed to whichever thread plays.
+///
+/// `None` in builds without the `libmpv` feature, and still `Some` only until playback takes
+/// ownership — the handle is not shareable across two owners by design.
+#[cfg(feature = "libmpv")]
+pub static EARLY_LIBMPV: std::sync::Mutex<Option<streamarr_desktop_player::libmpv::Libmpv>> =
+    std::sync::Mutex::new(None);
+
 pub fn run() {
+    // libmpv must be created before GTK is initialised: after `gtk_init` the same call returns
+    // NULL (measured, see ADR 003). This is the only place in the app where that order can be
+    // guaranteed, so the handle is made here and handed on.
+    #[cfg(feature = "libmpv")]
+    match streamarr_desktop_player::libmpv::Libmpv::create() {
+        Ok(mpv) => {
+            *EARLY_LIBMPV.lock().expect("Mutex nicht vergiftet") = Some(mpv);
+        }
+        Err(err) => log::error!("libmpv nicht anlegbar: {err}"),
+    }
+
     let mut builder = tauri::Builder::default();
 
     // Single instance first: the plugin must see the command line before anything
@@ -194,6 +213,25 @@ pub fn run() {
                 .unwrap_or_else(|_| storage::default_config_root());
             let state = AppState::load(config_root)?;
             app.manage(state);
+
+            // Diagnostic, off unless asked for: plays a generated source through the production
+            // modules so the frame rate comes from shipping code rather than from the spike.
+            #[cfg(feature = "libmpv")]
+            if std::env::var("STREAMARR_NATIVE_CHECK").ok().as_deref() == Some("1") {
+                if let Some(window) = app.get_webview_window("main") {
+                    let size = window
+                        .inner_size()
+                        .map(|s| (s.width, s.height))
+                        .unwrap_or((0, 0));
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(2500));
+                        match render::native_check(&window, size) {
+                            Ok(info) => log::info!("NATIVPRUEFUNG {info}"),
+                            Err(err) => log::error!("NATIVPRUEFUNG fehlgeschlagen: {err}"),
+                        }
+                    });
+                }
+            }
             // Couch mode's own state. Separate from `AppState` because it is
             // per-window session state rather than configuration: it holds the
             // focus and the repeat timers, both of which must start empty.
