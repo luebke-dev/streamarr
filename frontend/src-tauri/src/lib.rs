@@ -219,13 +219,14 @@ pub fn run() {
             #[cfg(feature = "libmpv")]
             if std::env::var("STREAMARR_NATIVE_CHECK").ok().as_deref() == Some("1") {
                 if let Some(window) = app.get_webview_window("main") {
+                    let app_handle = app.handle().clone();
                     let size = window
                         .inner_size()
                         .map(|s| (s.width, s.height))
                         .unwrap_or((0, 0));
                     std::thread::spawn(move || {
                         std::thread::sleep(std::time::Duration::from_millis(2500));
-                        match render::native_check(&window, size) {
+                        match render::native_check(&window, size, &app_handle) {
                             Ok(info) => log::info!("NATIVPRUEFUNG {info}"),
                             Err(err) => log::error!("NATIVPRUEFUNG fehlgeschlagen: {err}"),
                         }

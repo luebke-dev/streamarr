@@ -15,3 +15,20 @@ body.cordova {
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+// ADR 003: the native video picture is a Wayland subsurface *below* the webview, so the page
+// has to let it through. Scoped to playback on purpose — a permanently transparent window
+// would show the desktop through the whole app, which is not a product state.
+//
+// Everything that paints an opaque background on the way down has to be included: Quasar wraps
+// the page in several containers, and missing one leaves a grey band wherever the picture
+// should be.
+body.streamarr-native-video,
+body.streamarr-native-video #q-app,
+body.streamarr-native-video .q-layout,
+body.streamarr-native-video .q-page-container,
+body.streamarr-native-video .q-page,
+body.streamarr-native-video .q-drawer,
+body.streamarr-native-video .q-header {
+  background: transparent !important;
+}

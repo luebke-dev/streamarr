@@ -421,13 +421,14 @@ impl Drop for VideoSurface {
 /// Started by `STREAMARR_NATIVE_CHECK=1` and nothing else — a diagnostic that runs always would
 /// put a test pattern in front of a user.
 #[cfg(feature = "libmpv")]
-pub fn native_check<W>(window: &W, size: (u32, u32)) -> Result<String, String>
+pub fn native_check<W>(window: &W, size: (u32, u32), ui: &tauri::AppHandle) -> Result<String, String>
 where
     W: tauri::Manager<tauri::Wry> + HasWindowHandle + HasDisplayHandle,
 {
     use std::time::Instant;
     use streamarr_desktop_player::libmpv::InProcessPlayer;
     use streamarr_desktop_player::mpv::PlayerOptions;
+    use tauri::Emitter;
 
     let handles = read_handles(window, size)?;
 
@@ -438,6 +439,21 @@ where
         .ok_or("kein vor GTK angelegtes libmpv-Handle")?;
 
     let mut surface = VideoSurface::create(&handles, &mpv, size)?;
+
+    // Tell the interface a picture is playing, which is what makes the page transparent. The
+    // event is the real contract the UI already listens to — the check reuses it rather than
+    // reaching into the webview, and `player:stopped` is deliberately not emitted afterwards
+    // because the picture is left on screen for someone to look at.
+    let _ = ui.emit(
+        "player:started",
+        serde_json::json!({
+            "item_guid": "native-check",
+            "notices": [],
+            "is_transcode": false,
+            "is_resuming": false,
+            "start_position": 0,
+        }),
+    );
 
     let options = PlayerOptions {
         // The whole point of the check: the picture must come through libmpv's renderer.

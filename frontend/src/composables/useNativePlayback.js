@@ -23,11 +23,28 @@
  * is shown instead, and the message says what to do.
  */
 
-import { ref, shallowRef, onUnmounted } from 'vue'
+import { ref, shallowRef, watch, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { isDesktopApp } from 'src/utils/desktopPlatform'
 import { logger } from 'src/utils/logger'
+
+/**
+ * Lets the native picture through while it plays.
+ *
+ * The shell renders into a Wayland subsurface *below* the webview (ADR 003), so the page is
+ * transparent only while something is actually being drawn underneath. Toggled from the
+ * playback state rather than from a page lifecycle, because the picture outlives a route change
+ * and must not linger after it ends.
+ *
+ * A missing `document` is not an error: the composable is also used in tests.
+ */
+export function applyVideoBackdrop(isActive) {
+  if (typeof document === 'undefined' || !document.body) {
+    return
+  }
+  document.body.classList.toggle('streamarr-native-video', Boolean(isActive))
+}
 
 /**
  * The UI state of a native playback, derived from shell events.
@@ -112,6 +129,13 @@ export function usesNativePlayback({ isDesktop, contentType }) {
  */
 export function useNativePlayback({ onProgress } = {}) {
   const state = ref(initialPlayerState())
+  // Driving the backdrop from the state rather than from the call sites keeps the one rule in
+  // one place: the page is see-through exactly while the shell says a picture is playing.
+  watch(
+    () => state.value.active,
+    (active) => applyVideoBackdrop(active),
+    { immediate: true },
+  )
   const summary = shallowRef(null)
   const unlisteners = []
   let lastReported = 0

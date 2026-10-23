@@ -7,7 +7,7 @@
  * worth testing on its own rather than only through a rendered component.
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }))
@@ -18,6 +18,7 @@ vi.mock('src/utils/logger', () => ({
 import { effectScope } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import {
+  applyVideoBackdrop,
   initialPlayerState,
   reducePlayerEvent,
   usesNativePlayback,
@@ -228,5 +229,33 @@ describe('native track selection', () => {
 
     expect(invoke).toHaveBeenCalledWith('player_set_property', { name: 'sid', value: 3 })
     scope.stop()
+  })
+})
+
+describe('applyVideoBackdrop', () => {
+  beforeEach(() => {
+    document.body.className = ''
+  })
+
+  it('lets the picture through while a video plays', () => {
+    // The shell renders into a subsurface *below* the webview (ADR 003); without this class the
+    // page would cover the picture, and the symptom would look like playback failing.
+    applyVideoBackdrop(true)
+
+    expect(document.body.classList.contains('streamarr-native-video')).toBe(true)
+  })
+
+  it('gives the window its own background back when playback ends', () => {
+    applyVideoBackdrop(true)
+    applyVideoBackdrop(false)
+
+    expect(document.body.classList.contains('streamarr-native-video')).toBe(false)
+  })
+
+  it('coerces anything unexpected rather than leaving a stale class', () => {
+    applyVideoBackdrop(true)
+    applyVideoBackdrop(undefined)
+
+    expect(document.body.classList.contains('streamarr-native-video')).toBe(false)
   })
 })
