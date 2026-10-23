@@ -217,3 +217,28 @@ class TestPromotionRecordsProvenance:
         assert media_file.imported_at is not None
         assert media_file.library_root == str(library_path)
         assert str(media_file.library_guid) == str(library.guid)
+
+
+class TestRssCategoryGroups:
+    def test_movies_and_shows_are_requested_separately(self):
+        """One combined request lets TV dominate the window and hides every movie."""
+        class _Cat:
+            def __init__(self, cid, kind):
+                self.newznab_category_id = cid
+                self.category_type = kind
+
+        class _Indexer:
+            categories = [
+                _Cat(2000, "movie"),
+                _Cat(5000, "show"),
+                _Cat(3000, "music"),
+            ]
+
+        groups = IndexerService._rss_category_groups(_Indexer())
+        assert sorted(groups) == ["2000", "5000"]
+
+    def test_without_relevant_categories_one_unfiltered_request(self):
+        class _Indexer:
+            categories = []
+
+        assert IndexerService._rss_category_groups(_Indexer()) == [None]

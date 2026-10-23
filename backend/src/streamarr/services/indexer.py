@@ -61,16 +61,45 @@ class IndexerService:
         self, indexer: Indexer, limit: int
     ) -> list[dict[str, Any]]:
         indexer_type = (indexer.type or "newznab").lower().strip() or "newznab"
+        groups = self._rss_category_groups(indexer)
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
         with observe_indexer_search(indexer_type, "rss") as result_count:
-            client = self._create_indexer_client(indexer)
-            try:
-                items = await client.fetch_recent(
-                    limit=limit, categories=self._rss_category_filter(indexer)
-                )
-            finally:
-                await client.close()
-            result_count[0] = len(items)
-            return items
+            for categories in groups:
+                client = self._create_indexer_client(indexer)
+                try:
+                    items = await client.fetch_recent(
+                        limit=limit, categories=categories
+                    )
+                finally:
+                    await client.close()
+                for item in items:
+                    key = str(item.get("guid") or item.get("title") or "")
+                    if key and key in seen:
+                        continue
+                    seen.add(key)
+                    merged.append(item)
+            result_count[0] = len(merged)
+            return merged
+
+    @staticmethod
+    def _rss_category_groups(indexer: Indexer) -> list[str | None]:
+        """One feed request per media type instead of one combined request.
+
+        With ``cat=2000,5000`` the indexer answers with whatever it published
+        most recently, and on a TV-heavy indexer that is always TV - a movie never
+        appears in the window, so the RSS path could not see a film at all. Asking
+        for movies and shows separately guarantees both are represented.
+        """
+        groups: dict[str, list[str]] = {}
+        for cat in indexer.categories or []:
+            ctype = (cat.category_type or "").lower()
+            if cat.newznab_category_id is None or ctype not in {"movie", "show"}:
+                continue
+            groups.setdefault(ctype, []).append(str(cat.newznab_category_id))
+        if not groups:
+            return [None]
+        return [",".join(sorted(ids)) for ids in groups.values()]
 
     @staticmethod
     def _rss_category_filter(indexer: Indexer) -> str | None:
