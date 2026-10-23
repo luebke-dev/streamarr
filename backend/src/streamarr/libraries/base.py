@@ -182,7 +182,10 @@ def extract_naming_metadata(structured_probe: dict) -> dict[str, Any]:
         elif height >= 480:
             metadata["resolution"] = "480p"
         else:
-            metadata["resolution"] = f"{height}p" if height else ""
+            # Stay on the standard ladder. A letterboxed 720x404 encode used to
+            # be named "[404p]", which is not a quality label anyone recognises -
+            # and it disagreed with the row's own quality value.
+            metadata["resolution"] = "480p" if height else ""
 
         # Video codec
         codec_name = (video.get("codec_name") or "").lower()

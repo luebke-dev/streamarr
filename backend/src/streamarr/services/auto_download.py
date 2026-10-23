@@ -71,8 +71,33 @@ class AutoDownloadService:
         # Filter blacklisted releases
         releases = self._filter_blacklisted(media_item.releases or [])
         if not releases:
+            # Nothing known yet. Callers that enqueue search and grab together
+            # (RSS sync, backfill) run them as separate tasks, so this one can
+            # start before the search has stored anything - which made every
+            # automated grab a no-op that looked like "all releases blacklisted".
+            # Search here so a grab is self-sufficient.
+            logger.info(
+                "No releases known for media item %s, searching before selecting",
+                media_item.guid,
+            )
+            try:
+                from streamarr.services.release_search import ReleaseSearchService
+
+                await ReleaseSearchService(self.db).search_and_store_releases(
+                    str(media_item.guid), user_guid, force=True
+                )
+                await self.db.commit()
+            except Exception as exc:
+                logger.warning(
+                    "Release search before download failed for %s: %s",
+                    media_item.guid, exc,
+                )
+            media_item = await self._load_media_item(media_item_guid) or media_item
+            releases = self._filter_blacklisted(media_item.releases or [])
+
+        if not releases:
             logger.warning(
-                "All releases for media item %s are blacklisted, no alternatives available",
+                "No usable release for media item %s (none found or all blacklisted)",
                 media_item.guid,
             )
             return None

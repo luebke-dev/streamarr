@@ -92,6 +92,9 @@ class RssSyncService:
             await sset.get("automation.rss_seen_ttl_seconds", 1209600) or 1209600
         )
         feed_limit = int(await sset.get("automation.rss_feed_limit", 100) or 100)
+        max_grabs = int(
+            await sset.get("automation.rss_max_grabs_per_tick", 3) or 3
+        )
         grab_enabled = bool(
             await sset.get("automation.favorites_autodownload_enabled", False)
         )
@@ -188,6 +191,12 @@ class RssSyncService:
         res.matched_roots = len(matched)
         if matched and grab_enabled:
             leaves = await self._resolve_announced_leaves(matched)
+            if len(leaves) > max_grabs:
+                logger.info(
+                    "RSS: %d announced episodes, grabbing the first %d this tick",
+                    len(leaves), max_grabs,
+                )
+                leaves = leaves[:max_grabs]
             if leaves:
                 from streamarr.worker import (
                     auto_download_media_item,

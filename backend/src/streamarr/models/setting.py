@@ -226,6 +226,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # newest 100 items are often all software, so a monitored show never appears;
     # a wider window costs one request more and sees the actual media releases.
     "automation.rss_feed_limit": 100,
+    # A feed tick can announce many episodes of the same show at once (a newly
+    # added season). Grabbing all of them in one tick floods the line, so a tick
+    # takes at most this many: the rest stay announced and are picked up by the
+    # next tick or by the reconcile sweep.
+    "automation.rss_max_grabs_per_tick": 3,
     "automation.upgrade_scan_batch_size": 25,
     "automation.max_concurrent_upgrade_downloads": 3,
     "automation.library_scan_interval_hours": 12,
