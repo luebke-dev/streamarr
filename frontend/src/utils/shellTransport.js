@@ -76,12 +76,19 @@ export function isTauriIpc(url) {
 export function toBridgePath(url) {
   // A request to a different origin is a bug in this adapter, not a feature: the shell
   // always talks to the configured server.
-  if (/^https?:\/\//i.test(url)) {
+  // **Any** scheme, not just http(s). The desktop origin is `tauri://localhost`, and a URL that
+  // slipped through unchanged reached the shell, which then treated `tauri://localhost` as a host
+  // name: the log said `NameResolution — failed to lookup address`, which sends every reader to
+  // DNS instead of to this adapter. Measured on `/api/auth/background`.
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
     try {
       const parsed = new URL(url)
       return `${parsed.pathname}${parsed.search}`
     } catch {
-      return url
+      // A scheme this environment's URL parser refuses still has a path after `://`.
+      const afterScheme = url.indexOf('://') + 3
+      const slash = url.indexOf('/', afterScheme)
+      return slash >= 0 ? url.slice(slash) : '/'
     }
   }
   return url

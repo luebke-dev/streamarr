@@ -85,6 +85,15 @@ pub async fn api_request(
     body: Option<String>,
     timeout_ms: Option<u64>,
 ) -> Result<BridgeResponse, String> {
+    // A full URL here is a defect in the adapter, not a request to route. Failing loudly names it:
+    // handed to the transport, `tauri://localhost` becomes a host name and the error reads as a DNS
+    // problem — which is where this cost an hour of looking in the wrong place.
+    if path.contains("://") {
+        return Err(format!(
+            "Die Shell erwartet einen Pfad, keine URL: {path} — der Adapter muss den Ursprung abziehen"
+        ));
+    }
+
     // One line per call, deliberately: a UI that "does nothing" leaves the shell with no
     // trace at all, and the difference between "the page never asked" and "the page asked
     // and the answer failed" decides where to look. No values are logged — paths only.

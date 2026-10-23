@@ -174,3 +174,16 @@ describe('describeError hat eine Obergrenze', () => {
   })
 })
 
+describe('toBridgePath', () => {
+  it('strips any origin, including the desktop scheme', () => {
+    // Measured defect: `tauri://localhost/api/auth/background` went through unchanged, and the
+    // shell turned `tauri://localhost` into a host name. The resulting
+    // "NameResolution — failed to lookup address" points at DNS, not at this function.
+    expect(toBridgePath('tauri://localhost/api/auth/background')).toBe('/api/auth/background')
+    expect(toBridgePath('https://streamarr.example/api/items?page=2')).toBe('/api/items?page=2')
+  })
+
+  it('leaves a path alone', () => {
+    expect(toBridgePath('/api/items?page=2')).toBe('/api/items?page=2')
+  })
+})
