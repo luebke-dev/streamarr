@@ -702,17 +702,81 @@ impl SingleServerPool {
     }
 
     async fn keepalive_all(&self) {
-        let mut conns = self.connections.lock().await;
-        let mut i = 0;
-        while i < conns.len() {
-            match conns[i].keepalive().await {
-                Ok(()) => i += 1,
+        // Hold one permit per idle slot for the duration of the probe so
+        // `acquire()` cannot open fresh connections in parallel and push the
+        // account over its connection limit (providers kill the session for
+        // that). Waiting for the permits is fine: they are only busy while jobs
+        // are actually downloading, and this is a background task.
+        let idle = { self.connections.lock().await.len() };
+        if idle == 0 {
+            return;
+        }
+        let permits = match self.semaphore.acquire_many(idle as u32).await {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+
+        // Take the idle connections out of the pool first. The old version held
+        // `connections` while sending DATE on every connection one after the
+        // other, so a single hung connection (or just a slow round-trip)
+        // blocked every `acquire()` — downloads stalled for the whole sweep and
+        // throughput collapsed to a few hundred KB/s.
+        let drained: Vec<NntpClient> = {
+            let mut conns = self.connections.lock().await;
+            std::mem::take(&mut *conns)
+        };
+        if drained.is_empty() {
+            return;
+        }
+
+        // Probe them concurrently (no lock held) and keep the healthy ones.
+        let mut tasks = Vec::with_capacity(drained.len());
+        for (idx, mut client) in drained.into_iter().enumerate() {
+            tasks.push(tokio::spawn(async move {
+                match client.keepalive().await {
+                    Ok(()) => Ok(client),
+                    Err(e) => {
+                        warn!("Keepalive failed for connection {}: {} — reconnecting", idx, e);
+                        Err(())
+                    }
+                }
+            }));
+        }
+
+        let mut healthy: Vec<NntpClient> = Vec::new();
+        for task in tasks {
+            if let Ok(Ok(client)) = task.await {
+                healthy.push(client);
+            }
+        }
+
+        // Top the pool back up so a lost connection does not permanently shrink
+        // it — every slot that stays missing is throughput the next job loses.
+        while healthy.len() < self.config.connections {
+            match NntpClient::connect(&self.config, self.timeout).await {
+                Ok(mut client) => {
+                    if client
+                        .authenticate(&self.config.username, &self.config.password)
+                        .await
+                        .is_ok()
+                    {
+                        healthy.push(client);
+                    } else {
+                        self.penalize("keepalive reconnect: authentication failed");
+                        break;
+                    }
+                }
                 Err(e) => {
-                    warn!("Keepalive failed for connection {}, discarding: {}", i, e);
-                    conns.remove(i);
+                    warn!("Keepalive reconnect failed: {} — pool stays at {}", e, healthy.len());
+                    break;
                 }
             }
         }
+
+        let mut conns = self.connections.lock().await;
+        conns.extend(healthy);
+        drop(conns);
+        drop(permits);
     }
 
     async fn acquire(&self) -> Result<NntpPoolGuard<'_>, AppError> {

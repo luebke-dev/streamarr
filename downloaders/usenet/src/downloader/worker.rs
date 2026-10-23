@@ -289,6 +289,28 @@ impl DownloadWorker {
             info!("Job {}: {} essential files + {} PAR2 volumes (on-demand)", job_id, essential_files.len(), par2_volumes.len());
         }
 
+        // Recovery blocks the on-demand PAR2 volumes could contribute in the
+        // best case. A post whose missing segments exceed this can never be
+        // repaired, so the download aborts instead of letting every connection
+        // retry dead articles — dead/DMCA'd uploads used to occupy a job slot
+        // for many minutes and starve the healthy jobs of connections.
+        let par2_capacity: Option<usize> = if par2_volumes.is_empty() {
+            None
+        } else {
+            let mut sum = 0usize;
+            let mut complete = true;
+            for vol in &par2_volumes {
+                match recovery_blocks_in_volume(&vol.filename) {
+                    Some(blocks) => sum += blocks as usize,
+                    None => {
+                        complete = false;
+                        break;
+                    }
+                }
+            }
+            complete.then_some(sum)
+        };
+
         let total_failed = Arc::new(AtomicUsize::new(0));
         let perm_missing = Arc::new(AtomicUsize::new(0));
 
@@ -541,6 +563,29 @@ impl DownloadWorker {
                     }
                     // _reservation drops here → the next batch can only start
                     // fetching once this one has been written to disk.
+
+                    // Fail fast on unrecoverable posts: more missing segments
+                    // than PAR2 could ever repair means the upload is dead (or
+                    // DMCA-removed), so stop instead of burning bandwidth on
+                    // the remaining segments.
+                    let failed_total = failed_counter.load(Ordering::Relaxed);
+                    let unrecoverable = match par2_capacity {
+                        Some(capacity) => failed_total > capacity,
+                        // No usable PAR2 capacity: only a large file whose
+                        // failure rate is clearly fatal triggers the abort.
+                        None => segments.len() >= 100 && file_failed * 4 > segments.len(),
+                    };
+                    if unrecoverable {
+                        return Err(format!(
+                            "ABORT: {} of {} segments missing in {:?} — unrecoverable (PAR2 capacity {}), release is dead or taken down",
+                            failed_total,
+                            segments.len(),
+                            file_path.file_name().unwrap_or_default(),
+                            par2_capacity
+                                .map(|c| c.to_string())
+                                .unwrap_or_else(|| "none".to_string()),
+                        ));
+                    }
                 }
 
                 if file_failed > 0 {
@@ -617,7 +662,14 @@ impl DownloadWorker {
                 .par2_repair_with_volumes(&temp_path, &par2_volumes, publish_date)
                 .await
             {
-                self.fail_job(job_id, &format!("PAR2 repair failed: {}", e), &webhook_url).await;
+                // "post incomplete…" already says what is wrong; wrapping it in
+                // "PAR2 repair failed" made a dead upload look like a repair bug.
+                let msg = if e.starts_with("post incomplete") {
+                    e
+                } else {
+                    format!("PAR2 repair failed: {}", e)
+                };
+                self.fail_job(job_id, &msg, &webhook_url).await;
                 return;
             }
             info!("Job {} PAR2 stage complete", job_id);
@@ -968,7 +1020,10 @@ impl DownloadWorker {
 
     /// Run par2repair once and classify what it reported.
     async fn par2_run(dir: &Path) -> Result<Par2Outcome, String> {
-        let par2_file = Self::find_base_par2(dir).await.ok_or("No .par2 file found")?;
+        let par2_file = Self::find_base_par2(dir).await.ok_or_else(|| {
+            "post incomplete: PAR2 index file missing (upload damaged or taken down)"
+                .to_string()
+        })?;
         info!("Running par2repair with: {}", par2_file.display());
         let output = tokio::process::Command::new("par2repair")
             .arg(&par2_file)
