@@ -92,7 +92,11 @@
       :tracks="nativeTracks"
       :notices="nativePlayer.state.value.notices"
       :is-resuming="nativePlayer.state.value.isResuming"
+      :is-paused="nativePlayer.state.value.paused"
       @close="goBack"
+      @toggle-pause="onNativeTogglePause"
+      @seek="onNativeSeek"
+      @toggle-fullscreen="toggleFullscreen"
       @restart="restartNativePlayback"
       @select-audio="onSelectAudioTrack"
       @select-subtitle="onSelectSubtitleTrack"
@@ -728,6 +732,22 @@ watch(
 )
 
 /** Switches mpv's audio track. `null` restores mpv's own choice. */
+/**
+ * The transport controls of the native panel.
+ *
+ * Each one is a command to the shell, because the shell owns the player: this page has no media
+ * element to read a position from or write a pause to. Fullscreen reuses the existing handler
+ * rather than growing a second way to do the same thing.
+ */
+const onNativeTogglePause = async () => {
+  await nativePlayer.setPaused(!nativePlayer.state.value.paused)
+}
+
+const onNativeSeek = async (seconds) => {
+  // Relative: without a visible position an absolute seek would be a guess.
+  await nativePlayer.seek(seconds, true)
+}
+
 const onSelectAudioTrack = async (trackId) => {
   await nativePlayer.selectAudioTrack(trackId)
   // Re-read so the panel shows what mpv actually selected, not what was asked

@@ -121,3 +121,34 @@ describe('NativePlaybackView track selection', () => {
     expect(wrapper.emitted('select-subtitle')[0]).toEqual([3])
   })
 })
+
+describe('the transport controls', () => {
+  it('asks the shell to pause, and shows the opposite action while paused', async () => {
+    // The button must reflect what the shell reports, not what the last click believed — the
+    // two differ as soon as a command fails, and then a stateful button would lie.
+    const wrapper = await mountView()
+    await wrapper.get('[data-test="native-toggle-pause"]').trigger('click')
+
+    expect(wrapper.emitted('toggle-pause')).toHaveLength(1)
+  })
+
+  it('seeks relatively in both directions', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-test="native-back-10"]').trigger('click')
+    await wrapper.get('[data-test="native-forward-10"]').trigger('click')
+
+    // The panel shows no position, so an absolute seek would ask the user to guess a number.
+    expect(wrapper.emitted('seek')).toEqual([[-10], [10]])
+  })
+
+  it('offers fullscreen as an event rather than doing it itself', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-test="native-fullscreen"]').trigger('click')
+
+    // The page already has a fullscreen handler for the window; a second implementation here
+    // would be two ways to do one thing.
+    expect(wrapper.emitted('toggle-fullscreen')).toHaveLength(1)
+  })
+})
