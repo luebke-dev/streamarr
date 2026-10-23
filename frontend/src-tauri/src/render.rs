@@ -412,33 +412,6 @@ impl Drop for VideoSurface {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_real_size_is_accepted() {
-        assert_eq!(checked_size((1920, 1080)), Ok((1920, 1080)));
-    }
-
-    #[test]
-    fn a_zero_size_is_refused_before_wayland_sees_it() {
-        // Comes from a hidden or not yet realised window; passing it on produces
-        // compositor errors that say nothing about the real cause.
-        assert!(checked_size((0, 1080)).is_err());
-        assert!(checked_size((1920, 0)).is_err());
-        assert!(checked_size((0, 0)).is_err());
-    }
-
-    #[test]
-    fn an_unrealistically_large_size_does_not_wrap() {
-        // u32 -> i32 conversion is where a wrap would hide; a value above i32::MAX must be
-        // refused rather than turned negative.
-        let huge = (u32::MAX, 1080);
-        assert!(checked_size(huge).is_err(), "{:?} must not pass", huge);
-    }
-}
-
 /// Plays a generated source through the **production** modules and reports the frame rate.
 ///
 /// The spike proved the mechanism with throwaway code; this proves the modules that will ship.
@@ -485,7 +458,9 @@ where
         }
     }
     let seconds = started.elapsed().as_secs_f64();
-    let format = player.property("video-format").unwrap_or_else(|| "?".into());
+    let format = player
+        .property("video-format")
+        .unwrap_or_else(|| "?".into());
 
     // Leaked deliberately: this is a diagnostic run, and tearing the surface down would remove
     // the picture the user is meant to look at.
@@ -497,4 +472,31 @@ where
         handles.width,
         handles.height
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_real_size_is_accepted() {
+        assert_eq!(checked_size((1920, 1080)), Ok((1920, 1080)));
+    }
+
+    #[test]
+    fn a_zero_size_is_refused_before_wayland_sees_it() {
+        // Comes from a hidden or not yet realised window; passing it on produces
+        // compositor errors that say nothing about the real cause.
+        assert!(checked_size((0, 1080)).is_err());
+        assert!(checked_size((1920, 0)).is_err());
+        assert!(checked_size((0, 0)).is_err());
+    }
+
+    #[test]
+    fn an_unrealistically_large_size_does_not_wrap() {
+        // u32 -> i32 conversion is where a wrap would hide; a value above i32::MAX must be
+        // refused rather than turned negative.
+        let huge = (u32::MAX, 1080);
+        assert!(checked_size(huge).is_err(), "{:?} must not pass", huge);
+    }
 }

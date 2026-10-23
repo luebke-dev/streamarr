@@ -28,11 +28,15 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use streamarr_desktop_player::mpv::{HdrMode, Mpv, PlayerOptions, PlayerState, TrackList};
+#[cfg(not(feature = "libmpv"))]
+use streamarr_desktop_player::mpv::Mpv;
+use streamarr_desktop_player::mpv::{HdrMode, PlayerOptions, PlayerState, TrackList};
 use streamarr_desktop_player::plan::{
     notices_for, plan_playback, position_to_store, PlaybackNotice, PlaybackPlan,
 };
 use streamarr_desktop_player::resolve_tunnel::{tunnel_plan, ResolveTunnel};
+#[cfg(feature = "libmpv")]
+use tauri::Manager;
 use tauri::{Emitter, State};
 
 use crate::api::{ApiClient, RawBody, RawRequest};
@@ -364,8 +368,35 @@ fn start_player(
         log::info!("Wiedergabe: {}", described.join(", "));
     }
 
-    let mpv = Mpv::start(&plan.url, &options)
-        .map_err(|e| format!("Der Wiedergabeprozess konnte nicht gestartet werden: {e}"))?;
+    // Compile-time choice of the backend; see `Backend` for why it is not a runtime fallback.
+    //
+    // The two paths differ in *where* they start, and that difference is real rather than
+    // stylistic: the in-process surface owns a GL context, and a GL context belongs to the
+    // thread that created it. Creating it here and moving it into the player thread would be
+    // wrong at the driver level, not merely awkward in Rust — the type refuses to be `Send`
+    // for exactly that reason. So the process path still fails fast in the caller (a missing
+    // binary is a synchronous error the UI can show), while the in-process path creates its
+    // surface inside the thread that will render it.
+    #[cfg(not(feature = "libmpv"))]
+    let mpv = Backend::start_process(&plan.url, &options)?;
+
+    #[cfg(feature = "libmpv")]
+    let (start_handles, start_size) = {
+        let window = app
+            .get_webview_window("main")
+            .ok_or("Kein Hauptfenster für die Videofläche")?;
+        let size = window
+            .inner_size()
+            .map(|s| (s.width, s.height))
+            .unwrap_or((0, 0));
+        (crate::render::read_handles(&window, size)?, size)
+    };
+    #[cfg(feature = "libmpv")]
+    let early_mpv = crate::EARLY_LIBMPV
+        .lock()
+        .map_err(|_| "libmpv-Sperre vergiftet".to_string())?
+        .take()
+        .ok_or("kein vor GTK angelegtes libmpv-Handle — wurde es schon verbraucht?")?;
 
     let state_handle = Arc::new(Mutex::new(PlayerState {
         idle: false,
@@ -388,19 +419,54 @@ fn start_player(
     let app_handle = app.clone();
     let track_properties = plan.track_properties();
 
-    let handle = std::thread::Builder::new()
-        .name("streamarr-player".to_string())
-        .spawn(move || {
-            monitor(
-                mpv,
-                rx,
-                thread_state,
-                thread_summary,
-                app_handle,
-                track_properties,
-            );
-        })
-        .map_err(|e| format!("Der Wiedergabe-Thread konnte nicht starten: {e}"))?;
+    #[cfg(not(feature = "libmpv"))]
+    let spawned = {
+        std::thread::Builder::new()
+            .name("streamarr-player".to_string())
+            .spawn(move || {
+                monitor(
+                    mpv,
+                    rx,
+                    thread_state,
+                    thread_summary,
+                    app_handle,
+                    track_properties,
+                );
+            })
+    };
+    #[cfg(feature = "libmpv")]
+    let spawned = {
+        let thread_plan_url = plan.url.clone();
+        let thread_options = options.clone();
+        let thread_app = app_handle.clone();
+        std::thread::Builder::new()
+            .name("streamarr-player".to_string())
+            .spawn(move || {
+                match Backend::start_in_process(
+                    early_mpv,
+                    &thread_plan_url,
+                    &thread_options,
+                    &start_handles,
+                    start_size,
+                ) {
+                    Ok(mpv) => monitor(
+                        mpv,
+                        rx,
+                        thread_state,
+                        thread_summary,
+                        app_handle,
+                        track_properties,
+                    ),
+                    Err(err) => {
+                        // The caller has already returned success by now, so the UI must be
+                        // told rather than left waiting for a picture that will not come.
+                        log::error!("Wiedergabe im App-Prozess nicht gestartet: {err}");
+                        let _ = thread_app.emit("player:stopped", thread_summary);
+                    }
+                }
+            })
+    };
+    let handle = spawned.map_err(|e| format!("Der Wiedergabe-Thread konnte nicht starten: {e}"))?;
 
     let service = state.playback();
     service.replace(Running {
@@ -417,9 +483,102 @@ fn start_player(
     Ok(summary)
 }
 
+/// Which mpv serves this session.
+///
+/// Chosen at **compile time**, never at runtime. A runtime fallback that quietly started a
+/// process when the in-process path failed would make "nothing in the playback path starts mpv
+/// as a process" unprovable — and provability is the point of criterion 6, not convenience.
+enum Backend {
+    #[cfg(not(feature = "libmpv"))]
+    Process(Mpv),
+    #[cfg(feature = "libmpv")]
+    InProcess {
+        player: streamarr_desktop_player::libmpv::InProcessPlayer,
+        /// Owns the GL context, so it must live exactly as long as the picture does. Dropped
+        /// with the backend, which is what removes the video surface from the window.
+        _surface: crate::render::VideoSurface,
+    },
+}
+
+impl Backend {
+    #[cfg(not(feature = "libmpv"))]
+    fn start_process(url: &str, options: &PlayerOptions) -> Result<Self, String> {
+        Mpv::start(url, options)
+            .map(Self::Process)
+            .map_err(|e| format!("Der Wiedergabeprozess konnte nicht gestartet werden: {e}"))
+    }
+
+    #[cfg(feature = "libmpv")]
+    fn start_in_process(
+        mpv: streamarr_desktop_player::libmpv::Libmpv,
+        url: &str,
+        options: &PlayerOptions,
+        handles: &crate::render::WindowHandles,
+        size: (u32, u32),
+    ) -> Result<Self, String> {
+        let surface = crate::render::VideoSurface::create(handles, &mpv, size)?;
+        let player = streamarr_desktop_player::libmpv::InProcessPlayer::start(mpv, url, options)
+            .map_err(|e| format!("libmpv konnte die Wiedergabe nicht starten: {e}"))?;
+        Ok(Self::InProcess {
+            player,
+            _surface: surface,
+        })
+    }
+
+    fn send(&mut self, command: &serde_json::Value) -> Result<(), String> {
+        match self {
+            #[cfg(not(feature = "libmpv"))]
+            Self::Process(mpv) => mpv.send(command).map_err(|e| e.to_string()),
+            #[cfg(feature = "libmpv")]
+            Self::InProcess { player, .. } => player.send(command).map_err(|e| e.to_string()),
+        }
+    }
+
+    fn stop(&mut self) {
+        match self {
+            #[cfg(not(feature = "libmpv"))]
+            Self::Process(mpv) => mpv.stop(),
+            #[cfg(feature = "libmpv")]
+            Self::InProcess { player, .. } => {
+                // An error here means mpv is already gone; there is nothing to report and
+                // nothing to retry, which is why the process path ignores it too.
+                let _ = player.stop();
+            }
+        }
+    }
+
+    fn track_list(&mut self) -> TrackList {
+        match self {
+            #[cfg(not(feature = "libmpv"))]
+            Self::Process(mpv) => mpv.track_list(),
+            #[cfg(feature = "libmpv")]
+            Self::InProcess { player, .. } => player.track_list(),
+        }
+    }
+
+    fn next_event(&mut self, timeout: std::time::Duration) -> Option<serde_json::Value> {
+        match self {
+            #[cfg(not(feature = "libmpv"))]
+            Self::Process(mpv) => mpv.next_event(timeout),
+            #[cfg(feature = "libmpv")]
+            Self::InProcess { player, .. } => player.next_event(timeout),
+        }
+    }
+
+    fn has_exited(&mut self) -> bool {
+        match self {
+            #[cfg(not(feature = "libmpv"))]
+            Self::Process(mpv) => mpv.has_exited(),
+            // There is no child to exit: the instance lives as long as the app does.
+            #[cfg(feature = "libmpv")]
+            Self::InProcess { .. } => false,
+        }
+    }
+}
+
 /// The player thread: registers observers, drains events, answers commands.
 fn monitor(
-    mut mpv: Mpv,
+    mut mpv: Backend,
     rx: Receiver<PlayerCommand>,
     state: Arc<Mutex<PlayerState>>,
     summary: PlaybackSummary,
