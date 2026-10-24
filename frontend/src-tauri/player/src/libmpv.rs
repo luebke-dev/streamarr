@@ -233,9 +233,12 @@ mod handle {
         handle: *mut c_void,
     }
 
-    // The handle is only touched through `&self` calls that libmpv documents as safe from
-    // any thread, and `Libmpv` is not shared across threads by this crate.
+    // libmpv's client API is documented as callable from any thread, and every method here
+    // takes `&self`. `Send + Sync` is what allows **one** instance to serve successive
+    // playback sessions instead of being consumed by the first one — the defect that made a
+    // second attempt fail with "handle already used".
     unsafe impl Send for Libmpv {}
+    unsafe impl Sync for Libmpv {}
 
     impl Libmpv {
         /// Creates and initialises an instance.
@@ -1185,14 +1188,16 @@ mod track_tests {
 /// [`Mpv`]: crate::mpv::Mpv
 #[cfg(feature = "libmpv")]
 pub struct InProcessPlayer {
-    mpv: Libmpv,
+    /// Shared, not owned: the instance outlives a session, because the shell creates it once
+    /// before GTK and every later playback reuses it.
+    mpv: std::sync::Arc<Libmpv>,
 }
 
 #[cfg(feature = "libmpv")]
 impl InProcessPlayer {
     /// Applies the options, subscribes to the state properties and starts playback.
     pub fn start(
-        mpv: Libmpv,
+        mpv: std::sync::Arc<Libmpv>,
         url: &str,
         options: &crate::mpv::PlayerOptions,
     ) -> Result<Self, LibmpvError> {
@@ -1250,7 +1255,7 @@ mod session_tests {
     use std::time::{Duration, Instant};
 
     fn playing(url: &str) -> InProcessPlayer {
-        let mpv = Libmpv::create().expect("libmpv anlegbar");
+        let mpv = std::sync::Arc::new(Libmpv::create().expect("libmpv anlegbar"));
         // A unit test has no window; `vo=libmpv` would wait for a render context forever.
         let options = PlayerOptions {
             extra_args: vec!["--vo=null".to_string()],

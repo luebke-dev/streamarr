@@ -377,7 +377,9 @@ fn main() {
 fn start_player(url: &str, options: &PlayerOptions) -> Player {
     #[cfg(feature = "libmpv")]
     {
-        let mpv = streamarr_desktop_player::libmpv::Libmpv::create().expect("libmpv");
+        let mpv = std::sync::Arc::new(
+            streamarr_desktop_player::libmpv::Libmpv::create().expect("libmpv"),
+        );
         let player = streamarr_desktop_player::libmpv::InProcessPlayer::start(mpv, url, options)
             .expect("libmpv startet");
         Player::Native(player)

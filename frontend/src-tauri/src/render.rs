@@ -421,7 +421,11 @@ impl Drop for VideoSurface {
 /// Started by `STREAMARR_NATIVE_CHECK=1` and nothing else — a diagnostic that runs always would
 /// put a test pattern in front of a user.
 #[cfg(feature = "libmpv")]
-pub fn native_check<W>(window: &W, size: (u32, u32), ui: &tauri::AppHandle) -> Result<String, String>
+pub fn native_check<W>(
+    window: &W,
+    size: (u32, u32),
+    ui: &tauri::AppHandle,
+) -> Result<String, String>
 where
     W: tauri::Manager<tauri::Wry> + HasWindowHandle + HasDisplayHandle,
 {
@@ -433,9 +437,8 @@ where
     let handles = read_handles(window, size)?;
 
     let mpv = crate::EARLY_LIBMPV
-        .lock()
-        .map_err(|_| "Mutex vergiftet".to_string())?
-        .take()
+        .get()
+        .cloned()
         .ok_or("kein vor GTK angelegtes libmpv-Handle")?;
 
     let mut surface = VideoSurface::create(&handles, &mpv, size)?;

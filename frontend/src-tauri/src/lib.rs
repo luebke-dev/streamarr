@@ -158,8 +158,9 @@ impl AppState {
 /// `None` in builds without the `libmpv` feature, and still `Some` only until playback takes
 /// ownership — the handle is not shareable across two owners by design.
 #[cfg(feature = "libmpv")]
-pub static EARLY_LIBMPV: std::sync::Mutex<Option<streamarr_desktop_player::libmpv::Libmpv>> =
-    std::sync::Mutex::new(None);
+pub static EARLY_LIBMPV: std::sync::OnceLock<
+    std::sync::Arc<streamarr_desktop_player::libmpv::Libmpv>,
+> = std::sync::OnceLock::new();
 
 pub fn run() {
     // libmpv must be created before GTK is initialised: after `gtk_init` the same call returns
@@ -168,7 +169,9 @@ pub fn run() {
     #[cfg(feature = "libmpv")]
     match streamarr_desktop_player::libmpv::Libmpv::create() {
         Ok(mpv) => {
-            *EARLY_LIBMPV.lock().expect("Mutex nicht vergiftet") = Some(mpv);
+            // Stored once and shared afterwards: consuming it here is what made a second
+            // playback fail with no handle left.
+            let _ = EARLY_LIBMPV.set(std::sync::Arc::new(mpv));
         }
         Err(err) => log::error!("libmpv nicht anlegbar: {err}"),
     }

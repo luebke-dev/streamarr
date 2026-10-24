@@ -392,11 +392,11 @@ fn start_player(
         (crate::render::read_handles(&window, size)?, size)
     };
     #[cfg(feature = "libmpv")]
+    // Cloned, not taken: the instance serves every playback of this app run.
     let early_mpv = crate::EARLY_LIBMPV
-        .lock()
-        .map_err(|_| "libmpv-Sperre vergiftet".to_string())?
-        .take()
-        .ok_or("kein vor GTK angelegtes libmpv-Handle — wurde es schon verbraucht?")?;
+        .get()
+        .cloned()
+        .ok_or("kein vor GTK angelegtes libmpv-Handle")?;
 
     let state_handle = Arc::new(Mutex::new(PlayerState {
         idle: false,
@@ -510,7 +510,7 @@ impl Backend {
 
     #[cfg(feature = "libmpv")]
     fn start_in_process(
-        mpv: streamarr_desktop_player::libmpv::Libmpv,
+        mpv: std::sync::Arc<streamarr_desktop_player::libmpv::Libmpv>,
         url: &str,
         options: &PlayerOptions,
         handles: &crate::render::WindowHandles,
