@@ -576,10 +576,13 @@ impl DownloadWorker {
                         None => segments.len() >= 100 && file_failed * 4 > segments.len(),
                     };
                     if unrecoverable {
+                        // `failed_total` counts the whole release, `file_failed`
+                        // only this file — quoting them as "X of Y" mixed two
+                        // different counters ("113 of 62 segments missing").
                         return Err(format!(
-                            "ABORT: {} of {} segments missing in {:?} — unrecoverable (PAR2 capacity {}), release is dead or taken down",
+                            "ABORT: {} segment(s) missing in the release ({} in {:?}), PAR2 can repair {} — release is dead or taken down",
                             failed_total,
-                            segments.len(),
+                            file_failed,
                             file_path.file_name().unwrap_or_default(),
                             par2_capacity
                                 .map(|c| c.to_string())
