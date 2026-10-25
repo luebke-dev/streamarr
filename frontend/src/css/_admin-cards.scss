@@ -61,6 +61,19 @@
 .admin-table {
   background: transparent !important;
 
+  // Without a fixed layout the browser sizes columns from their content, so one
+  // long cell (an error message, a filename) pushes the table thousands of
+  // pixels wide and every other column out of the viewport.
+  table {
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  thead .q-th,
+  tbody .q-td {
+    overflow: hidden;
+  }
+
   thead .q-th {
     color: #8b8b8b !important;
     font-size: 0.7rem;

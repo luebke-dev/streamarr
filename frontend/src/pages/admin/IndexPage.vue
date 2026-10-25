@@ -50,13 +50,7 @@
             <div>
               <div class="admin-stat-label">{{ $t('adminDashboard.activeDownloads') }}</div>
               <div class="admin-stat-value">{{ stats.activeDownloads }}</div>
-              <div class="admin-stat-sub">
-                {{ formatSpeed(downloadOverview?.speed_bps) }}
-                <span v-if="downloadOverview?.counts?.queued">
-                  &middot; {{ downloadOverview.counts.queued }}
-                  {{ $t('adminDashboard.queuedShort') }}</span
-                >
-              </div>
+              <div v-if="downloadSummary" class="admin-stat-sub">{{ downloadSummary }}</div>
             </div>
           </q-card-section>
         </q-card>
@@ -147,18 +141,19 @@
             <div class="admin-heading">{{ $t('adminDashboard.downloadActivity') }}</div>
             <div class="row items-center q-gutter-sm">
               <q-chip
+                v-if="downloadPaused || downloadOverview?.speed_bps > 0"
                 :color="downloadPaused ? 'warning' : 'positive'"
                 text-color="white"
                 dense
                 :icon="downloadPaused ? 'mdi-pause-circle' : 'mdi-download-network'"
-              >
-                {{
+                :label="
                   downloadPaused
                     ? $t('adminDashboard.queuePaused')
                     : formatSpeed(downloadOverview?.speed_bps)
-                }}
-              </q-chip>
+                "
+              />
               <q-btn
+                v-if="downloadPaused || downloadJobs.length > 0"
                 flat
                 dense
                 size="sm"
@@ -253,7 +248,10 @@
                   size="4px"
                   style="width: 50px"
                 />
-                <q-badge :color="downloadStatusColor(dl.status)" :label="dl.status" />
+                <q-badge
+                  :color="downloadStatusColor(dl.status)"
+                  :label="downloadStatusLabel(dl.status)"
+                />
               </q-item-section>
             </q-item>
           </q-list>
@@ -269,6 +267,9 @@
           </q-card-section>
           <q-card-section class="q-pt-none" v-if="storageLoading">
             <q-spinner color="primary" size="1.5rem" />
+          </q-card-section>
+          <q-card-section class="q-pt-none text-caption text-grey-6" v-else-if="!storageData">
+            {{ $t('adminDashboard.noData') }}
           </q-card-section>
           <q-card-section class="q-pt-none column q-gutter-sm" v-else-if="storageData">
             <div v-for="(lib, name) in storageData.libraries" :key="name">
@@ -371,9 +372,20 @@ import {
   formatTime,
   formatSpeed,
 } from 'src/composables/useMediaFormatters'
-import { downloadStatusColor, downloadStatusIcon } from './downloadStatus'
+import {
+  downloadStatusColor,
+  downloadStatusIcon,
+  isKnownStatus,
+} from './downloadStatus'
 
 const { t } = useI18n()
+
+// Raw statuses are mixed-case API values; show the translated word instead of
+// leaking "Failed" / "cancelled" into a German UI.
+const downloadStatusLabel = (status) =>
+  isKnownStatus(status)
+    ? t(`adminDownloads.statuses.${String(status).toLowerCase()}`)
+    : String(status || '')
 const router = useRouter()
 
 const systemHealth = ref('healthy')
@@ -401,6 +413,17 @@ const downloadOverview = ref(null)
 const queueBusy = ref(false)
 const downloadPaused = computed(() => downloadOverview.value?.paused === true)
 const downloadJobs = computed(() => downloadOverview.value?.jobs || [])
+
+// The card is a counter, not a speedometer: only say something when there is
+// something to say, otherwise the sub-line rendered a lone dash.
+const downloadSummary = computed(() => {
+  const speed = downloadOverview.value?.speed_bps || 0
+  const queued = downloadOverview.value?.counts?.queued || 0
+  if (downloadPaused.value) return t('adminDashboard.queuePaused')
+  if (speed > 0) return formatSpeed(speed)
+  if (queued > 0) return `${queued} ${t('adminDashboard.queuedShort')}`
+  return ''
+})
 const storageLoading = ref(false)
 const storageData = ref(null)
 

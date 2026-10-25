@@ -2570,6 +2570,9 @@ export default {
     deleteSuccess: 'Download erfolgreich gelöscht',
     deleteError: 'Fehler beim Löschen des Downloads',
     confirmDelete: 'Möchten Sie diesen Download wirklich löschen?',
+    clearFailed: 'Fehlgeschlagene entfernen',
+    confirmClearFailed:
+      'Alle fehlgeschlagenen und abgebrochenen Downloads entfernen? Die Dateien in der Bibliothek bleiben unberührt.',
   },
 
   // Admin Downloaders Page
@@ -2770,6 +2773,7 @@ export default {
     noRecentDownloads: 'Keine aktuellen Downloads',
     downloadActivity: 'Download-Aktivität',
     queuePaused: 'Pausiert',
+    noData: 'Keine Daten',
     queueIdle: 'Warteschlange ist leer',
     pauseQueue: 'Alle Downloads pausieren',
     resumeQueue: 'Alle Downloads fortsetzen',

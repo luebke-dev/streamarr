@@ -85,16 +85,27 @@ release note would group it. Everything before that is in `git log`.
 - An incomplete post reports what is actually wrong. A missing PAR2 index used
   to surface as "PAR2 repair failed: No .par2 file found", which reads like a
   repair bug although the upload itself is damaged or taken down.
-- **Admin → Downloads** is table-first now. The live queue is merged onto the
-  rows (matched by the downloader job id, with the release name as fallback), so
-  a row shows the current rate, transferred bytes and a **remaining-time** column
-  instead of a snapshot from when the row was written. Status became a coloured
-  dot plus word, quick-filter tabs carry their counts, and the numbers use
-  tabular figures so columns stop jittering. Nine columns became seven.
-  `GET /api/downloads` gained `external_id` and `size_bytes` for that join.
+- **Admin → Downloads** is table-first, and the table shows what is happening
+  *now*: live queue state is merged onto the rows (matched by the downloader job
+  id, falling back to the release name), so a row carries the current rate and a
+  remaining-time estimate computed from it — no ETA when a job is stalled.
+  Failures are one truncated line with the reason as a tooltip instead of a wall
+  of red text, `–` replaces empty bars, size shows `1.2 / 3.4 GB` only while
+  bytes are still arriving, and a "Clear failed" action empties the graveyard.
+  Nine columns became four (status dot, title, size, progress) with rate and ETA
+  inline at the bar.
+- `GET /api/downloads` gained `external_id` and `size_bytes` for that join.
 - Card and table tokens moved out of the dashboard's scoped block into
-  `css/_admin-cards.scss`, so admin pages stop re-inventing borders, radii and
-  header styling per page (the dashboard uses the shared classes as well).
+  `css/_admin-cards.scss` (`.admin-card`, `.admin-stat*`, `.admin-table`), so
+  admin pages stop re-inventing borders, radii and header styling per page. The
+  table chrome fixes a real layout bug: without `table-layout: fixed` a single
+  long error message pushed the table ~17,000 px wide and shoved every column
+  except the title out of the viewport.
+- The dashboard status chips and avatars resolve capitalised statuses
+  (`Imported`, `Failed`) — the lookup maps were lowercase-only, so those rows
+  rendered grey with a question-mark icon — and show translated labels instead
+  of raw API values. Download rows on the dashboard also no longer render a lone
+  dash as their sub-line.
 - The download queue can be paused and rate-limited as a whole. **Admin →
   Downloads** gained a control card: pause/resume every configured downloader,
   a KB/s cap (`0` = unlimited), the live aggregate rate, active/queued counts

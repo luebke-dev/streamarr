@@ -2571,6 +2571,9 @@ export default {
     deleteSuccess: 'Download deleted successfully',
     deleteError: 'Failed to delete download',
     confirmDelete: 'Are you sure you want to delete this download?',
+    clearFailed: 'Clear failed',
+    confirmClearFailed:
+      'Remove all failed and cancelled downloads? Files in the library are not touched.',
   },
 
   // Admin Downloaders Page
@@ -2771,6 +2774,7 @@ export default {
     noRecentDownloads: 'No recent downloads',
     downloadActivity: 'Download Activity',
     queuePaused: 'Paused',
+    noData: 'No data',
     queueIdle: 'Download queue is empty',
     pauseQueue: 'Pause all downloads',
     resumeQueue: 'Resume all downloads',

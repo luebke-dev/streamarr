@@ -6,6 +6,22 @@
  * the same color everywhere, and a newly added status must resolve in every
  * consumer instead of silently falling back to grey).
  */
+// The backend stores mixed-case statuses ("Downloading", "Imported"), so every
+// lookup normalises first - the previous maps were keyed lowercase only and a
+// capitalised status silently fell through to grey + "?".
+export const DOWNLOAD_STATUS_KEYS = [
+  'pending',
+  'queued',
+  'downloading',
+  'in_progress',
+  'paused',
+  'importing',
+  'completed',
+  'imported',
+  'failed',
+  'cancelled',
+]
+
 export const DOWNLOAD_STATUS_COLORS = {
   queued: 'grey-7',
   downloading: 'info',
@@ -15,6 +31,7 @@ export const DOWNLOAD_STATUS_COLORS = {
   completed: 'positive',
   imported: 'positive',
   failed: 'negative',
+  cancelled: 'grey-8',
 }
 
 export const DOWNLOAD_STATUS_ICONS = {
@@ -26,8 +43,15 @@ export const DOWNLOAD_STATUS_ICONS = {
   completed: 'mdi-check',
   imported: 'mdi-check',
   failed: 'mdi-alert',
+  cancelled: 'mdi-cancel',
 }
 
-export const downloadStatusColor = (status) => DOWNLOAD_STATUS_COLORS[status] || 'grey-7'
+const normalize = (status) => String(status || '').toLowerCase()
 
-export const downloadStatusIcon = (status) => DOWNLOAD_STATUS_ICONS[status] || 'mdi-help'
+export const downloadStatusColor = (status) =>
+  DOWNLOAD_STATUS_COLORS[normalize(status)] || 'grey-7'
+
+export const downloadStatusIcon = (status) =>
+  DOWNLOAD_STATUS_ICONS[normalize(status)] || 'mdi-progress-question'
+
+export const isKnownStatus = (status) => DOWNLOAD_STATUS_KEYS.includes(normalize(status))

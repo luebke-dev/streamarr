@@ -18,14 +18,14 @@
 
     <!-- Control bar -->
     <q-card class="admin-card q-mb-md" flat>
-      <q-card-section class="row items-center q-col-gutter-md q-py-sm">
-        <div class="col-auto">
+      <q-card-section class="row items-center justify-between q-gutter-y-sm q-py-sm">
+        <div class="row items-center q-gutter-sm">
           <q-btn
             unelevated
             no-caps
             dense
             :icon="queuePaused ? 'mdi-play' : 'mdi-pause'"
-            :color="queuePaused ? 'positive' : 'warning'"
+            :color="queuePaused ? 'positive' : 'primary'"
             :label="
               queuePaused
                 ? $t('adminDownloads.queue.resumeAll')
@@ -34,48 +34,43 @@
             :loading="queueBusy"
             @click="toggleQueue"
           />
+
+          <div class="row items-center no-wrap">
+            <q-input
+              v-model.number="speedLimitKbps"
+              :label="$t('adminDownloads.queue.speedLimit')"
+              type="number"
+              min="0"
+              outlined
+              dark
+              dense
+              style="width: 138px"
+              @keyup.enter="applySpeedLimit"
+            />
+            <q-btn
+              flat
+              dense
+              icon="mdi-check"
+              color="primary"
+              :loading="speedBusy"
+              @click="applySpeedLimit"
+            >
+              <q-tooltip>{{ $t('adminDownloads.queue.applyLimit') }}</q-tooltip>
+            </q-btn>
+          </div>
         </div>
 
-        <div class="col-auto row items-center no-wrap">
-          <q-input
-            v-model.number="speedLimitKbps"
-            :label="$t('adminDownloads.queue.speedLimit')"
-            type="number"
-            min="0"
-            outlined
-            dark
-            dense
-            style="width: 138px"
-            @keyup.enter="applySpeedLimit"
-          />
-          <q-btn
-            flat
-            dense
-            icon="mdi-check"
-            color="primary"
-            class="q-ml-xs"
-            :loading="speedBusy"
-            @click="applySpeedLimit"
-          >
-            <q-tooltip>{{ $t('adminDownloads.queue.applyLimit') }}</q-tooltip>
-          </q-btn>
-        </div>
-
-        <q-space />
-
-        <div class="col-auto row items-center q-gutter-sm">
+        <div class="row items-center q-gutter-sm">
           <span class="metric" :class="queuePaused ? 'text-grey-6' : 'text-info'">
             <q-icon name="mdi-speedometer" size="16px" class="q-mr-xs" />
             {{ formatSpeed(overview?.speed_bps) }}
           </span>
-          <q-separator vertical inset />
           <span class="metric text-grey-4">
             {{ overview?.counts?.downloading ?? 0 }} {{ $t('adminDownloads.queue.active') }}
           </span>
           <span class="metric text-grey-4">
             {{ overview?.counts?.queued ?? 0 }} {{ $t('adminDownloads.queue.queued') }}
           </span>
-          <q-separator vertical inset />
           <q-chip
             v-for="client in downloaders"
             :key="client.label"
@@ -116,6 +111,20 @@
         </div>
 
         <q-space />
+
+        <div v-if="failedCount" class="col-auto">
+          <q-btn
+            flat
+            dense
+            no-caps
+            size="sm"
+            icon="mdi-broom"
+            color="grey-5"
+            :label="$t('adminDownloads.clearFailed')"
+            :loading="clearing"
+            @click="confirmClearFailed"
+          />
+        </div>
 
         <div class="col-12 col-md-3">
           <q-input
@@ -164,16 +173,15 @@
             </router-link>
             <div v-else class="row-title">{{ props.row.display_title }}</div>
             <div class="row-meta ellipsis">
-              <span v-if="getStatusDetail(props.row)" class="text-warning">
+              <span
+                v-if="getStatusDetail(props.row)"
+                class="error-line"
+                :title="getStatusDetail(props.row)"
+              >
                 {{ getStatusDetail(props.row) }}
               </span>
               <template v-else>
                 <span v-if="showStatusLabel(props.row)">{{ getStatusLabel(props.row.status) }}</span>
-                <span v-if="showEpisodeTag(props.row)">
-                  S{{ String(props.row.season_number).padStart(2, '0') }}E{{
-                    String(props.row.episode_number ?? 0).padStart(2, '0')
-                  }}
-                </span>
                 <span v-if="props.row.started_by_name">
                   {{ props.row.started_by_name }}</span
                 >
@@ -188,10 +196,9 @@
         <template v-slot:body-cell-size="props">
           <q-td :props="props" class="num">
             <span v-if="props.row.total_bytes">
-              <span v-if="props.row.downloaded_bytes != null" class="text-grey-4">
-                {{ formatBytes(props.row.downloaded_bytes) }}
+              <span v-if="isPartial(props.row)" class="text-grey-4">
+                {{ formatBytes(props.row.downloaded_bytes) }}<span class="text-grey-7"> / </span>
               </span>
-              <span v-if="props.row.downloaded_bytes != null" class="text-grey-7"> / </span>
               {{ formatBytes(props.row.total_bytes) }}
             </span>
             <span v-else class="text-grey-7">–</span>
@@ -200,7 +207,7 @@
 
         <template v-slot:body-cell-progress="props">
           <q-td :props="props">
-            <div class="row items-center no-wrap">
+            <div v-if="showProgress(props.row)" class="row items-center no-wrap">
               <q-linear-progress
                 :value="(props.row.progress ?? 0) / 100"
                 :color="progressColor(props.row)"
@@ -210,25 +217,22 @@
                 rounded
               />
               <span class="num text-caption text-grey-4">
-                {{ props.row.progress != null ? Math.round(props.row.progress) : 0 }}%
+                {{ Math.round(props.row.progress) }}%
+              </span>
+              <span
+                v-if="props.row.speed_bps > 0"
+                class="num text-caption text-grey-6 q-ml-sm"
+              >
+                {{ formatSpeed(props.row.speed_bps) }}
+              </span>
+              <span
+                v-if="props.row.eta_seconds != null"
+                class="num text-caption text-grey-6 q-ml-sm"
+              >
+                {{ formatEta(props.row.eta_seconds) }}
               </span>
             </div>
-          </q-td>
-        </template>
-
-        <template v-slot:body-cell-speed_bps="props">
-          <q-td :props="props" class="num">
-            <span :class="props.value > 0 ? 'text-grey-3' : 'text-grey-7'">
-              {{ formatSpeed(props.value) }}
-            </span>
-          </q-td>
-        </template>
-
-        <template v-slot:body-cell-eta_seconds="props">
-          <q-td :props="props" class="num">
-            <span :class="props.value != null ? 'text-grey-4' : 'text-grey-7'">
-              {{ formatEta(props.value) }}
-            </span>
+            <span v-else class="text-grey-7">–</span>
           </q-td>
         </template>
 
@@ -241,7 +245,7 @@
                 dense
                 round
                 icon="mdi-pause"
-                color="warning"
+                color="grey-4"
                 size="sm"
                 @click="togglePause(props.row, true)"
               >
@@ -286,8 +290,12 @@
 
     <ConfirmDeleteDialog
       v-model="showDeleteDialog"
-      :message="$t('adminDownloads.confirmDelete')"
-      :loading="deleting"
+      :message="
+        deleteMode === 'failed'
+          ? $t('adminDownloads.confirmClearFailed')
+          : $t('adminDownloads.confirmDelete')
+      "
+      :loading="deleting || clearing"
       @confirm="deleteDownload"
     />
   </q-page>
@@ -298,7 +306,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { logger } from 'src/utils/logger'
 import {
-  formatFileSize as formatBytes,
+  formatFileSize,
   formatRelativeTime,
   formatSpeed,
 } from 'src/composables/useMediaFormatters'
@@ -315,6 +323,11 @@ import ConfirmDeleteDialog from 'src/components/ConfirmDeleteDialog.vue'
 
 const { t } = useI18n()
 
+// "420.57 MB" next to "1.96 GB" reads like noise; below a gigabyte whole
+// megabytes are plenty.
+const formatBytes = (bytes) =>
+  formatFileSize(bytes, { maxDecimals: bytes >= 1024 ** 3 ? 2 : 0 })
+
 // Every download row, already merged with the live queue state. The table is the
 // page, so a row has to show what is happening *now* - not a value stored five
 // minutes ago when the row was written.
@@ -325,6 +338,9 @@ const statusFilter = ref(null)
 const showDeleteDialog = ref(false)
 const deleting = ref(false)
 const selectedDownload = ref(null)
+// 'one' = the row in `selectedDownload`, 'failed' = every failed/cancelled row
+const deleteMode = ref('one')
+const clearing = ref(false)
 
 // --- queue control ---
 const overview = ref(null)
@@ -351,9 +367,13 @@ const STATUS_ORDER = {
   queued: 1,
   pending: 2,
   paused: 3,
-  failed: 4,
-  completed: 5,
-  imported: 6,
+  completed: 4,
+  imported: 5,
+  // Failures are history, not work in progress - they belong behind the
+  // finished rows and have their own tab, otherwise the page opens on a wall
+  // of old errors.
+  failed: 6,
+  cancelled: 7,
 }
 
 const merged = computed(() =>
@@ -437,7 +457,8 @@ const columns = computed(() => [
     label: '',
     align: 'center',
     field: 'status',
-    style: 'width: 26px',
+    style: 'width: 34px',
+    headerStyle: 'width: 34px',
   },
   {
     name: 'display_title',
@@ -451,35 +472,24 @@ const columns = computed(() => [
     label: t('adminDownloads.columns.size'),
     align: 'right',
     field: 'total_bytes',
-    style: 'width: 150px',
+    style: 'width: 152px',
+    headerStyle: 'width: 152px',
   },
   {
     name: 'progress',
     label: t('adminDownloads.columns.progress'),
     align: 'left',
     field: 'progress',
-    style: 'width: 190px',
-  },
-  {
-    name: 'speed_bps',
-    label: t('adminDownloads.columns.speed'),
-    align: 'right',
-    field: 'speed_bps',
-    style: 'width: 100px',
-  },
-  {
-    name: 'eta_seconds',
-    label: t('adminDownloads.columns.eta'),
-    align: 'right',
-    field: 'eta_seconds',
-    style: 'width: 90px',
+    style: 'width: 300px',
+    headerStyle: 'width: 300px',
   },
   {
     name: 'actions',
     label: '',
     align: 'right',
     field: 'actions',
-    style: 'width: 110px',
+    style: 'width: 104px',
+    headerStyle: 'width: 104px',
   },
 ])
 
@@ -536,13 +546,23 @@ const statusKey = (status) => (status || '').toLowerCase()
 const isPaused = (download) => statusKey(download?.status) === 'paused'
 const isPausable = (download) => ['downloading', 'queued'].includes(statusKey(download?.status))
 
-const showEpisodeTag = (row) => row.show_title && row.season_number != null
-
 // For running rows the rate and ETA already say what is going on; for settled
 // rows the coloured dot needs a word next to it.
 const showStatusLabel = (row) => !['downloading', 'queued'].includes(statusKey(row.status))
 
 const getStatusLabel = (status) => t(`adminDownloads.statuses.${statusKey(status)}`, status)
+
+// A bar at 0 % over three quarters of the row width is decoration, not
+// information: only draw it once something actually moved (or is about to).
+// Only show "1.2 / 3.4 GB" while bytes are still arriving.
+const isPartial = (row) =>
+  row.downloaded_bytes != null &&
+  row.total_bytes != null &&
+  row.downloaded_bytes < row.total_bytes
+
+const showProgress = (row) =>
+  row.progress != null &&
+  (row.progress > 0 || ['downloading', 'queued', 'paused'].includes(statusKey(row.status)))
 
 const progressColor = (row) => {
   const key = statusKey(row.status)
@@ -579,11 +599,19 @@ const STATUS_DETAIL_KEYS = {
   importing: 'adminDownloads.statusDetails.importing',
 }
 
+const ACTIVE_STATUSES = ['downloading', 'queued', 'pending', 'preparing', 'searching', 'paused']
+
+// Phase hints ("importing", "retrying_release") describe work in progress. A
+// settled row keeps its last phase in the payload, so using it unconditionally
+// left finished downloads labelled "Importing into library" forever.
 const getStatusDetail = (download) => {
   const key = statusKey(download?.status)
+
   if (key === 'failed' || key === 'cancelled') {
-    return download?.error_reason || download?.status_detail || t('adminDownloads.statuses.failed')
+    return download?.error_reason || download?.status_detail || ''
   }
+
+  if (!ACTIVE_STATUSES.includes(key)) return ''
 
   const explicitDetail = download?.status_detail
   if (explicitDetail) return explicitDetail
@@ -593,12 +621,47 @@ const getStatusDetail = (download) => {
   return detailKey ? t(detailKey) : ''
 }
 
+const failedCount = computed(
+  () => (statusCounts.value.failed || 0) + (statusCounts.value.cancelled || 0),
+)
+
 const confirmDelete = (download) => {
+  deleteMode.value = 'one'
   selectedDownload.value = download
   showDeleteDialog.value = true
 }
 
+const confirmClearFailed = () => {
+  deleteMode.value = 'failed'
+  selectedDownload.value = null
+  showDeleteDialog.value = true
+}
+
+// Deleting runs through the same per-row endpoint as the trash icon, so the
+// downloader job is cancelled and the row blacklist/cleanup paths stay intact.
+const clearFailed = async () => {
+  clearing.value = true
+  try {
+    const doomed = merged.value.filter((row) =>
+      ['failed', 'cancelled'].includes(statusKey(row.status)),
+    )
+    for (const row of doomed) {
+      await deleteDownloadRequest(row.guid)
+    }
+    showDeleteDialog.value = false
+    await refreshAll()
+  } catch (error) {
+    logger.error('Failed to clear failed downloads:', error)
+  } finally {
+    clearing.value = false
+  }
+}
+
 const deleteDownload = async () => {
+  if (deleteMode.value === 'failed') {
+    await clearFailed()
+    return
+  }
   if (!selectedDownload.value) return
 
   deleting.value = true
@@ -637,6 +700,7 @@ onUnmounted(() => {
   color: inherit;
   text-decoration: none;
   font-weight: 500;
+  line-height: 1.3;
 
   &:hover {
     color: var(--q-primary);
@@ -644,13 +708,18 @@ onUnmounted(() => {
 }
 
 .row-meta {
+  line-height: 1.3;
   font-size: 0.7rem;
   color: #8b8b8b;
-  max-width: 100%;
+  // Truncate instead of pushing the table wider: error messages are long and a
+  // wrapping second line makes every row twice as tall.
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 
   span + span::before {
     content: ' · ';
-    color: #555;
+    color: #7a7a7a;
   }
 }
 
@@ -700,6 +769,19 @@ onUnmounted(() => {
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+// Below ~700px the fixed column widths leave no room for the title, so the
+// table keeps a usable minimum width and the card scrolls sideways instead of
+// squeezing every column to nothing.
+@media (max-width: 700px) {
+  .download-table {
+    overflow-x: auto;
+
+    :deep(table) {
+      min-width: 680px;
+    }
+  }
 }
 
 // Sticky header: with 50 rows per page the column labels have to stay readable
