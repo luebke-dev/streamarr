@@ -3,7 +3,7 @@
     <!-- Status Cards -->
     <div class="row q-col-gutter-md q-mb-lg">
       <div class="col-6 col-md-3">
-        <q-card class="stat-card" flat>
+        <q-card class="admin-stat" flat>
           <q-card-section class="row items-center no-wrap q-pa-sm q-pa-md-md">
             <q-avatar
               :color="systemHealth === 'healthy' ? 'positive' : 'negative'"
@@ -14,8 +14,8 @@
               <q-icon :name="systemHealth === 'healthy' ? 'mdi-check' : 'mdi-alert'" size="20px" />
             </q-avatar>
             <div>
-              <div class="stat-label">{{ $t('adminDashboard.systemHealth') }}</div>
-              <div class="stat-value">
+              <div class="admin-stat-label">{{ $t('adminDashboard.systemHealth') }}</div>
+              <div class="admin-stat-value">
                 {{
                   systemHealth === 'healthy'
                     ? $t('adminDashboard.healthy')
@@ -28,44 +28,51 @@
       </div>
 
       <div class="col-6 col-md-3">
-        <q-card class="stat-card clickable" flat @click="router.push('/admin/active-sessions')">
+        <q-card class="admin-stat clickable" flat @click="router.push('/admin/active-sessions')">
           <q-card-section class="row items-center no-wrap q-pa-sm q-pa-md-md">
             <q-avatar color="teal" text-color="white" size="42px" class="q-mr-md">
               <q-icon name="mdi-cast" size="20px" />
             </q-avatar>
             <div>
-              <div class="stat-label">{{ $t('adminDashboard.activeStreams') }}</div>
-              <div class="stat-value">{{ stats.activeStreams }}</div>
+              <div class="admin-stat-label">{{ $t('adminDashboard.activeStreams') }}</div>
+              <div class="admin-stat-value">{{ stats.activeStreams }}</div>
             </div>
           </q-card-section>
         </q-card>
       </div>
 
       <div class="col-6 col-md-3">
-        <q-card class="stat-card clickable" flat @click="router.push('/admin/downloads')">
+        <q-card class="admin-stat clickable" flat @click="router.push('/admin/downloads')">
           <q-card-section class="row items-center no-wrap q-pa-sm q-pa-md-md">
             <q-avatar color="info" text-color="white" size="42px" class="q-mr-md">
               <q-icon name="mdi-download" size="20px" />
             </q-avatar>
             <div>
-              <div class="stat-label">{{ $t('adminDashboard.activeDownloads') }}</div>
-              <div class="stat-value">{{ stats.activeDownloads }}</div>
+              <div class="admin-stat-label">{{ $t('adminDashboard.activeDownloads') }}</div>
+              <div class="admin-stat-value">{{ stats.activeDownloads }}</div>
+              <div class="admin-stat-sub">
+                {{ formatSpeed(downloadOverview?.speed_bps) }}
+                <span v-if="downloadOverview?.counts?.queued">
+                  &middot; {{ downloadOverview.counts.queued }}
+                  {{ $t('adminDashboard.queuedShort') }}</span
+                >
+              </div>
             </div>
           </q-card-section>
         </q-card>
       </div>
 
       <div class="col-6 col-md-3">
-        <q-card class="stat-card clickable" flat @click="router.push('/admin/users')">
+        <q-card class="admin-stat clickable" flat @click="router.push('/admin/users')">
           <q-card-section class="row items-center no-wrap q-pa-sm q-pa-md-md">
             <q-avatar color="orange" text-color="white" size="42px" class="q-mr-md">
               <q-icon name="mdi-account-group" size="20px" />
             </q-avatar>
             <div>
-              <div class="stat-label">{{ $t('adminDashboard.activeUsers') }}</div>
-              <div class="stat-value">
+              <div class="admin-stat-label">{{ $t('adminDashboard.activeUsers') }}</div>
+              <div class="admin-stat-value">
                 {{ stats.totalUsers
-                }}<span class="stat-sub">
+                }}<span class="admin-stat-sub">
                   / {{ stats.activeUsers }} {{ $t('adminDashboard.online') }}</span
                 >
               </div>
@@ -76,9 +83,9 @@
     </div>
 
     <!-- Library Breakdown -->
-    <q-card flat class="dash-card q-mb-md" v-if="libraryStats.length">
+    <q-card flat class="admin-card q-mb-md" v-if="libraryStats.length">
       <q-card-section class="q-pb-sm">
-        <div class="dash-heading">{{ $t('adminDashboard.libraryOverview') }}</div>
+        <div class="admin-heading">{{ $t('adminDashboard.libraryOverview') }}</div>
       </q-card-section>
       <q-card-section class="q-pt-none">
         <div class="row q-col-gutter-sm">
@@ -97,9 +104,9 @@
       <!-- Main Column -->
       <div class="col-12 col-lg-8">
         <!-- Active Streams -->
-        <q-card flat class="dash-card q-mb-md" v-if="sessions.length > 0">
+        <q-card flat class="admin-card q-mb-md" v-if="sessions.length > 0">
           <q-card-section class="q-pb-none row items-center justify-between">
-            <div class="dash-heading">{{ $t('adminDashboard.activeStreams') }}</div>
+            <div class="admin-heading">{{ $t('adminDashboard.activeStreams') }}</div>
             <q-btn
               flat
               dense
@@ -134,10 +141,80 @@
           </q-list>
         </q-card>
 
-        <!-- Recent Downloads -->
-        <q-card flat class="dash-card q-mb-md">
+        <!-- Download Activity -->
+        <q-card flat class="admin-card q-mb-md">
           <q-card-section class="q-pb-none row items-center justify-between">
-            <div class="dash-heading">{{ $t('adminDashboard.recentDownloads') }}</div>
+            <div class="admin-heading">{{ $t('adminDashboard.downloadActivity') }}</div>
+            <div class="row items-center q-gutter-sm">
+              <q-chip
+                :color="downloadPaused ? 'warning' : 'positive'"
+                text-color="white"
+                dense
+                :icon="downloadPaused ? 'mdi-pause-circle' : 'mdi-download-network'"
+              >
+                {{
+                  downloadPaused
+                    ? $t('adminDashboard.queuePaused')
+                    : formatSpeed(downloadOverview?.speed_bps)
+                }}
+              </q-chip>
+              <q-btn
+                flat
+                dense
+                size="sm"
+                :color="downloadPaused ? 'positive' : 'warning'"
+                :icon="downloadPaused ? 'mdi-play' : 'mdi-pause'"
+                :loading="queueBusy"
+                @click="toggleQueue"
+              >
+                <q-tooltip>
+                  {{
+                    downloadPaused
+                      ? $t('adminDashboard.resumeQueue')
+                      : $t('adminDashboard.pauseQueue')
+                  }}
+                </q-tooltip>
+              </q-btn>
+              <q-btn
+                flat
+                dense
+                size="sm"
+                color="primary"
+                :label="$t('adminDashboard.viewAll')"
+                @click="router.push('/admin/downloads')"
+              />
+            </div>
+          </q-card-section>
+          <div v-if="downloadJobs.length === 0" class="text-center text-grey-6 q-pa-lg">
+            {{ $t('adminDashboard.queueIdle') }}
+          </div>
+          <q-card-section v-else class="q-pt-sm column q-gutter-sm">
+            <div v-for="job in downloadJobs" :key="job.id">
+              <div class="row items-center justify-between text-caption q-mb-xs">
+                <span class="ellipsis" style="max-width: 60%">{{ job.name }}</span>
+                <span class="text-grey-4">
+                  {{ Math.round(job.progress) }}% &middot; {{ formatSpeed(job.speed_bps) }}
+                  <span v-if="job.total_bytes">
+                    &middot; {{ formatFileSize(job.downloaded_bytes) }} /
+                    {{ formatFileSize(job.total_bytes) }}</span
+                  >
+                </span>
+              </div>
+              <q-linear-progress
+                :value="job.progress / 100"
+                color="info"
+                track-color="grey-9"
+                rounded
+                size="6px"
+              />
+            </div>
+          </q-card-section>
+        </q-card>
+
+        <!-- Recent Downloads -->
+        <q-card flat class="admin-card q-mb-md">
+          <q-card-section class="q-pb-none row items-center justify-between">
+            <div class="admin-heading">{{ $t('adminDashboard.recentDownloads') }}</div>
             <q-btn
               flat
               dense
@@ -186,9 +263,9 @@
       <!-- Sidebar -->
       <div class="col-12 col-lg-4">
         <!-- Storage -->
-        <q-card flat class="dash-card q-mb-md">
+        <q-card flat class="admin-card q-mb-md">
           <q-card-section class="q-pb-sm">
-            <div class="dash-heading">{{ $t('adminDashboard.storage.title') }}</div>
+            <div class="admin-heading">{{ $t('adminDashboard.storage.title') }}</div>
           </q-card-section>
           <q-card-section class="q-pt-none" v-if="storageLoading">
             <q-spinner color="primary" size="1.5rem" />
@@ -232,9 +309,9 @@
         </q-card>
 
         <!-- System Info -->
-        <q-card flat class="dash-card q-mb-md">
+        <q-card flat class="admin-card q-mb-md">
           <q-card-section class="q-pb-sm">
-            <div class="dash-heading">{{ $t('adminDashboard.systemInfo') }}</div>
+            <div class="admin-heading">{{ $t('adminDashboard.systemInfo') }}</div>
           </q-card-section>
           <q-card-section class="q-pt-none">
             <div class="info-row" v-for="item in sysInfoItems" :key="item.label">
@@ -245,9 +322,9 @@
         </q-card>
 
         <!-- Quick Actions -->
-        <q-card flat class="dash-card">
+        <q-card flat class="admin-card">
           <q-card-section class="q-pb-sm">
-            <div class="dash-heading">{{ $t('adminDashboard.quickActions') }}</div>
+            <div class="admin-heading">{{ $t('adminDashboard.quickActions') }}</div>
           </q-card-section>
           <q-card-section class="q-pt-none column q-gutter-xs">
             <q-btn
@@ -270,7 +347,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -284,9 +361,16 @@ import {
   listIndexers,
   listDownloaders,
   listLibraries,
+  getDownloadOverview,
+  pauseDownloadQueue,
+  resumeDownloadQueue,
 } from 'src/services/acquisitionAdminService'
 import { logger } from 'src/utils/logger'
-import { formatFileSize, formatTime } from 'src/composables/useMediaFormatters'
+import {
+  formatFileSize,
+  formatTime,
+  formatSpeed,
+} from 'src/composables/useMediaFormatters'
 import { downloadStatusColor, downloadStatusIcon } from './downloadStatus'
 
 const { t } = useI18n()
@@ -310,6 +394,13 @@ const stats = reactive({
 const systemInfo = reactive({ activeIndexers: 0, activeDownloaders: 0, libraryCount: 0 })
 const sessions = ref([])
 const recentDownloads = ref([])
+// Live queue state straight from the downloader. Kept apart from `recentDownloads`
+// (the DB view): the DB poll is slow and shows history, this shows what the
+// client is doing right now - rate, pause state, per-job progress.
+const downloadOverview = ref(null)
+const queueBusy = ref(false)
+const downloadPaused = computed(() => downloadOverview.value?.paused === true)
+const downloadJobs = computed(() => downloadOverview.value?.jobs || [])
 const storageLoading = ref(false)
 const storageData = ref(null)
 
@@ -406,6 +497,7 @@ const loadAll = () =>
     loadStats(),
     loadSessions(),
     loadDownloads(),
+    loadDownloadOverview(),
     loadSystemInfo(),
     loadStorage(),
   ])
@@ -468,6 +560,29 @@ const loadDownloads = async () => {
   }
 }
 
+const loadDownloadOverview = async () => {
+  try {
+    downloadOverview.value = await getDownloadOverview()
+  } catch (error) {
+    // A single unreachable downloader must not blank the dashboard.
+    logger.error('Error loading download overview:', error)
+  }
+}
+
+const toggleQueue = async () => {
+  queueBusy.value = true
+  try {
+    if (downloadPaused.value) await resumeDownloadQueue()
+    else await pauseDownloadQueue()
+    await loadDownloadOverview()
+    await loadDownloads()
+  } catch (error) {
+    logger.error('Error toggling download queue:', error)
+  } finally {
+    queueBusy.value = false
+  }
+}
+
 const loadSystemInfo = async () => {
   try {
     const [i, d, l] = await Promise.all([
@@ -494,56 +609,22 @@ const loadStorage = async () => {
   }
 }
 
-onMounted(() => loadAll())
+// The rate has to move to be useful, so the queue is polled while the dashboard
+// is open; the heavier storage/user/media calls stay one-shot.
+const QUEUE_POLL_MS = 5000
+let queueTimer = null
+
+onMounted(() => {
+  loadAll()
+  queueTimer = setInterval(loadDownloadOverview, QUEUE_POLL_MS)
+})
+
+onUnmounted(() => {
+  if (queueTimer) clearInterval(queueTimer)
+})
 </script>
 
 <style lang="scss" scoped>
-.stat-card {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease;
-
-  &.clickable {
-    cursor: pointer;
-    &:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-    }
-  }
-}
-
-.stat-label {
-  font-size: 0.75rem;
-  color: #999;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.stat-value {
-  font-size: 1.25rem;
-  font-weight: 700;
-  line-height: 1.3;
-}
-.stat-sub {
-  font-size: 0.75rem;
-  font-weight: 400;
-  color: #888;
-}
-
-.dash-card {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-}
-
-.dash-heading {
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #aaa;
-}
-
 .lib-chip {
   display: flex;
   align-items: center;

@@ -1,0 +1,86 @@
+// Shared card + typography tokens for the admin area.
+//
+// These started life scoped inside the admin dashboard, which is why the
+// downloads page looked like a different product: same data, but raw Quasar
+// table chrome next to refined cards. Promoted to global so every admin page
+// can be built from the same three primitives (`.admin-card`, `.admin-heading`,
+// `.admin-stat*`) instead of re-inventing borders and radii per page.
+.admin-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+.admin-heading {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #aaa;
+}
+
+.admin-stat {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &.clickable {
+    cursor: pointer;
+
+    &:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+  }
+}
+
+.admin-stat-label {
+  font-size: 0.75rem;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.admin-stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.admin-stat-sub {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #888;
+}
+
+// Table chrome for admin lists: no heavy borders, quiet separators, headers as
+// labels rather than shouting uppercase-on-black. Global stylesheet, so plain
+// descendant selectors - `:deep()` only exists inside scoped SFC styles.
+.admin-table {
+  background: transparent !important;
+
+  thead .q-th {
+    color: #8b8b8b !important;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding: 10px 12px;
+  }
+
+  tbody .q-td {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    padding: 10px 12px;
+  }
+
+  tbody tr:hover .q-td {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .q-table__bottom {
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+}

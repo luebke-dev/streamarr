@@ -271,6 +271,19 @@ export function isFutureDate(dateString) {
 /**
  * Format file size in human-readable format (e.g., "1.5 GB").
  */
+/**
+ * Throughput for download/transfer rates ("3.4 MB/s"). Deliberately separate
+ * from formatFileSize: a rate is per second and needs at least one decimal to
+ * be useful while it is moving (KB/s for slow links, MB/s above 1 MiB/s).
+ */
+export function formatSpeed(bps) {
+  const n = Number(bps) || 0
+  if (n <= 0) return '-'
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB/s`
+  if (n >= 1024) return `${(n / 1024).toFixed(0)} KB/s`
+  return `${n} B/s`
+}
+
 export function formatFileSize(bytes) {
   if (!bytes || bytes === 0) return '0 B'
   const k = 1024

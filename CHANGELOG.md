@@ -85,6 +85,13 @@ release note would group it. Everything before that is in `git log`.
 - An incomplete post reports what is actually wrong. A missing PAR2 index used
   to surface as "PAR2 repair failed: No .par2 file found", which reads like a
   repair bug although the upload itself is damaged or taken down.
+- **Admin → Downloads** was rebuilt around the same card language as the
+  dashboard. Four summary cards (rate, active, queued, reachable downloaders),
+  a control bar with the per-downloader state, and a table with six columns
+  instead of nine — show/episode, user and time now sit as a caption under the
+  title, the downloader shrinks to an icon with a tooltip. Card and table tokens
+  moved into `css/_admin-cards.scss` so admin pages stop re-inventing borders,
+  radii and header styling per page.
 - The download queue can be paused and rate-limited as a whole. **Admin →
   Downloads** gained a control card: pause/resume every configured downloader,
   a KB/s cap (`0` = unlimited), the live aggregate rate, active/queued counts
