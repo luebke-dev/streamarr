@@ -7,6 +7,28 @@ export async function listDownloads() {
   return response.data
 }
 
+export async function getDownloadOverview() {
+  const response = await api.get('/api/downloads/overview')
+  return response.data
+}
+
+export async function pauseDownloadQueue() {
+  const response = await api.post('/api/downloads/control/pause')
+  return response.data
+}
+
+export async function resumeDownloadQueue() {
+  const response = await api.post('/api/downloads/control/resume')
+  return response.data
+}
+
+export async function setDownloadSpeedLimit(kbps) {
+  const response = await api.post('/api/downloads/control/speedlimit', {
+    kbps: kbps || null,
+  })
+  return response.data
+}
+
 export async function setDownloadPaused(guid, pause) {
   const response = await api.post(`/api/downloads/${guid}/${pause ? 'pause' : 'resume'}`)
   return response.data

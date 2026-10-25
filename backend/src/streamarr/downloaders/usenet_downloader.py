@@ -115,6 +115,20 @@ class UsenetDownloader(DownloaderBase):
     async def resume_queue(self) -> Any:
         return await self._request("POST", "/api/control/resume")
 
+    async def get_control(self) -> dict[str, Any] | None:
+        data = await self._request("GET", "/api/control")
+        if not isinstance(data, dict):
+            return None
+        return {
+            "paused": bool(data.get("paused")),
+            "speed_limit_kbps": data.get("speed_limit_kbps") or None,
+        }
+
+    async def set_speedlimit(self, limit_kbps: int | None) -> Any:
+        # 0 is the downloader's "no limit" marker.
+        payload = {"kbps": int(limit_kbps or 0)}
+        return await self._request("POST", "/api/control/speedlimit", json=payload)
+
     async def close(self) -> None:
         if self.client:
             await self.client.aclose()

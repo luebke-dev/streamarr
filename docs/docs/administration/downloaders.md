@@ -80,4 +80,24 @@ Navigate to **Admin → Downloads** to watch the live queue. The table shows med
 
 Active downloads can be **paused**, **resumed**, or **deleted** from the actions column. Progress is refreshed by polling the clients every few seconds; completions from the built-in torrent and Spotify services arrive instantly via webhook.
 
+### Pausing everything and capping the rate
+
+The control card above the table works on the *queue*, not on a single item:
+
+- **Pause all / Resume all** stop or restart every configured downloader at once — useful before maintenance, or when the line is needed for something else. The card shows the resulting state (*Queue paused* / *Queue running*) and survives a page reload because it is read back from the downloader.
+- **Limit (KB/s)** caps the download rate; `0` removes the cap. Only downloaders that support a rate limit accept it — SABnzbd and the built-in usenet downloader do, Deluge and Spotify report "not supported".
+- The chips next to the buttons show the **live aggregate rate**, how many downloads are **active** and how many are **queued**, plus a progress bar per running job with percentage, speed and transferred bytes.
+
+All three actions are available over the API for scripted maintenance:
+
+```bash
+curl -X POST https://streamarr.example.com/api/downloads/control/pause -H "Authorization: Bearer $TOKEN"
+curl -X POST https://streamarr.example.com/api/downloads/control/resume -H "Authorization: Bearer $TOKEN"
+curl -X POST https://streamarr.example.com/api/downloads/control/speedlimit \
+     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"kbps": 5000}'
+curl https://streamarr.example.com/api/downloads/overview -H "Authorization: Bearer $TOKEN"
+```
+
+A downloader that is unreachable does not break the page: it is reported per downloader (`reachable: false` plus the error) while the remaining queues stay visible.
+
 The [admin dashboard](dashboard.md) also shows active download activity at a glance, and download metrics are exported for [monitoring](monitoring.md).

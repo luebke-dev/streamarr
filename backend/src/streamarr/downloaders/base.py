@@ -42,6 +42,18 @@ class DownloaderBase(ABC):
         """Resume all downloads."""
         pass
 
-    async def close(self) -> None:
+    async def get_control(self) -> dict[str, Any] | None:
+        """Queue control state (``paused``, ``speed_limit_kbps``).
+
+        Optional: clients that cannot report it return ``None`` and the UI
+        simply shows no toggle for that downloader.
+        """
+        return None
+
+    async def set_speedlimit(self, limit_kbps: int | None) -> Any:
+        """Cap the queue's download rate. ``None`` removes the cap."""
+        raise NotImplementedError
+
+    async def close(self) -> None:  # noqa: B027 - intentional no-op default
         """Clean up resources."""
         pass

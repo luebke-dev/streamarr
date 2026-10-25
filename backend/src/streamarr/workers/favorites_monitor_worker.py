@@ -199,6 +199,17 @@ async def _autodownload_enabled(db: AsyncSession) -> bool:
         return False
 
 
+async def _backfill_cap(db: AsyncSession) -> int:
+    """How many non-favourite leaves one sweep may re-acquire (0 = none)."""
+    try:
+        value = await SettingsService(db).get(
+            "automation.backfill_max_per_run", 0
+        )
+        return max(0, int(value or 0))
+    except Exception:
+        return 0
+
+
 async def _set_monitored(
     db: AsyncSession, guids: list, *, monitored: bool
 ) -> int:
@@ -349,6 +360,23 @@ async def tick_favorites_reconcile_impl() -> int:
                     limit=500, monitored_source="favorite"
                 ):
                     missing.append(str(mi.guid))
+
+                # Bounded backlog fill for the rest of the library (imported
+                # from Sonarr/Radarr). The favourites pass above is unbounded by
+                # design; everything else only moves when an operator sets a
+                # per-run cap, so a single sweep can never queue terabytes
+                # again. The cap counts only this second pass.
+                backfill_cap = await _backfill_cap(db)
+                backfill_added = 0
+                for source in ("imported", "manual"):
+                    remaining = backfill_cap - backfill_added
+                    if remaining <= 0:
+                        break
+                    async for mi in svc.iter_missing_monitored_leaves(
+                        limit=remaining, monitored_source=source
+                    ):
+                        missing.append(str(mi.guid))
+                        backfill_added += 1
 
         enqueued = await _fan_out(missing, None) if missing else 0
         if enqueued or root_guids:

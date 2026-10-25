@@ -231,6 +231,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # takes at most this many: the rest stay announced and are picked up by the
     # next tick or by the reconcile sweep.
     "automation.rss_max_grabs_per_tick": 3,
+    # Bounded backlog fill. The favourites reconcile sweep re-acquires missing
+    # leaves of favourites unconditionally; this is the throttle for the rest of
+    # the library (imported from Sonarr/Radarr, monitored, but never downloaded
+    # by Streamarr). 0 keeps the backlog untouched — the sweep then only handles
+    # favourites. Without a cap one sweep queued 2.6 TB at once.
+    "automation.backfill_max_per_run": 0,
     "automation.upgrade_scan_batch_size": 25,
     "automation.max_concurrent_upgrade_downloads": 3,
     "automation.library_scan_interval_hours": 12,

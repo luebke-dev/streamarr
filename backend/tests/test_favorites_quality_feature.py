@@ -155,12 +155,12 @@ async def show_tree(db_session):
     show = MediaItem(guid=uuid.uuid4(), media_type=MediaType.SHOWS, title="Show", monitored=True, monitored_source="favorite")
     db_session.add(show)
     await db_session.flush()
-    season = MediaItem(guid=uuid.uuid4(), media_type=MediaType.SHOWS, title="S1", parent_guid=show.guid, monitored=True, monitored_source="favorite")
+    season = MediaItem(guid=uuid.uuid4(), media_type=MediaType.SEASONS, title="S1", parent_guid=show.guid, monitored=True, monitored_source="favorite")
     db_session.add(season)
     await db_session.flush()
     eps = [
         MediaItem(
-            guid=uuid.uuid4(), media_type=MediaType.SHOWS, title=f"E{n}",
+            guid=uuid.uuid4(), media_type=MediaType.EPISODES, title=f"E{n}",
             parent_guid=season.guid, sequence_number=n,
             monitored=True, monitored_source="favorite",
         )
@@ -207,7 +207,7 @@ async def test_missing_leaves_can_be_scoped_to_favorites(db_session, show_tree):
     _show, season, eps = show_tree
     imported = MediaItem(
         guid=uuid.uuid4(),
-        media_type=MediaType.SHOWS,
+        media_type=MediaType.EPISODES,
         title="Imported",
         parent_guid=season.guid,
         sequence_number=99,
@@ -324,3 +324,63 @@ async def test_rss_sync_disabled_skips(db_session):
 
     res = await RssSyncService(db_session).run_once()
     assert res.skipped_disabled is True
+
+
+async def test_backfill_cap_defaults_to_off(db_session):
+    from streamarr.workers.favorites_monitor_worker import _backfill_cap
+
+    assert await _backfill_cap(db_session) == 0
+
+
+async def test_backfill_cap_reads_the_setting(db_session):
+    from streamarr.models.setting import Setting
+    from streamarr.workers.favorites_monitor_worker import _backfill_cap
+
+    db_session.add(Setting(key="automation.backfill_max_per_run", value=7))
+    await db_session.commit()
+    assert await _backfill_cap(db_session) == 7
+
+
+async def test_backfill_cap_ignores_bad_values(db_session):
+    from streamarr.models.setting import Setting
+    from streamarr.workers.favorites_monitor_worker import _backfill_cap
+
+    db_session.add(Setting(key="automation.backfill_max_per_run", value="nonsense"))
+    await db_session.commit()
+    assert await _backfill_cap(db_session) == 0
+
+
+async def test_missing_leaves_exclude_hierarchy_containers(db_session):
+    """An empty season is not a leaf to acquire.
+
+    A season whose episodes were never imported has no children, so the plain
+    "no children" test offered it to the search - which can only fail, burning a
+    bounded backfill slot.
+    """
+    from streamarr.services.monitoring import MonitoringService
+
+    show = MediaItem(
+        guid=uuid.uuid4(),
+        media_type=MediaType.SHOWS,
+        title="Empty",
+        monitored=True,
+        monitored_source="imported",
+    )
+    db_session.add(show)
+    await db_session.flush()
+    season = MediaItem(
+        guid=uuid.uuid4(),
+        media_type=MediaType.SEASONS,
+        title="Staffel 1",
+        parent_guid=show.guid,
+        sequence_number=1,
+        monitored=True,
+        monitored_source="imported",
+    )
+    db_session.add(season)
+    await db_session.commit()
+
+    svc = MonitoringService(db_session)
+    missing = [mi async for mi in svc.iter_missing_monitored_leaves()]
+    assert season.guid not in {mi.guid for mi in missing}
+    assert "Staffel 1" not in {mi.title for mi in missing}

@@ -85,6 +85,21 @@ release note would group it. Everything before that is in `git log`.
 - An incomplete post reports what is actually wrong. A missing PAR2 index used
   to surface as "PAR2 repair failed: No .par2 file found", which reads like a
   repair bug although the upload itself is damaged or taken down.
+- The download queue can be paused and rate-limited as a whole. **Admin →
+  Downloads** gained a control card: pause/resume every configured downloader,
+  a KB/s cap (`0` = unlimited), the live aggregate rate, active/queued counts
+  and a progress bar per running job. It also survives a reload because the
+  state is read back from the downloader, and an unreachable client no longer
+  breaks the page. New endpoints: `GET /api/downloads/overview`,
+  `POST /api/downloads/control/{pause,resume,speedlimit}`.
+- The backlog can be filled in a controlled way. `automation.backfill_max_per_run`
+  (default `0` = off) lets the six-hourly sweep re-acquire that many missing
+  episodes/movies from the imported library, least-recently-searched first, so
+  repeated runs walk through the backlog instead of re-queueing everything.
+- The re-acquisition query no longer offers hierarchy containers to the search.
+  An empty season (imported show, episodes never created) has no children, so
+  the "no children = leaf" test treated it as acquirable and burned a backfill
+  slot on a search that can only fail.
 - A library scan no longer registers a second `media_file` row for a path it
   already knows. An import that moves a file into the library could be scanned
   while the copy was still running, which left a duplicate row next to the real

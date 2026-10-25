@@ -3,6 +3,108 @@
     <div class="text-h4 q-mb-md">{{ $t('adminDownloads.title') }}</div>
     <div class="text-subtitle1 text-grey-7 q-mb-lg">{{ $t('adminDownloads.subtitle') }}</div>
 
+    <q-card flat bordered class="q-mb-md">
+      <q-card-section>
+        <div class="row items-center q-col-gutter-md">
+          <div class="col-auto">
+            <q-btn
+              :icon="queuePaused ? 'mdi-play' : 'mdi-pause'"
+              :color="queuePaused ? 'positive' : 'warning'"
+              :label="
+                queuePaused
+                  ? $t('adminDownloads.queue.resumeAll', 'Resume all')
+                  : $t('adminDownloads.queue.pauseAll', 'Pause all')
+              "
+              :loading="queueBusy"
+              unelevated
+              @click="toggleQueue"
+            />
+          </div>
+
+          <div class="col-auto">
+            <q-chip
+              :color="queuePaused ? 'warning' : 'positive'"
+              text-color="white"
+              :icon="queuePaused ? 'mdi-pause-circle' : 'mdi-download-network'"
+              dense
+            >
+              {{
+                queuePaused
+                  ? $t('adminDownloads.queue.paused', 'Queue paused')
+                  : $t('adminDownloads.queue.running', 'Queue running')
+              }}
+            </q-chip>
+          </div>
+
+          <div class="col-auto">
+            <q-chip dense outline icon="mdi-speedometer">
+              {{ formatSpeed(overview?.speed_bps) }}
+            </q-chip>
+          </div>
+
+          <div class="col-auto">
+            <q-chip dense outline icon="mdi-tray-full">
+              {{ overview?.counts?.downloading || 0 }}
+              {{ $t('adminDownloads.queue.active', 'active') }} ·
+              {{ overview?.counts?.queued || 0 }}
+              {{ $t('adminDownloads.queue.queued', 'queued') }}
+            </q-chip>
+          </div>
+
+          <q-space />
+
+          <div class="col-12 col-md-4">
+            <div class="row items-center no-wrap q-gutter-sm">
+              <q-input
+                v-model.number="speedLimitKbps"
+                :label="$t('adminDownloads.queue.speedLimit', 'Limit (KB/s)')"
+                type="number"
+                min="0"
+                outlined
+                dark
+                dense
+                class="col"
+                :hint="$t('adminDownloads.queue.speedLimitHint', '0 = unlimited')"
+                @keyup.enter="applySpeedLimit"
+              />
+              <q-btn
+                flat
+                dense
+                icon="mdi-check"
+                color="primary"
+                :loading="speedBusy"
+                @click="applySpeedLimit"
+              >
+                <q-tooltip>{{ $t('common.apply', 'Apply') }}</q-tooltip>
+              </q-btn>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="jobRows.length" class="q-mt-md">
+          <q-linear-progress
+            v-for="job in jobRows"
+            :key="job.id"
+            :value="job.progress / 100"
+            size="18px"
+            rounded
+            :color="job.status === 'downloading' ? 'primary' : 'grey-7'"
+            class="q-mb-sm"
+          >
+            <div class="row items-center justify-between q-px-sm text-caption">
+              <span class="ellipsis" style="max-width: 55%">{{ job.name }}</span>
+              <span>
+                {{ Math.round(job.progress) }}% ·
+                {{ formatSpeed(job.speed_bps) }} ·
+                {{ formatBytes(job.downloaded_bytes) }} /
+                {{ formatBytes(job.total_bytes) }}
+              </span>
+            </div>
+          </q-linear-progress>
+        </div>
+      </q-card-section>
+    </q-card>
+
     <q-card flat bordered>
       <q-card-section>
         <div class="row q-col-gutter-md q-mb-md">
@@ -195,6 +297,10 @@ import {
   listDownloads,
   setDownloadPaused,
   deleteDownload as deleteDownloadRequest,
+  getDownloadOverview,
+  pauseDownloadQueue,
+  resumeDownloadQueue,
+  setDownloadSpeedLimit,
 } from 'src/services/acquisitionAdminService'
 import ConfirmDeleteDialog from 'src/components/ConfirmDeleteDialog.vue'
 
@@ -207,6 +313,62 @@ const statusFilter = ref(null)
 const showDeleteDialog = ref(false)
 const deleting = ref(false)
 const selectedDownload = ref(null)
+
+// --- queue control ---
+const overview = ref(null)
+const queueBusy = ref(false)
+const speedBusy = ref(false)
+const speedLimitKbps = ref(0)
+
+const queuePaused = computed(() => overview.value?.paused === true)
+const jobRows = computed(() =>
+  (overview.value?.jobs || []).filter((j) => j.status === 'downloading'),
+)
+
+const formatBytes = (bytes) => {
+  const n = Number(bytes) || 0
+  if (n <= 0) return '0 B'
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(0)} MB`
+  return `${(n / 1024).toFixed(0)} KB`
+}
+
+const loadOverview = async () => {
+  try {
+    overview.value = await getDownloadOverview()
+    const limit = overview.value?.downloaders?.find(
+      (d) => d.speed_limit_kbps,
+    )?.speed_limit_kbps
+    if (limit && !speedBusy.value) speedLimitKbps.value = limit
+  } catch (error) {
+    logger.error('Failed to load download overview:', error)
+  }
+}
+
+const toggleQueue = async () => {
+  queueBusy.value = true
+  try {
+    if (queuePaused.value) await resumeDownloadQueue()
+    else await pauseDownloadQueue()
+    await loadOverview()
+  } catch (error) {
+    logger.error('Failed to toggle download queue:', error)
+  } finally {
+    queueBusy.value = false
+  }
+}
+
+const applySpeedLimit = async () => {
+  speedBusy.value = true
+  try {
+    await setDownloadSpeedLimit(Number(speedLimitKbps.value) || 0)
+    await loadOverview()
+  } catch (error) {
+    logger.error('Failed to set speed limit:', error)
+  } finally {
+    speedBusy.value = false
+  }
+}
 
 const statusOptions = computed(() => [
   { label: t('adminDownloads.statuses.pending'), value: 'pending' },
@@ -440,9 +602,13 @@ let pollTimer = null
 
 onMounted(() => {
   loadDownloads()
-  // Background refresh so progress + live speed update without a manual
-  // reload. Silent so the table doesn't flash a spinner every tick.
-  pollTimer = setInterval(() => loadDownloads(true), 5000)
+  loadOverview()
+  // Background refresh: the table, the live rate and the per-job progress bars
+  // all update without a manual reload — silent, so no spinner flashes.
+  pollTimer = setInterval(() => {
+    loadDownloads(true)
+    loadOverview()
+  }, 5000)
 })
 
 onUnmounted(() => {

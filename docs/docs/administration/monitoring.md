@@ -77,4 +77,21 @@ ORDER BY mean_exec_time DESC
 LIMIT 10;
 ```
 
+## Backlog fill
+
+Monitoring a title does not download it. New releases are picked up by the RSS
+sync, but a title that is monitored and has no file only moves when something
+asks for it — either a favourites sweep or the bounded backlog fill:
+
+| Setting | Meaning |
+|---------|---------|
+| `automation.backfill_max_per_run` | How many non-favourite missing leaves one sweep may search and grab. `0` (default) leaves the backlog untouched; the sweep then only handles favourites. |
+| `automation.rss_max_grabs_per_tick` | Cap per RSS tick (default `3`). |
+| `automation.favorites_autodownload_enabled` | Master switch for both the favourites sweep and the backlog fill. |
+
+The sweep runs every six hours and takes the least recently searched items first,
+so repeated runs walk through the backlog instead of retrying the same titles.
+Without the cap a single sweep queued 285 downloads totalling 2.6 TB — the cap is
+what turns "the whole library at once" into a controllable trickle.
+
 For database backups and storage cleanup, see [Maintenance & Backups](maintenance.md).

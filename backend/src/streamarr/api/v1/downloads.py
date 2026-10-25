@@ -55,6 +55,54 @@ async def list_downloads(
     return [DownloadResponse(**d) for d in downloads]
 
 
+# ---------------------------------------------------------------------------
+# Queue control (operator-facing "pause everything" / "cap the rate")
+# ---------------------------------------------------------------------------
+
+
+class QueueSpeedLimitRequest(BaseModel):
+    # Kilobytes per second; 0 or null removes the cap.
+    kbps: int | None = None
+
+
+@router.get("/overview")
+async def downloads_overview(
+    db: DatabaseSession, current_user: CurrentSuperuser
+):
+    """Live queue state: counts, aggregate rate, per-job progress, pause state."""
+    from streamarr.services.download_control import DownloadControlService
+
+    return await DownloadControlService(db).overview()
+
+
+@router.post("/control/pause")
+async def pause_download_queue(db: DatabaseSession, current_user: CurrentSuperuser):
+    """Pause every configured downloader queue."""
+    from streamarr.services.download_control import DownloadControlService
+
+    return await DownloadControlService(db).pause_all()
+
+
+@router.post("/control/resume")
+async def resume_download_queue(db: DatabaseSession, current_user: CurrentSuperuser):
+    """Resume every configured downloader queue."""
+    from streamarr.services.download_control import DownloadControlService
+
+    return await DownloadControlService(db).resume_all()
+
+
+@router.post("/control/speedlimit")
+async def set_download_speed_limit(
+    payload: QueueSpeedLimitRequest,
+    db: DatabaseSession,
+    current_user: CurrentSuperuser,
+):
+    """Cap the queue's download rate (kB/s); null or 0 removes the cap."""
+    from streamarr.services.download_control import DownloadControlService
+
+    return await DownloadControlService(db).set_speed_limit(payload.kbps)
+
+
 @router.delete("/{download_id}")
 async def delete_download(
     download_id: uuid.UUID, db: DatabaseSession, current_user: CurrentSuperuser

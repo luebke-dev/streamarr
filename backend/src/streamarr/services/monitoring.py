@@ -62,6 +62,12 @@ class MonitoringService:
         child = aliased(MediaItem)
         return ~exists().where(child.parent_guid == MediaItem.guid)
 
+    # Hierarchy containers that can never be acquired on their own. A season
+    # whose episodes were never imported has no children, so the "no children"
+    # leaf test alone would hand it to the search - which then finds nothing and
+    # burns a backfill slot.
+    _CONTAINER_TYPES = ("SHOWS", "SEASONS")
+
     async def iter_monitored_leaves(
         self,
         media_type: Any = None,
@@ -157,6 +163,7 @@ class MonitoringService:
             .where(
                 MediaItem.monitored.is_(True),
                 self._is_leaf_clause(),
+                MediaItem.media_type.notin_(self._CONTAINER_TYPES),
                 ~exists().where(
                     MediaFile.media_item_guid == MediaItem.guid
                 ),
