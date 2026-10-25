@@ -2533,6 +2533,17 @@ export default {
       speed: 'Geschwindigkeit',
       created: 'Erstellt',
       startedBy: 'Gestartet von',
+      size: 'Größe',
+      eta: 'Restzeit',
+    },
+
+    // Quick filters above the table
+    tabs: {
+      all: 'Alle',
+      active: 'Aktiv',
+      queued: 'Wartend',
+      failed: 'Fehlgeschlagen',
+      imported: 'Importiert',
     },
 
     // Status values
@@ -2544,6 +2555,7 @@ export default {
       completed: 'Abgeschlossen',
       failed: 'Fehlgeschlagen',
       imported: 'Importiert',
+      cancelled: 'Abgebrochen',
     },
 
     statusDetails: {

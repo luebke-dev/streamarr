@@ -23,6 +23,10 @@ class DownloadResponse(BaseModel):
     progress: float | None
     # Live download speed in bytes/sec (None when not downloading)
     speed_bps: int | None = None
+    # Downloader-side job id, to join live queue state onto this row
+    external_id: str | None = None
+    # Release size in bytes (None when the link/release is gone)
+    size_bytes: int | None = None
     # Navigation info
     media_item_guid: str | None
     media_title: str | None

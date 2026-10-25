@@ -16,50 +16,14 @@
       </div>
     </div>
 
-    <!-- Summary -->
-    <div class="row q-col-gutter-md q-mb-md">
-      <div v-for="card in summaryCards" :key="card.key" class="col-6 col-md-3">
-        <q-card class="admin-stat" flat>
-          <q-card-section class="row items-center no-wrap q-pa-sm">
-            <q-avatar :color="card.color" text-color="white" size="42px" class="q-mr-md">
-              <q-icon :name="card.icon" size="20px" />
-            </q-avatar>
-            <div class="col">
-              <div class="admin-stat-label">{{ card.label }}</div>
-              <div class="admin-stat-value">{{ card.value }}</div>
-              <div class="admin-stat-sub ellipsis">{{ card.sub }}</div>
-            </div>
-          </q-card-section>
-        </q-card>
-      </div>
-    </div>
-
-    <!-- Queue control -->
+    <!-- Control bar -->
     <q-card class="admin-card q-mb-md" flat>
-      <q-card-section class="q-py-sm row items-center justify-between">
-        <div class="admin-heading">{{ $t('adminDownloads.control') }}</div>
-        <div class="row items-center q-gutter-xs">
-          <q-chip
-            v-for="client in downloaders"
-            :key="client.label"
-            dense
-            outline
-            :icon="client.reachable ? 'mdi-check-circle' : 'mdi-alert-circle'"
-            :color="client.reachable ? 'grey-5' : 'negative'"
-          >
-            {{ client.label }}
-            <q-tooltip v-if="!client.reachable">{{ client.error }}</q-tooltip>
-          </q-chip>
-        </div>
-      </q-card-section>
-
-      <q-separator />
-
-      <q-card-section class="row items-center q-col-gutter-md q-py-md">
+      <q-card-section class="row items-center q-col-gutter-md q-py-sm">
         <div class="col-auto">
           <q-btn
             unelevated
             no-caps
+            dense
             :icon="queuePaused ? 'mdi-play' : 'mdi-pause'"
             :color="queuePaused ? 'positive' : 'warning'"
             :label="
@@ -72,83 +36,87 @@
           />
         </div>
 
-        <div class="col-auto">
-          <div class="row items-center no-wrap">
-            <q-input
-              v-model.number="speedLimitKbps"
-              :label="$t('adminDownloads.queue.speedLimit')"
-              type="number"
-              min="0"
-              outlined
-              dark
-              dense
-              style="width: 150px"
-              :hint="$t('adminDownloads.queue.speedLimitHint')"
-              @keyup.enter="applySpeedLimit"
-            />
-            <q-btn
-              flat
-              dense
-              icon="mdi-check"
-              color="primary"
-              class="q-ml-xs"
-              :loading="speedBusy"
-              @click="applySpeedLimit"
-            >
-              <q-tooltip>{{ $t('adminDownloads.queue.applyLimit') }}</q-tooltip>
-            </q-btn>
-          </div>
+        <div class="col-auto row items-center no-wrap">
+          <q-input
+            v-model.number="speedLimitKbps"
+            :label="$t('adminDownloads.queue.speedLimit')"
+            type="number"
+            min="0"
+            outlined
+            dark
+            dense
+            style="width: 138px"
+            @keyup.enter="applySpeedLimit"
+          />
+          <q-btn
+            flat
+            dense
+            icon="mdi-check"
+            color="primary"
+            class="q-ml-xs"
+            :loading="speedBusy"
+            @click="applySpeedLimit"
+          >
+            <q-tooltip>{{ $t('adminDownloads.queue.applyLimit') }}</q-tooltip>
+          </q-btn>
         </div>
 
         <q-space />
 
-        <div class="col-auto">
+        <div class="col-auto row items-center q-gutter-sm">
+          <span class="metric" :class="queuePaused ? 'text-grey-6' : 'text-info'">
+            <q-icon name="mdi-speedometer" size="16px" class="q-mr-xs" />
+            {{ formatSpeed(overview?.speed_bps) }}
+          </span>
+          <q-separator vertical inset />
+          <span class="metric text-grey-4">
+            {{ overview?.counts?.downloading ?? 0 }} {{ $t('adminDownloads.queue.active') }}
+          </span>
+          <span class="metric text-grey-4">
+            {{ overview?.counts?.queued ?? 0 }} {{ $t('adminDownloads.queue.queued') }}
+          </span>
+          <q-separator vertical inset />
           <q-chip
-            :color="queuePaused ? 'warning' : 'positive'"
-            text-color="white"
+            v-for="client in downloaders"
+            :key="client.label"
             dense
-            :icon="queuePaused ? 'mdi-pause-circle' : 'mdi-download-network'"
-            :label="queuePaused ? $t('adminDownloads.queue.paused') : $t('adminDownloads.queue.running')"
+            outline
+            :icon="client.reachable ? 'mdi-check-circle' : 'mdi-alert-circle'"
+            :color="client.reachable ? 'grey-5' : 'negative'"
+          >
+            {{ client.label }}
+            <q-tooltip v-if="!client.reachable">{{ client.error }}</q-tooltip>
+          </q-chip>
+          <q-chip
+            v-if="queuePaused"
+            dense
+            color="warning"
+            text-color="white"
+            icon="mdi-pause-circle"
+            :label="$t('adminDownloads.queue.paused')"
           />
         </div>
       </q-card-section>
-
-      <template v-if="activeJobs.length">
-        <q-separator />
-        <q-card-section class="q-py-md column q-gutter-md">
-          <div v-for="job in activeJobs" :key="job.id">
-            <div class="row items-baseline justify-between q-mb-xs">
-              <div class="col ellipsis text-body2">{{ job.name }}</div>
-              <div class="col-auto text-caption text-grey-5 q-ml-md">
-                {{ Math.round(job.progress) }}% &middot; {{ formatSpeed(job.speed_bps) }}
-                <template v-if="job.total_bytes">
-                  &middot; {{ formatBytes(job.downloaded_bytes) }} /
-                  {{ formatBytes(job.total_bytes) }}
-                </template>
-              </div>
-            </div>
-            <q-linear-progress
-              :value="job.progress / 100"
-              color="info"
-              track-color="grey-9"
-              rounded
-              size="6px"
-              class="q-mb-xs"
-            />
-          </div>
-        </q-card-section>
-      </template>
     </q-card>
 
-    <!-- Downloads -->
+    <!-- Downloads table -->
     <q-card class="admin-card" flat>
       <q-card-section class="row items-center q-col-gutter-md q-py-sm">
-        <div class="col">
-          <div class="admin-heading">
-            {{ $t('adminDownloads.history') }}
-            <span class="text-grey-6">({{ downloads.length }})</span>
-          </div>
+        <div class="col-auto">
+          <q-btn-toggle
+            v-model="statusFilter"
+            :options="statusTabs"
+            dense
+            no-caps
+            unelevated
+            toggle-color="primary"
+            color="grey-9"
+            text-color="grey-4"
+          />
         </div>
+
+        <q-space />
+
         <div class="col-12 col-md-3">
           <q-input
             v-model="search"
@@ -157,26 +125,11 @@
             dark
             dense
             clearable
-            @update:model-value="debouncedSearch"
           >
             <template v-slot:prepend>
               <q-icon name="mdi-magnify" size="xs" />
             </template>
           </q-input>
-        </div>
-        <div class="col-12 col-md-2">
-          <q-select
-            v-model="statusFilter"
-            :options="statusOptions"
-            :placeholder="$t('adminDownloads.filterByStatus')"
-            outlined
-            dark
-            dense
-            emit-value
-            map-options
-            clearable
-            @update:model-value="loadDownloads"
-          />
         </div>
       </q-card-section>
 
@@ -185,20 +138,18 @@
       <q-table
         flat
         dark
-        class="admin-table"
-        :rows="downloads"
+        dense
+        class="admin-table download-table"
+        :rows="rows"
         :columns="columns"
         :loading="loading"
         row-key="guid"
-        binary-state-sort
-        :rows-per-page-options="[25, 50, 100, 0]"
-        :pagination="{ rowsPerPage: 25 }"
+        :rows-per-page-options="[50, 100, 0]"
+        :pagination="{ rowsPerPage: 50 }"
       >
-        <template v-slot:body-cell-type="props">
-          <q-td :props="props">
-            <q-icon :name="getTypeIcon(props.value)" size="18px" :color="getTypeColor(props.value)">
-              <q-tooltip>{{ getTypeLabel(props.value) }}</q-tooltip>
-            </q-icon>
+        <template v-slot:body-cell-status="props">
+          <q-td :props="props" class="status-cell">
+            <span class="status-dot" :class="`dot-${statusKey(props.value)}`" />
           </q-td>
         </template>
 
@@ -212,111 +163,114 @@
               {{ props.row.display_title }}
             </router-link>
             <div v-else class="row-title">{{ props.row.display_title }}</div>
-            <div class="row-meta">
-              <span v-if="props.row.show_title && props.row.season_number != null">
-                S{{ String(props.row.season_number).padStart(2, '0') }}E{{
-                  String(props.row.episode_number ?? 0).padStart(2, '0')
-                }}
-                &middot;
+            <div class="row-meta ellipsis">
+              <span v-if="getStatusDetail(props.row)" class="text-warning">
+                {{ getStatusDetail(props.row) }}
               </span>
-              <span v-if="props.row.started_by_name">{{ props.row.started_by_name }}</span>
-              <span v-if="props.row.started_by_name && props.row.created_at"> &middot; </span>
-              <span v-if="props.row.created_at">{{
-                formatRelativeTime(props.row.created_at)
-              }}</span>
+              <template v-else>
+                <span v-if="showStatusLabel(props.row)">{{ getStatusLabel(props.row.status) }}</span>
+                <span v-if="showEpisodeTag(props.row)">
+                  S{{ String(props.row.season_number).padStart(2, '0') }}E{{
+                    String(props.row.episode_number ?? 0).padStart(2, '0')
+                  }}
+                </span>
+                <span v-if="props.row.started_by_name">
+                  {{ props.row.started_by_name }}</span
+                >
+                <span v-if="props.row.created_at">
+                  {{ formatRelativeTime(props.row.created_at) }}</span
+                >
+              </template>
             </div>
           </q-td>
         </template>
 
-        <template v-slot:body-cell-status="props">
-          <q-td :props="props">
-            <q-badge
-              :color="getStatusColor(props.value)"
-              :label="getStatusLabel(props.value)"
-              class="status-badge"
-            />
-            <div v-if="getStatusDetail(props.row)" class="row-meta ellipsis">
-              {{ getStatusDetail(props.row) }}
-            </div>
+        <template v-slot:body-cell-size="props">
+          <q-td :props="props" class="num">
+            <span v-if="props.row.total_bytes">
+              <span v-if="props.row.downloaded_bytes != null" class="text-grey-4">
+                {{ formatBytes(props.row.downloaded_bytes) }}
+              </span>
+              <span v-if="props.row.downloaded_bytes != null" class="text-grey-7"> / </span>
+              {{ formatBytes(props.row.total_bytes) }}
+            </span>
+            <span v-else class="text-grey-7">–</span>
           </q-td>
         </template>
 
         <template v-slot:body-cell-progress="props">
           <q-td :props="props">
-            <div v-if="props.value !== null" class="row items-center no-wrap">
+            <div class="row items-center no-wrap">
               <q-linear-progress
-                :value="props.value / 100"
-                :color="props.value >= 100 ? 'positive' : 'info'"
+                :value="(props.row.progress ?? 0) / 100"
+                :color="progressColor(props.row)"
                 track-color="grey-9"
                 class="col q-mr-sm"
                 size="5px"
                 rounded
               />
-              <span class="text-caption text-grey-5">{{ Math.round(props.value) }}%</span>
+              <span class="num text-caption text-grey-4">
+                {{ props.row.progress != null ? Math.round(props.row.progress) : 0 }}%
+              </span>
             </div>
-            <span v-else class="text-grey-7">–</span>
           </q-td>
         </template>
 
         <template v-slot:body-cell-speed_bps="props">
-          <q-td :props="props">
-            <span :class="props.value > 0 ? 'text-grey-4' : 'text-grey-7'">
+          <q-td :props="props" class="num">
+            <span :class="props.value > 0 ? 'text-grey-3' : 'text-grey-7'">
               {{ formatSpeed(props.value) }}
             </span>
           </q-td>
         </template>
 
-        <template v-slot:body-cell-downloader_name="props">
-          <q-td :props="props">
-            <q-icon
-              v-if="props.value"
-              :name="props.row.downloader_type === 'sabnzbd' ? 'mdi-server' : 'mdi-download'"
-              size="16px"
-              class="text-grey-6"
-            >
-              <q-tooltip>{{ props.value }}</q-tooltip>
-            </q-icon>
-            <span v-else class="text-grey-7">–</span>
+        <template v-slot:body-cell-eta_seconds="props">
+          <q-td :props="props" class="num">
+            <span :class="props.value != null ? 'text-grey-4' : 'text-grey-7'">
+              {{ formatEta(props.value) }}
+            </span>
           </q-td>
         </template>
 
         <template v-slot:body-cell-actions="props">
           <q-td :props="props">
-            <q-btn
-              v-if="isPausable(props.row)"
-              flat
-              dense
-              round
-              icon="mdi-pause"
-              color="warning"
-              size="sm"
-              @click="togglePause(props.row, true)"
-            >
-              <q-tooltip>{{ $t('common.pause') }}</q-tooltip>
-            </q-btn>
-            <q-btn
-              v-if="isPaused(props.row)"
-              flat
-              dense
-              round
-              icon="mdi-play"
-              color="positive"
-              size="sm"
-              @click="togglePause(props.row, false)"
-            >
-              <q-tooltip>{{ $t('common.resume') }}</q-tooltip>
-            </q-btn>
-            <q-btn
-              flat
-              dense
-              round
-              icon="mdi-delete-outline"
-              color="grey-6"
-              size="sm"
-              @click="confirmDelete(props.row)"
-            >
-              <q-tooltip>{{ $t('common.delete') }}</q-tooltip>
-            </q-btn>
+            <div class="row justify-end no-wrap">
+              <q-btn
+                v-if="isPausable(props.row)"
+                flat
+                dense
+                round
+                icon="mdi-pause"
+                color="warning"
+                size="sm"
+                @click="togglePause(props.row, true)"
+              >
+                <q-tooltip>{{ $t('common.pause') }}</q-tooltip>
+              </q-btn>
+              <q-btn
+                v-if="isPaused(props.row)"
+                flat
+                dense
+                round
+                icon="mdi-play"
+                color="positive"
+                size="sm"
+                @click="togglePause(props.row, false)"
+              >
+                <q-tooltip>{{ $t('common.resume') }}</q-tooltip>
+              </q-btn>
+              <q-btn
+                flat
+                dense
+                round
+                icon="mdi-delete-outline"
+                color="grey-6"
+                size="sm"
+                @click="confirmDelete(props.row)"
+              >
+                <q-tooltip>{{ $t('common.delete') }}</q-tooltip>
+              </q-btn>
+            </div>
           </q-td>
         </template>
 
@@ -324,9 +278,7 @@
           <div class="column items-center q-pa-xl text-center">
             <q-icon name="mdi-tray-remove" size="40px" class="text-grey-8 q-mb-sm" />
             <div class="text-grey-5">{{ $t('adminDownloads.emptyTitle') }}</div>
-            <div class="text-caption text-grey-7">
-              {{ $t('adminDownloads.emptyHint') }}
-            </div>
+            <div class="text-caption text-grey-7">{{ $t('adminDownloads.emptyHint') }}</div>
           </div>
         </template>
       </q-table>
@@ -344,7 +296,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { debounce } from 'quasar'
 import { logger } from 'src/utils/logger'
 import {
   formatFileSize as formatBytes,
@@ -364,6 +315,9 @@ import ConfirmDeleteDialog from 'src/components/ConfirmDeleteDialog.vue'
 
 const { t } = useI18n()
 
+// Every download row, already merged with the live queue state. The table is the
+// page, so a row has to show what is happening *now* - not a value stored five
+// minutes ago when the row was written.
 const downloads = ref([])
 const loading = ref(false)
 const search = ref('')
@@ -380,52 +334,154 @@ const speedLimitKbps = ref(0)
 
 const queuePaused = computed(() => overview.value?.paused === true)
 const downloaders = computed(() => overview.value?.downloaders || [])
-const activeJobs = computed(() => overview.value?.jobs || [])
 
-// The four cards at the top answer "is anything happening, how fast, and is the
-// queue blocked" before the table is read. Driven by one table so the cards stay
-// identical in shape.
-const summaryCards = computed(() => {
-  const counts = overview.value?.counts || {}
-  const clients = downloaders.value
-  const reachable = clients.filter((c) => c.reachable).length
+// Live jobs keyed by downloader job id and, as a fallback, by release name -
+// older rows predate external_id, and a name match still beats no live data.
+const liveJobs = computed(() => {
+  const map = new Map()
+  for (const job of overview.value?.jobs || []) {
+    if (job.id) map.set(String(job.id), job)
+    if (job.name) map.set(`name:${job.name}`, job)
+  }
+  return map
+})
+
+const STATUS_ORDER = {
+  downloading: 0,
+  queued: 1,
+  pending: 2,
+  paused: 3,
+  failed: 4,
+  completed: 5,
+  imported: 6,
+}
+
+const merged = computed(() =>
+  downloads.value.map((row) => {
+    const live =
+      (row.external_id && liveJobs.value.get(String(row.external_id))) ||
+      liveJobs.value.get(`name:${row.title}`)
+
+    const progress = live?.progress ?? row.progress
+    const speed = live?.speed_bps ?? row.speed_bps
+    const total = live?.total_bytes || row.size_bytes || null
+    let done = live?.downloaded_bytes ?? null
+    if (done == null && total && progress != null) {
+      done = Math.round((total * progress) / 100)
+    }
+    // ETA only while something actually moves - a stalled job has no estimate.
+    const eta = speed > 0 && total && done != null ? (total - done) / speed : null
+
+    return {
+      ...row,
+      live: Boolean(live),
+      progress,
+      speed_bps: speed,
+      total_bytes: total,
+      downloaded_bytes: done,
+      eta_seconds: eta,
+    }
+  }),
+)
+
+// Active first, then newest: the rows an operator opens the page for are always
+// on top, no matter how the client-side sorting is configured.
+const rows = computed(() => {
+  const needle = search.value.trim().toLowerCase()
+  const filter = statusFilter.value
+  return merged.value
+    .filter((row) => {
+      if (filter && statusKey(row.status) !== filter) return false
+      if (!needle) return true
+      return (
+        (row.display_title || '').toLowerCase().includes(needle) ||
+        (row.title || '').toLowerCase().includes(needle)
+      )
+    })
+    .sort((a, b) => {
+      const byStatus =
+        (STATUS_ORDER[statusKey(a.status)] ?? 9) - (STATUS_ORDER[statusKey(b.status)] ?? 9)
+      if (byStatus !== 0) return byStatus
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    })
+})
+
+// Counts live next to the tab label: "which tab do I need" is answered before
+// clicking instead of after.
+const statusCounts = computed(() => {
+  const counts = {}
+  for (const row of merged.value) {
+    const key = statusKey(row.status)
+    counts[key] = (counts[key] || 0) + 1
+  }
+  return counts
+})
+
+const statusTabs = computed(() => {
+  const tab = (value, label) => ({
+    value,
+    label: `${label} ${value ? statusCounts.value[value] || 0 : merged.value.length}`,
+  })
   return [
-    {
-      key: 'rate',
-      icon: 'mdi-speedometer',
-      color: queuePaused.value ? 'grey-8' : 'info',
-      label: t('adminDownloads.summary.rate'),
-      value: formatSpeed(overview.value?.speed_bps),
-      sub: queuePaused.value
-        ? t('adminDownloads.queue.paused')
-        : t('adminDownloads.summary.live'),
-    },
-    {
-      key: 'active',
-      icon: 'mdi-tray-full',
-      color: 'teal',
-      label: t('adminDownloads.summary.active'),
-      value: counts.downloading ?? 0,
-      sub: t('adminDownloads.summary.jobs', { n: activeJobs.value.length }),
-    },
-    {
-      key: 'queued',
-      icon: 'mdi-timer-sand',
-      color: 'purple',
-      label: t('adminDownloads.summary.queued'),
-      value: counts.queued ?? 0,
-      sub: t('adminDownloads.summary.waiting'),
-    },
-    {
-      key: 'clients',
-      icon: 'mdi-server-network',
-      color: reachable === clients.length && clients.length ? 'green' : 'orange',
-      label: t('adminDownloads.summary.clients'),
-      value: `${reachable}/${clients.length}`,
-      sub: t('adminDownloads.summary.reachable'),
-    },
+    tab(null, t('adminDownloads.tabs.all')),
+    tab('downloading', t('adminDownloads.tabs.active')),
+    tab('queued', t('adminDownloads.tabs.queued')),
+    tab('failed', t('adminDownloads.tabs.failed')),
+    tab('imported', t('adminDownloads.tabs.imported')),
   ]
 })
+
+const columns = computed(() => [
+  {
+    name: 'status',
+    label: '',
+    align: 'center',
+    field: 'status',
+    style: 'width: 26px',
+  },
+  {
+    name: 'display_title',
+    required: true,
+    label: t('adminDownloads.columns.title'),
+    align: 'left',
+    field: 'display_title',
+  },
+  {
+    name: 'size',
+    label: t('adminDownloads.columns.size'),
+    align: 'right',
+    field: 'total_bytes',
+    style: 'width: 150px',
+  },
+  {
+    name: 'progress',
+    label: t('adminDownloads.columns.progress'),
+    align: 'left',
+    field: 'progress',
+    style: 'width: 190px',
+  },
+  {
+    name: 'speed_bps',
+    label: t('adminDownloads.columns.speed'),
+    align: 'right',
+    field: 'speed_bps',
+    style: 'width: 100px',
+  },
+  {
+    name: 'eta_seconds',
+    label: t('adminDownloads.columns.eta'),
+    align: 'right',
+    field: 'eta_seconds',
+    style: 'width: 90px',
+  },
+  {
+    name: 'actions',
+    label: '',
+    align: 'right',
+    field: 'actions',
+    style: 'width: 110px',
+  },
+])
 
 const loadOverview = async () => {
   try {
@@ -462,92 +518,10 @@ const applySpeedLimit = async () => {
   }
 }
 
-const statusOptions = computed(() => [
-  { label: t('adminDownloads.statuses.pending'), value: 'pending' },
-  { label: t('adminDownloads.statuses.queued'), value: 'queued' },
-  { label: t('adminDownloads.statuses.downloading'), value: 'downloading' },
-  { label: t('adminDownloads.statuses.paused'), value: 'paused' },
-  { label: t('adminDownloads.statuses.completed'), value: 'completed' },
-  { label: t('adminDownloads.statuses.failed'), value: 'failed' },
-  { label: t('adminDownloads.statuses.imported'), value: 'imported' },
-])
-
-// Six columns instead of nine: show/episode, user and time live as a caption
-// under the title, and the downloader shrinks to an icon with a tooltip.
-const columns = computed(() => [
-  {
-    name: 'type',
-    label: '',
-    align: 'center',
-    field: 'type',
-    sortable: false,
-    style: 'width: 36px',
-    headerStyle: 'width: 36px',
-  },
-  {
-    name: 'display_title',
-    required: true,
-    label: t('adminDownloads.columns.title'),
-    align: 'left',
-    field: 'display_title',
-    sortable: true,
-  },
-  {
-    name: 'status',
-    label: t('adminDownloads.columns.status'),
-    align: 'left',
-    field: 'status',
-    sortable: true,
-    style: 'width: 170px',
-  },
-  {
-    name: 'progress',
-    label: t('adminDownloads.columns.progress'),
-    align: 'left',
-    field: 'progress',
-    sortable: true,
-    style: 'width: 150px',
-  },
-  {
-    name: 'speed_bps',
-    label: t('adminDownloads.columns.speed'),
-    align: 'right',
-    field: 'speed_bps',
-    sortable: true,
-    style: 'width: 100px',
-  },
-  {
-    name: 'downloader_name',
-    label: t('adminDownloads.columns.downloader'),
-    align: 'center',
-    field: 'downloader_name',
-    style: 'width: 60px',
-    headerStyle: 'width: 60px',
-  },
-  {
-    name: 'actions',
-    label: '',
-    align: 'right',
-    field: 'actions',
-    style: 'width: 110px',
-  },
-])
-
 const loadDownloads = async (silent = false) => {
   if (!silent) loading.value = true
   try {
-    let rows = (await listDownloads()) || []
-
-    if (search.value) {
-      const needle = search.value.toLowerCase()
-      rows = rows.filter((d) => (d.display_title || '').toLowerCase().includes(needle))
-    }
-
-    if (statusFilter.value) {
-      rows = rows.filter((d) => (d.status || '').toLowerCase() === statusFilter.value)
-    }
-
-    downloads.value = rows
+    downloads.value = (await listDownloads()) || []
   } catch (error) {
     logger.error('Failed to load downloads:', error)
   } finally {
@@ -557,86 +531,45 @@ const loadDownloads = async (silent = false) => {
 
 const refreshAll = () => Promise.all([loadDownloads(), loadOverview()])
 
-const debouncedSearch = debounce(() => {
-  loadDownloads()
-}, 500)
+const statusKey = (status) => (status || '').toLowerCase()
 
-const isPaused = (download) => (download?.status || '').toLowerCase() === 'paused'
-const isPausable = (download) =>
-  ['downloading', 'queued'].includes((download?.status || '').toLowerCase())
+const isPaused = (download) => statusKey(download?.status) === 'paused'
+const isPausable = (download) => ['downloading', 'queued'].includes(statusKey(download?.status))
+
+const showEpisodeTag = (row) => row.show_title && row.season_number != null
+
+// For running rows the rate and ETA already say what is going on; for settled
+// rows the coloured dot needs a word next to it.
+const showStatusLabel = (row) => !['downloading', 'queued'].includes(statusKey(row.status))
+
+const getStatusLabel = (status) => t(`adminDownloads.statuses.${statusKey(status)}`, status)
+
+const progressColor = (row) => {
+  const key = statusKey(row.status)
+  if (key === 'failed') return 'negative'
+  if (row.progress >= 100 || key === 'imported' || key === 'completed') return 'positive'
+  return row.live ? 'info' : 'grey-7'
+}
+
+// Seconds -> "8 Min" / "1 Std 20 Min"; the exact second is noise on a page that
+// refreshes every five seconds.
+const formatEta = (seconds) => {
+  if (seconds == null || !Number.isFinite(seconds)) return '–'
+  const total = Math.round(seconds)
+  if (total < 60) return `${total} s`
+  const minutes = Math.round(total / 60)
+  if (minutes < 60) return `${minutes} Min`
+  const hours = Math.floor(minutes / 60)
+  return `${hours} Std ${String(minutes % 60).padStart(2, '0')}`
+}
 
 const togglePause = async (download, pause) => {
   try {
     await setDownloadPaused(download.guid, pause)
-    loadDownloads(true)
+    await refreshAll()
   } catch (error) {
     logger.error(`Failed to ${pause ? 'pause' : 'resume'} download:`, error)
   }
-}
-
-const getTypeIcon = (type) => {
-  const t = (type || '').toLowerCase()
-  // The backend sends media-type values (MOVIES/SHOWS/GAMES/SONGS/BOOKS) as
-  // well as legacy singular forms — map both.
-  const icons = {
-    movie: 'mdi-movie',
-    movies: 'mdi-movie',
-    episode: 'mdi-television',
-    episodes: 'mdi-television',
-    show: 'mdi-television',
-    shows: 'mdi-television',
-    music: 'mdi-music',
-    song: 'mdi-music',
-    songs: 'mdi-music',
-    game: 'mdi-gamepad-variant',
-    games: 'mdi-gamepad-variant',
-    book: 'mdi-book',
-    books: 'mdi-book',
-  }
-  return icons[t] || 'mdi-download'
-}
-
-const getTypeColor = (type) => {
-  const t = (type || '').toLowerCase()
-  const colors = {
-    movie: 'amber',
-    movies: 'amber',
-    episode: 'light-blue',
-    episodes: 'light-blue',
-    show: 'light-blue',
-    shows: 'light-blue',
-    music: 'pink',
-    song: 'pink',
-    songs: 'pink',
-    game: 'purple',
-    games: 'purple',
-    book: 'brown',
-    books: 'brown',
-  }
-  return colors[t] || 'grey'
-}
-
-const getTypeLabel = (type) => {
-  const t = (type || '').toLowerCase()
-  return t(`adminDownloads.types.${t}`, type || '')
-}
-
-const getStatusColor = (status) => {
-  const s = (status || '').toLowerCase()
-  const colors = {
-    queued: 'grey',
-    downloading: 'info',
-    paused: 'warning',
-    completed: 'positive',
-    failed: 'negative',
-    imported: 'teal',
-  }
-  return colors[s] || 'grey'
-}
-
-const getStatusLabel = (status) => {
-  const s = (status || '').toLowerCase()
-  return t(`adminDownloads.statuses.${s}`, status)
 }
 
 const STATUS_DETAIL_KEYS = {
@@ -647,12 +580,17 @@ const STATUS_DETAIL_KEYS = {
 }
 
 const getStatusDetail = (download) => {
-  const explicitDetail = download?.status_detail || download?.error_reason
+  const key = statusKey(download?.status)
+  if (key === 'failed' || key === 'cancelled') {
+    return download?.error_reason || download?.status_detail || t('adminDownloads.statuses.failed')
+  }
+
+  const explicitDetail = download?.status_detail
   if (explicitDetail) return explicitDetail
 
   const phase = (download?.status_phase || '').toLowerCase()
-  const key = STATUS_DETAIL_KEYS[phase]
-  return key ? t(key) : ''
+  const detailKey = STATUS_DETAIL_KEYS[phase]
+  return detailKey ? t(detailKey) : ''
 }
 
 const confirmDelete = (download) => {
@@ -666,10 +604,9 @@ const deleteDownload = async () => {
   deleting.value = true
   try {
     await deleteDownloadRequest(selectedDownload.value.guid)
-
     showDeleteDialog.value = false
     selectedDownload.value = null
-    loadDownloads()
+    await refreshAll()
   } catch (error) {
     logger.error('Failed to delete download:', error)
   } finally {
@@ -679,19 +616,19 @@ const deleteDownload = async () => {
 
 const POLL_MS = 5000
 let pollTimer = null
+let rowTimer = null
 
 onMounted(() => {
   refreshAll()
-  // Background refresh: the table, the live rate and the per-job progress bars
-  // all update without a manual reload — silent, so no spinner flashes.
-  pollTimer = setInterval(() => {
-    loadDownloads(true)
-    loadOverview()
-  }, POLL_MS)
+  // Live queue every 5 s, the row list less often: statuses change slowly while
+  // rate/progress change constantly.
+  pollTimer = setInterval(loadOverview, POLL_MS)
+  rowTimer = setInterval(() => loadDownloads(true), POLL_MS * 6)
 })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (rowTimer) clearInterval(rowTimer)
 })
 </script>
 
@@ -707,16 +644,72 @@ onUnmounted(() => {
 }
 
 .row-meta {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   color: #8b8b8b;
-  max-width: 380px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  max-width: 100%;
+
+  span + span::before {
+    content: ' · ';
+    color: #555;
+  }
+}
+
+// Numbers in a live table must not jitter: equal-width digits keep the columns
+// from shifting on every poll.
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
   white-space: nowrap;
 }
 
-.status-badge {
-  font-weight: 500;
-  padding: 2px 8px;
+.status-cell {
+  padding-right: 0 !important;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #666;
+}
+
+.dot-downloading {
+  background: var(--q-info);
+  box-shadow: 0 0 0 3px rgba(49, 161, 222, 0.18);
+}
+.dot-queued,
+.dot-pending {
+  background: #8a8a8a;
+}
+.dot-paused {
+  background: var(--q-warning);
+}
+.dot-failed {
+  background: var(--q-negative);
+}
+.dot-cancelled {
+  background: #5a5a5a;
+}
+.dot-completed,
+.dot-imported {
+  background: var(--q-positive);
+}
+
+.metric {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+// Sticky header: with 50 rows per page the column labels have to stay readable
+// while scrolling.
+.download-table :deep(thead tr) {
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #1d1d1d !important;
+  }
 }
 </style>

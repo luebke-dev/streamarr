@@ -196,6 +196,18 @@ class DownloadService:
                     "show_title": meta["show_title"],
                     "season_number": meta["season_number"],
                     "episode_number": meta["episode_number"],
+                    # Identity on the downloader, so the UI can join the live
+                    # job (speed/progress/bytes) onto this row instead of
+                    # matching by release name.
+                    "external_id": download.external_id,
+                    # Total size lives on the release; the UI needs it for
+                    # "1.2 / 3.4 GB" and the ETA.
+                    "size_bytes": (
+                        download.media_release_link.release.size
+                        if download.media_release_link
+                        and download.media_release_link.release
+                        else None
+                    ),
                     "downloader_name": download.downloader.label if download.downloader else None,
                     "downloader_type": download.downloader.type if download.downloader else None,
                     "user_guid": str(download.user_guid) if download.user_guid else None,
