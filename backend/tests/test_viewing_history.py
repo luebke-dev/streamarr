@@ -171,3 +171,38 @@ class TestUpdateProgress:
         # Watch to 92% again -> auto-complete again
         vh.update_progress(920)
         assert vh.is_completed is True
+
+
+class TestClampProgress:
+    """A stored position has to stay inside the media.
+
+    A client that adds the transcode offset twice reports positions beyond the
+    end (Snowfall S03E07: 6574 s for a 2752 s file). Persisting that verbatim
+    makes the next resume seek past the end, so the file ends immediately and the
+    episode looks like it plays again.
+    """
+
+    def test_clamps_to_duration(self):
+        from streamarr.services.viewing_history import _clamp_progress
+
+        assert _clamp_progress(6574, 2752) == 2752
+
+    def test_keeps_positions_inside_the_media(self):
+        from streamarr.services.viewing_history import _clamp_progress
+
+        assert _clamp_progress(1200, 2752) == 1200
+
+    def test_without_duration_nothing_is_invented(self):
+        from streamarr.services.viewing_history import _clamp_progress
+
+        assert _clamp_progress(1200, None) == 1200
+
+    def test_negative_positions_become_zero(self):
+        from streamarr.services.viewing_history import _clamp_progress
+
+        assert _clamp_progress(-5, 2752) == 0
+
+    def test_garbage_becomes_zero(self):
+        from streamarr.services.viewing_history import _clamp_progress
+
+        assert _clamp_progress("nonsense", 2752) == 0

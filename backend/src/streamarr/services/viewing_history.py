@@ -117,6 +117,27 @@ def _extract_episode_hierarchy(media_item: MediaItem | None) -> dict:
     return result
 
 
+def _clamp_progress(progress_seconds: float, duration_seconds: float | None) -> float:
+    """Keep a stored position inside the media.
+
+    A client reporting a position past the end used to be persisted verbatim
+    (Snowfall S03E07: 6574 s for a 2752 s file, because the player added the
+    resume offset twice). Resume then sought beyond the end, the file ended
+    immediately and the episode appeared to play again - so bad data here breaks
+    playback, not just a progress bar.
+    """
+    try:
+        position = float(progress_seconds)
+    except (TypeError, ValueError):
+        return 0.0
+
+    if position < 0:
+        return 0.0
+    if duration_seconds and duration_seconds > 0:
+        return min(position, float(duration_seconds))
+    return position
+
+
 def _calculate_progress(progress_seconds: float, duration_seconds: float | None) -> tuple[float, bool]:
     """Calculate progress percentage and completion status.
     Returns (progress_percentage, is_completed).
@@ -213,6 +234,13 @@ class ViewingHistoryService:
         )
         result = await self.db.execute(query)
         existing = result.scalar_one_or_none()
+
+        # Clamp against whichever duration is known: the caller's, or the one
+        # already stored for this item.
+        progress_seconds = _clamp_progress(
+            progress_seconds,
+            duration_seconds or (existing.duration_seconds if existing else None),
+        )
 
         if existing:
             was_completed = existing.is_completed

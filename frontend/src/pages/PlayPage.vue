@@ -182,6 +182,7 @@ import {
   stopStreaming,
 } from 'src/composables/usePlay'
 import { logger } from 'src/utils/logger'
+import { realPlayerTime } from 'src/composables/playbackPosition'
 import { getTmdbImageUrl } from 'src/composables/useMediaFormatters'
 import { useDownloadPolling } from 'src/composables/useDownloadPolling'
 import { useViewingProgress } from 'src/composables/useViewingProgress'
@@ -1104,7 +1105,11 @@ watch(
       }
       if (videoJsPlayer.value && duration.value > 0) {
         updateProgress(
-          transcodeStartPosition.value + videoJsPlayer.value.currentTime(),
+          realPlayerTime(
+            videoJsPlayer.value,
+            transcodeStartPosition,
+            videoDuration.value || duration.value || 0,
+          ),
           videoDuration.value || duration.value,
           { eventName: 'stop', uuid: oldId },
         )
@@ -1208,7 +1213,11 @@ onUnmounted(() => {
   if (videoJsPlayer.value && videoJsPlayer.value.el_ && duration.value > 0) {
     try {
       updateProgress(
-        transcodeStartPosition.value + videoJsPlayer.value.currentTime(),
+        realPlayerTime(
+          videoJsPlayer.value,
+          transcodeStartPosition,
+          videoDuration.value || duration.value || 0,
+        ),
         videoDuration.value || duration.value,
         { eventName: 'stop' },
       )

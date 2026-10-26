@@ -1,6 +1,7 @@
 import { ref, onUnmounted, watch } from 'vue'
 import { getTrickplayManifest } from 'src/composables/usePlay'
 import { logger } from 'src/utils/logger'
+import { realPlayerTime, timelineOffset } from 'src/composables/playbackPosition'
 
 /**
  * Bundles the @mounted / @ready / @timeupdate / @ended / @pause handlers
@@ -188,11 +189,23 @@ export function useVideoPlayerEvents({
     })
     reportPlaybackStarted?.(lastPosition.value, videoDuration.value)
 
-    if (lastPosition.value > 0 && videoJsPlayer.value.readyState() >= 1) {
-      videoJsPlayer.value.currentTime(lastPosition.value)
-    } else if (lastPosition.value > 0) {
+    // A transcode that starts at `start_position` already begins at the resume
+    // point, so seeking to the absolute position again would skip that much
+    // content a second time - the player then reported positions far beyond the
+    // media length and the resume point landed past the end of the episode.
+    const mediaDuration = videoDuration.value || duration.value || 0
+    const playerDuration = videoJsPlayer.value.duration?.() || 0
+    const offset = timelineOffset(playerDuration, mediaDuration, transcodeStartPosition)
+    if (offset !== transcodeStartPosition.value) {
+      // Keep the rest of the app in step with what the player actually plays.
+      transcodeStartPosition.value = offset
+    }
+    const seekTarget = offset > 0 ? 0 : lastPosition.value
+    if (seekTarget > 0 && videoJsPlayer.value.readyState() >= 1) {
+      videoJsPlayer.value.currentTime(seekTarget)
+    } else if (seekTarget > 0) {
       videoJsPlayer.value.one('loadedmetadata', () => {
-        videoJsPlayer.value.currentTime(lastPosition.value)
+        videoJsPlayer.value.currentTime(seekTarget)
       })
     }
 
@@ -220,8 +233,18 @@ export function useVideoPlayerEvents({
       if (playerDuration > 0) {
         duration.value = playerDuration
 
-        // Calculate real position for WebSocket (transcode start + stream position)
-        const realPosition = transcodeStartPosition.value + currentTime
+        // Absolute position: a partial transcode needs its offset, a full-length
+        // stream must not get one (that double-counted the resume point and wrote
+        // positions beyond the media length).
+        const mediaDuration = videoDuration.value || duration.value || 0
+        const realPosition = realPlayerTime(
+          {
+            currentTime: () => currentTime,
+            duration: () => playerDuration,
+          },
+          transcodeStartPosition,
+          mediaDuration,
+        )
 
         // Update WebSocket with current playback status
         wsStore.updatePlaybackStatus({
@@ -247,7 +270,22 @@ export function useVideoPlayerEvents({
     }
   }
 
+  // Guards against advancing twice for one episode - an `ended` that fires again
+  // (or a back-navigation that lands on the same page) must not replay the last
+  // episode. Reset whenever the media item changes.
+  let lastAdvance = { uuid: null, at: 0 }
+
   async function onVideoEnded() {
+    // Block only an immediate repeat of the same episode (the player fires
+    // `ended` again when a back-navigation lands on the same page). A real
+    // rewatch minutes later may advance again.
+    const now = Date.now()
+    if (lastAdvance.uuid === uuid.value && now - lastAdvance.at < 5000) {
+      logger.debug('[onVideoEnded] ignoring repeated ended for', uuid.value)
+      return
+    }
+    lastAdvance = { uuid: uuid.value, at: now }
+
     // Use playerState if available
     const dur = playerState.value?.duration || duration.value || videoDuration.value
     if (dur > 0) {
@@ -273,8 +311,14 @@ export function useVideoPlayerEvents({
     if (playerState.value) {
       const currentTime = playerState.value.currentTime || 0
       const dur = playerState.value.duration || videoDuration.value
+      const mediaDuration = videoDuration.value || duration.value || 0
+      const position = realPlayerTime(
+        { currentTime: () => currentTime, duration: () => playerState.value.duration },
+        transcodeStartPosition,
+        mediaDuration,
+      )
       logger.debug(`onVideoPause via state: currentTime=${currentTime}, duration=${dur}`)
-      updateProgress(currentTime, dur, { isPaused: true })
+      updateProgress(position, mediaDuration || dur, { isPaused: true })
     } else if (videoJsPlayer.value && typeof videoJsPlayer.value.currentTime === 'function') {
       // Fallback to direct player access
       const currentTime = videoJsPlayer.value.currentTime()

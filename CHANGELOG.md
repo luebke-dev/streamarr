@@ -85,6 +85,16 @@ release note would group it. Everything before that is in `git log`.
 - An incomplete post reports what is actually wrong. A missing PAR2 index used
   to surface as "PAR2 repair failed: No .par2 file found", which reads like a
   repair bug although the upload itself is damaged or taken down.
+- **Resuming an episode no longer plays it twice.** A transcode that starts at
+  the resume point already begins there, but the player seeked to the absolute
+  position again, so the same content was skipped a second time and positions
+  were reported beyond the media length (Snowfall S03E07: 6574 s in a 2752 s
+  file). The stored position then pointed past the end, resume sought there, the
+  file ended immediately and the episode appeared to start over. The offset is
+  now only applied when the player timeline really is trimmed, positions are
+  clamped to the media length on both ends of the wire, and a repeated `ended`
+  event can no longer auto-advance the same episode twice. Eight existing rows
+  with a position beyond the end were clamped.
 - **Admin → Downloads** is table-first, and the table shows what is happening
   *now*: live queue state is merged onto the rows (matched by the downloader job
   id, falling back to the release name), so a row carries the current rate and a
